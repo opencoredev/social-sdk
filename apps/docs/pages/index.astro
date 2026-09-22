@@ -3,6 +3,39 @@
 // Kept as a raw HTML asset so Astro doesn't parse the {braces} in code samples.
 import landing from "./_home/landing.html?raw";
 import { withAnalytics } from "../analytics";
+import { withFonts } from "./_home/fonts";
+
+// Read the star count at build time instead of loading a third-party badge on
+// every visit. The count is omitted when GitHub can't be reached.
+async function githubStars() {
+  try {
+    const response = await fetch("https://api.github.com/repos/opencoredev/social-sdk", {
+      headers: { accept: "application/vnd.github+json", "user-agent": "social-sdk-docs" },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) return null;
+
+    const body: { stargazers_count?: unknown } = await response.json();
+    const stars = Number(body.stargazers_count);
+
+    return Number.isSafeInteger(stars) && stars > 0 ? stars : null;
+  } catch {
+    return null;
+  }
+}
+
+const stars = await githubStars();
+
+const starsLabel =
+  stars === null
+    ? ""
+    : new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(stars);
+
+const html = withAnalytics(withFonts(landing)).replace(
+  "<!-- @stars -->",
+  starsLabel ? `<span class="star-count"><span aria-hidden="true">★</span> ${starsLabel}<span class="sr-only"> stars</span></span>` : "",
+);
 ---
 
-<Fragment set:html={withAnalytics(landing)} />
+<Fragment set:html={html} />

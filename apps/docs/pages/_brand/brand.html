@@ -39,12 +39,7 @@
         }
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,380;9..144,430;9..144,560;9..144,640&family=Caveat:wght@500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- @fonts -->
     <style>
       :root {
         --ink: #1c1a17;
@@ -52,8 +47,8 @@
         --paper: #ffffff;
         --card: #ffffff;
         --marker: #e8542f;
-        --hand: "Caveat", cursive;
-        --serif: "Fraunces", Georgia, serif;
+        --hand: var(--font-hand);
+        --serif: var(--font-serif);
         --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
       }
       * {
@@ -493,309 +488,320 @@
         </div>
       </nav>
 
-      <header>
-        <span class="kicker">how we look, in one page</span>
-        <h1>Brand</h1>
-        <p class="lede">
-          Social SDK is drawn by hand: an ink megaphone, one orange marker, and a serif that means
-          it. Everything on this page is yours to download and use when you mention or embed Social
-          SDK.
-        </p>
-      </header>
+      <main>
+        <header>
+          <span class="kicker">how we look, in one page</span>
+          <h1>Brand</h1>
+          <p class="lede">
+            Social SDK is drawn by hand: an ink megaphone, one orange marker, and a serif that means
+            it. Everything on this page is yours to download and use when you mention or embed
+            Social SDK.
+          </p>
+        </header>
 
-      <section id="mark">
-        <h2>
-          The mark
-          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path
-              d="M2 5 Q30 2 50 5 T98 4"
-              stroke="#e8542f"
-              stroke-width="3"
-              fill="none"
-              stroke-linecap="round"
-              filter="url(#roughen)"
-            />
-          </svg>
-        </h2>
-        <p class="body">
-          A stick-drawn megaphone with two marker strokes of signal. Use the ink version on paper
-          and the cream version on ink. Don't redraw it, recolor it, or straighten it out; the
-          wobble is the point.
-        </p>
-        <div class="asset-grid">
-          <div class="asset">
-            <div class="swatch-area on-paper" style="background: #f7f4ee">
-              <img
-                src="/brand/social-sdk-mark.svg"
-                alt="Ink megaphone mark on paper"
-                width="120"
-                height="120"
+        <section id="mark">
+          <h2>
+            The mark
+            <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+              <path
+                d="M2 5 Q30 2 50 5 T98 4"
+                stroke="#e8542f"
+                stroke-width="3"
+                fill="none"
+                stroke-linecap="round"
+                filter="url(#roughen)"
               />
+            </svg>
+          </h2>
+          <p class="body">
+            A stick-drawn megaphone with two marker strokes of signal. Use the ink version on paper
+            and the cream version on ink. Don't redraw it, recolor it, or straighten it out; the
+            wobble is the point.
+          </p>
+          <div class="asset-grid">
+            <div class="asset">
+              <div class="swatch-area on-paper" style="background: #f7f4ee">
+                <img
+                  src="/brand/social-sdk-mark.svg"
+                  alt="Ink megaphone mark on paper"
+                  width="120"
+                  height="120"
+                />
+              </div>
+              <div class="meta">
+                <b>Mark, ink on paper</b>
+                <span class="dl"
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="svg"
+                    data-src="/brand/social-sdk-mark.svg"
+                  >
+                    copy svg</button
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="png"
+                    data-src="/brand/social-sdk-mark.png"
+                  >
+                    copy png</button
+                  ><a href="/brand/social-sdk-mark.svg" download>download svg</a
+                  ><a href="/brand/social-sdk-mark.png" download>download png</a></span
+                >
+              </div>
             </div>
-            <div class="meta">
-              <b>Mark, ink on paper</b>
-              <span class="dl"
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="svg"
-                  data-src="/brand/social-sdk-mark.svg"
+            <div class="asset">
+              <div class="swatch-area on-ink">
+                <img
+                  src="/brand/social-sdk-mark-cream.svg"
+                  alt="Cream megaphone mark on ink"
+                  width="120"
+                  height="120"
+                />
+              </div>
+              <div class="meta">
+                <b>Mark, cream on ink</b>
+                <span class="dl"
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="svg"
+                    data-src="/brand/social-sdk-mark-cream.svg"
+                  >
+                    copy svg</button
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="png"
+                    data-src="/brand/social-sdk-mark-cream.png"
+                  >
+                    copy png</button
+                  ><a href="/brand/social-sdk-mark-cream.svg" download>download svg</a
+                  ><a href="/brand/social-sdk-mark-cream.png" download>download png</a></span
                 >
-                  copy svg</button
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="png"
-                  data-src="/brand/social-sdk-mark.png"
+              </div>
+            </div>
+            <div class="asset">
+              <div class="swatch-area on-paper" style="background: #f7f4ee">
+                <img
+                  src="/brand/social-sdk-lockup.svg"
+                  alt="Social SDK lockup, ink on paper"
+                  width="290"
+                  height="58"
+                />
+              </div>
+              <div class="meta">
+                <b>Lockup, ink on paper</b>
+                <span class="dl"
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="svg"
+                    data-src="/brand/social-sdk-lockup.svg"
+                  >
+                    copy svg</button
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="png"
+                    data-src="/brand/social-sdk-lockup.png"
+                  >
+                    copy png</button
+                  ><a href="/brand/social-sdk-lockup.svg" download>download svg</a
+                  ><a href="/brand/social-sdk-lockup.png" download>download png</a></span
                 >
-                  copy png</button
-                ><a href="/brand/social-sdk-mark.svg" download>download svg</a
-                ><a href="/brand/social-sdk-mark.png" download>download png</a></span
-              >
+              </div>
+            </div>
+            <div class="asset">
+              <div class="swatch-area on-ink">
+                <img
+                  src="/brand/social-sdk-lockup-cream.svg"
+                  alt="Social SDK lockup, cream on ink"
+                  width="290"
+                  height="58"
+                />
+              </div>
+              <div class="meta">
+                <b>Lockup, cream on ink</b>
+                <span class="dl"
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="svg"
+                    data-src="/brand/social-sdk-lockup-cream.svg"
+                  >
+                    copy svg</button
+                  ><button
+                    class="copy"
+                    type="button"
+                    data-copy="png"
+                    data-src="/brand/social-sdk-lockup-cream.png"
+                  >
+                    copy png</button
+                  ><a href="/brand/social-sdk-lockup-cream.svg" download>download svg</a
+                  ><a href="/brand/social-sdk-lockup-cream.png" download>download png</a></span
+                >
+              </div>
             </div>
           </div>
-          <div class="asset">
-            <div class="swatch-area on-ink">
-              <img
-                src="/brand/social-sdk-mark-cream.svg"
-                alt="Cream megaphone mark on ink"
-                width="120"
-                height="120"
-              />
-            </div>
-            <div class="meta">
-              <b>Mark, cream on ink</b>
-              <span class="dl"
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="svg"
-                  data-src="/brand/social-sdk-mark-cream.svg"
-                >
-                  copy svg</button
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="png"
-                  data-src="/brand/social-sdk-mark-cream.png"
-                >
-                  copy png</button
-                ><a href="/brand/social-sdk-mark-cream.svg" download>download svg</a
-                ><a href="/brand/social-sdk-mark-cream.png" download>download png</a></span
-              >
-            </div>
-          </div>
-          <div class="asset">
-            <div class="swatch-area on-paper" style="background: #f7f4ee">
-              <img
-                src="/brand/social-sdk-lockup.svg"
-                alt="Social SDK lockup, ink on paper"
-                width="290"
-                height="58"
-              />
-            </div>
-            <div class="meta">
-              <b>Lockup, ink on paper</b>
-              <span class="dl"
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="svg"
-                  data-src="/brand/social-sdk-lockup.svg"
-                >
-                  copy svg</button
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="png"
-                  data-src="/brand/social-sdk-lockup.png"
-                >
-                  copy png</button
-                ><a href="/brand/social-sdk-lockup.svg" download>download svg</a
-                ><a href="/brand/social-sdk-lockup.png" download>download png</a></span
-              >
-            </div>
-          </div>
-          <div class="asset">
-            <div class="swatch-area on-ink">
-              <img
-                src="/brand/social-sdk-lockup-cream.svg"
-                alt="Social SDK lockup, cream on ink"
-                width="290"
-                height="58"
-              />
-            </div>
-            <div class="meta">
-              <b>Lockup, cream on ink</b>
-              <span class="dl"
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="svg"
-                  data-src="/brand/social-sdk-lockup-cream.svg"
-                >
-                  copy svg</button
-                ><button
-                  class="copy"
-                  type="button"
-                  data-copy="png"
-                  data-src="/brand/social-sdk-lockup-cream.png"
-                >
-                  copy png</button
-                ><a href="/brand/social-sdk-lockup-cream.svg" download>download svg</a
-                ><a href="/brand/social-sdk-lockup-cream.png" download>download png</a></span
-              >
-            </div>
-          </div>
-        </div>
-        <p class="note" style="margin-top: 18px">
-          clearspace: keep at least one megaphone-width of quiet around the mark ↑
-        </p>
-      </section>
+          <p class="note" style="margin-top: 18px">
+            clearspace: keep at least one megaphone-width of quiet around the mark ↑
+          </p>
+        </section>
 
-      <section id="color">
-        <h2>
-          Color
-          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path
-              d="M2 4 Q28 6 52 4 T98 5"
-              stroke="#e8542f"
-              stroke-width="3"
-              fill="none"
-              stroke-linecap="round"
-              filter="url(#roughen)"
-            />
-          </svg>
-        </h2>
-        <p class="body">
-          Ink on paper, then one marker. The orange is for signal only: waves, underlines, and the
-          occasional annotation. If a layout has more orange than a margin note would, it's too
-          much.
-        </p>
-        <div class="swatches">
-          <div class="swatch">
-            <div class="chip" style="background: #1c1a17"></div>
-            <div class="label">
-              <b>Ink</b><code>#1c1a17</code><small>text, strokes, borders</small>
+        <section id="color">
+          <h2>
+            Color
+            <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+              <path
+                d="M2 4 Q28 6 52 4 T98 5"
+                stroke="#e8542f"
+                stroke-width="3"
+                fill="none"
+                stroke-linecap="round"
+                filter="url(#roughen)"
+              />
+            </svg>
+          </h2>
+          <p class="body">
+            Ink on paper, then one marker. The orange is for signal only: waves, underlines, and the
+            occasional annotation. If a layout has more orange than a margin note would, it's too
+            much.
+          </p>
+          <div class="swatches">
+            <div class="swatch">
+              <div class="chip" style="background: #1c1a17"></div>
+              <div class="label">
+                <b>Ink</b><code>#1c1a17</code><small>text, strokes, borders</small>
+              </div>
+            </div>
+            <div class="swatch">
+              <div class="chip outlined" style="background: #ffffff"></div>
+              <div class="label">
+                <b>Paper</b><code>#ffffff</code><small>light background</small>
+              </div>
+            </div>
+            <div class="swatch">
+              <div class="chip" style="background: #e8542f"></div>
+              <div class="label">
+                <b>Marker</b><code>#e8542f</code><small>accents, never body text</small>
+              </div>
+            </div>
+            <div class="swatch">
+              <div class="chip" style="background: #57534c"></div>
+              <div class="label">
+                <b>Soft ink</b><code>#57534c</code><small>secondary text</small>
+              </div>
+            </div>
+            <div class="swatch">
+              <div class="chip" style="background: #131110"></div>
+              <div class="label">
+                <b>Night paper</b><code>#131110</code><small>dark background</small>
+              </div>
+            </div>
+            <div class="swatch">
+              <div class="chip outlined" style="background: #f2efe9"></div>
+              <div class="label">
+                <b>Cream ink</b><code>#f2efe9</code><small>text and strokes on ink</small>
+              </div>
             </div>
           </div>
-          <div class="swatch">
-            <div class="chip outlined" style="background: #ffffff"></div>
-            <div class="label"><b>Paper</b><code>#ffffff</code><small>light background</small></div>
-          </div>
-          <div class="swatch">
-            <div class="chip" style="background: #e8542f"></div>
-            <div class="label">
-              <b>Marker</b><code>#e8542f</code><small>accents, never body text</small>
-            </div>
-          </div>
-          <div class="swatch">
-            <div class="chip" style="background: #57534c"></div>
-            <div class="label">
-              <b>Soft ink</b><code>#57534c</code><small>secondary text</small>
-            </div>
-          </div>
-          <div class="swatch">
-            <div class="chip" style="background: #131110"></div>
-            <div class="label">
-              <b>Night paper</b><code>#131110</code><small>dark background</small>
-            </div>
-          </div>
-          <div class="swatch">
-            <div class="chip outlined" style="background: #f2efe9"></div>
-            <div class="label">
-              <b>Cream ink</b><code>#f2efe9</code><small>text and strokes on ink</small>
-            </div>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="type">
-        <h2>
-          Type
-          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path
-              d="M3 5 Q32 3 55 5 T97 4"
-              stroke="#e8542f"
-              stroke-width="3"
-              fill="none"
-              stroke-linecap="round"
-              filter="url(#roughen)"
-            />
-          </svg>
-        </h2>
-        <div class="specimens">
-          <div class="specimen">
-            <div class="sample">A real answer from every platform.</div>
-            <p>
-              <b>Fraunces</b> carries headlines and body on marketing pages. Weights 380 to 640,
-              tight tracking, never faux-bold.
-            </p>
-          </div>
-          <div class="specimen">
-            <div class="sample hand">margin notes go here →</div>
-            <p>
-              <b>Caveat</b> is for annotations and asides only. If it's load-bearing information, it
-              doesn't belong in the handwriting.
-            </p>
-          </div>
-          <div class="specimen">
-            <div class="sample" style="font-family: Geist, system-ui, sans-serif; font-size: 28px">
-              Docs run on Geist.
+        <section id="type">
+          <h2>
+            Type
+            <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+              <path
+                d="M3 5 Q32 3 55 5 T97 4"
+                stroke="#e8542f"
+                stroke-width="3"
+                fill="none"
+                stroke-linecap="round"
+                filter="url(#roughen)"
+              />
+            </svg>
+          </h2>
+          <div class="specimens">
+            <div class="specimen">
+              <div class="sample">A real answer from every platform.</div>
+              <p>
+                <b>Fraunces</b> carries headlines and body on marketing pages. Weights 380 to 640,
+                tight tracking, never faux-bold.
+              </p>
             </div>
-            <p>
-              <b>Geist</b> and <b>Geist Mono</b> set the documentation UI, so product surfaces stay
-              plain while the brand stays drawn.
-            </p>
+            <div class="specimen">
+              <div class="sample hand">margin notes go here →</div>
+              <p>
+                <b>Caveat</b> is for annotations and asides only. If it's load-bearing information,
+                it doesn't belong in the handwriting.
+              </p>
+            </div>
+            <div class="specimen">
+              <div
+                class="sample"
+                style="font-family: Geist, system-ui, sans-serif; font-size: 28px"
+              >
+                Docs run on Geist.
+              </div>
+              <p>
+                <b>Geist</b> and <b>Geist Mono</b> set the documentation UI, so product surfaces
+                stay plain while the brand stays drawn.
+              </p>
+            </div>
+            <div class="specimen">
+              <div class="sample mono">client.publish(draft)</div>
+              <p>
+                <b>Monospace</b> is reserved for code. Keep code samples in code style, not in the
+                serif.
+              </p>
+            </div>
           </div>
-          <div class="specimen">
-            <div class="sample mono">client.publish(draft)</div>
-            <p>
-              <b>Monospace</b> is reserved for code. Keep code samples in code style, not in the
-              serif.
-            </p>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="usage">
-        <h2>
-          Using the brand
-          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
-            <path
-              d="M2 5 Q26 2 50 6 T98 4"
-              stroke="#e8542f"
-              stroke-width="3"
-              fill="none"
-              stroke-linecap="round"
-              filter="url(#roughen)"
-            />
-          </svg>
-        </h2>
-        <div class="rules">
-          <div class="rule-card do">
-            <h3>Please do</h3>
-            <ul>
-              <li>Use the mark or lockup as provided, at any size, on paper or ink backgrounds.</li>
-              <li>Write the name as two words: Social SDK.</li>
-              <li>Use these assets in articles, talks, integrations, and "works with" contexts.</li>
-              <li>Pick the cream variants whenever the background is dark.</li>
-            </ul>
+        <section id="usage">
+          <h2>
+            Using the brand
+            <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+              <path
+                d="M2 5 Q26 2 50 6 T98 4"
+                stroke="#e8542f"
+                stroke-width="3"
+                fill="none"
+                stroke-linecap="round"
+                filter="url(#roughen)"
+              />
+            </svg>
+          </h2>
+          <div class="rules">
+            <div class="rule-card do">
+              <h3>Please do</h3>
+              <ul>
+                <li>
+                  Use the mark or lockup as provided, at any size, on paper or ink backgrounds.
+                </li>
+                <li>Write the name as two words: Social SDK.</li>
+                <li>
+                  Use these assets in articles, talks, integrations, and "works with" contexts.
+                </li>
+                <li>Pick the cream variants whenever the background is dark.</li>
+              </ul>
+            </div>
+            <div class="rule-card dont">
+              <h3>Please don't</h3>
+              <ul>
+                <li>Recolor the megaphone or swap the orange for another accent.</li>
+                <li>Add gradients, shadows, outlines, or a container the mark didn't come with.</li>
+                <li>Stretch, rotate, or redraw the mark, or set the wordmark in another face.</li>
+                <li>Imply endorsement, or use the mark as your own app's icon.</li>
+              </ul>
+            </div>
           </div>
-          <div class="rule-card dont">
-            <h3>Please don't</h3>
-            <ul>
-              <li>Recolor the megaphone or swap the orange for another accent.</li>
-              <li>Add gradients, shadows, outlines, or a container the mark didn't come with.</li>
-              <li>Stretch, rotate, or redraw the mark, or set the wordmark in another face.</li>
-              <li>Imply endorsement, or use the mark as your own app's icon.</li>
-            </ul>
-          </div>
-        </div>
-        <p class="note" style="margin-top: 20px">
-          questions? open an issue — the brand lives in the repo like everything else.
-        </p>
-      </section>
+          <p class="note" style="margin-top: 20px">
+            questions? open an issue — the brand lives in the repo like everything else.
+          </p>
+        </section>
+      </main>
 
       <footer>
         <svg class="rule" viewBox="0 0 1080 14" preserveAspectRatio="none">

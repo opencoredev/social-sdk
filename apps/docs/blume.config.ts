@@ -62,7 +62,7 @@ export default defineConfig({
                 {
                   label: "Post for Me",
                   root: "/backends/post-for-me",
-                  icon: "/integrations/post-for-me.png",
+                  icon: "/integrations/post-for-me.webp",
                 },
               ],
             },

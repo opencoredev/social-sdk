@@ -3,6 +3,7 @@
 // Kept as a raw HTML asset for the same reason as the landing page.
 import brand from "./_brand/brand.html?raw";
 import { withAnalytics } from "../analytics";
+import { withFonts } from "./_home/fonts";
 ---
 
-<Fragment set:html={withAnalytics(brand)} />
+<Fragment set:html={withAnalytics(withFonts(brand))} />

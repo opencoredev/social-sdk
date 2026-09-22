@@ -1,6 +1,8 @@
 import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { resolve, basename } from "node:path";
 
+import { fontLoader } from "../apps/docs/pages/_home/font-loader.ts";
+
 const directory = resolve(import.meta.dir, "../apps/docs/dist");
 
 const config = await readFile(resolve(import.meta.dir, "../apps/docs/blume.config.ts"), "utf8");
@@ -56,3 +58,86 @@ if (!/\]\(\/\)/.test(llms)) {
   await writeFile(llmsPath, llms + entry);
   console.log("Appended the landing page to llms.txt.");
 }
+
+// Blume preloads Geist and uses it from the first paint, so on a slow phone the
+// fonts hold back the first paint. Docs pages start in metric-matched
+// fallbacks instead and switch to Geist after the first paint, the way the
+// landing page loads its fonts.
+//
+// The sidebar's integration icons are images, and all of them load before the
+// first paint even inside the closed mobile drawer. Lazy loading defers them
+// until they're visible.
+const deferredFontClass = "wf-geist";
+
+// Blume's Geist fallback only names local("Arial"), which Android and most Linux
+// systems don't have, so their first paint used an unadjusted system font that
+// wrapped differently and shifted the page when Geist arrived. These faces cover
+// the Arial clones and Roboto. size-adjust is the width of docs text in Geist
+// over each font, measured in Chromium; the vertical metrics are Geist's own.
+const geistFallbacks = [
+  ["Geist Arial", ["Arial", "ArialMT", "Liberation Sans", "Arimo", "Helvetica"], 1.026],
+  ["Geist Roboto", ["Roboto", "Roboto-Regular"], 1.029],
+] as const;
+
+const geistFallbackFaces = geistFallbacks
+  .map(([family, locals, sizeAdjust]) => {
+    const override = (metric: number) => `${((metric / sizeAdjust) * 100).toFixed(2)}%`;
+    const src = locals.map((name) => `local("${name}")`).join(",");
+
+    return `@font-face{font-family:"${family}";src:${src};size-adjust:${+(sizeAdjust * 100).toFixed(2)}%;ascent-override:${override(1.005)};descent-override:${override(0.295)};line-gap-override:0%}`;
+  })
+  .join("");
+
+const geistFallbackFamilies = geistFallbacks.map(([family]) => `"${family}"`).join(",");
+
+let deferredPages = 0;
+
+for (const path of entries.filter((path) => path.endsWith(".html"))) {
+  const html = await readFile(path, "utf8");
+
+  if (!html.includes("--blume-ff-")) continue;
+
+  const fonts = [
+    ...new Set(
+      [...html.matchAll(/@font-face\{font-family:("?)([^;"]+)\1;src:url\(/g)].map(
+        (match) => match[2],
+      ),
+    ),
+  ];
+
+  let rewritten = 0;
+
+  const deferred = html
+    .replace(/<link rel="preload" href="[^"]*" as="font"[^>]*>/g, "")
+    .replace(/:root\{(--blume-ff-[\w-]+):([^;}]+);\}/g, (rule, name: string, value: string) => {
+      const [first = "", ...fallbacks] = value.split(",");
+
+      if (!fonts.includes(first.replaceAll('"', ""))) return rule;
+
+      rewritten++;
+
+      if (name === "--blume-ff-geist") {
+        const matched = [geistFallbackFamilies, ...fallbacks].join(",");
+
+        return `${geistFallbackFaces}:root{${name}:${matched};}:root.${deferredFontClass}{${name}:${first},${matched};}`;
+      }
+
+      return `:root{${name}:${fallbacks.join(",")};}:root.${deferredFontClass}{${name}:${value};}`;
+    })
+    .replace(/<img (?![^>]*\bloading=)([^>]*\bsrc="\/integrations\/)/g, '<img loading="lazy" $1')
+    .replace(
+      "</head>",
+      `<script>${fontLoader(
+        deferredFontClass,
+        fonts.map((font) => `400 1em "${font}"`),
+      )}</script></head>`,
+    );
+
+  if (fonts.length === 0 || rewritten !== fonts.length)
+    throw new Error(`Couldn't defer the Blume fonts in ${path}; check the generated font CSS.`);
+
+  await writeFile(path, deferred);
+  deferredPages++;
+}
+
+console.log(`Deferred Geist and lazy-loaded sidebar icons on ${deferredPages} docs page(s).`);
