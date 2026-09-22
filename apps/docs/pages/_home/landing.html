@@ -615,9 +615,10 @@
         }
         .cta-note code {
           flex-basis: 100%;
+          min-width: 0;
           padding-left: 54px;
           font-size: 14px;
-          white-space: nowrap;
+          overflow-wrap: anywhere;
         }
         .stage svg.board-wide {
           display: none;
@@ -930,10 +931,9 @@
             />
             <text class="hand" x="86" y="240" font-size="27" fill="#1c1a17">your app</text>
             <text class="mono" x="92" y="298" font-size="14" fill="#1c1a17">
-              <tspan fill="#e8542f">await</tspan>
-              client.publish({
+              social.posts.publish({
             </text>
-            <text class="mono" x="106" y="324" font-size="14" fill="#1c1a17">post,</text>
+            <text class="mono" x="106" y="324" font-size="14" fill="#1c1a17">content,</text>
             <text class="mono" x="106" y="350" font-size="14" fill="#1c1a17">
               targets:
               <tspan fill="#2f6f4f">everywhere</tspan>
@@ -1212,10 +1212,9 @@
             />
             <text class="hand" x="52" y="42" font-size="26" fill="#1c1a17">your app</text>
             <text class="mono" x="62" y="92" font-size="15" fill="#1c1a17">
-              <tspan fill="#e8542f">await</tspan>
-              client.publish({
+              social.posts.publish({
             </text>
-            <text class="mono" x="80" y="118" font-size="15" fill="#1c1a17">post,</text>
+            <text class="mono" x="80" y="118" font-size="15" fill="#1c1a17">content,</text>
             <text class="mono" x="80" y="144" font-size="15" fill="#1c1a17">
               targets:
               <tspan fill="#2f6f4f">everywhere</tspan>
@@ -1451,8 +1450,8 @@
         <div class="note-copy">
           <h2>What you get back</h2>
           <p>
-            One result per platform. Not a boolean. The actual state: "published", "processing", or
-            "rejected", with the reason when there is one.
+            One result per platform. Not a boolean. The actual state: "published", "processing",
+            "failed", and more, with the reason when there is one.
           </p>
           <p>
             The types know what each account can do. A text-only post aimed at Instagram fails in
@@ -1466,28 +1465,36 @@
             class="code-wide"
           ><span class="c-kw">import</span> { createSocial } <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
 
-<span class="c-kw">const</span> results = <span class="c-kw">await</span> client.publish({
-  post: { text: <span class="c-str">"we drew our landing page"</span> },
-  targets: [bluesky, x, threads, linkedin],
+<span class="c-kw">const</span> social = createSocial({ backend });
+
+<span class="c-kw">const</span> result = <span class="c-kw">await</span> social.posts.publish({
+  content: { text: <span class="c-str">"we drew our landing page"</span> },
+  targets: accounts.map((account) => ({ account })),
 });
 
-<span class="c-kw">for</span> (<span class="c-kw">const</span> r <span class="c-kw">of</span> results) {
-  <span class="c-dim">// "published" | "processing" | "rejected"</span>
-  console.log(r.platform, r.outcome);
+<span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
+  <span class="c-dim">// "published" | "processing" | "failed" | ...</span>
+  console.log(o.account.platform, o.state);
 }</pre>
           <!-- same snippet, reflowed to fit a phone without clipping -->
           <pre class="code-narrow"><span class="c-kw">import</span> { createSocial }
   <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
 
-<span class="c-kw">const</span> results =
-  <span class="c-kw">await</span> client.publish({
-    post: { text: <span class="c-str">"we drew this"</span> },
-    targets: [bluesky, x, threads],
+<span class="c-kw">const</span> social =
+  createSocial({ backend });
+
+<span class="c-kw">const</span> result =
+  <span class="c-kw">await</span> social.posts.publish({
+    content: { text: <span class="c-str">"we drew this"</span> },
+    targets: accounts.map(
+      (account) => ({ account }),
+    ),
   });
 
-<span class="c-kw">for</span> (<span class="c-kw">const</span> r <span class="c-kw">of</span> results) {
-  <span class="c-dim">// published | processing | rejected</span>
-  console.log(r.platform, r.outcome);
+<span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
+  <span class="c-dim">// published | processing | failed</span>
+  console.log(
+    o.account.platform, o.state);
 }</pre>
           <div class="note-scribble">← typed end to end, mocks included</div>
         </div>
@@ -1651,9 +1658,11 @@
           />
         </svg>
         <p class="foot-platforms">
-          <a href="/docs/platforms/bluesky">Bluesky</a> <a href="/docs/platforms/x">X</a>
+          <a href="/docs/platforms/bluesky">Bluesky</a>
+          <a href="/docs/platforms/x">X</a>
           <a href="/docs/platforms/threads">Threads</a>
-          <a href="/docs/platforms/youtube">YouTube</a> <a href="/docs/platforms/tiktok">TikTok</a>
+          <a href="/docs/platforms/youtube">YouTube</a>
+          <a href="/docs/platforms/tiktok">TikTok</a>
           <a href="/docs/platforms/instagram">Instagram</a>
           <a href="/docs/platforms/linkedin">LinkedIn</a>
         </p>
@@ -1715,7 +1724,7 @@
       io.observe(stage);
 
       // paper-plane deliveries: fly one-way, land, stamp the status, spawn the next.
-      // Phones get a taller drawing of the same scene; the plane flies whichever is showing.
+      // Phones get a taller drawing of the same scene; each flight uses whichever is showing.
       let startDeliveries = () => {};
       const boards = {
         wide: document.querySelector(".board-wide"),
@@ -1764,7 +1773,8 @@
           }, 40);
         };
 
-        function fly(i, { plane, wires, nodes }) {
+        function fly(i) {
+          const { plane, wires, nodes } = activeBoard();
           return new Promise((done) => {
             const wire = wires[i];
             const len = wire.getTotalLength();
@@ -1786,7 +1796,10 @@
                 plane.setAttribute("opacity", 0);
                 const node = nodes[i];
                 node.classList.add("deliver");
-                node.querySelector(".status")?.classList.add("on");
+                // stamp both drawings so rotating a phone mid-cycle shows the same progress
+                Object.values(boards).forEach((b) =>
+                  b.querySelectorAll(".node")[i].querySelector(".status")?.classList.add("on"),
+                );
                 setTimeout(() => node.classList.remove("deliver"), 550);
                 done();
               }
@@ -1803,9 +1816,8 @@
           while (true) {
             document.querySelectorAll(".status").forEach((s) => s.classList.remove("on"));
             await sleep(900);
-            const board = activeBoard();
             for (const i of order) {
-              await fly(i, board);
+              await fly(i);
               await sleep(420);
             }
             await sleep(4200);
