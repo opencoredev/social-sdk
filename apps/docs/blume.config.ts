@@ -80,6 +80,7 @@ export default defineConfig({
               root: "/integrations/supabase",
               icon: "/integrations/supabase.svg",
             },
+            { label: "Neon", root: "/integrations/neon", icon: "/integrations/neon.svg" },
             { label: "Express", root: "/integrations/express", icon: "/integrations/express.svg" },
             { label: "Hono", root: "/integrations/hono", icon: "/integrations/hono.svg" },
             { label: "NestJS", root: "/integrations/nestjs", icon: "/integrations/nestjs.svg" },
