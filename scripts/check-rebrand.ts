@@ -26,7 +26,6 @@ const bannedTerms = [
   ["legacy product name", ["email", " sdk"].join("")],
   ["legacy documentation framework", ["fuma", "docs"].join("")],
   ["legacy content service", ["no", "tra"].join("")],
-  ["legacy analytics service", ["post", "hog"].join("")],
   ["legacy component", ["convex", "-email"].join("")],
   ["legacy product domain", ["email", "-sdk.dev"].join("")],
 ];

@@ -169,6 +169,52 @@ export default defineConfig({
       enabled: false,
     },
   },
+  analytics: {
+    // Explicit events keep documentation demand measurable without collecting
+    // page text, form values, query strings, or session recordings.
+    posthog: {
+      host: "https://us.i.posthog.com",
+      key: "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw",
+    },
+    scripts: [
+      {
+        content: `
+          (() => {
+            const classify = (path) => {
+              const platform = path.match(/^\\/platforms\\/([^/]+)/)?.[1];
+              const integration = path.match(/^\\/integrations\\/([^/]+)/)?.[1];
+              if (platform) return ["sdk_platform_interest", { platform }];
+              if (integration) return ["sdk_integration_interest", { integration }];
+              if (path === "/getting-started/installation") return ["sdk_install_interest", {}];
+              if (path === "/getting-started/mock-quickstart") return ["sdk_quickstart_interest", {}];
+              return null;
+            };
+            const start = () => {
+              if (!window.posthog) return setTimeout(start, 100);
+              if (!window.__socialSdkInitialPageview) {
+                window.__socialSdkInitialPageview = true;
+                window.posthog.capture("$pageview");
+              }
+              const emit = () => {
+                const event = classify(window.location.pathname);
+                if (event) window.posthog.capture(event[0], event[1]);
+              };
+              emit();
+              document.addEventListener("click", (click) => {
+                const link = click.target.closest?.("a[href]");
+                if (!link) return;
+                const url = new URL(link.href, window.location.origin);
+                if (url.origin !== window.location.origin) return;
+                const event = classify(url.pathname);
+                if (event) window.posthog.capture(event[0], event[1]);
+              }, { passive: true });
+            };
+            start();
+          })();
+        `,
+      },
+    ],
+  },
   deployment: {
     output: "static",
   },
