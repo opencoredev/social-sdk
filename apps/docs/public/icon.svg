@@ -1,3 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Social SDK">
-  <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 10.5h11a5 5 0 0 1 0 10H8m0-10 4-4m-4 4 4 4m12 7H13a5 5 0 0 1 0-10h11m0 10-4 4m4-4-4-4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" fill="none" role="img" aria-label="Social SDK">
+  <style>
+    .ink { stroke: #1c1a17; }
+    @media (prefers-color-scheme: dark) { .ink { stroke: #f2efe9; } }
+  </style>
+  <path class="ink" d="M5 15 L19 8 L19 25 L5 19 Z" stroke-width="2.2" stroke-linejoin="round"/>
+  <path class="ink" d="M5 15 L5 19" stroke-width="2.2"/>
+  <path class="ink" d="M8 20.5 L9.5 27 L13 26" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M23 12 Q26 16.5 23 21" stroke="#e8542f" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M26.5 9.5 Q31 16.5 26.5 23.5" stroke="#e8542f" stroke-width="2.2" stroke-linecap="round"/>
 </svg>

@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>Brand, the Social SDK identity and assets</title>
+    <meta
+      name="description"
+      content="The Social SDK brand: the hand-drawn megaphone mark, wordmark, colors, type, and downloadable assets."
+    />
+    <script>
+      (() => {
+        const stored = localStorage.getItem("blume-theme");
+        const dark = stored
+          ? stored === "dark"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.classList.toggle("dark", dark);
+        if (!stored) {
+          matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+            document.documentElement.classList.toggle("dark", e.matches);
+          });
+        }
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,380;9..144,430;9..144,560;9..144,640&family=Caveat:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #1c1a17;
+        --ink-soft: #57534c;
+        --paper: #ffffff;
+        --card: #ffffff;
+        --marker: #e8542f;
+        --hand: "Caveat", cursive;
+        --serif: "Fraunces", Georgia, serif;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--serif);
+        font-weight: 380;
+        font-size: 18px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      /* ---------- nav ---------- */
+      nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 28px 0 0;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        color: var(--ink);
+      }
+      .logo svg {
+        display: block;
+      }
+      .logo b {
+        font-family: var(--serif);
+        font-weight: 560;
+        font-size: 21px;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+      }
+      .nav-links {
+        display: flex;
+        gap: 28px;
+        align-items: baseline;
+      }
+      .nav-links a {
+        color: var(--ink);
+        text-decoration: none;
+        font-size: 17px;
+      }
+      .nav-links a:hover {
+        color: var(--marker);
+      }
+
+      /* ---------- header ---------- */
+      header {
+        padding: 72px 0 8px;
+      }
+      .kicker {
+        font-family: var(--hand);
+        font-size: 24px;
+        color: var(--marker);
+        transform: rotate(-1.2deg);
+        display: inline-block;
+      }
+      h1 {
+        font-weight: 640;
+        font-size: clamp(44px, 7vw, 76px);
+        letter-spacing: -0.02em;
+        line-height: 1.04;
+        margin-top: 6px;
+      }
+      .lede {
+        margin-top: 18px;
+        max-width: 56ch;
+        color: var(--ink-soft);
+        font-size: 19px;
+      }
+
+      /* ---------- sections ---------- */
+      section {
+        padding: 56px 0 8px;
+      }
+      h2 {
+        font-weight: 560;
+        font-size: 32px;
+        letter-spacing: -0.015em;
+        display: inline-block;
+        position: relative;
+      }
+      h2 .u {
+        position: absolute;
+        left: -2%;
+        bottom: -8px;
+        width: 104%;
+        height: 8px;
+        overflow: visible;
+      }
+      .note {
+        font-family: var(--hand);
+        font-size: 22px;
+        color: var(--ink-soft);
+        transform: rotate(-0.8deg);
+      }
+      p.body {
+        margin-top: 16px;
+        max-width: 62ch;
+        color: var(--ink-soft);
+      }
+
+      /* ---------- asset cards ---------- */
+      .asset-grid {
+        margin-top: 28px;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 22px;
+      }
+      .asset {
+        border: 2.2px solid var(--ink);
+        border-radius: 10px;
+        padding: 0;
+        overflow: hidden;
+        background: var(--card);
+      }
+      .asset .swatch-area {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 42px 20px;
+      }
+      .asset .swatch-area.on-ink {
+        background: #131110;
+      }
+      .asset .meta {
+        border-top: 2.2px solid var(--ink);
+        padding: 12px 16px;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .asset .meta b {
+        font-weight: 560;
+        font-size: 17px;
+      }
+      .asset .meta .dl {
+        display: flex;
+        gap: 14px;
+      }
+      .asset .meta a {
+        font-family: var(--hand);
+        font-size: 20px;
+        color: var(--marker);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+      .asset .meta a:hover {
+        text-decoration: underline;
+      }
+      .asset .meta button.copy {
+        font-family: var(--hand);
+        font-size: 20px;
+        color: var(--marker);
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .asset .meta button.copy:hover {
+        text-decoration: underline;
+      }
+
+      /* ---------- color swatches ---------- */
+      .swatches {
+        margin-top: 28px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+      }
+      .swatch {
+        border: 2.2px solid var(--ink);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--card);
+      }
+      .swatch .chip {
+        height: 96px;
+      }
+      .swatch .chip.outlined {
+        box-shadow: inset 0 -2.2px 0 var(--ink);
+      }
+      .swatch .label {
+        padding: 10px 14px 12px;
+      }
+      .swatch .label b {
+        font-weight: 560;
+        font-size: 17px;
+        display: block;
+      }
+      .swatch .label code {
+        font-family: var(--mono);
+        font-size: 14px;
+        color: var(--ink-soft);
+      }
+      .swatch .label small {
+        display: block;
+        color: var(--ink-soft);
+        font-size: 14.5px;
+        margin-top: 2px;
+      }
+
+      /* ---------- type specimens ---------- */
+      .specimens {
+        margin-top: 28px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+      }
+      .specimen {
+        border: 2.2px solid var(--ink);
+        border-radius: 10px;
+        padding: 22px 24px 18px;
+        background: var(--card);
+      }
+      .specimen .sample {
+        font-size: 34px;
+        line-height: 1.15;
+        letter-spacing: -0.015em;
+      }
+      .specimen .sample.hand {
+        font-family: var(--hand);
+        font-size: 32px;
+        transform: rotate(-0.8deg);
+      }
+      .specimen .sample.mono {
+        font-family: var(--mono);
+        font-size: 22px;
+        letter-spacing: 0;
+      }
+      .specimen p {
+        margin-top: 10px;
+        color: var(--ink-soft);
+        font-size: 16px;
+      }
+      .specimen b {
+        font-weight: 560;
+      }
+
+      /* ---------- usage ---------- */
+      .rules {
+        margin-top: 26px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+      }
+      .rules ul {
+        list-style: none;
+        border: 2.2px solid var(--ink);
+        border-radius: 10px;
+        padding: 18px 22px;
+        background: var(--card);
+      }
+      .rules li {
+        padding: 7px 0 7px 34px;
+        position: relative;
+        color: var(--ink-soft);
+        font-size: 17px;
+      }
+      .rules li::before {
+        font-family: var(--hand);
+        font-size: 24px;
+        position: absolute;
+        left: 2px;
+        top: 2px;
+      }
+      .rules .do li::before {
+        content: "✓";
+        color: #2f6f4f;
+      }
+      .rules .dont li::before {
+        content: "✗";
+        color: var(--marker);
+      }
+      .rules h3 {
+        font-family: var(--hand);
+        font-size: 26px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        transform: rotate(-0.8deg);
+      }
+
+      /* ---------- footer ---------- */
+      footer {
+        padding: 64px 0 46px;
+      }
+      .rule {
+        width: 100%;
+        height: 14px;
+        overflow: visible;
+      }
+      .foot-row {
+        margin-top: 18px;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 14px;
+      }
+      .foot-row small {
+        color: var(--ink-soft);
+        font-size: 15px;
+      }
+      .foot-links {
+        display: flex;
+        gap: 24px;
+      }
+      .foot-links a {
+        color: var(--ink-soft);
+        text-decoration: none;
+        font-size: 15px;
+      }
+      .foot-links a:hover {
+        color: var(--ink);
+      }
+
+      @media (max-width: 760px) {
+        .asset-grid,
+        .specimens,
+        .rules {
+          grid-template-columns: 1fr;
+        }
+        .swatches {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      /* ---------- dark mode: same page on warm ink paper ---------- */
+      html.dark {
+        --ink: #f2efe9;
+        --ink-soft: #beb7aa;
+        --paper: #131110;
+        --card: #1f1c18;
+        color-scheme: dark;
+      }
+      html.dark [stroke="#1c1a17"] {
+        stroke: var(--ink);
+      }
+      html.dark [fill="#1c1a17"] {
+        fill: var(--ink);
+      }
+      html.dark .asset .swatch-area.on-paper {
+        background: #f7f4ee;
+      }
+      html.dark .swatch .chip.outlined {
+        box-shadow: inset 0 -2.2px 0 var(--ink);
+      }
+      html.dark .rules .do li::before {
+        color: #79b995;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- shared rough-ink filter -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <filter id="roughen" x="-5%" y="-5%" width="110%" height="110%">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.035"
+            numOctaves="2"
+            seed="11"
+            result="n"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="n"
+            scale="2.6"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </defs>
+    </svg>
+
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">
+          <svg width="34" height="34" viewBox="0 0 34 34" fill="none" filter="url(#roughen)">
+            <path
+              d="M5 15 L19 8 L19 25 L5 19 Z"
+              stroke="#1c1a17"
+              stroke-width="2.2"
+              stroke-linejoin="round"
+            />
+            <path d="M5 15 L5 19" stroke="#1c1a17" stroke-width="2.2" />
+            <path
+              d="M8 20.5 L9.5 27 L13 26"
+              stroke="#1c1a17"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            />
+            <path
+              d="M23 12 Q26 16.5 23 21"
+              stroke="#e8542f"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              fill="none"
+            />
+            <path
+              d="M26.5 9.5 Q31 16.5 26.5 23.5"
+              stroke="#e8542f"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              fill="none"
+            />
+          </svg>
+          <b>Social SDK</b>
+        </a>
+        <div class="nav-links">
+          <a href="/">Home</a>
+          <a href="/docs">Docs</a>
+        </div>
+      </nav>
+
+      <header>
+        <span class="kicker">how we look, in one page</span>
+        <h1>Brand</h1>
+        <p class="lede">
+          Social SDK is drawn by hand: an ink megaphone, one orange marker, and a serif that means
+          it. Everything on this page is yours to download and use when you mention or embed Social
+          SDK.
+        </p>
+      </header>
+
+      <section id="mark">
+        <h2>
+          The mark
+          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+            <path
+              d="M2 5 Q30 2 50 5 T98 4"
+              stroke="#e8542f"
+              stroke-width="3"
+              fill="none"
+              stroke-linecap="round"
+              filter="url(#roughen)"
+            />
+          </svg>
+        </h2>
+        <p class="body">
+          A stick-drawn megaphone with two marker strokes of signal. Use the ink version on paper
+          and the cream version on ink. Don't redraw it, recolor it, or straighten it out; the
+          wobble is the point.
+        </p>
+        <div class="asset-grid">
+          <div class="asset">
+            <div class="swatch-area on-paper" style="background: #f7f4ee">
+              <img
+                src="/brand/social-sdk-mark.svg"
+                alt="Ink megaphone mark on paper"
+                width="120"
+                height="120"
+              />
+            </div>
+            <div class="meta">
+              <b>Mark, ink on paper</b>
+              <span class="dl"
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="svg"
+                  data-src="/brand/social-sdk-mark.svg"
+                >
+                  copy svg</button
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="png"
+                  data-src="/brand/social-sdk-mark.png"
+                >
+                  copy png</button
+                ><a href="/brand/social-sdk-mark.svg" download>download svg</a
+                ><a href="/brand/social-sdk-mark.png" download>download png</a></span
+              >
+            </div>
+          </div>
+          <div class="asset">
+            <div class="swatch-area on-ink">
+              <img
+                src="/brand/social-sdk-mark-cream.svg"
+                alt="Cream megaphone mark on ink"
+                width="120"
+                height="120"
+              />
+            </div>
+            <div class="meta">
+              <b>Mark, cream on ink</b>
+              <span class="dl"
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="svg"
+                  data-src="/brand/social-sdk-mark-cream.svg"
+                >
+                  copy svg</button
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="png"
+                  data-src="/brand/social-sdk-mark-cream.png"
+                >
+                  copy png</button
+                ><a href="/brand/social-sdk-mark-cream.svg" download>download svg</a
+                ><a href="/brand/social-sdk-mark-cream.png" download>download png</a></span
+              >
+            </div>
+          </div>
+          <div class="asset">
+            <div class="swatch-area on-paper" style="background: #f7f4ee">
+              <img
+                src="/brand/social-sdk-lockup.svg"
+                alt="Social SDK lockup, ink on paper"
+                width="290"
+                height="58"
+              />
+            </div>
+            <div class="meta">
+              <b>Lockup, ink on paper</b>
+              <span class="dl"
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="svg"
+                  data-src="/brand/social-sdk-lockup.svg"
+                >
+                  copy svg</button
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="png"
+                  data-src="/brand/social-sdk-lockup.png"
+                >
+                  copy png</button
+                ><a href="/brand/social-sdk-lockup.svg" download>download svg</a
+                ><a href="/brand/social-sdk-lockup.png" download>download png</a></span
+              >
+            </div>
+          </div>
+          <div class="asset">
+            <div class="swatch-area on-ink">
+              <img
+                src="/brand/social-sdk-lockup-cream.svg"
+                alt="Social SDK lockup, cream on ink"
+                width="290"
+                height="58"
+              />
+            </div>
+            <div class="meta">
+              <b>Lockup, cream on ink</b>
+              <span class="dl"
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="svg"
+                  data-src="/brand/social-sdk-lockup-cream.svg"
+                >
+                  copy svg</button
+                ><button
+                  class="copy"
+                  type="button"
+                  data-copy="png"
+                  data-src="/brand/social-sdk-lockup-cream.png"
+                >
+                  copy png</button
+                ><a href="/brand/social-sdk-lockup-cream.svg" download>download svg</a
+                ><a href="/brand/social-sdk-lockup-cream.png" download>download png</a></span
+              >
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin-top: 18px">
+          clearspace: keep at least one megaphone-width of quiet around the mark ↑
+        </p>
+      </section>
+
+      <section id="color">
+        <h2>
+          Color
+          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+            <path
+              d="M2 4 Q28 6 52 4 T98 5"
+              stroke="#e8542f"
+              stroke-width="3"
+              fill="none"
+              stroke-linecap="round"
+              filter="url(#roughen)"
+            />
+          </svg>
+        </h2>
+        <p class="body">
+          Ink on paper, then one marker. The orange is for signal only: waves, underlines, and the
+          occasional annotation. If a layout has more orange than a margin note would, it's too
+          much.
+        </p>
+        <div class="swatches">
+          <div class="swatch">
+            <div class="chip" style="background: #1c1a17"></div>
+            <div class="label">
+              <b>Ink</b><code>#1c1a17</code><small>text, strokes, borders</small>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="chip outlined" style="background: #ffffff"></div>
+            <div class="label"><b>Paper</b><code>#ffffff</code><small>light background</small></div>
+          </div>
+          <div class="swatch">
+            <div class="chip" style="background: #e8542f"></div>
+            <div class="label">
+              <b>Marker</b><code>#e8542f</code><small>accents, never body text</small>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="chip" style="background: #57534c"></div>
+            <div class="label">
+              <b>Soft ink</b><code>#57534c</code><small>secondary text</small>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="chip" style="background: #131110"></div>
+            <div class="label">
+              <b>Night paper</b><code>#131110</code><small>dark background</small>
+            </div>
+          </div>
+          <div class="swatch">
+            <div class="chip outlined" style="background: #f2efe9"></div>
+            <div class="label">
+              <b>Cream ink</b><code>#f2efe9</code><small>text and strokes on ink</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="type">
+        <h2>
+          Type
+          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+            <path
+              d="M3 5 Q32 3 55 5 T97 4"
+              stroke="#e8542f"
+              stroke-width="3"
+              fill="none"
+              stroke-linecap="round"
+              filter="url(#roughen)"
+            />
+          </svg>
+        </h2>
+        <div class="specimens">
+          <div class="specimen">
+            <div class="sample">A real answer from every platform.</div>
+            <p>
+              <b>Fraunces</b> carries headlines and body on marketing pages. Weights 380 to 640,
+              tight tracking, never faux-bold.
+            </p>
+          </div>
+          <div class="specimen">
+            <div class="sample hand">margin notes go here →</div>
+            <p>
+              <b>Caveat</b> is for annotations and asides only. If it's load-bearing information, it
+              doesn't belong in the handwriting.
+            </p>
+          </div>
+          <div class="specimen">
+            <div class="sample" style="font-family: Geist, system-ui, sans-serif; font-size: 28px">
+              Docs run on Geist.
+            </div>
+            <p>
+              <b>Geist</b> and <b>Geist Mono</b> set the documentation UI, so product surfaces stay
+              plain while the brand stays drawn.
+            </p>
+          </div>
+          <div class="specimen">
+            <div class="sample mono">client.publish(draft)</div>
+            <p>
+              <b>Monospace</b> is reserved for code. Keep code samples in code style, not in the
+              serif.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="usage">
+        <h2>
+          Using the brand
+          <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+            <path
+              d="M2 5 Q26 2 50 6 T98 4"
+              stroke="#e8542f"
+              stroke-width="3"
+              fill="none"
+              stroke-linecap="round"
+              filter="url(#roughen)"
+            />
+          </svg>
+        </h2>
+        <div class="rules">
+          <ul class="do">
+            <h3>Please do</h3>
+            <li>Use the mark or lockup as provided, at any size, on paper or ink backgrounds.</li>
+            <li>Write the name as two words: Social SDK.</li>
+            <li>Use these assets in articles, talks, integrations, and "works with" contexts.</li>
+            <li>Pick the cream variants whenever the background is dark.</li>
+          </ul>
+          <ul class="dont">
+            <h3>Please don't</h3>
+            <li>Recolor the megaphone or swap the orange for another accent.</li>
+            <li>Add gradients, shadows, outlines, or a container the mark didn't come with.</li>
+            <li>Stretch, rotate, or redraw the mark, or set the wordmark in another face.</li>
+            <li>Imply endorsement, or use the mark as your own app's icon.</li>
+          </ul>
+        </div>
+        <p class="note" style="margin-top: 20px">
+          questions? open an issue — the brand lives in the repo like everything else.
+        </p>
+      </section>
+
+      <footer>
+        <svg class="rule" viewBox="0 0 1080 14" preserveAspectRatio="none">
+          <path
+            d="M4 8 Q140 3 280 8 T560 7 T840 9 T1076 6"
+            stroke="#1c1a17"
+            stroke-width="2"
+            fill="none"
+            stroke-linecap="round"
+            filter="url(#roughen)"
+          />
+        </svg>
+        <div class="foot-row">
+          <small>© 2026 Social SDK. Open source.</small>
+          <div class="foot-links">
+            <a href="/">Home</a>
+            <a href="/docs">Docs</a>
+            <a href="/docs/contributing">Contributing</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      document.querySelectorAll("button.copy").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const label = button.textContent;
+          const settle = (text) => {
+            button.textContent = text;
+            setTimeout(() => {
+              button.textContent = label;
+            }, 1400);
+          };
+          try {
+            const response = await fetch(button.dataset.src);
+            if (button.dataset.copy === "png") {
+              if (typeof ClipboardItem === "undefined" || !window.isSecureContext) {
+                settle("needs https");
+                return;
+              }
+              const blob = await response.blob();
+              await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+            } else {
+              const text = await response.text();
+              if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+              } else {
+                const area = document.createElement("textarea");
+                area.value = text;
+                area.style.position = "fixed";
+                area.style.opacity = "0";
+                document.body.appendChild(area);
+                area.select();
+                document.execCommand("copy");
+                area.remove();
+              }
+            }
+            settle("copied!");
+          } catch {
+            settle("copy failed");
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

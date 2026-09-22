@@ -5,7 +5,11 @@ export default defineConfig({
   description:
     "Typed social platform integrations for TypeScript applications, with direct routes, optional managed backends, and deterministic testing.",
   logo: {
-    image: "/icon.svg",
+    image: {
+      light: "/brand/social-sdk-mark.svg",
+      dark: "/brand/social-sdk-mark-cream.svg",
+      alt: "Social SDK megaphone mark",
+    },
     text: "Social SDK",
     href: "/",
   },
