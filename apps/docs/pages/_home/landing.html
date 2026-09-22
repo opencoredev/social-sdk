@@ -541,6 +541,7 @@
       .foot-links {
         display: flex;
         gap: 24px;
+        flex-wrap: wrap;
       }
       .foot-links a {
         color: var(--ink-soft);
@@ -549,6 +550,15 @@
       }
       .foot-links a:hover {
         color: var(--ink);
+      }
+      .github-stars {
+        display: inline-flex;
+        align-items: center;
+      }
+      .github-stars img {
+        display: block;
+        height: 20px;
+        width: auto;
       }
 
       @media (max-width: 900px) {
@@ -736,6 +746,22 @@
             <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
               <path
                 d="M2 4 Q28 7 55 4 T98 5"
+                stroke="#e8542f"
+                stroke-width="2.4"
+                fill="none"
+                stroke-linecap="round"
+              />
+            </svg>
+          </a>
+          <a
+            href="https://github.com/opencoredev/social-sdk"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Social SDK on GitHub (opens in a new tab)"
+            >GitHub
+            <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">
+              <path
+                d="M2 5 Q30 2 50 5 T98 4"
                 stroke="#e8542f"
                 stroke-width="2.4"
                 fill="none"
@@ -1284,6 +1310,26 @@
             <a href="/docs">Docs</a>
             <a href="/brand">Brand</a>
             <a href="/docs/contributing">Contributing</a>
+            <a
+              href="https://github.com/opencoredev/social-sdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Social SDK on GitHub (opens in a new tab)"
+              >GitHub</a
+            >
+            <a
+              class="github-stars"
+              href="https://github.com/opencoredev/social-sdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Social SDK GitHub stars (opens in a new tab)"
+            >
+              <img
+                src="https://img.shields.io/github/stars/opencoredev/social-sdk?style=flat&label=stars"
+                alt="GitHub stars"
+                loading="lazy"
+              />
+            </a>
           </div>
         </div>
       </footer>
