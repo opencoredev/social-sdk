@@ -45,7 +45,8 @@ export const posthogScript = `${POSTHOG_LOADER}
     },
   });
 
-  const classify = (path) => {
+  const classify = (rawPath) => {
+    const path = rawPath.replace(/\\/+$/, "") || "/";
     const relativePath = path === "/docs" ? "/" : path.startsWith("/docs/") ? path.slice(5) : null;
     if (relativePath === null) return null;
     const platform = relativePath.match(/^\\/platforms\\/([^/]+)/)?.[1];
@@ -64,7 +65,7 @@ export const posthogScript = `${POSTHOG_LOADER}
 })();`;
 
 /** Adds the PostHog snippet to a standalone HTML page in production builds. */
-export function withPosthog(html: string): string {
+export function withAnalytics(html: string): string {
   if (!import.meta.env.PROD) return html;
 
   return html.replace("</head>", `<script>${posthogScript}</script>\n  </head>`);
