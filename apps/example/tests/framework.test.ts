@@ -9,9 +9,11 @@ const publishBody = JSON.stringify({
   text: "hello",
   idempotencyKey: "framework-test-1",
 });
+
 const request = (url: string, method = "GET", body?: string) =>
   new Request(`http://example.test${url}`, {
     method,
+    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body }),
   });
 
@@ -52,6 +54,7 @@ for (const [name, call] of [
                 membership: () => false,
               }),
             )(request("/social/publish", "POST", publishBody));
+
       assert.equal(denied.status, 403);
     });
   });

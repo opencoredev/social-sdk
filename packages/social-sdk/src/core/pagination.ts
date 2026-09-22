@@ -14,6 +14,7 @@ export async function* iterateItems<T>(
 ): AsyncGenerator<T> {
   const maxPages = options.maxPages ?? 100;
   const maxItems = options.maxItems ?? 10_000;
+
   if (
     !Number.isSafeInteger(maxPages) ||
     maxPages < 1 ||
@@ -28,6 +29,7 @@ export async function* iterateItems<T>(
   const seen = new Set<string>();
   let cursor: string | undefined;
   let count = 0;
+
   for (let index = 0; index < maxPages; index++) {
     if (options.signal?.aborted)
       throw new SocialError({
@@ -36,6 +38,7 @@ export async function* iterateItems<T>(
         message: "Iteration was cancelled",
       });
     const page = await read(cursor);
+
     for (const item of page.items) {
       if (options.signal?.aborted)
         throw new SocialError({
@@ -44,9 +47,12 @@ export async function* iterateItems<T>(
           message: "Iteration was cancelled",
         });
       yield item;
+
       if (++count >= maxItems) return;
     }
+
     if (page.nextCursor === undefined) return;
+
     if (!page.nextCursor || seen.has(page.nextCursor))
       throw new SocialError({
         code: "upstream_failure",
@@ -66,21 +72,26 @@ export function encodeCursor(scope: string, value: string): string {
       operation: "pagination",
       message: "Backend returned an invalid cursor",
     });
+
   return `social-v1.${encodeURIComponent(JSON.stringify([scope, value]))}`;
 }
+
 export function decodeCursor(scope: string, cursor: string): string {
   try {
     if (!cursor.startsWith("social-v1.") || cursor.length > 100_000) throw new Error();
     const parsed: unknown = JSON.parse(decodeURIComponent(cursor.slice(10)));
+
     if (
       !Array.isArray(parsed) ||
       parsed.length !== 2 ||
       parsed[0] !== scope ||
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the untrusted decoded cursor tuple.
       typeof parsed[1] !== "string" ||
       !parsed[1] ||
       parsed[1].length > 16_384
     )
       throw new Error();
+
     return parsed[1];
   } catch {
     throw new SocialError({

@@ -6,6 +6,7 @@ import { mockBackend } from "../src/testing/index.js";
 test("account cursors bind backend, tenant and page size before any dispatch", async () => {
   const base = mockBackend();
   let calls = 0;
+
   const adapter = {
     ...base,
     accounts: {
@@ -13,17 +14,22 @@ test("account cursors bind backend, tenant and page size before any dispatch", a
       async list(input: { cursor?: string }) {
         calls++;
         assert.ok(input.cursor === undefined || input.cursor === "upstream-token");
+
         return { items: [], nextCursor: "upstream-token" };
       },
     },
   };
+
   const social = createSocial({ backends: { a: adapter, b: adapter } });
+
   const first = await social.accounts.list({
     backend: "a",
     limit: 5,
     authorization: { tenantId: "tenant" },
   });
+
   assert.ok(first.nextCursor?.startsWith("social-v1."));
+
   for (const options of [
     { backend: "b", limit: 5, authorization: { tenantId: "tenant" } },
     { backend: "a", limit: 6, authorization: { tenantId: "tenant" } },
@@ -42,17 +48,23 @@ test("account cursors bind backend, tenant and page size before any dispatch", a
 
 test("iterators are lazy, bounded and stop after early return", async () => {
   let calls = 0;
+
   const values = iterateItems(async () => {
     calls++;
+
     return { items: [1, 2], nextCursor: String(calls) };
   });
+
   assert.equal(calls, 0);
+
   for await (const value of values) {
     assert.equal(value, 1);
     break;
   }
+
   assert.equal(calls, 1);
   const bounded: number[] = [];
+
   for await (const value of iterateItems(async () => ({ items: [1, 2], nextCursor: "next" }), {
     maxItems: 1,
   }))
@@ -72,6 +84,7 @@ test("iterators reject repeated cursors and respect cancellation between request
     for await (const _item of iterateItems(
       async () => {
         calls++;
+
         return { items: [1], nextCursor: "next" };
       },
       { signal: controller.signal },
@@ -84,6 +97,7 @@ test("iterators reject repeated cursors and respect cancellation between request
 test("post feeds bind cursors to account and traverse lazily through the public facade", async () => {
   const base = mockBackend();
   let calls = 0;
+
   const adapter = {
     ...base,
     capabilities: {
@@ -95,16 +109,21 @@ test("post feeds bind cursors to account and traverse lazily through the public 
     },
     posts: {
       ...base.posts!,
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       async list(_account: unknown, input: { cursor?: string }) {
         calls++;
+
         return {
           items: [{ postId: input.cursor ? "second" : "first" }],
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor ? {} : { nextCursor: "upstream" }),
         };
       },
     },
   };
+
   const social = createSocial({ backend: adapter });
+
   const account = {
     kind: "connected-account" as const,
     version: 1 as const,
@@ -112,6 +131,7 @@ test("post feeds bind cursors to account and traverse lazily through the public 
     platform: "bluesky",
     accountId: "a",
   };
+
   const page = await social.posts.list(account, { limit: 1 });
   assert.equal(calls, 1);
   await assert.rejects(
@@ -119,6 +139,7 @@ test("post feeds bind cursors to account and traverse lazily through the public 
   );
   assert.equal(calls, 1);
   const ids = [];
+
   for await (const item of social.posts.iterate(account, { maxPages: 2 })) ids.push(item["postId"]);
   assert.deepEqual(ids, ["first", "second"]);
   assert.equal(calls, 3);

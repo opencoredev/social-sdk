@@ -7,8 +7,14 @@ export function blueskyFromOAuthSession(input: {
   readonly service: string;
   readonly backend?: string;
 }) {
+  if (input.backend === undefined)
+    return bluesky({
+      auth: { service: input.service, did: input.session.did },
+      session: input.session,
+    });
+
   return bluesky({
-    ...(input.backend === undefined ? {} : { backend: input.backend }),
+    backend: input.backend,
     auth: { service: input.service, did: input.session.did },
     session: input.session,
   });

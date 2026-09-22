@@ -11,6 +11,7 @@ export function createYouTubeConnection(input: {
   readonly allowedRedirectUris: readonly string[];
 }) {
   const sink = new MemoryOAuthCredentialSink();
+
   const provider = youtubeOAuth({
     clientId: requiredEnvironment("GOOGLE_OAUTH_CLIENT_ID"),
     clientSecret: requiredEnvironment("GOOGLE_OAUTH_CLIENT_SECRET"),
@@ -22,7 +23,9 @@ export function createYouTubeConnection(input: {
     ],
     credentialSink: sink,
   });
+
   const manager = createConnectionManager();
+
   return {
     async begin(connection: { readonly tenantId: string; readonly principalId: string }) {
       const started = await manager.begin({
@@ -35,6 +38,7 @@ export function createYouTubeConnection(input: {
         allowedRedirectUris: input.allowedRedirectUris,
         provider,
       });
+
       return { authorizationUrl: started.authorizationUrl, attempt: started.attempt };
     },
     async complete(connection: {

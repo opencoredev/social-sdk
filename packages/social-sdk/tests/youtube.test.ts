@@ -25,10 +25,12 @@ it("YouTube preserves empty permission and server failures without replay", asyn
           accessToken: "test",
           fetch: async () => {
             calls++;
+
             return new Response(null, { status, headers: { "content-length": "0" } });
           },
         },
       ),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) =>
         error instanceof SocialError &&
         error.upstreamStatus === status &&
@@ -61,6 +63,7 @@ it("YouTube refuses short and overlong sources before final upload dispatch", as
           accessToken: "test",
           fetch: async () => {
             calls++;
+
             return Response.json({ id: "unexpected" });
           },
         },
@@ -74,6 +77,7 @@ it("YouTube refuses short and overlong sources before final upload dispatch", as
 it("YouTube creates a resumable session, preserves explicit metadata, streams video and reports processing", async () => {
   const calls: string[] = [];
   let saved = false;
+
   const social = createSocial({
     backend: youtube({
       auth: { accessToken: "test", channelId: "channel1" },
@@ -86,6 +90,7 @@ it("YouTube creates a resumable session, preserves explicit metadata, streams vi
         calls.push(init?.method ?? "GET");
         assert.equal(url.hostname, "www.googleapis.com");
         assert.equal(init?.redirect, "error");
+
         if (init?.method === "POST") {
           const body = JSON.parse(String(init.body));
           assert.deepEqual(body.status, {
@@ -93,15 +98,18 @@ it("YouTube creates a resumable session, preserves explicit metadata, streams vi
             selfDeclaredMadeForKids: false,
           });
           assert.equal(body.snippet.title, "Example");
+
           return new Response(null, {
             headers: {
               location: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=secret",
             },
           });
         }
+
         assert.ok(saved);
         assert.equal(new Headers(init?.headers).get("Content-Range"), "bytes 0-99/100");
         assert.equal(init?.body instanceof Uint8Array && init.body.byteLength, 100);
+
         return Response.json({
           id: "video1",
           status: { uploadStatus: "uploaded", privacyStatus: "private" },
@@ -109,6 +117,7 @@ it("YouTube creates a resumable session, preserves explicit metadata, streams vi
       },
     }),
   });
+
   const request = {
     targets: [
       {
@@ -131,6 +140,7 @@ it("YouTube creates a resumable session, preserves explicit metadata, streams vi
       ],
     },
   };
+
   assert.ok(social.posts.prepare(request).ok);
   assert.equal(calls.length, 0);
   const result = await social.posts.publish(request);
@@ -143,6 +153,7 @@ it("YouTube validates video, visibility and audience locally and rejects wrong-c
   const social = createSocial({
     backend: youtube({ auth: { accessToken: "test", channelId: "channel1" } }),
   });
+
   assert.equal(
     social.posts.prepare({ targets: [{ account }], content: { text: "text only" } }).ok,
     false,
@@ -158,17 +169,20 @@ it("YouTube validates video, visibility and audience locally and rejects wrong-c
 
 it("YouTube validates that a comment belongs to the declared video before replying", async () => {
   const methods: string[] = [];
+
   const social = createSocial({
     backend: youtube({
       auth: { accessToken: "test", channelId: "channel1" },
       fetch: async (_input, init) => {
         methods.push(init?.method ?? "GET");
+
         return Response.json({
           items: [{ id: "comment1", snippet: { videoId: "different-video" } }],
         });
       },
     }),
   });
+
   await assert.rejects(
     social.comments.reply(
       {
@@ -194,20 +208,25 @@ it("YouTube resumes only from a caller-confirmed offset and retains 308 progress
     size: 100,
     mimeType: "video/mp4",
   };
+
   const options = {
     accessToken: "test",
     fetch: async (_url: RequestInfo | URL, init?: RequestInit) => {
       const range = new Headers(init?.headers).get("Content-Range");
+
       if (range === "bytes */100")
         return new Response(null, { status: 308, headers: { range: "bytes=0-49" } });
       assert.equal(range, "bytes 50-99/100");
       assert.ok(init?.body instanceof Uint8Array);
       assert.equal(init.body[0], 50);
+
       return Response.json({ id: "v1", status: { uploadStatus: "processed" } });
     },
   };
+
   const status = await queryYouTubeUpload(session, options);
   assert.deepEqual(status, { state: "incomplete", nextByte: 50 });
+
   const result = await sendYouTubeUpload(
     session,
     {
@@ -221,6 +240,7 @@ it("YouTube resumes only from a caller-confirmed offset and retains 308 progress
     options,
     50,
   );
+
   assert.equal(result.state, "complete");
 });
 
@@ -238,6 +258,7 @@ it("YouTube refuses untrusted upload session hosts before forwarding authorizati
         accessToken: "private",
         fetch: async () => {
           calls++;
+
           return new Response();
         },
       },

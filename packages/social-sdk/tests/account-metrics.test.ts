@@ -6,11 +6,14 @@ import { youtube } from "../src/platforms/youtube.js";
 import { tiktok } from "../src/platforms/tiktok.js";
 import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
 import { zernio } from "../src/cloud/zernio.js";
+
 const context = (backend: string): AdapterOperationContext => ({
   backendInstance: backend,
   correlationId: "metrics",
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 });
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const json = (value: unknown) =>
   new Response(JSON.stringify(value), {
     status: 200,
@@ -23,11 +26,13 @@ it("reads Bluesky profile counts and omits absent metrics", async () => {
     auth: { service: "https://bsky.example", did: "did:plc:a", accessJwt: "jwt" },
     fetch: async () => json({ did: "did:plc:a", followersCount: 3, postsCount: 0 }),
   });
+
   const account = connectedAccountRef({
     backend: "direct",
     platform: "bluesky",
     accountId: "did:plc:a",
   });
+
   const metrics = await adapter.analytics?.getAccountMetrics?.(account, context("direct"));
   assert.deepEqual(
     metrics?.map((metric) => [metric.name, metric.value]),
@@ -46,10 +51,12 @@ it("reads Bluesky profile counts and omits absent metrics", async () => {
 
 it("reads Zernio follower snapshots from the documented accounts response", async () => {
   let requested: URL | undefined;
+
   const adapter = zernio({
     apiKey: "test",
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return json({
         accounts: [
           {
@@ -65,6 +72,7 @@ it("reads Zernio follower snapshots from the documented accounts response", asyn
     },
     clock: () => new Date("2026-01-03T00:00:00Z"),
   });
+
   const account = connectedAccountRef({ backend: "zernio", platform: "x", accountId: "acct-1" });
   const metrics = await adapter.analytics!.getAccountMetrics!(account, context("zernio"));
   assert.equal(requested?.pathname, "/api/v1/accounts");
@@ -108,6 +116,7 @@ it("reads YouTube channel statistics only for the configured channel", async () 
         ],
       }),
   });
+
   const account = connectedAccountRef({ backend: "youtube", platform: "youtube", accountId: "ch" });
   const metrics = await adapter.analytics?.getAccountMetrics?.(account, context("youtube"));
   assert.deepEqual(
@@ -122,23 +131,27 @@ it("reads YouTube channel statistics only for the configured channel", async () 
 it("reads TikTok account stats and post metrics with ownership checks", async () => {
   let queryUrl = "";
   let queryBody: unknown;
+
   const adapter = tiktok({
     auth: { accessToken: "jwt", openId: "u" },
     verifiedMediaOrigins: ["https://cdn.example"],
     fetch: async (input, init) => {
       queryUrl = String(input);
       queryBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
       return init?.method === "POST"
         ? json({ data: { videos: [{ id: "v", view_count: 5 }] }, error: { code: "ok" } })
         : json({ data: { user: { open_id: "u", follower_count: 2 } }, error: { code: "ok" } });
     },
   });
+
   const account = connectedAccountRef({ backend: "tiktok", platform: "tiktok", accountId: "u" });
   const metrics = await adapter.analytics?.getAccountMetrics?.(account, context("tiktok"));
   assert.deepEqual(
     metrics?.map((metric) => [metric.name, metric.value]),
     [["follower_count", 2]],
   );
+
   const postMetrics = await adapter.analytics?.getPostMetrics?.(
     {
       kind: "platform-post",
@@ -150,6 +163,7 @@ it("reads TikTok account stats and post metrics with ownership checks", async ()
     },
     context("tiktok"),
   );
+
   assert.deepEqual(
     postMetrics?.map((metric) => [metric.name, metric.value]),
     [["view_count", 5]],
@@ -162,18 +176,23 @@ it("LinkedIn organization counts use versioned networkSizes and reject member/cr
   let calls = 0;
   let url = "";
   let count: number | undefined = 0;
+
   const fetch: typeof globalThis.fetch = async (input) => {
     calls++;
     url = String(input);
+
     return json(count === undefined ? {} : { firstDegreeSize: count });
   };
+
   const author = "urn:li:organization:123";
   const adapter = linkedin({ auth: { accessToken: "token", author }, apiVersion: "202609", fetch });
+
   const account = connectedAccountRef({
     backend: "linkedin",
     platform: "linkedin",
     accountId: author,
   });
+
   const metrics = await adapter.analytics!.getAccountMetrics!(account, context("linkedin"));
   assert.deepEqual(
     metrics.map((metric) => [metric.name, metric.value, metric.freshness]),
@@ -190,11 +209,13 @@ it("LinkedIn organization counts use versioned networkSizes and reject member/cr
       context("linkedin"),
     ),
   );
+
   const member = linkedin({
     auth: { accessToken: "token", author: "urn:li:person:123" },
     apiVersion: "202609",
     fetch,
   });
+
   await assert.rejects(
     member.analytics!.getAccountMetrics!(
       { ...account, accountId: "urn:li:person:123" },

@@ -18,11 +18,13 @@ export async function receiveWebhook(input: {
 }) {
   const verify = input.provider === "zernio" ? verifyZernioWebhook : verifyPostForMeWebhook;
   await verify({ secret: input.secret, headers: input.headers, body: input.rawBody });
+
   const event = await decodeWebhook({
     provider: input.provider,
     backend: input.backend,
     body: input.rawBody,
   });
+
   return await acceptWebhook({
     event,
     endpointId: input.endpointId,

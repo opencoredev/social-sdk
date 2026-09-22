@@ -39,6 +39,8 @@ import type {
   CheckedPublishRequest,
 } from "./types.js";
 
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-known-value-widening -- Adapter and pagination boundaries intentionally accept arbitrary rejection values and build narrow option records. */
+
 export type BackendRegistry = Readonly<Record<string, SocialAdapter<unknown>>>;
 
 export interface PublishCallOptions {
@@ -186,19 +188,23 @@ function mergeContent(
 ): PublishContent {
   if (override === undefined) return base;
   const result: PublishContent = {};
+
   if (Object.hasOwn(override, "text")) {
     if (override.text !== undefined) Object.assign(result, { text: override.text });
   } else if (base.text !== undefined) Object.assign(result, { text: base.text });
+
   if (Object.hasOwn(override, "media")) {
     if (override.media !== undefined) Object.assign(result, { media: override.media });
   } else if (base.media !== undefined) Object.assign(result, { media: base.media });
+
   if (Object.hasOwn(override, "link")) {
     if (override.link !== undefined) Object.assign(result, { link: override.link });
   } else if (base.link !== undefined) Object.assign(result, { link: base.link });
+
   return result;
 }
 
-function mediaFingerprintView(content: PublishContent): unknown {
+function mediaFingerprintView(content: PublishContent) {
   return {
     ...content,
     media: content.media?.map((media) => ({
@@ -216,12 +222,11 @@ function mediaFingerprintView(content: PublishContent): unknown {
 }
 
 function preparationIssue(code: string, message: string, targetIndex?: number): PreparationIssue {
-  return {
-    code,
-    message,
-    severity: "error",
-    ...(targetIndex === undefined ? {} : { targetIndex }),
-  };
+  const issue: PreparationIssue = { code, message, severity: "error" };
+
+  if (targetIndex !== undefined) Object.assign(issue, { targetIndex });
+
+  return issue;
 }
 
 function publicationStatus(outcomes: readonly DeliveryOutcome[]): PublicationStatus {
@@ -229,11 +234,15 @@ function publicationStatus(outcomes: readonly DeliveryOutcome[]): PublicationSta
   const success = new Set(["published"]);
   const hasPending = outcomes.some((outcome) => pending.has(outcome.state));
   const hasSuccess = outcomes.some((outcome) => success.has(outcome.state));
+
   const hasOther = outcomes.some(
     (outcome) => !pending.has(outcome.state) && !success.has(outcome.state),
   );
+
   if (hasPending && !hasSuccess && !hasOther) return "pending";
+
   if (!hasPending && !hasOther) return "complete";
+
   return "partial";
 }
 
@@ -244,13 +253,16 @@ async function mapConcurrent<T>(
 ): Promise<T[]> {
   const results: T[] = [];
   let next = 0;
+
   async function worker(): Promise<void> {
     while (next < count) {
       const index = next++;
       results[index] = await execute(index);
     }
   }
+
   await Promise.all(Array.from({ length: Math.min(count, concurrency) }, () => worker()));
+
   return results;
 }
 
@@ -260,16 +272,21 @@ function makeContext(
   options: PublishCallOptions | undefined,
   targetIdempotencyKey?: string,
 ): AdapterOperationContext {
-  return {
+  const context: AdapterOperationContext = {
     backendInstance,
     correlationId,
     retryBudget: options?.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 },
-    ...(options?.signal === undefined ? {} : { signal: options.signal }),
-    ...(options?.authorization === undefined ? {} : { authorization: options.authorization }),
-    ...(targetIdempotencyKey === undefined
-      ? {}
-      : { idempotencyKey: targetIdempotencyKey, targetIdempotencyKey }),
   };
+
+  if (options?.signal !== undefined) Object.assign(context, { signal: options.signal });
+
+  if (options?.authorization !== undefined)
+    Object.assign(context, { authorization: options.authorization });
+
+  if (targetIdempotencyKey !== undefined)
+    Object.assign(context, { idempotencyKey: targetIdempotencyKey, targetIdempotencyKey });
+
+  return context;
 }
 
 function unsupported(operation: string, backend: string): never {
@@ -281,8 +298,9 @@ function unsupported(operation: string, backend: string): never {
   });
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Adapter rejections enter the error boundary here.
 function outcomeFromError(
-  error: unknown,
+  error: unknown, // Transport and adapter rejections can be arbitrary JavaScript values.
   target: PreparedPublishTarget,
   observedAt: string,
 ): DeliveryOutcome {
@@ -297,6 +315,7 @@ function outcomeFromError(
         diagnostic: "Cancellation interrupted a dispatched request; reconcile before retrying",
       };
     }
+
     if (error.code === "ambiguous_outcome" || error.code === "timeout") {
       return {
         state: "unknown",
@@ -307,6 +326,7 @@ function outcomeFromError(
         diagnostic: "The request outcome is ambiguous; reconcile with the backend before retrying",
       };
     }
+
     return {
       state: "failed",
       targetIndex: target.targetIndex,
@@ -317,6 +337,7 @@ function outcomeFromError(
       retryDisposition: error.retryDisposition,
     };
   }
+
   return {
     state: "unknown",
     targetIndex: target.targetIndex,
@@ -349,7 +370,9 @@ export function createSocial(
     "backend" in config && config.backend !== undefined
       ? { default: config.backend }
       : config.backends;
+
   const entries = Object.entries(registry);
+
   if (entries.length === 0) {
     throw new SocialError({
       code: "invalid_config",
@@ -357,7 +380,9 @@ export function createSocial(
       message: "Configure at least one backend",
     });
   }
+
   const concurrency = config.concurrency ?? 4;
+
   if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 100) {
     throw new SocialError({
       code: "invalid_config",
@@ -365,7 +390,9 @@ export function createSocial(
       message: "concurrency must be an integer from 1 through 100",
     });
   }
+
   const maxQueued = config.maxQueued ?? 100;
+
   if (!Number.isSafeInteger(maxQueued) || maxQueued < 0 || maxQueued > 10_000) {
     throw new SocialError({
       code: "invalid_config",
@@ -373,12 +400,14 @@ export function createSocial(
       message: "maxQueued must be an integer from 0 through 10000",
     });
   }
+
   const limiters = new Map<string, ReturnType<typeof createConcurrencyLimiter>>(
     entries.map(([backend]) => [
       backend,
       createConcurrencyLimiter({ maxActive: concurrency, maxQueued, backend }),
     ]),
   );
+
   function dispatch<T>(
     backend: string,
     signal: AbortSignal | undefined,
@@ -386,6 +415,7 @@ export function createSocial(
     work: () => Promise<T>,
   ): Promise<T> {
     const limiter = limiters.get(backend);
+
     if (limiter === undefined) {
       throw new SocialError({
         code: "invalid_input",
@@ -393,29 +423,37 @@ export function createSocial(
         message: `Unknown backend instance: ${backend}`,
       });
     }
+
     return limiter(signal, operation, work);
   }
+
   const clock = config.clock ?? (() => new Date());
   let correlationSequence = 0;
 
   function prepare(request: PublishRequest): PublishPreparation {
     const issues: PreparationIssue[] = [];
     const targets: PreparedPublishTarget[] = [];
+
     if (request.targets.length === 0) {
       issues.push(preparationIssue("targets.required", "At least one target is required"));
     }
+
     if (request.content.text === undefined && (request.content.media?.length ?? 0) === 0) {
       issues.push(preparationIssue("content.required", "Text or media is required"));
     }
+
     if (request.schedule !== undefined) {
       const scheduledAt = Date.parse(request.schedule.at);
+
       if (!Number.isFinite(scheduledAt)) {
         issues.push(preparationIssue("schedule.invalid", "schedule.at must be an ISO timestamp"));
       } else if (scheduledAt <= clock().getTime()) {
         issues.push(preparationIssue("schedule.in_past", "A scheduled time must be in the future"));
       }
     }
+
     const seen = new Set<string>();
+
     for (const [targetIndex, target] of request.targets.entries()) {
       if (
         target.account.kind !== "connected-account" ||
@@ -433,12 +471,16 @@ export function createSocial(
         );
         continue;
       }
+
       const key = targetKey(target.account);
+
       if (seen.has(key)) {
         issues.push(preparationIssue("target.duplicate", "Duplicate target", targetIndex));
       }
+
       seen.add(key);
       const adapter = registry[target.account.backend];
+
       if (adapter === undefined) {
         issues.push(
           preparationIssue(
@@ -449,6 +491,7 @@ export function createSocial(
         );
         continue;
       }
+
       if (adapter.posts === undefined) {
         issues.push(
           preparationIssue(
@@ -459,11 +502,13 @@ export function createSocial(
         );
         continue;
       }
+
       const declaration = adapter.capabilities.capabilities.find(
         (candidate) =>
           candidate.operation === "posts.publish" &&
           (candidate.platform === "*" || candidate.platform === target.account.platform),
       );
+
       if (declaration === undefined || declaration.availability !== "available") {
         issues.push(
           preparationIssue(
@@ -475,7 +520,9 @@ export function createSocial(
         );
         continue;
       }
+
       const replyTo = target.replyTo ?? request.replyTo;
+
       if (
         replyTo &&
         (replyTo.version !== 1 ||
@@ -492,16 +539,21 @@ export function createSocial(
           ),
         );
       }
+
       const prepared: PreparedPublishTarget = {
         targetIndex,
         targetKey: key,
         account: target.account,
         content: mergeContent(request.content, target.content),
-        ...(target.options === undefined ? {} : { options: target.options }),
-        ...(request.schedule === undefined ? {} : { schedule: request.schedule }),
-        ...(replyTo === undefined ? {} : { replyTo }),
       };
+
+      if (target.options !== undefined) Object.assign(prepared, { options: target.options });
+
+      if (request.schedule !== undefined) Object.assign(prepared, { schedule: request.schedule });
+
+      if (replyTo !== undefined) Object.assign(prepared, { replyTo });
       targets.push(prepared);
+
       try {
         issues.push(...adapter.posts.prepareTarget(prepared));
       } catch (error) {
@@ -516,6 +568,7 @@ export function createSocial(
         );
       }
     }
+
     return { ok: !issues.some((issue) => issue.severity === "error"), targets, issues };
   }
 
@@ -526,6 +579,7 @@ export function createSocial(
     correlationId: string,
   ): Promise<void> {
     if (config.authorization === undefined) return;
+
     const decision = (
       await config.authorization.authorizeTargets({
         operation,
@@ -533,6 +587,7 @@ export function createSocial(
         context: makeContext("*", correlationId, options),
       })
     )[0];
+
     if (decision?.allowed !== true || targetKey(decision.account) !== targetKey(account)) {
       throw new SocialError({
         code: "unauthorized",
@@ -555,7 +610,9 @@ export function createSocial(
         message: "Reference kind/version does not match the Social SDK contract",
       });
     }
+
     const adapter = registry[ref.backend];
+
     if (adapter === undefined) {
       throw new SocialError({
         code: "invalid_input",
@@ -563,6 +620,7 @@ export function createSocial(
         message: `Unknown backend instance: ${ref.backend}`,
       });
     }
+
     return adapter;
   }
 
@@ -577,6 +635,7 @@ export function createSocial(
         candidate.operation === operation &&
         (platform === "*" || candidate.platform === "*" || candidate.platform === platform),
     );
+
     if (declaration?.availability !== "available") unsupported(operation, backend);
   }
 
@@ -586,6 +645,7 @@ export function createSocial(
   ): Promise<PublishResult> {
     const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
     const authContext = makeContext("*", correlationId, options);
+
     if (options?.signal?.aborted) {
       throw new SocialError({
         code: "cancelled",
@@ -601,10 +661,12 @@ export function createSocial(
         accounts: request.targets.map((target) => target.account),
         context: authContext,
       });
+
       for (const target of request.targets) {
         const decision = decisions.find(
           (candidate) => targetKey(candidate.account) === targetKey(target.account),
         );
+
         if (decision?.allowed !== true) {
           throw new SocialError({
             code: "unauthorized",
@@ -618,6 +680,7 @@ export function createSocial(
     }
 
     const plan = prepare(request);
+
     if (!plan.ok) {
       throw new SocialError({
         code: "invalid_input",
@@ -635,12 +698,16 @@ export function createSocial(
       replyTo: target.replyTo,
       schedule: target.schedule,
     }));
+
     const payloadFingerprint = await fingerprint(targetViews);
+
     const scope = JSON.stringify([
       options?.authorization?.tenantId ?? "credential-ready",
       "posts.publish",
     ]);
+
     let claim: IdempotencyClaim | undefined;
+
     if (request.idempotencyKey !== undefined && config.idempotencyStore !== undefined) {
       claim = await config.idempotencyStore.claim({
         scope,
@@ -648,6 +715,7 @@ export function createSocial(
         fingerprint: payloadFingerprint,
         targetKeys: plan.targets.map((target) => target.targetKey),
       });
+
       if (claim.kind === "conflict") {
         throw new SocialError({
           code: "idempotency_conflict",
@@ -659,15 +727,20 @@ export function createSocial(
     }
 
     const observedAt = (): string => clock().toISOString();
+
     const outcomes = await mapConcurrent(
       plan.targets.length,
       Math.max(1, plan.targets.length),
       async (index) => {
         const target = plan.targets[index];
+
         if (target === undefined) throw new Error("Prepared target index was lost");
+
         if (claim !== undefined && claim.kind === "existing") {
           const saved = claim.outcomes[target.targetKey];
+
           if (saved !== undefined) return saved;
+
           return {
             state: "unknown",
             targetIndex: target.targetIndex,
@@ -677,8 +750,11 @@ export function createSocial(
             diagnostic: "A previous execution claimed this target without recording an outcome",
           } satisfies DeliveryOutcome;
         }
+
         const adapter = registry[target.account.backend];
+
         if (adapter?.posts === undefined) throw new Error("Prepared adapter disappeared");
+
         const targetIdempotencyKey =
           request.idempotencyKey === undefined
             ? undefined
@@ -689,8 +765,10 @@ export function createSocial(
                 targetKey: target.targetKey,
                 payloadFingerprint,
               });
+
         let outcome: DeliveryOutcome;
         let enteredAdapter = false;
+
         try {
           const candidate = await dispatch(
             target.account.backend,
@@ -698,12 +776,14 @@ export function createSocial(
             "posts.publish",
             () => {
               enteredAdapter = true;
+
               return adapter.posts!.publishTarget(
                 target,
                 makeContext(target.account.backend, correlationId, options, targetIdempotencyKey),
               );
             },
           );
+
           outcome = assertValidOutcome(candidate, target)
             ? candidate
             : {
@@ -734,6 +814,7 @@ export function createSocial(
                   }
                 : outcomeFromError(error, target, observedAt());
         }
+
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
           try {
             await config.idempotencyStore.saveOutcome({
@@ -745,26 +826,31 @@ export function createSocial(
             // Return the complete in-memory result even if durable persistence is unavailable.
           }
         }
+
         return outcome;
       },
     );
 
     outcomes.sort((left, right) => left.targetIndex - right.targetIndex);
+
     const publicationBackend =
       new Set(plan.targets.map((target) => target.account.backend)).size === 1
         ? (plan.targets[0]?.account.backend ?? "unknown")
         : "multiple";
+
     const publicationId = await fingerprint({
       scope,
       key: request.idempotencyKey ?? correlationId,
       payloadFingerprint,
     });
+
     const publication: PublicationRef = {
       kind: "publication",
       version: 1,
       backend: publicationBackend,
       publicationId,
     };
+
     return { status: publicationStatus(outcomes), publication, outcomes };
   }
 
@@ -777,64 +863,67 @@ export function createSocial(
       },
     ): Promise<Page<AccountRecord>> {
       const correlationId = `social-${++correlationSequence}`;
+
       if (entries.length > 1 && callOptions?.backend === undefined)
         throw new SocialError({
           code: "invalid_input",
           operation: "accounts.read",
           message: "Select a backend instance when listing accounts from a mixed registry.",
         });
+
       const first =
         callOptions?.backend === undefined
           ? entries[0]
           : entries.find(([key]) => key === callOptions.backend);
+
       if (first === undefined || first[1].accounts === undefined)
         unsupported("accounts.read", first?.[0] ?? "unknown");
       requireCapability(first[1], "accounts.read", "*", first[0]);
+
       const cursorScope = JSON.stringify([
         first[0],
         "accounts.read",
         callOptions?.authorization?.tenantId ?? null,
         callOptions?.limit ?? null,
       ]);
+
       const received = await dispatch(first[0], callOptions?.signal, "accounts.read", () =>
         first[1].accounts!.list(
-          {
-            ...(callOptions?.cursor === undefined
-              ? {}
-              : { cursor: decodeCursor(cursorScope, callOptions.cursor) }),
-            ...(callOptions?.limit === undefined ? {} : { limit: callOptions.limit }),
-          },
+          decodePageOptions(cursorScope, callOptions),
           makeContext(first[0], correlationId, callOptions),
         ),
       );
-      const page = {
-        ...received,
-        ...(received.nextCursor === undefined
-          ? {}
-          : { nextCursor: encodeCursor(cursorScope, received.nextCursor) }),
-      };
+
+      const page = encodePage(cursorScope, received);
+
       if (config.authorization === undefined) return page;
+
       const decisions = await config.authorization.authorizeTargets({
         operation: "accounts.read",
         accounts: page.items.map((item) => item.ref),
         context: makeContext(first[0], correlationId, callOptions),
       });
+
       const allowed = new Set(
         decisions.filter((item) => item.allowed).map((item) => targetKey(item.account)),
       );
-      return {
+
+      const filtered: Page<AccountRecord> = {
         items: page.items.filter((item) => allowed.has(targetKey(item.ref))),
-        ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
-        ...(page.metadata === undefined ? {} : { metadata: page.metadata }),
       };
+
+      if (page.nextCursor !== undefined) Object.assign(filtered, { nextCursor: page.nextCursor });
+
+      if (page.metadata !== undefined) Object.assign(filtered, { metadata: page.metadata });
+
+      return filtered;
     },
     iterate(
       callOptions?: PublishCallOptions &
         IterationOptions & { readonly backend?: string; readonly limit?: number },
     ): AsyncIterable<AccountRecord> {
       return iterateItems(
-        (cursor) =>
-          accountsFacade.list({ ...callOptions, ...(cursor === undefined ? {} : { cursor }) }),
+        (cursor) => accountsFacade.list(iterationPageOptions(callOptions, cursor)),
         callOptions,
       );
     },
@@ -843,7 +932,9 @@ export function createSocial(
       await authorizeRef("accounts.read", ref, callOptions, correlationId);
       const adapter = selected(ref, "accounts.get");
       requireCapability(adapter, "accounts.read", ref.platform, ref.backend);
+
       if (adapter.accounts === undefined) unsupported("accounts.read", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "accounts.read", () =>
         adapter.accounts!.get(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
@@ -877,6 +968,7 @@ export function createSocial(
     );
     const adapter = selected(ref, operation);
     requireCapability(adapter, operation, ref.platform, ref.backend);
+
     return { adapter, context: makeContext(ref.backend, correlationId, callOptions) };
   }
 
@@ -889,7 +981,9 @@ export function createSocial(
       await authorizeRef("posts.read", account, callOptions, correlationId);
       const adapter = selected(account, "posts.list");
       requireCapability(adapter, "posts.list", account.platform, account.backend);
+
       if (!adapter.posts?.list) unsupported("posts.list", account.backend);
+
       const scope = JSON.stringify([
         account.backend,
         "posts.list",
@@ -898,12 +992,9 @@ export function createSocial(
         account.accountId,
         callOptions?.limit ?? null,
       ]);
-      const input = {
-        ...(callOptions?.cursor === undefined
-          ? {}
-          : { cursor: decodeCursor(scope, callOptions.cursor) }),
-        ...(callOptions?.limit === undefined ? {} : { limit: callOptions.limit }),
-      };
+
+      const input = decodePageOptions(scope, callOptions);
+
       const page = await dispatch(account.backend, callOptions?.signal, "posts.list", () =>
         adapter.posts!.list!(
           account,
@@ -911,23 +1002,15 @@ export function createSocial(
           makeContext(account.backend, correlationId, callOptions),
         ),
       );
-      return {
-        ...page,
-        ...(page.nextCursor === undefined
-          ? {}
-          : { nextCursor: encodeCursor(scope, page.nextCursor) }),
-      };
+
+      return encodePage(scope, page);
     },
     iterate(
       account: ConnectedAccountRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
     ): AsyncIterable<JsonObject> {
       return iterateItems(
-        (cursor) =>
-          postsFacade.list(account, {
-            ...callOptions,
-            ...(cursor === undefined ? {} : { cursor }),
-          }),
+        (cursor) => postsFacade.list(account, iterationPageOptions(callOptions, cursor)),
         callOptions,
       );
     },
@@ -941,7 +1024,9 @@ export function createSocial(
         "posts.cancelScheduled",
         callOptions,
       );
+
       if (!adapter.posts?.cancelScheduled) unsupported("posts.cancelScheduled", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "posts.cancelScheduled", () =>
         adapter.posts!.cancelScheduled!(ref, context),
       );
@@ -956,8 +1041,10 @@ export function createSocial(
         "posts.deleteBackendRecord",
         callOptions,
       );
+
       if (!adapter.posts?.deleteBackendRecord)
         unsupported("posts.deleteBackendRecord", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "posts.deleteBackendRecord", () =>
         adapter.posts!.deleteBackendRecord!(ref, context),
       );
@@ -972,7 +1059,9 @@ export function createSocial(
         "posts.removeFromPlatform",
         callOptions,
       );
+
       if (!adapter.posts?.removeFromPlatform) unsupported("posts.removeFromPlatform", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "posts.removeFromPlatform", () =>
         adapter.posts!.removeFromPlatform!(ref, context),
       );
@@ -990,19 +1079,22 @@ export function createSocial(
           message: "A sequence requires at least one item",
         });
       const results: PublishResult[] = [];
+
       for (const [index, item] of request.items.entries()) {
-        const result = await publish(
-          {
-            targets: item.targets,
-            content: item.content,
-            idempotencyKey: `${request.idempotencyKey}:${index}`,
-            ...(item.replyTo === undefined ? {} : { replyTo: item.replyTo }),
-          },
-          callOptions,
-        );
+        const publishRequest: PublishRequest = {
+          targets: item.targets,
+          content: item.content,
+          idempotencyKey: `${request.idempotencyKey}:${index}`,
+        };
+
+        if (item.replyTo !== undefined) Object.assign(publishRequest, { replyTo: item.replyTo });
+        const result = await publish(publishRequest, callOptions);
+
         results.push(result);
+
         if (request.stopOnFailure !== false && result.status !== "complete") break;
       }
+
       const status =
         results.length === request.items.length &&
         results.every((item) => item.status === "complete")
@@ -1010,6 +1102,7 @@ export function createSocial(
           : results.some((item) => item.status === "partial") || results.length > 0
             ? "partial"
             : "pending";
+
       return { status, items: results };
     },
     async get(ref: PlatformPostRef, callOptions?: PublishCallOptions): Promise<JsonObject> {
@@ -1028,7 +1121,9 @@ export function createSocial(
       );
       const adapter = selected(ref, "posts.get");
       requireCapability(adapter, "posts.read", ref.platform, ref.backend);
+
       if (adapter.posts?.get === undefined) unsupported("posts.read", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "posts.read", () =>
         adapter.posts!.get!(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
@@ -1038,6 +1133,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<DeliveryOutcome> {
       const correlationId = `social-${++correlationSequence}`;
+
       const account = {
         kind: "connected-account" as const,
         version: 1 as const,
@@ -1045,10 +1141,13 @@ export function createSocial(
         platform: ref.platform,
         accountId: ref.accountId,
       };
+
       await authorizeRef("posts.read", account, callOptions, correlationId);
       const adapter = selected(ref, "posts.getDelivery");
       requireCapability(adapter, "posts.status", ref.platform, ref.backend);
+
       if (adapter.posts?.getDelivery === undefined) unsupported("posts.read", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "posts.status", () =>
         adapter.posts!.getDelivery!(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
@@ -1065,7 +1164,9 @@ export function createSocial(
       await authorizeRef("posts.publish", account, callOptions, correlationId);
       const adapter = selected(account, "media.upload");
       requireCapability(adapter, "media.upload", account.platform, account.backend);
+
       if (adapter.media === undefined) unsupported("media.upload", account.backend);
+
       return dispatch(account.backend, callOptions?.signal, "media.upload", () =>
         adapter.media!.upload(
           input,
@@ -1075,6 +1176,7 @@ export function createSocial(
       );
     },
   };
+
   const analyticsFacade = {
     async getAccountMetrics(
       ref: ConnectedAccountRef,
@@ -1084,7 +1186,9 @@ export function createSocial(
       await authorizeRef("analytics.read", ref, callOptions, correlationId);
       const adapter = selected(ref, "analytics.getAccountMetrics");
       requireCapability(adapter, "analytics.account.read", ref.platform, ref.backend);
+
       if (!adapter.analytics?.getAccountMetrics) unsupported("analytics.account.read", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "analytics.account.read", () =>
         adapter.analytics!.getAccountMetrics!(
           ref,
@@ -1097,6 +1201,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<readonly MetricValue[]> {
       const correlationId = `social-${++correlationSequence}`;
+
       const account = {
         kind: "connected-account" as const,
         version: 1 as const,
@@ -1104,10 +1209,13 @@ export function createSocial(
         platform: ref.platform,
         accountId: ref.accountId,
       };
+
       await authorizeRef("analytics.read", account, callOptions, correlationId);
       const adapter = selected(ref, "analytics.getPostMetrics");
       requireCapability(adapter, "analytics.read", ref.platform, ref.backend);
+
       if (adapter.analytics === undefined) unsupported("analytics.read", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "analytics.read", () =>
         adapter.analytics!.getPostMetrics(
           ref,
@@ -1116,12 +1224,14 @@ export function createSocial(
       );
     },
   };
+
   const commentsFacade = {
     async list(
       ref: PlatformPostRef,
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+
       const account = {
         kind: "connected-account" as const,
         version: 1 as const,
@@ -1129,10 +1239,13 @@ export function createSocial(
         platform: ref.platform,
         accountId: ref.accountId,
       };
+
       await authorizeRef("comments.read", account, callOptions, correlationId);
       const adapter = selected(ref, "comments.list");
       requireCapability(adapter, "comments.read", ref.platform, ref.backend);
+
       if (adapter.comments === undefined) unsupported("comments.read", ref.backend);
+
       const cursorScope = JSON.stringify([
         ref.backend,
         "comments.read",
@@ -1142,32 +1255,23 @@ export function createSocial(
         ref.postId,
         callOptions?.limit ?? null,
       ]);
+
       const received = await dispatch(ref.backend, callOptions?.signal, "comments.read", () =>
         adapter.comments!.list(
           ref,
-          {
-            ...(callOptions?.cursor === undefined
-              ? {}
-              : { cursor: decodeCursor(cursorScope, callOptions.cursor) }),
-            ...(callOptions?.limit === undefined ? {} : { limit: callOptions.limit }),
-          },
+          decodePageOptions(cursorScope, callOptions),
           makeContext(ref.backend, correlationId, callOptions),
         ),
       );
-      return {
-        ...received,
-        ...(received.nextCursor === undefined
-          ? {}
-          : { nextCursor: encodeCursor(cursorScope, received.nextCursor) }),
-      };
+
+      return encodePage(cursorScope, received);
     },
     iterate(
       ref: PlatformPostRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
     ): AsyncIterable<JsonObject> {
       return iterateItems(
-        (cursor) =>
-          commentsFacade.list(ref, { ...callOptions, ...(cursor === undefined ? {} : { cursor }) }),
+        (cursor) => commentsFacade.list(ref, iterationPageOptions(callOptions, cursor)),
         callOptions,
       );
     },
@@ -1177,6 +1281,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<CommentRef> {
       const correlationId = `social-${++correlationSequence}`;
+
       const account = {
         kind: "connected-account" as const,
         version: 1 as const,
@@ -1184,15 +1289,19 @@ export function createSocial(
         platform: ref.platform,
         accountId: ref.accountId,
       };
+
       await authorizeRef("comments.write", account, callOptions, correlationId);
       const adapter = selected(ref, "comments.reply");
       requireCapability(adapter, "comments.write", ref.platform, ref.backend);
+
       if (adapter.comments === undefined) unsupported("comments.write", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "comments.write", () =>
         adapter.comments!.reply(ref, content, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
   };
+
   const messagesFacade = {
     async listConversations(
       account: ConnectedAccountRef,
@@ -1202,7 +1311,9 @@ export function createSocial(
       await authorizeRef("messages.read", account, callOptions, correlationId);
       const adapter = selected(account, "messages.listConversations");
       requireCapability(adapter, "messages.read", account.platform, account.backend);
+
       if (adapter.messages === undefined) unsupported("messages.read", account.backend);
+
       const cursorScope = JSON.stringify([
         account.backend,
         "messages.read",
@@ -1212,24 +1323,16 @@ export function createSocial(
         "conversations",
         callOptions?.limit ?? null,
       ]);
+
       const received = await dispatch(account.backend, callOptions?.signal, "messages.read", () =>
         adapter.messages!.listConversations(
           account,
-          {
-            ...(callOptions?.cursor === undefined
-              ? {}
-              : { cursor: decodeCursor(cursorScope, callOptions.cursor) }),
-            ...(callOptions?.limit === undefined ? {} : { limit: callOptions.limit }),
-          },
+          decodePageOptions(cursorScope, callOptions),
           makeContext(account.backend, correlationId, callOptions),
         ),
       );
-      return {
-        ...received,
-        ...(received.nextCursor === undefined
-          ? {}
-          : { nextCursor: encodeCursor(cursorScope, received.nextCursor) }),
-      };
+
+      return encodePage(cursorScope, received);
     },
     iterateConversations(
       account: ConnectedAccountRef,
@@ -1237,10 +1340,7 @@ export function createSocial(
     ): AsyncIterable<JsonObject> {
       return iterateItems(
         (cursor) =>
-          messagesFacade.listConversations(account, {
-            ...callOptions,
-            ...(cursor === undefined ? {} : { cursor }),
-          }),
+          messagesFacade.listConversations(account, iterationPageOptions(callOptions, cursor)),
         callOptions,
       );
     },
@@ -1249,6 +1349,7 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+
       const account = {
         kind: "connected-account" as const,
         version: 1 as const,
@@ -1256,10 +1357,13 @@ export function createSocial(
         platform: ref.platform,
         accountId: ref.accountId,
       };
+
       await authorizeRef("messages.read", account, callOptions, correlationId);
       const adapter = selected(ref, "messages.listMessages");
       requireCapability(adapter, "messages.read", ref.platform, ref.backend);
+
       if (adapter.messages === undefined) unsupported("messages.read", ref.backend);
+
       const cursorScope = JSON.stringify([
         ref.backend,
         "messages.read",
@@ -1269,35 +1373,23 @@ export function createSocial(
         ref.conversationId,
         callOptions?.limit ?? null,
       ]);
+
       const received = await dispatch(ref.backend, callOptions?.signal, "messages.read", () =>
         adapter.messages!.listMessages(
           ref,
-          {
-            ...(callOptions?.cursor === undefined
-              ? {}
-              : { cursor: decodeCursor(cursorScope, callOptions.cursor) }),
-            ...(callOptions?.limit === undefined ? {} : { limit: callOptions.limit }),
-          },
+          decodePageOptions(cursorScope, callOptions),
           makeContext(ref.backend, correlationId, callOptions),
         ),
       );
-      return {
-        ...received,
-        ...(received.nextCursor === undefined
-          ? {}
-          : { nextCursor: encodeCursor(cursorScope, received.nextCursor) }),
-      };
+
+      return encodePage(cursorScope, received);
     },
     iterateMessages(
       ref: ConversationRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
     ): AsyncIterable<JsonObject> {
       return iterateItems(
-        (cursor) =>
-          messagesFacade.listMessages(ref, {
-            ...callOptions,
-            ...(cursor === undefined ? {} : { cursor }),
-          }),
+        (cursor) => messagesFacade.listMessages(ref, iterationPageOptions(callOptions, cursor)),
         callOptions,
       );
     },
@@ -1307,6 +1399,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<JsonObject> {
       const correlationId = `social-${++correlationSequence}`;
+
       const account = {
         kind: "connected-account" as const,
         version: 1 as const,
@@ -1314,10 +1407,13 @@ export function createSocial(
         platform: ref.platform,
         accountId: ref.accountId,
       };
+
       await authorizeRef("messages.write", account, callOptions, correlationId);
       const adapter = selected(ref, "messages.send");
       requireCapability(adapter, "messages.write", ref.platform, ref.backend);
+
       if (adapter.messages === undefined) unsupported("messages.write", ref.backend);
+
       return dispatch(ref.backend, callOptions?.signal, "messages.write", () =>
         adapter.messages!.send(ref, content, makeContext(ref.backend, correlationId, callOptions)),
       );
@@ -1342,15 +1438,51 @@ export function createSocial(
             "Raw adapter access bypasses client authorization. Explicit acknowledgeUnsafe: true is required.",
         });
       const selected = registry[String(backend)];
+
       if (selected === undefined) throw new Error(`Unknown backend: ${String(backend)}`);
+
       return selected;
     },
     native: (backend, acknowledgement) => {
       if (acknowledgement?.acknowledgeUnsafe !== true)
         throw new Error("Native access requires acknowledgeUnsafe: true");
       const selected = registry[String(backend)];
+
       if (selected === undefined) throw new Error(`Unknown backend: ${String(backend)}`);
+
       return selected.native;
     },
   };
+}
+
+function decodePageOptions(
+  scope: string,
+  options?: { readonly cursor?: string; readonly limit?: number },
+) {
+  const input: { cursor?: string; limit?: number } = {};
+
+  if (options?.cursor !== undefined) input.cursor = decodeCursor(scope, options.cursor);
+
+  if (options?.limit !== undefined) input.limit = options.limit;
+
+  return input;
+}
+
+function encodePage<T>(scope: string, page: Page<T>): Page<T> {
+  const result = { ...page };
+
+  if (page.nextCursor !== undefined) result.nextCursor = encodeCursor(scope, page.nextCursor);
+
+  return result;
+}
+
+function iterationPageOptions<T extends object>(
+  options: T | undefined,
+  cursor: string | undefined,
+) {
+  const result: (T & { cursor?: string }) | { cursor?: string } = { ...options };
+
+  if (cursor !== undefined) result.cursor = cursor;
+
+  return result;
 }

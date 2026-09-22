@@ -8,7 +8,9 @@ import type { ConnectionAccount, ConnectionAttempt } from "@opencoredev/social-s
 
 export function requiredEnvironment(name: string): string {
   const value = process.env[name];
+
   if (!value) throw new Error(`Missing required server environment variable ${name}`);
+
   return value;
 }
 
@@ -53,12 +55,14 @@ export async function discoverAndSelect(input: {
     allowedRedirectUris: input.allowedRedirectUris,
     provider: input.provider,
   });
+
   const grants = await input.manager.select({
     attemptId: input.attemptId,
     tenantId: input.tenantId,
     principalId: input.principalId,
     selectedAccountIds: input.selectedAccountIds,
   });
+
   return { discovered, grants };
 }
 

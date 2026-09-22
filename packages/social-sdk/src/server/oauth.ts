@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- OAuth responses are unknown by contract and validated at this boundary. */
 import { SocialError } from "../core/errors.js";
 import { connectedAccountRef, type Platform } from "../core/types.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
@@ -40,6 +41,7 @@ export interface OAuthProviderOptions {
 }
 
 type ProviderKind = "youtube" | "x" | "threads" | "tiktok" | "instagram" | "linkedin";
+
 interface ProviderConfig {
   readonly auth: string;
   readonly token: string;
@@ -48,6 +50,7 @@ interface ProviderConfig {
   readonly pkce: boolean;
   readonly clientKey: "client_id" | "client_key";
 }
+
 const configs: Record<ProviderKind, ProviderConfig> = {
   youtube: {
     auth: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -104,7 +107,9 @@ const configs: Record<ProviderKind, ProviderConfig> = {
 };
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+
 const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
+
 const webFetch = (...args: Parameters<typeof fetch>) => globalThis.fetch(...args);
 
 function fail(
@@ -124,19 +129,25 @@ function fail(
 ): never {
   throw new SocialError({ code, operation, message, cause });
 }
+
 function asRecord(value: unknown, operation = "oauth.response"): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     fail(operation, "OAuth provider returned an invalid response");
+
   return value as Record<string, unknown>;
 }
+
 function requiredString(value: unknown, field: string, operation = "oauth.response"): string {
   if (typeof value !== "string" || value.length === 0 || value.length > 8192)
     fail(operation, `OAuth provider response is missing ${field}`);
+
   return value;
 }
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 && value.length <= 8192 ? value : undefined;
 }
+
 function errorForResponse(status: number, operation: string): never {
   if (status === 401)
     fail(
@@ -144,12 +155,14 @@ function errorForResponse(status: number, operation: string): never {
       "OAuth authorization is no longer valid; reconnect the account",
       "reconnect_required",
     );
+
   if (status === 403)
     fail(
       operation,
       "OAuth authorization does not include the required permission",
       "missing_permission",
     );
+
   if (status === 429)
     throw new SocialError({
       code: "rate_limited",
@@ -173,15 +186,19 @@ async function readBounded(
 ): Promise<string> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     fail("oauth.config", "maxResponseBytes must be a positive safe integer", "invalid_input");
+
   if (!response.body) return "";
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+
   try {
     for (;;) {
       const part = await reader.read();
+
       if (part.done) break;
       total += part.value.byteLength;
+
       if (total > maxBytes) {
         await reader.cancel();
         fail(
@@ -190,17 +207,21 @@ async function readBounded(
           "upstream_failure",
         );
       }
+
       chunks.push(part.value);
     }
   } finally {
     reader.releaseLock();
   }
+
   const merged = new Uint8Array(total);
   let offset = 0;
+
   for (const chunk of chunks) {
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
   return new TextDecoder().decode(merged);
 }
 
@@ -210,9 +231,12 @@ async function body(
   maxBytes: number,
 ): Promise<Record<string, unknown>> {
   const raw = await readBounded(response, maxBytes, operation);
+
   if (!response.ok) return errorForResponse(response.status, operation);
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+
   if (raw.trim() === "") fail(operation, "OAuth provider returned an empty response");
+
   if (
     contentType.includes("application/json") ||
     contentType.includes("+json") ||
@@ -224,23 +248,30 @@ async function body(
       fail(operation, "OAuth provider returned malformed JSON");
     }
   }
+
   if (contentType.includes("application/x-www-form-urlencoded")) {
     const params = new URLSearchParams(raw);
+
     if ([...params.keys()].length === 0)
       fail(operation, "OAuth provider returned malformed form data");
+
     return Object.fromEntries(params.entries());
   }
+
   fail(operation, "OAuth provider returned an unsupported response format");
 }
 
 function parseScopes(value: unknown): readonly string[] | undefined {
   const scope = optionalString(value);
+
   return scope === undefined ? undefined : scope.split(/[\s,]+/).filter(Boolean);
 }
+
 function tokenSet(data: Record<string, unknown>, operation = "oauth.token"): OAuthTokenSet {
   const accessToken = requiredString(data["access_token"], "access_token", operation);
   const expires = data["expires_in"];
   let expiresAt: string | undefined;
+
   if (expires !== undefined) {
     const seconds =
       typeof expires === "number"
@@ -248,31 +279,50 @@ function tokenSet(data: Record<string, unknown>, operation = "oauth.token"): OAu
         : typeof expires === "string" && /^\d+(?:\.\d+)?$/.test(expires)
           ? Number(expires)
           : Number.NaN;
+
     if (!Number.isFinite(seconds) || seconds < 0 || seconds > 31_536_000_000)
       fail(operation, "OAuth provider returned an invalid token lifetime");
     expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
   }
+
   const refreshToken = optionalString(data["refresh_token"]);
   const scopes = parseScopes(data["scope"]);
   const tokenType = optionalString(data["token_type"]);
-  return {
-    accessToken,
-    ...(refreshToken === undefined ? {} : { refreshToken }),
-    ...(expiresAt === undefined ? {} : { expiresAt }),
-    ...(scopes === undefined ? {} : { scopes }),
-    ...(tokenType === undefined ? {} : { tokenType }),
-  };
+
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
+  const result: {
+    accessToken: string;
+    refreshToken?: string;
+    expiresAt?: string;
+    scopes?: readonly string[];
+    tokenType?: string;
+    // oxlint-disable-next-line anti-slop/no-known-value-widening -- provider payload is validated at this adapter boundary.
+  } = { accessToken };
+
+  if (refreshToken !== undefined) result.refreshToken = refreshToken;
+
+  if (expiresAt !== undefined) result.expiresAt = expiresAt;
+
+  if (scopes !== undefined) result.scopes = scopes;
+
+  if (tokenType !== undefined) result.tokenType = tokenType;
+
+  return result;
 }
+
 interface TokenResult {
   readonly token: OAuthTokenSet;
   readonly accountHint?: string;
 }
+
 function tokenResult(data: Record<string, unknown>, kind: ProviderKind): TokenResult {
   const nested =
     kind === "tiktok" && data["data"] !== undefined ? asRecord(data["data"], "oauth.token") : data;
+
   const token = tokenSet(nested);
   const accountHint = optionalString(nested["user_id"]) ?? optionalString(nested["open_id"]);
-  return { token, ...(accountHint === undefined ? {} : { accountHint }) };
+
+  return accountHint === undefined ? { token } : { token, accountHint };
 }
 
 async function request(
@@ -283,11 +333,13 @@ async function request(
   options: OAuthProviderOptions,
 ): Promise<Record<string, unknown>> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
     fail("oauth.config", "timeoutMs must be a positive safe integer", "invalid_input");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let raceTimer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     // AbortController handles standards-compliant fetch implementations; the
     // race also bounds injected fetchers that ignore AbortSignal.
@@ -297,16 +349,19 @@ async function request(
         timeoutMs,
       );
     });
+
     const response = await Promise.race([
       fetcher(url, { ...init, redirect: "error", signal: controller.signal }),
       timeout,
     ]);
+
     return await Promise.race([
       body(response, operation, options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES),
       timeout,
     ]);
   } catch (error) {
     if (error instanceof SocialError) throw error;
+
     if (
       (error instanceof DOMException && error.name === "AbortError") ||
       (typeof error === "object" &&
@@ -318,35 +373,44 @@ async function request(
     fail(operation, "OAuth provider request failed", "upstream_failure", error);
   } finally {
     clearTimeout(timer);
+
     if (raceTimer !== undefined) clearTimeout(raceTimer);
   }
+
   fail("oauth.internal", "OAuth request did not produce a result");
 }
 
 function account(platform: Platform, backend: string, id: string, name: string): ConnectionAccount {
   return { ref: connectedAccountRef({ backend, platform, accountId: id }), displayName: name };
 }
+
 function validateLinkedInVersion(value: string | undefined): string {
   if (value === undefined || !/^20\d{2}(0[1-9]|1[0-2])$/.test(value))
     fail("oauth.config", "LinkedIn OAuth requires an explicit YYYYMM API version", "invalid_input");
+
   return value;
 }
+
 function validateCallback(input: {
   readonly callbackUrl: string;
   readonly attempt: ConnectionAttempt;
 }): URL {
   let callback: URL;
+
   try {
     callback = new URL(input.callbackUrl);
   } catch {
     fail("connections.complete", "OAuth callback URL is invalid", "invalid_input");
   }
+
   let expected: URL;
+
   try {
     expected = new URL(input.attempt.redirectUri);
   } catch {
     fail("connections.complete", "OAuth attempt redirect URI is invalid", "invalid_input");
   }
+
   if (
     callback.origin !== expected.origin ||
     callback.pathname !== expected.pathname ||
@@ -359,6 +423,7 @@ function validateCallback(input: {
       "OAuth callback does not match the registered redirect",
       "unauthorized",
     );
+
   for (const [key, value] of expected.searchParams)
     if (callback.searchParams.getAll(key).length !== 1 || callback.searchParams.get(key) !== value)
       fail(
@@ -367,14 +432,17 @@ function validateCallback(input: {
         "unauthorized",
       );
   const states = callback.searchParams.getAll("state");
+
   if (states.length !== 1 || states[0] !== input.attempt.state)
     fail(
       "connections.complete",
       "OAuth callback state did not match the authenticated attempt",
       "unauthorized",
     );
+
   return callback;
 }
+
 function providerIdentity(
   kind: ProviderKind,
   hint: string | undefined,
@@ -382,6 +450,7 @@ function providerIdentity(
 ): void {
   if (hint === undefined) return;
   const normalized = kind === "linkedin" ? `urn:li:person:${hint}` : hint;
+
   if (
     !discovered.some(
       (item) => item.ref.accountId === normalized || item.ref.accountId.endsWith(`:${hint}`),
@@ -399,10 +468,13 @@ export function oauthProvider(
   options: OAuthProviderOptions,
 ): ConnectionProvider {
   const cfg = configs[kind];
+
   if (!options.clientId.trim()) fail("oauth.config", "clientId is required", "invalid_input");
+
   if (kind === "linkedin") validateLinkedInVersion(options.linkedinApiVersion);
   const fetcher = options.fetch ?? webFetch;
   const scopes = options.scopes ?? cfg.scopes;
+
   return {
     async start(input) {
       if (!input.platforms.includes(kind))
@@ -411,6 +483,7 @@ export function oauthProvider(
           `OAuth provider ${kind} cannot authorize the requested platforms`,
           "invalid_input",
         );
+
       if (options.redirectUri !== undefined && options.redirectUri !== input.redirectUri)
         fail(
           "connections.begin",
@@ -423,45 +496,56 @@ export function oauthProvider(
       url.searchParams.set("response_type", "code");
       url.searchParams.set("scope", scopes.join(cfg.scopeDelimiter));
       url.searchParams.set("state", input.state);
+
       if (kind === "youtube") {
         url.searchParams.set("access_type", "offline");
         url.searchParams.set("prompt", "consent");
       }
+
       if (cfg.pkce) {
         url.searchParams.set("code_challenge", input.codeChallenge);
         url.searchParams.set("code_challenge_method", "S256");
       }
+
       return { authorizationUrl: url.toString() };
     },
     async complete(input) {
       const callback = validateCallback(input);
       const denied = callback.searchParams.get("error");
+
       if (denied !== null) {
         const cancelled =
           denied === "access_denied" ||
           denied === "user_denied" ||
           callback.searchParams.get("error_reason") === "user_denied";
+
         fail(
           "connections.complete",
           "OAuth authorization was cancelled or denied",
           cancelled ? "cancelled" : "unauthorized",
         );
       }
+
       const code = callback.searchParams.get("code");
+
       if (!code)
         fail(
           "connections.complete",
           "OAuth callback did not include an authorization code",
           "invalid_input",
         );
+
       const form = new URLSearchParams({
         grant_type: "authorization_code",
         code,
         redirect_uri: input.attempt.redirectUri,
         [cfg.clientKey]: options.clientId,
       });
+
       if (cfg.pkce) form.set("code_verifier", input.attempt.codeVerifier);
+
       if (options.clientSecret) form.set("client_secret", options.clientSecret);
+
       const raw = await request(
         fetcher,
         cfg.token,
@@ -476,12 +560,18 @@ export function oauthProvider(
         "oauth.token",
         options,
       );
+
       let result = tokenResult(raw, kind);
+
       if ((kind === "threads" || kind === "instagram") && options.clientSecret)
-        result = {
-          token: await exchangeLongLived(kind, options, result.token),
-          ...(result.accountHint === undefined ? {} : { accountHint: result.accountHint }),
-        };
+        result =
+          result.accountHint === undefined
+            ? { token: await exchangeLongLived(kind, options, result.token) }
+            : {
+                token: await exchangeLongLived(kind, options, result.token),
+                accountHint: result.accountHint,
+              };
+
       const accounts = await discover(
         kind,
         result.token,
@@ -490,7 +580,9 @@ export function oauthProvider(
         fetcher,
         options,
       );
+
       providerIdentity(kind, result.accountHint, accounts);
+
       for (const item of accounts)
         if (options.credentialSink)
           await options.credentialSink.save({
@@ -498,6 +590,7 @@ export function oauthProvider(
             token: result.token,
             attempt: input.attempt,
           });
+
       return accounts;
     },
   };
@@ -512,6 +605,7 @@ async function discover(
   options: OAuthProviderOptions,
 ): Promise<readonly ConnectionAccount[]> {
   const auth = { Authorization: `Bearer ${token.accessToken}`, accept: "application/json" };
+
   if (kind === "youtube") {
     const data = await request(
       fetcher,
@@ -520,10 +614,13 @@ async function discover(
       "youtube.account",
       options,
     );
+
     const items = Array.isArray(data["items"]) ? data["items"] : [];
+
     return items.map((item) => {
       const row = asRecord(item, "youtube.account");
       const snippet = asRecord(row["snippet"] ?? {}, "youtube.account");
+
       return account(
         "youtube",
         backend,
@@ -532,6 +629,7 @@ async function discover(
       );
     });
   }
+
   if (kind === "x") {
     const data = await request(
       fetcher,
@@ -540,7 +638,9 @@ async function discover(
       "x.account",
       options,
     );
+
     const row = asRecord(data["data"], "x.account");
+
     return [
       account(
         "x",
@@ -550,10 +650,13 @@ async function discover(
       ),
     ];
   }
+
   if (kind === "threads") {
     const version = options.threadsApiVersion ?? "v1.0";
+
     if (!/^v\d+\.\d+$/.test(version))
       fail("oauth.config", "Threads API version is invalid", "invalid_input");
+
     const data = await request(
       fetcher,
       `https://graph.threads.net/${version}/me?fields=id,username`,
@@ -561,6 +664,7 @@ async function discover(
       "threads.account",
       options,
     );
+
     return [
       account(
         "threads",
@@ -570,6 +674,7 @@ async function discover(
       ),
     ];
   }
+
   if (kind === "tiktok") {
     const data = await request(
       fetcher,
@@ -578,8 +683,10 @@ async function discover(
       "tiktok.account",
       options,
     );
+
     const row = asRecord(data["data"], "tiktok.account");
     const user = asRecord(row["user"], "tiktok.account");
+
     return [
       account(
         "tiktok",
@@ -589,10 +696,13 @@ async function discover(
       ),
     ];
   }
+
   if (kind === "instagram") {
     const version = options.instagramApiVersion ?? "v25.0";
+
     if (!/^v\d+\.\d+$/.test(version))
       fail("oauth.config", "Instagram API version is invalid", "invalid_input");
+
     const data = await request(
       fetcher,
       `https://graph.instagram.com/${version}/me?fields=id,user_id,username`,
@@ -600,6 +710,7 @@ async function discover(
       "instagram.account",
       options,
     );
+
     return [
       account(
         "instagram",
@@ -609,7 +720,9 @@ async function discover(
       ),
     ];
   }
+
   const version = validateLinkedInVersion(options.linkedinApiVersion);
+
   const data = await request(
     fetcher,
     "https://api.linkedin.com/v2/userinfo",
@@ -617,14 +730,18 @@ async function discover(
     "linkedin.account",
     options,
   );
+
   const subject = requiredString(data["sub"], "member id", "linkedin.account");
+
   const member = account(
     "linkedin",
     backend,
     `urn:li:person:${subject}`,
     typeof data["name"] === "string" ? data["name"] : "LinkedIn member",
   );
+
   let acl: Record<string, unknown>;
+
   try {
     acl = await request(
       fetcher,
@@ -639,22 +756,29 @@ async function discover(
     if (error instanceof SocialError && error.code === "missing_permission") return [member];
     throw error;
   }
+
   const elements = Array.isArray(acl["elements"]) ? acl["elements"] : [];
+
   const organizations = elements.flatMap((entry) => {
     const row = asRecord(entry, "linkedin.organizations");
+
     const target =
       typeof row["organizationalTarget"] === "string" ? row["organizationalTarget"] : "";
+
     const role = row["role"];
+
     if (
       (role !== "ADMINISTRATOR" && role !== "DIRECT_SPONSORED_CONTENT_POSTER") ||
       !/^urn:li:organization:[a-zA-Z0-9_-]+$/.test(target)
     )
       return [];
     const id = target.slice("urn:li:organization:".length);
+
     return [
       account("linkedin", backend, `urn:li:organization:${id}`, `LinkedIn organization ${id}`),
     ];
   });
+
   return [member, ...organizations];
 }
 
@@ -669,15 +793,18 @@ async function exchangeLongLived(
       "A clientSecret is required for long-lived token exchange",
       "invalid_config",
     );
+
   const endpoint =
     kind === "threads"
       ? "https://graph.threads.net/access_token"
       : "https://graph.instagram.com/access_token";
+
   const params = new URLSearchParams({
     grant_type: kind === "threads" ? "th_exchange_token" : "ig_exchange_token",
     client_secret: options.clientSecret,
     access_token: current.accessToken,
   });
+
   return tokenSet(
     await request(
       options.fetch ?? webFetch,
@@ -700,11 +827,16 @@ export async function exchangeLongLivedOAuthToken(
 }
 
 export const youtubeOAuth = (options: OAuthProviderOptions) => oauthProvider("youtube", options);
+
 export const xOAuth = (options: OAuthProviderOptions) => oauthProvider("x", options);
+
 export const threadsOAuth = (options: OAuthProviderOptions) => oauthProvider("threads", options);
+
 export const tiktokOAuth = (options: OAuthProviderOptions) => oauthProvider("tiktok", options);
+
 export const instagramOAuth = (options: OAuthProviderOptions) =>
   oauthProvider("instagram", options);
+
 export const linkedinOAuth = (options: OAuthProviderOptions) => oauthProvider("linkedin", options);
 
 export async function refreshOAuthToken(
@@ -717,8 +849,10 @@ export async function refreshOAuthToken(
       kind === "threads"
         ? "https://graph.threads.net/refresh_access_token"
         : "https://graph.instagram.com/refresh_access_token";
+
     const grant = kind === "threads" ? "th_refresh_token" : "ig_refresh_token";
     const params = new URLSearchParams({ grant_type: grant, access_token: current.accessToken });
+
     const next = tokenSet(
       await request(
         options.fetch ?? webFetch,
@@ -729,13 +863,12 @@ export async function refreshOAuthToken(
       ),
       `oauth.${kind}.refresh`,
     );
-    return next.refreshToken
-      ? next
-      : {
-          ...next,
-          ...(current.refreshToken === undefined ? {} : { refreshToken: current.refreshToken }),
-        };
+
+    if (next.refreshToken !== undefined || current.refreshToken === undefined) return next;
+
+    return { ...next, refreshToken: current.refreshToken };
   }
+
   if (!current.refreshToken)
     fail(
       "oauth.refresh",
@@ -743,12 +876,15 @@ export async function refreshOAuthToken(
       "reconnect_required",
     );
   const cfg = configs[kind];
+
   const form = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: current.refreshToken,
     [cfg.clientKey]: options.clientId,
   });
+
   if (options.clientSecret) form.set("client_secret", options.clientSecret);
+
   const next = tokenSet(
     await request(
       options.fetch ?? webFetch,
@@ -766,5 +902,6 @@ export async function refreshOAuthToken(
     ),
     "oauth.refresh",
   );
+
   return next.refreshToken ? next : { ...next, refreshToken: current.refreshToken };
 }

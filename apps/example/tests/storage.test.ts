@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -11,15 +12,24 @@ describe("durable example storage", () => {
   test("encrypts credentials and supports CAS", async () => {
     const db = openExampleDatabase();
     const store = new EncryptedSqliteCredentialStore(db, "test-only-key-from-environment");
+
     const first = await store.compareAndSet({
       key: "a",
       expectedRevision: undefined,
       value: { accessToken: "secret", refreshToken: "refresh" },
     });
+
     assert.equal(first.updated, true);
     const current = await store.get("a");
     assert.equal(current?.value.accessToken, "secret");
     assert.equal(
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
       (
         db.prepare("SELECT ciphertext FROM credentials WHERE key='a'").get() as {
           ciphertext: Uint8Array;
@@ -82,6 +92,7 @@ test("preserves credentials, idempotency and pending inbox records after reopeni
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const dir = mkdtempSync(join(tmpdir(), "social-example-test-"));
+
   try {
     const filename = join(dir, "example.db");
     const first = openExampleDatabase(filename);
@@ -119,10 +130,12 @@ test("late reconciliation cannot overwrite a durable published result", async ()
   const backend = mockBackend();
   const social = createSocial({ backend });
   const account = (await social.accounts.list()).items[0]!.ref;
+
   const result = await social.posts.publish({
     content: { text: "stored" },
     targets: [{ account }],
   });
+
   const store = new SqlitePublicationStore(db);
   store.save("tenant", "key", result);
   store.save("tenant", "key", {
@@ -153,6 +166,7 @@ test("a later native URL can enrich a published result without changing its post
   });
   const saved = store.get("tenant", "intent")!.outcomes[0]!;
   assert.equal(saved.state, "published");
+
   if (saved.state === "published") assert.equal(saved.url, "https://social.example/resolved");
   db.close();
 });

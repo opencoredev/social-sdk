@@ -16,9 +16,11 @@ describe("server connection lifecycle", () => {
     const store = new MemoryConnectionStore();
     let exchanges = 0;
     let release: () => void = () => {};
+
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const account: ConnectionAccount = {
       ref: {
         kind: "connected-account",
@@ -29,6 +31,7 @@ describe("server connection lifecycle", () => {
       },
       displayName: "A",
     };
+
     const provider = {
       async start() {
         return { authorizationUrl: "https://provider.invalid/authorize" };
@@ -36,10 +39,13 @@ describe("server connection lifecycle", () => {
       async complete() {
         exchanges++;
         await gate;
+
         return [account];
       },
     };
+
     const manager = new ConnectionManager({ store });
+
     const started = await manager.begin({
       backend: "direct",
       tenantId: "tenant",
@@ -49,6 +55,7 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     });
+
     const callback = {
       attemptId: started.attempt.id,
       tenantId: "tenant",
@@ -58,7 +65,9 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     };
+
     const first = manager.discover(callback);
+
     // Drain promise jobs until the provider has entered its controlled exchange.
     while (exchanges === 0) await Promise.resolve();
     const reconstructed = new ConnectionManager({ store });
@@ -70,12 +79,14 @@ describe("server connection lifecycle", () => {
     assert.deepEqual(store.grants(), []);
     assert.deepEqual(await reconstructed.discover(callback), [account]);
     assert.equal(exchanges, 1);
+
     const selection = {
       attemptId: started.attempt.id,
       tenantId: "tenant",
       principalId: "user",
       selectedAccountIds: ["a"],
     };
+
     await assert.rejects(reconstructed.select({ ...selection, tenantId: "other" }));
     await assert.rejects(
       reconstructed.select({ ...selection, selectedAccountIds: ["not-discovered"] }),
@@ -89,6 +100,7 @@ describe("server connection lifecycle", () => {
   test("never replays a one-use code after losing the exchange response", async () => {
     const store = new MemoryConnectionStore();
     let exchanges = 0;
+
     const provider = {
       async start() {
         return { authorizationUrl: "https://provider.invalid/authorize" };
@@ -98,7 +110,9 @@ describe("server connection lifecycle", () => {
         throw new Error("lost response");
       },
     };
+
     const manager = new ConnectionManager({ store });
+
     const started = await manager.begin({
       backend: "direct",
       tenantId: "tenant",
@@ -108,6 +122,7 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     });
+
     const callback = {
       attemptId: started.attempt.id,
       tenantId: "tenant",
@@ -117,6 +132,7 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     };
+
     await assert.rejects(manager.discover(callback));
     await assert.rejects(new ConnectionManager({ store }).discover(callback));
     assert.equal(exchanges, 1);
@@ -126,12 +142,14 @@ describe("server connection lifecycle", () => {
   test("rejects altered redirect parameters, callback-state conflicts and provider account scope swaps", async () => {
     const store = new MemoryConnectionStore();
     let completions = 0;
+
     const provider = {
       async start() {
         return { authorizationUrl: "https://provider.invalid/authorize" };
       },
       async complete(): Promise<readonly ConnectionAccount[]> {
         completions++;
+
         return [
           {
             ref: {
@@ -146,8 +164,10 @@ describe("server connection lifecycle", () => {
         ];
       },
     };
+
     const manager = new ConnectionManager({ store });
     const redirectUri = "https://app.invalid/callback?route=trusted";
+
     const begin = {
       backend: "mock",
       tenantId: "tenant",
@@ -157,10 +177,12 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: [redirectUri],
       provider,
     };
+
     await assert.rejects(
       manager.begin({ ...begin, redirectUri: "https://app.invalid/callback?route=other" }),
     );
     const started = await manager.begin(begin);
+
     const complete = {
       attemptId: started.attempt.id,
       tenantId: "tenant",
@@ -171,6 +193,7 @@ describe("server connection lifecycle", () => {
       selectedAccountIds: ["a"],
       provider,
     };
+
     await assert.rejects(
       manager.complete({ ...complete, callbackUrl: "https://app.invalid/callback?route=other" }),
     );
@@ -185,6 +208,7 @@ describe("server connection lifecycle", () => {
   test("binds PKCE/state to an authenticated attempt and grants selected accounts", async () => {
     const store = new MemoryConnectionStore();
     let challenge = "";
+
     const provider = {
       async start(input: {
         readonly codeChallenge: string;
@@ -194,6 +218,7 @@ describe("server connection lifecycle", () => {
         readonly redirectUri: string;
       }) {
         challenge = input.codeChallenge;
+
         return { authorizationUrl: `https://provider.invalid/authorize?state=${input.state}` };
       },
       async complete(): Promise<readonly ConnectionAccount[]> {
@@ -221,11 +246,13 @@ describe("server connection lifecycle", () => {
         ];
       },
     };
+
     const manager = new ConnectionManager({
       store,
       now: () => new Date("2026-01-01T00:00:00.000Z"),
       randomBytes: (length) => new Uint8Array(length).fill(7),
     });
+
     const started = await manager.begin({
       backend: "mock",
       tenantId: "tenant-a",
@@ -235,7 +262,9 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/oauth/callback"],
       provider,
     });
+
     assert.ok(challenge.length > 20);
+
     const grants = await manager.complete({
       attemptId: started.attempt.id,
       tenantId: "tenant-a",
@@ -246,6 +275,7 @@ describe("server connection lifecycle", () => {
       selectedAccountIds: ["b"],
       provider,
     });
+
     assert.equal(grants.length, 1);
     assert.equal(grants[0]?.account.accountId, "b");
     await assert.rejects(
@@ -264,6 +294,7 @@ describe("server connection lifecycle", () => {
 
   test("rejects callback state and redirect mismatches", async () => {
     const store = new MemoryConnectionStore();
+
     const provider = {
       async start() {
         return { authorizationUrl: "https://provider.invalid" };
@@ -272,11 +303,13 @@ describe("server connection lifecycle", () => {
         return [];
       },
     };
+
     const manager = new ConnectionManager({
       store,
       now: () => new Date("2026-01-01T00:00:00.000Z"),
       randomBytes: (length) => new Uint8Array(length).fill(3),
     });
+
     const started = await manager.begin({
       backend: "mock",
       tenantId: "tenant",
@@ -286,6 +319,7 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     });
+
     await assert.rejects(
       manager.complete({
         attemptId: started.attempt.id,
@@ -339,6 +373,7 @@ describe("server connection lifecycle", () => {
   test("expires, rejects denied selection, and consumes a callback exactly once", async () => {
     let now = new Date("2026-01-01T00:00:00.000Z");
     const store = new MemoryConnectionStore();
+
     const provider = {
       async start() {
         return { authorizationUrl: "https://provider.invalid" };
@@ -358,13 +393,16 @@ describe("server connection lifecycle", () => {
         ];
       },
     };
+
     let randomSequence = 0;
+
     const manager = new ConnectionManager({
       store,
       now: () => now,
       randomBytes: (length) => new Uint8Array(length).fill(++randomSequence),
       ttlMs: 10,
     });
+
     const expired = await manager.begin({
       backend: "mock",
       tenantId: "tenant",
@@ -374,6 +412,7 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     });
+
     now = new Date("2026-01-01T00:00:01.000Z");
     await assert.rejects(
       manager.complete({
@@ -388,6 +427,7 @@ describe("server connection lifecycle", () => {
       }),
     );
     now = new Date("2026-01-01T00:00:00.000Z");
+
     const selected = await manager.begin({
       backend: "mock",
       tenantId: "tenant",
@@ -397,6 +437,7 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     });
+
     await assert.rejects(
       manager.complete({
         attemptId: selected.attempt.id,
@@ -409,6 +450,7 @@ describe("server connection lifecycle", () => {
         provider,
       }),
     );
+
     const first = manager.complete({
       attemptId: selected.attempt.id,
       tenantId: "tenant",
@@ -419,6 +461,7 @@ describe("server connection lifecycle", () => {
       selectedAccountIds: ["a"],
       provider,
     });
+
     const second = manager.complete({
       attemptId: selected.attempt.id,
       tenantId: "tenant",
@@ -429,6 +472,7 @@ describe("server connection lifecycle", () => {
       selectedAccountIds: ["a"],
       provider,
     });
+
     const results = await Promise.allSettled([first, second]);
     assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(store.grants().length, 1);
@@ -440,6 +484,7 @@ describe("server connection lifecycle", () => {
         throw new Error("database unavailable");
       }
     })();
+
     const provider = {
       async start() {
         return { authorizationUrl: "https://provider.invalid" };
@@ -459,11 +504,13 @@ describe("server connection lifecycle", () => {
         ];
       },
     };
+
     const manager = new ConnectionManager({
       store,
       now: () => new Date("2026-01-01T00:00:00.000Z"),
       randomBytes: (length) => new Uint8Array(length).fill(9),
     });
+
     const started = await manager.begin({
       backend: "mock",
       tenantId: "tenant",
@@ -473,6 +520,7 @@ describe("server connection lifecycle", () => {
       allowedRedirectUris: ["https://app.invalid/callback"],
       provider,
     });
+
     await assert.rejects(
       manager.complete({
         attemptId: started.attempt.id,
@@ -492,14 +540,17 @@ describe("credential CAS lifecycle", () => {
   test("rotates under a lock and rejects stale writes", async () => {
     const store = new MemoryCredentialStore();
     const manager = new CredentialManager(store, new MemoryCredentialLock());
+
     const revision = await manager.save("account-a", {
       accessToken: "old",
       refreshToken: "refresh",
     });
+
     const next = await manager.rotate("account-a", async (current) => ({
       ...current,
       accessToken: "new",
     }));
+
     assert.equal(next.accessToken, "new");
     await assert.rejects(manager.save("account-a", { accessToken: "stale" }, revision));
   });
@@ -515,14 +566,18 @@ describe("credential CAS lifecycle", () => {
       }),
     );
     assert.equal((await manager.get("account-b"))?.value.accessToken, "old");
+
     const first = manager.rotate("account-b", async (current) => {
       await new Promise((resolve) => setTimeout(resolve, 2));
+
       return { ...current, accessToken: "new" };
     });
+
     const second = manager.rotate("account-b", async (current) => ({
       ...current,
       accessToken: "raced",
     }));
+
     const results = await Promise.allSettled([first, second]);
     assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal((await manager.get("account-b"))?.value.accessToken, "new");

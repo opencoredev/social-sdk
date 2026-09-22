@@ -2,6 +2,7 @@ import { createSocial } from "@opencoredev/social-sdk";
 import { MemoryIdempotencyStore, mockBackend } from "@opencoredev/social-sdk/testing";
 
 const backend = mockBackend({ scenario: "immediate-text-success" });
+
 const social = createSocial({
   backend,
   idempotencyStore: new MemoryIdempotencyStore(),

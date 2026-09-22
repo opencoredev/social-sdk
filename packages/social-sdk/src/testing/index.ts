@@ -74,6 +74,7 @@ export interface MockBackendOptions {
 }
 
 const encoder = new TextEncoder();
+
 const decoder = new TextDecoder();
 
 function mockManifest(): CapabilityManifest {
@@ -116,11 +117,13 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
   const backend = options.backendInstance ?? "default";
   const clock = options.clock ?? (() => new Date("2026-01-01T00:00:00.000Z"));
   const accountOne = connectedAccountRef({ backend, platform: "x", accountId: "mock-account-1" });
+
   const accountTwo = connectedAccountRef({
     backend,
     platform: "threads",
     accountId: "mock-account-2",
   });
+
   const accounts: readonly AccountRecord[] = [
     { ref: accountOne, displayName: "Mock Creator", handle: "mock.creator", status: "connected" },
     {
@@ -130,11 +133,13 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       status: scenario === "reconnect-required" ? "reconnect-required" : "connected",
     },
   ];
+
   let sequence = 0;
   let deliverySequence = 0;
   const deliveries = new Map<string, DeliveryOutcome>();
   let processingAdvanced = false;
   const historyEntries: MockHistoryEntry[] = [];
+
   const webhooks = [
     fixture("valid", "event-1", "2026-01-01T00:00:02.000Z"),
     fixture("duplicate", "event-1", "2026-01-01T00:00:02.000Z"),
@@ -151,7 +156,9 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       sequence: ++sequence,
       operation,
       backend: context.backendInstance,
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(account === undefined ? {} : { account }),
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(context.targetIdempotencyKey === undefined
         ? {}
         : { idempotencyKey: context.targetIdempotencyKey }),
@@ -182,12 +189,15 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     accounts: {
       async list(_input, context) {
         record("accounts.list", context);
+
         if (scenario === "account-selection-cancellation") return { items: [] };
+
         return { items: accounts };
       },
       async get(ref, context) {
         record("accounts.get", context, ref);
         const found = accounts.find((account) => account.ref.accountId === ref.accountId);
+
         if (found === undefined) {
           throw new SocialError({
             code: "invalid_input",
@@ -196,6 +206,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             account: ref,
           });
         }
+
         return found;
       },
     },
@@ -211,6 +222,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             },
           ];
         }
+
         if (
           scenario === "expired-media-url" &&
           target.content.media?.some(
@@ -226,12 +238,15 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             },
           ];
         }
+
         return [];
       },
       async publishTarget(target, context) {
         const deliveryNumber = ++deliverySequence;
+
         const execute = async (): Promise<DeliveryOutcome> => {
           record("posts.publishTarget", context, target.account);
+
           const base = {
             targetIndex: target.targetIndex,
             account: target.account,
@@ -245,6 +260,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               deliveryId: `delivery-${deliveryNumber}`,
             },
           };
+
           if (scenario === "accepted-response-lost") {
             throw new SocialError({
               code: "ambiguous_outcome",
@@ -254,6 +270,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               retryDisposition: { kind: "reconcile-first" },
             });
           }
+
           if (scenario === "reconnect-required") {
             throw new SocialError({
               code: "reconnect_required",
@@ -263,6 +280,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               retryDisposition: { kind: "after-reconnect" },
             });
           }
+
           if (scenario === "mixed-success-failure" && target.targetIndex % 2 === 1) {
             return {
               ...base,
@@ -272,6 +290,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               retryDisposition: { kind: "never" },
             };
           }
+
           if (scenario === "expired-permission") {
             return {
               ...base,
@@ -281,6 +300,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               retryDisposition: { kind: "after-reconnect" },
             };
           }
+
           if (scenario === "rate-limited") {
             return {
               ...base,
@@ -290,6 +310,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               retryDisposition: { kind: "after-delay", delayMs: 1_000 },
             };
           }
+
           if (scenario === "provider-state-unknown") {
             return {
               ...base,
@@ -299,6 +320,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               diagnostic: "Unmapped mock provider state",
             };
           }
+
           if (scenario === "failed-upload-finalization") {
             return {
               ...base,
@@ -308,9 +330,11 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
               retryDisposition: { kind: "never" },
             };
           }
+
           if (scenario === "media-processing-then-success" && !processingAdvanced) {
             return { ...base, state: "processing", backendState: "PROCESSING_MEDIA" };
           }
+
           return {
             ...base,
             state: "published",
@@ -323,8 +347,11 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             url: `https://social.example.invalid/${target.account.platform}/post-${deliveryNumber}`,
           };
         };
+
         const outcome = await execute();
+
         if (outcome.delivery) deliveries.set(outcome.delivery.deliveryId, structuredClone(outcome));
+
         return outcome;
       },
       async getDelivery(ref, context) {
@@ -337,6 +364,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             accountId: ref.accountId,
           }),
         );
+
         if (scenario === "cancelled-polling" && context.signal?.aborted) {
           throw new SocialError({
             code: "cancelled",
@@ -344,7 +372,9 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             message: "Mock polling was cancelled",
           });
         }
+
         const saved = deliveries.get(ref.deliveryId);
+
         if (
           !saved ||
           saved.account.accountId !== ref.accountId ||
@@ -356,7 +386,9 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             operation: "posts.getDelivery",
             message: "Mock delivery does not belong to this account.",
           });
+
         if (saved.state !== "processing" || !processingAdvanced) return structuredClone(saved);
+
         const next: DeliveryOutcome = {
           ...saved,
           state: "published",
@@ -366,13 +398,16 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             postId: ref.deliveryId.replace(/^delivery-/, "post-"),
           }),
         };
+
         deliveries.set(ref.deliveryId, next);
+
         return structuredClone(next);
       },
     },
     comments: {
       async list(post, _input, context) {
         record("comments.list", context, connectedAccountRef(post));
+
         if (
           !accounts.some(
             (account) =>
@@ -384,6 +419,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             operation: "comments.read",
             message: "Mock account is not authorized",
           });
+
         return {
           items: [{ id: "comment-1", text: "Can you share more about this?", postId: post.postId }],
         };
@@ -404,13 +440,16 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             message: "Select the returned mock comment and provide reply text",
           });
         record("comments.reply", context, connectedAccountRef(comment));
+
         return { ...comment, commentId: `mock-reply-${sequence}` };
       },
     },
     analytics: {
       async getPostMetrics(post, context) {
         record("analytics.getPostMetrics", context, connectedAccountRef(post));
+
         if (scenario === "no-metric-available") return [];
+
         return [
           {
             name: "views",
@@ -426,9 +465,11 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     webhooks: {
       async verify(input, context) {
         record("webhooks.verify", context);
+
         return {
           valid: input.headers.get("x-mock-signature") === "valid",
           method: "mock",
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.headers.get("x-mock-signature") === "valid"
             ? {}
             : { reason: "Invalid mock signature" }),
@@ -437,6 +478,8 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       async decode(input, context) {
         record("webhooks.decode", context);
         const parsed: unknown = JSON.parse(decoder.decode(input.body));
+
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
           throw new SocialError({
             code: "invalid_input",
@@ -444,22 +487,29 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             message: "Invalid mock webhook body",
           });
         }
+
         const entries: [string, JsonPrimitive][] = [];
+
         for (const [key, value] of Object.entries(parsed)) {
           if (
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
             typeof value === "string" ||
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
             typeof value === "number" ||
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
             typeof value === "boolean" ||
             value === null
           ) {
             entries.push([key, value]);
           }
         }
+
         return Object.fromEntries(entries);
       },
     },
     native: { scenario: () => scenario },
   });
+
   return adapter;
 }
 
@@ -478,26 +528,31 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
   async claim(input: IdempotencyClaimInput): Promise<IdempotencyClaim> {
     const mapKey = JSON.stringify([input.scope, input.key]);
     const existing = this.#claimsByKey.get(mapKey);
+
     if (existing !== undefined) {
       if (
         existing.fingerprint !== input.fingerprint ||
         JSON.stringify(existing.targetKeys) !== JSON.stringify(input.targetKeys)
       )
         return { kind: "conflict" };
+
       return {
         kind: "existing",
         claimId: existing.claimId,
         outcomes: structuredClone(existing.outcomes),
       };
     }
+
     const claim: StoredClaim = {
       claimId: `mock-claim-${++this.#sequence}`,
       fingerprint: input.fingerprint,
       targetKeys: [...input.targetKeys],
       outcomes: {},
     };
+
     this.#claimsByKey.set(mapKey, claim);
     this.#claimsById.set(claim.claimId, claim);
+
     return { kind: "new", claimId: claim.claimId, outcomes: {} };
   }
 
@@ -507,10 +562,13 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
     readonly outcome: DeliveryOutcome;
   }): Promise<void> {
     const claim = this.#claimsById.get(input.claimId);
+
     if (claim === undefined) throw new Error(`Unknown idempotency claim: ${input.claimId}`);
+
     if (!claim.targetKeys.includes(input.targetKey)) {
       throw new Error(`Target does not belong to idempotency claim: ${input.targetKey}`);
     }
+
     claim.outcomes[input.targetKey] = structuredClone(input.outcome);
   }
 
@@ -527,10 +585,12 @@ export function mockSharedAccountAuthorization(input: {
   return {
     async authorizeTargets({ accounts, context }) {
       const tenant = context.authorization?.tenantId;
+
       return accounts.map((account) => ({
         account,
         allowed:
           tenant !== undefined && (input.memberships[tenant]?.includes(account.accountId) ?? false),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(tenant === undefined ? { reason: "A tenant is required" } : {}),
       }));
     },

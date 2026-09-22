@@ -80,27 +80,33 @@ export interface ConnectionManagerOptions {
 function randomBytes(length: number): Uint8Array {
   const result = new Uint8Array(length);
   crypto.getRandomValues(result);
+
   return result;
 }
 
 function base64Url(bytes: Uint8Array): string {
   let binary = "";
+
   for (const byte of bytes) binary += String.fromCharCode(byte);
+
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 async function challenge(verifier: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+
   return base64Url(new Uint8Array(digest));
 }
 
 function allowedRedirect(value: string, allowlist: readonly string[], callback = false): boolean {
   let candidate: URL;
+
   try {
     candidate = new URL(value);
   } catch {
     return false;
   }
+
   if (
     candidate.username ||
     candidate.password ||
@@ -112,18 +118,23 @@ function allowedRedirect(value: string, allowlist: readonly string[], callback =
       ))
   )
     return false;
+
   return allowlist.some((entry) => {
     try {
       const allowed = new URL(entry);
+
       if (!callback) return candidate.href === allowed.href;
+
       if (candidate.origin !== allowed.origin || candidate.pathname !== allowed.pathname)
         return false;
+
       for (const [key, value] of allowed.searchParams)
         if (
           candidate.searchParams.getAll(key).length !== 1 ||
           candidate.searchParams.get(key) !== value
         )
           return false;
+
       return true;
     } catch {
       return false;
@@ -136,8 +147,10 @@ function ensureState(expected: string, actual: string): void {
   const actualBytes = new TextEncoder().encode(actual);
   let difference = expectedBytes.length ^ actualBytes.length;
   const length = Math.max(expectedBytes.length, actualBytes.length);
+
   for (let index = 0; index < length; index++)
     difference |= (expectedBytes[index] ?? 0) ^ (actualBytes[index] ?? 0);
+
   if (difference !== 0) {
     throw new SocialError({
       code: "unauthorized",
@@ -154,6 +167,7 @@ export class ConnectionManager {
 
   constructor(options: ConnectionManagerOptions) {
     const ttlMs = options.ttlMs ?? 10 * 60 * 1000;
+
     if (!Number.isSafeInteger(ttlMs) || ttlMs < 1)
       throw new SocialError({
         code: "invalid_config",
@@ -184,12 +198,14 @@ export class ConnectionManager {
         operation: "connections.begin",
         message: "An authenticated tenant and principal are required",
       });
+
     if (!allowedRedirect(input.redirectUri, input.allowedRedirectUris))
       throw new SocialError({
         code: "invalid_input",
         operation: "connections.begin",
         message: "redirectUri is not on the exact callback allowlist",
       });
+
     if (input.platforms.length === 0)
       throw new SocialError({
         code: "invalid_input",
@@ -201,6 +217,7 @@ export class ConnectionManager {
     const codeVerifier = base64Url(this.#options.randomBytes(48));
     const attemptId = base64Url(this.#options.randomBytes(18));
     const expiresAt = new Date(now.getTime() + this.#options.ttlMs).toISOString();
+
     const started = await input.provider.start({
       platforms: input.platforms,
       capabilities: input.capabilities ?? [],
@@ -208,7 +225,8 @@ export class ConnectionManager {
       state,
       codeChallenge: await challenge(codeVerifier),
     });
-    const attempt: ConnectionAttempt = {
+
+    const attemptBase = {
       id: attemptId,
       backend: input.backend,
       tenantId: input.tenantId,
@@ -218,12 +236,18 @@ export class ConnectionManager {
       redirectUri: input.redirectUri,
       state,
       codeVerifier,
-      ...(started.providerState === undefined ? {} : { providerState: started.providerState }),
       createdAt: now.toISOString(),
       expiresAt,
     };
+
+    const attempt: ConnectionAttempt =
+      started.providerState === undefined
+        ? attemptBase
+        : { ...attemptBase, providerState: started.providerState };
+
     await this.#options.store.save(attempt);
     const { state: publicState, codeVerifier: _privateVerifier, ...publicAttempt } = attempt;
+
     return {
       authorizationUrl: started.authorizationUrl,
       attempt: { ...publicAttempt, state: publicState },
@@ -240,18 +264,21 @@ export class ConnectionManager {
     readonly provider: ConnectionProvider;
   }): Promise<readonly ConnectionAccount[]> {
     const attempt = await this.#options.store.get(input.attemptId);
+
     if (attempt === undefined)
       throw new SocialError({
         code: "invalid_input",
         operation: "connections.complete",
         message: "Connection attempt was not found",
       });
+
     if (attempt.tenantId !== input.tenantId || attempt.principalId !== input.principalId)
       throw new SocialError({
         code: "unauthorized",
         operation: "connections.complete",
         message: "Connection attempt belongs to a different authenticated principal",
       });
+
     if (
       !allowedRedirect(input.callbackUrl, input.allowedRedirectUris, true) ||
       !allowedRedirect(input.callbackUrl, [attempt.redirectUri], true)
@@ -263,6 +290,7 @@ export class ConnectionManager {
       });
     ensureState(attempt.state, input.returnedState);
     const states = new URL(input.callbackUrl).searchParams.getAll("state");
+
     // Callers may pass a callback URL after extracting its state parameter; when
     // present, reject duplicates or a value that differs from the authenticated state.
     if (states.length > 1 || (states.length === 1 && states[0] !== input.returnedState))
@@ -271,6 +299,7 @@ export class ConnectionManager {
         operation: "connections.complete",
         message: "Callback state differs from the authenticated callback parameter",
       });
+
     if (this.#options.now().getTime() >= Date.parse(attempt.expiresAt))
       throw new SocialError({
         code: "timeout",
@@ -278,9 +307,12 @@ export class ConnectionManager {
         message: "Connection attempt expired",
       });
     const saved = await this.#options.store.getDiscoveredAccounts(attempt.id);
+
     if (saved) return saved;
+
     if (!(await this.#options.store.claimDiscovery(attempt.id))) {
       const completed = await this.#options.store.getDiscoveredAccounts(attempt.id);
+
       if (completed) return completed;
       throw new SocialError({
         code: "reconnect_required",
@@ -289,9 +321,11 @@ export class ConnectionManager {
           "Code exchange is already in progress or its result was lost. Wait for discovery or begin a new connection; the code will not be exchanged again.",
       });
     }
+
     const accounts = await input.provider.complete({ callbackUrl: input.callbackUrl, attempt });
     this.#validateAccounts(attempt, accounts);
     await this.#options.store.saveDiscoveredAccounts(attempt.id, accounts);
+
     return structuredClone(accounts);
   }
 
@@ -303,6 +337,7 @@ export class ConnectionManager {
         message: "The provider returned no connected accounts",
       });
     const known = new Set(accounts.map((account) => account.ref.accountId));
+
     if (
       known.size !== accounts.length ||
       accounts.some(
@@ -329,6 +364,7 @@ export class ConnectionManager {
     readonly selectedAccountIds: readonly string[];
   }): Promise<readonly ConnectionGrant[]> {
     const attempt = await this.#options.store.get(input.attemptId);
+
     if (
       !attempt ||
       attempt.tenantId !== input.tenantId ||
@@ -339,6 +375,7 @@ export class ConnectionManager {
         operation: "connections.select",
         message: "Connection attempt was not found for this authenticated principal",
       });
+
     if (this.#options.now().getTime() >= Date.parse(attempt.expiresAt))
       throw new SocialError({
         code: "timeout",
@@ -346,6 +383,7 @@ export class ConnectionManager {
         message: "Connection attempt expired",
       });
     const accounts = await this.#options.store.getDiscoveredAccounts(attempt.id);
+
     if (!accounts)
       throw new SocialError({
         code: "invalid_input",
@@ -354,6 +392,7 @@ export class ConnectionManager {
       });
     this.#validateAccounts(attempt, accounts);
     const selected = new Set(input.selectedAccountIds);
+
     if (!selected.size || selected.size !== input.selectedAccountIds.length)
       throw new SocialError({
         code: "invalid_input",
@@ -361,12 +400,14 @@ export class ConnectionManager {
         message: "Select one or more distinct discovered accounts",
       });
     const known = new Set(accounts.map(({ ref }) => ref.accountId));
+
     if ([...selected].some((id) => !known.has(id)))
       throw new SocialError({
         code: "unauthorized",
         operation: "connections.select",
         message: "Selected account was not returned by the provider",
       });
+
     return this.#options.store.complete({
       attemptId: attempt.id,
       state: attempt.state,
@@ -382,6 +423,7 @@ export class ConnectionManager {
     },
   ): Promise<readonly ConnectionGrant[]> {
     await this.discover(input);
+
     return this.select(input);
   }
 }
@@ -415,13 +457,16 @@ export class MemoryConnectionStore implements ConnectionStore {
 
   async get(attemptId: string): Promise<ConnectionAttempt | undefined> {
     const stored = this.#attempts.get(attemptId);
+
     return stored && !stored.consumed ? structuredClone(stored.attempt) : undefined;
   }
 
   async claimDiscovery(attemptId: string): Promise<boolean> {
     const stored = this.#attempts.get(attemptId);
+
     if (!stored || stored.consumed || stored.discoveryClaimed) return false;
     stored.discoveryClaimed = true;
+
     return true;
   }
 
@@ -430,6 +475,7 @@ export class MemoryConnectionStore implements ConnectionStore {
     accounts: readonly ConnectionAccount[],
   ): Promise<void> {
     const stored = this.#attempts.get(attemptId);
+
     if (!stored || stored.consumed || !stored.discoveryClaimed || stored.accounts)
       throw new SocialError({
         code: "unauthorized",
@@ -443,6 +489,7 @@ export class MemoryConnectionStore implements ConnectionStore {
     attemptId: string,
   ): Promise<readonly ConnectionAccount[] | undefined> {
     const stored = this.#attempts.get(attemptId);
+
     return stored?.accounts && !stored.consumed ? structuredClone(stored.accounts) : undefined;
   }
 
@@ -453,12 +500,14 @@ export class MemoryConnectionStore implements ConnectionStore {
     readonly selectedAccountIds: readonly string[];
   }): Promise<readonly ConnectionGrant[]> {
     const stored = this.#attempts.get(input.attemptId);
+
     if (stored === undefined || stored.consumed || stored.attempt.state !== input.state)
       throw new SocialError({
         code: "unauthorized",
         operation: "connections.complete",
         message: "Connection callback is invalid or already consumed",
       });
+
     if (!stored.accounts || JSON.stringify(stored.accounts) !== JSON.stringify(input.accounts))
       throw new SocialError({
         code: "unauthorized",
@@ -466,6 +515,7 @@ export class MemoryConnectionStore implements ConnectionStore {
         message: "Grants must match persisted discovery",
       });
     const selected = new Set(input.selectedAccountIds);
+
     const grants = input.accounts
       .filter((account) => selected.has(account.ref.accountId))
       .map((account) => ({
@@ -475,8 +525,10 @@ export class MemoryConnectionStore implements ConnectionStore {
         account: account.ref,
         capabilities: stored.attempt.capabilities,
       }));
+
     this.#grants.push(...structuredClone(grants));
     stored.consumed = true;
+
     return structuredClone(grants);
   }
 

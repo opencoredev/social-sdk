@@ -11,6 +11,7 @@ export function createTikTokConnection(input: {
   readonly allowedRedirectUris: readonly string[];
 }) {
   const sink = new MemoryOAuthCredentialSink();
+
   const provider = tiktokOAuth({
     clientId: requiredEnvironment("TIKTOK_CLIENT_KEY"),
     clientSecret: requiredEnvironment("TIKTOK_CLIENT_SECRET"),
@@ -18,7 +19,9 @@ export function createTikTokConnection(input: {
     scopes: ["user.info.basic", "video.publish"],
     credentialSink: sink,
   });
+
   const manager = createConnectionManager();
+
   return {
     async begin(connection: { readonly tenantId: string; readonly principalId: string }) {
       const started = await manager.begin({
@@ -31,6 +34,7 @@ export function createTikTokConnection(input: {
         allowedRedirectUris: input.allowedRedirectUris,
         provider,
       });
+
       return { authorizationUrl: started.authorizationUrl, attempt: started.attempt };
     },
     async complete(connection: {

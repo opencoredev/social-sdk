@@ -16,6 +16,7 @@ export function connectionHandlers(config: {
 }) {
   const connections = new ConnectionManager({ store: config.store });
   const allowedRedirectUris = [config.redirectUri];
+
   return {
     async begin(session: { tenantId: string; principalId: string }) {
       return connections.begin({

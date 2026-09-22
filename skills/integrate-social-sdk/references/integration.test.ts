@@ -8,6 +8,7 @@ test("renders independent mock outcomes", async () => {
     backend: mockBackend({ scenario: "mixed-success-failure" }),
     idempotencyStore: new MemoryIdempotencyStore(),
   });
+
   const result = await social.posts.publish({
     content: { text: "test" },
     targets: [
@@ -27,6 +28,7 @@ test("renders independent mock outcomes", async () => {
       },
     ],
   });
+
   assert.equal(result.outcomes[0]?.state, "published");
   assert.equal(result.outcomes[1]?.state, "failed");
 });
@@ -44,11 +46,13 @@ test("connection handlers bind the session and reject replay with an injected pr
   const { connectionHandlers } = await import("./connection-callback.js");
   const { MemoryConnectionStore } = await import("@opencoredev/social-sdk/server");
   const store = new MemoryConnectionStore();
+
   const account = connectedAccountRef({
     backend: "direct-x",
     platform: "x",
     accountId: "fixture-user",
   });
+
   const handler = connectionHandlers({
     backend: "direct-x",
     platforms: ["x"],
@@ -63,14 +67,17 @@ test("connection handlers bind the session and reject replay with an injected pr
       },
     },
   });
+
   const session = { tenantId: "tenant", principalId: "user" };
   const started = await handler.begin(session);
+
   const callback = {
     attemptId: started.attempt.id,
     returnedState: started.attempt.state,
     callbackUrl: `https://app.example.test/callback?state=${started.attempt.state}&code=fixture`,
     selectedAccountIds: [account.accountId],
   };
+
   await assert.rejects(handler.discover({ ...session, tenantId: "other" }, callback));
   assert.deepEqual((await handler.discover(session, callback))[0]?.ref, account);
   assert.deepEqual((await handler.select(session, callback))[0]?.account, account);
@@ -80,6 +87,7 @@ test("connection handlers bind the session and reject replay with an injected pr
 test("webhook recipe rejects invalid authentication and quarantines unknown accounts", async () => {
   const { receiveWebhook } = await import("./webhook-handler.js");
   const accepted: { state: string }[] = [];
+
   const input = {
     provider: "post-for-me" as const,
     backend: "managed",
@@ -95,6 +103,7 @@ test("webhook recipe rejects invalid authentication and quarantines unknown acco
     inbox: {
       async accept(record: { state: string }) {
         accepted.push(record);
+
         return "accepted" as const;
       },
     },
@@ -102,6 +111,7 @@ test("webhook recipe rejects invalid authentication and quarantines unknown acco
       return [];
     },
   };
+
   await assert.rejects(receiveWebhook({ ...input, headers: new Headers() }));
   assert.equal(accepted.length, 0);
   assert.equal((await receiveWebhook(input)).quarantined, true);

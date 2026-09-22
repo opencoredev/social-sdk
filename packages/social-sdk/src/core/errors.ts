@@ -90,14 +90,25 @@ export class SocialError extends Error {
       operation: this.operation,
       message: this.message,
       retryDisposition: this.retryDisposition,
-      ...(this.backend === undefined ? {} : { backend: this.backend }),
-      ...(this.account === undefined ? {} : { account: this.account }),
-      ...(this.issues === undefined ? {} : { issues: this.issues }),
-      ...(this.correlationId === undefined ? {} : { correlationId: this.correlationId }),
-      ...(this.upstreamStatus === undefined ? {} : { upstreamStatus: this.upstreamStatus }),
-      ...(this.upstreamCode === undefined ? {} : { upstreamCode: this.upstreamCode }),
-      ...(this.details === undefined ? {} : { details: this.details }),
     };
+
+    if (this.backend !== undefined) Object.assign(serialized, { backend: this.backend });
+
+    if (this.account !== undefined) Object.assign(serialized, { account: this.account });
+
+    if (this.issues !== undefined) Object.assign(serialized, { issues: this.issues });
+
+    if (this.correlationId !== undefined)
+      Object.assign(serialized, { correlationId: this.correlationId });
+
+    if (this.upstreamStatus !== undefined)
+      Object.assign(serialized, { upstreamStatus: this.upstreamStatus });
+
+    if (this.upstreamCode !== undefined)
+      Object.assign(serialized, { upstreamCode: this.upstreamCode });
+
+    if (this.details !== undefined) Object.assign(serialized, { details: this.details });
+
     return serialized;
   }
 }

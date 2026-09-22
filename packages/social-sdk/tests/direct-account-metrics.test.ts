@@ -14,12 +14,14 @@ const context = (backend: string): AdapterOperationContext => ({
 test("X account metrics request public user metrics and preserve zero values", async () => {
   const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
   let requested: URL | undefined;
+
   const adapter = x({
     auth: { userId: "u1", accessToken: "token" },
     clock: () => new Date("2026-01-01T00:00:00.000Z"),
     fetch: async (input, init) => {
       assert.equal(init?.method, "GET");
       requested = new URL(String(input));
+
       return Response.json({
         data: {
           id: "u1",
@@ -28,6 +30,7 @@ test("X account metrics request public user metrics and preserve zero values", a
       });
     },
   });
+
   const metrics = await adapter.analytics!.getAccountMetrics!(account, context("default"));
   assert.equal(requested?.pathname, "/2/users/u1");
   assert.equal(requested?.searchParams.get("user.fields"), "id,public_metrics");
@@ -47,12 +50,14 @@ test("X account metrics request public user metrics and preserve zero values", a
 test("Threads account insights map total and latest time-series values", async () => {
   const account = connectedAccountRef({ backend: "default", platform: "threads", accountId: "u1" });
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "token" },
     clock: () => new Date("2026-01-02T00:00:00.000Z"),
     fetch: async (input, init) => {
       assert.equal(init?.method, "GET");
       requested = new URL(String(input));
+
       return Response.json({
         data: [
           {
@@ -76,6 +81,7 @@ test("Threads account insights map total and latest time-series values", async (
       });
     },
   });
+
   const metrics = await adapter.analytics!.getAccountMetrics!(account, context("default"));
   assert.equal(requested?.pathname, "/v1.0/u1/threads_insights");
   assert.equal(
@@ -109,16 +115,20 @@ test("Instagram account metrics use allowlisted profile fields and verify user i
     platform: "instagram",
     accountId: "ig1",
   });
+
   let requested: URL | undefined;
+
   const adapter = instagram({
     auth: { accountId: "ig1", accessToken: "token" },
     clock: () => new Date("2026-01-03T00:00:00.000Z"),
     fetch: async (input, init) => {
       assert.equal(init?.method, "GET");
       requested = new URL(String(input));
+
       return Response.json({ user_id: "ig1", followers_count: 0, media_count: 5, secret: "omit" });
     },
   });
+
   const metrics = await adapter.analytics!.getAccountMetrics!(account, context("instagram"));
   assert.equal(requested?.pathname, "/v25.0/me");
   assert.equal(requested?.searchParams.get("fields"), "user_id,followers_count,media_count");

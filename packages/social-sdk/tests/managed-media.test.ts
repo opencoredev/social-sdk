@@ -10,6 +10,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
     const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "a1" });
     const make = provider === "zernio" ? zernio : postForMe;
     let calls = 0;
+
     const config = {
       apiKey: "test",
       mediaStore: store,
@@ -20,6 +21,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
           provider === "zernio" ? body.mediaItems[0].url : body.media[0].url,
           "https://media.example.test/image.jpg",
         );
+
         return provider === "zernio"
           ? Response.json({
               post: {
@@ -31,7 +33,9 @@ for (const provider of ["zernio", "post-for-me"] as const) {
           : Response.json({ id: "p1", status: "scheduled", social_accounts: ["a1"] });
       },
     };
+
     const first = createSocial({ backend: make(config) });
+
     const ref = await first.media.upload(
       {
         kind: "image",
@@ -40,9 +44,11 @@ for (const provider of ["zernio", "post-for-me"] as const) {
       },
       account,
     );
+
     assert.equal(calls, 0);
     assert.ok(!JSON.stringify(ref).includes("https:"));
     const second = createSocial({ backend: make(config) });
+
     const request = {
       targets: [{ account }],
       content: {
@@ -56,6 +62,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
         ],
       },
     };
+
     assert.equal(second.posts.prepare(request).ok, true);
     await second.posts.publish(request);
     assert.equal(calls, 1);
@@ -81,6 +88,7 @@ it("managed media expiry and kind mismatches fail before any post request", asyn
     mimeType: "image/jpeg",
   });
   let calls = 0;
+
   const social = createSocial({
     backend: zernio({
       apiKey: "test",
@@ -91,6 +99,7 @@ it("managed media expiry and kind mismatches fail before any post request", asyn
       },
     }),
   });
+
   const result = await social.posts.publish({
     targets: [{ account }],
     content: {
@@ -98,6 +107,7 @@ it("managed media expiry and kind mismatches fail before any post request", asyn
       media: [{ kind: "image", mimeType: "image/jpeg", source: { kind: "media-ref", ref } }],
     },
   });
+
   assert.equal(result.outcomes[0]?.state, "failed");
   assert.equal(calls, 0);
 });

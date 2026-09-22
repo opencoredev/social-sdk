@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract. */
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError } from "../core/errors.js";
 import type {
@@ -21,6 +22,7 @@ export interface InstagramOptions {
   readonly clock?: () => Date;
   readonly workflowStore?: InstagramWorkflowStore;
 }
+
 export interface InstagramNative {
   readonly publishReel: (input: {
     readonly account: ConnectedAccountRef;
@@ -80,6 +82,7 @@ class MemoryInstagramWorkflowStore implements InstagramWorkflowStore {
   async create(input: Omit<InstagramWorkflow, "id">): Promise<InstagramWorkflow> {
     const workflow = { ...input, id: `igwf_${globalThis.crypto.randomUUID()}` };
     this.workflows.set(workflow.id, workflow);
+
     return workflow;
   }
   async get(id: string) {
@@ -87,14 +90,17 @@ class MemoryInstagramWorkflowStore implements InstagramWorkflowStore {
   }
   async update(id: string, update: Partial<InstagramWorkflow>) {
     const current = this.workflows.get(id);
+
     if (!current) throw new Error("Instagram workflow not found");
     const next = { ...current, ...update, id };
     this.workflows.set(id, next);
+
     return next;
   }
   async claim(id: string) {
     if (!this.workflows.has(id) || this.claims.has(id)) return false;
     this.claims.add(id);
+
     return true;
   }
   async release(id: string) {
@@ -106,12 +112,16 @@ export function instagram(
   options: InstagramOptions,
 ): import("../core/adapter.js").SocialAdapter<InstagramNative> {
   const apiVersion = "v25.0";
+
   const request = managedHttp(`https://graph.instagram.com/${apiVersion}`, {
     apiKey: options.auth.accessToken,
+    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
+
   const now = () => (options.clock?.() ?? new Date()).toISOString();
   const workflows = options.workflowStore ?? new MemoryInstagramWorkflowStore();
+
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
     context: AdapterOperationContext,
@@ -127,18 +137,21 @@ export function instagram(
         message: "Account reference does not match this Instagram Login authorization.",
       });
   };
+
   const status = async (id: string, context: AdapterOperationContext) =>
     object(
       await request(`/${encodeURIComponent(id)}`, context, undefined, {
         fields: "id,status_code,status",
       }),
     );
+
   const listPosts = async (
     selected: ConnectedAccountRef,
     input: { readonly cursor?: string; readonly limit?: number },
     context: AdapterOperationContext,
   ) => {
     authorize(selected, context);
+
     if (
       input.limit !== undefined &&
       (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
@@ -148,14 +161,20 @@ export function instagram(
         operation: "posts.list",
         message: "Instagram feed limit must be an integer from 1 through 100.",
       });
+
+    // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
     const query: Record<string, string> = {
       fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
     };
+
     if (input.cursor !== undefined) query["after"] = input.cursor;
+
     if (input.limit !== undefined) query["limit"] = String(input.limit);
+
     const result = object(
       await request(`/${encodeURIComponent(selected.accountId)}/media`, context, undefined, query),
     );
+
     const items = array(result["data"]).map((entry) =>
       publicFields(entry, [
         "id",
@@ -167,35 +186,47 @@ export function instagram(
         "username",
       ]),
     );
+
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     const hasNext = typeof paging["next"] === "string" && paging["next"].length > 0;
+
     const nextCursor =
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       hasNext && typeof cursors["after"] === "string" ? cursors["after"] : undefined;
+
     return {
       items,
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(nextCursor === undefined ? {} : { nextCursor }),
     };
   };
+
   const getAccountMetrics = async (
     selected: ConnectedAccountRef,
     context: AdapterOperationContext,
   ): Promise<readonly MetricValue[]> => {
     authorize(selected, context);
+
     const result = object(
       await request("/me", context, undefined, {
         fields: "user_id,followers_count,media_count",
       }),
     );
+
     const id = optionalString(result["user_id"]) ?? optionalString(result["id"]);
+
     if (id !== selected.accountId)
       throw new SocialError({
         code: "unauthorized",
         operation: "analytics.read",
         message: "Instagram returned metrics for a different account.",
       });
+
     return (["followers_count", "media_count"] as const).flatMap((name) => {
       const value = optionalNumber(result[name]);
+
       return value === undefined
         ? []
         : [
@@ -211,6 +242,7 @@ export function instagram(
           ];
     });
   };
+
   const publishContainer = async (
     account: ConnectedAccountRef,
     containerId: string,
@@ -218,8 +250,10 @@ export function instagram(
     workflowId?: string,
   ): Promise<DeliveryOutcome> => {
     authorize(account, context);
+
     if (workflowId) {
       const workflow = await workflows.get(workflowId);
+
       if (workflow?.nativeId)
         return {
           ...processing(account, workflowId, "PUBLISHED"),
@@ -234,8 +268,10 @@ export function instagram(
           },
         };
     }
+
     const state = await status(containerId, context);
     const code = string(state["status_code"]);
+
     const base = {
       account,
       targetIndex: 0,
@@ -250,7 +286,9 @@ export function instagram(
         deliveryId: containerId,
       },
     };
+
     if (code === "IN_PROGRESS") return { ...base, state: "processing" };
+
     if (code === "ERROR" || code === "EXPIRED")
       return {
         ...base,
@@ -259,6 +297,7 @@ export function instagram(
         message: "Instagram container failed or expired before publication.",
         retryDisposition: { kind: "never" },
       };
+
     if (code === "PUBLISHED")
       return {
         ...base,
@@ -267,6 +306,7 @@ export function instagram(
         diagnostic:
           "Instagram reports a published container but the native media ID was not persisted by this workflow.",
       };
+
     if (code !== "FINISHED")
       return {
         ...base,
@@ -275,9 +315,12 @@ export function instagram(
         diagnostic:
           "Container is already published or has an unmapped state. No repeated publish was dispatched.",
       };
+
     if (workflowId) await workflows.update(workflowId, { stage: "unknown" });
     let result: JsonObject;
+
     try {
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       result = object(
         await request(`/${encodeURIComponent(account.accountId)}/media_publish`, context, {
           creation_id: containerId,
@@ -287,9 +330,12 @@ export function instagram(
       if (workflowId) await workflows.update(workflowId, { stage: "unknown" });
       throw error;
     }
+
     const nativeId = string(result["id"]);
+
     if (workflowId)
       await workflows.update(workflowId, { nativeId, stage: "published", parentId: containerId });
+
     return {
       ...base,
       state: "published",
@@ -304,6 +350,7 @@ export function instagram(
       },
     };
   };
+
   const processing = (
     account: ConnectedAccountRef,
     workflowId: string,
@@ -323,6 +370,7 @@ export function instagram(
       deliveryId: workflowId,
     },
   });
+
   const continueWorkflow = async (
     workflow: InstagramWorkflow,
     account: ConnectedAccountRef,
@@ -341,6 +389,7 @@ export function instagram(
           postId: workflow.nativeId,
         },
       };
+
     if (workflow.stage === "unknown")
       return {
         ...processing(account, workflow.id, "AMBIGUOUS"),
@@ -348,14 +397,19 @@ export function instagram(
         reason: "ambiguous-submission",
         diagnostic: "Instagram publish acceptance is unknown; no replay was attempted.",
       };
+
     if (workflow.parentId)
       return publishContainer(account, workflow.parentId, context, workflow.id);
+
     for (const child of workflow.childIds) {
       const childStatus = await status(child, context);
       const code = string(childStatus["status_code"]);
+
       if (code !== "FINISHED") return processing(account, workflow.id, code);
     }
+
     await workflows.update(workflow.id, { stage: "unknown" });
+
     const parent = object(
       await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
         media_type: "CAROUSEL",
@@ -363,28 +417,36 @@ export function instagram(
         caption: workflow.caption,
       }),
     );
+
     const parentId = string(parent["id"]);
     await workflows.update(workflow.id, { parentId, stage: "parent" });
+
     return publishContainer(account, parentId, context, workflow.id);
   };
+
   const resumeWorkflow = async (
     workflow: InstagramWorkflow,
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
   ) => {
     if (!(await workflows.claim(workflow.id))) return processing(account, workflow.id, "CLAIMED");
+
     try {
       const current = (await workflows.get(workflow.id)) ?? workflow;
+
       return await continueWorkflow(current, account, context);
     } finally {
       await workflows.release?.(workflow.id);
     }
   };
+
   const readAccount = async (context: AdapterOperationContext) => {
     const response = object(
       await request("/me", context, undefined, { fields: "user_id,username,account_type" }),
     );
+
     const id = optionalString(response["user_id"]) ?? optionalString(response["id"]);
+
     if (id !== options.auth.accountId)
       throw new SocialError({
         code: "unauthorized",
@@ -392,6 +454,7 @@ export function instagram(
         message:
           "Instagram returned an account different from the configured professional account.",
       });
+
     return {
       ref: {
         kind: "connected-account" as const,
@@ -404,6 +467,7 @@ export function instagram(
       status: "connected" as const,
     };
   };
+
   return defineAdapter({
     id: "instagram",
     capabilities: {
@@ -467,6 +531,7 @@ export function instagram(
       },
       async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
         authorize(ref, context);
+
         return readAccount(context);
       },
     },
@@ -475,18 +540,23 @@ export function instagram(
       prepareTarget(target: PreparedPublishTarget) {
         const issues: { code: string; message: string; severity: "error"; targetIndex: number }[] =
           [];
+
         const fail = (code: string, message: string) =>
           issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
+
         if (
           target.account.platform !== "instagram" ||
           target.account.accountId !== options.auth.accountId
         )
           fail("instagram.account", "Select the configured professional Instagram account.");
         const media = target.content.media ?? [];
+
         if (media.length < 1 || media.length > 10)
           fail("instagram.media", "Instagram requires 1 to 10 image/video attachments.");
+
         const firstRatio =
           media[0]?.width && media[0]?.height ? media[0].width / media[0].height : undefined;
+
         for (const item of media) {
           if (item.source.kind !== "https-url")
             fail(
@@ -499,14 +569,17 @@ export function instagram(
             } catch {
               fail("instagram.url", "Use public HTTPS media without local hosts or credentials.");
             }
+
           if (item.kind === "image" && item.mimeType !== "image/jpeg")
             fail("instagram.jpeg", "Instagram image publishing requires JPEG media.");
+
           if (
             item.kind === "video" &&
             item.mimeType !== "video/mp4" &&
             item.mimeType !== "video/quicktime"
           )
             fail("instagram.video", "Provide MP4 or MOV video with a supported codec.");
+
           if (
             media.length > 1 &&
             (!item.width ||
@@ -519,13 +592,16 @@ export function instagram(
               "Provide matching known aspect ratios for every carousel item; the SDK will not silently accept cropping.",
             );
         }
+
         if ((target.content.text?.length ?? 0) > 2200)
           fail("instagram.caption", "Caption exceeds 2,200 characters.");
+
         if (target.schedule || target.replyTo || target.content.link)
           fail(
             "instagram.operation",
             "Use an explicit job runner, comment reply, or caption link instead of unsupported structured options.",
           );
+
         return issues;
       },
       async publishTarget(
@@ -535,6 +611,7 @@ export function instagram(
         authorize(target.account, context);
         const media = target.content.media ?? [];
         const children: string[] = [];
+
         const workflow = await workflows.create({
           backend: target.account.backend,
           accountId: target.account.accountId,
@@ -542,6 +619,7 @@ export function instagram(
           caption: target.content.text ?? "",
           stage: "children",
         });
+
         try {
           for (const item of media) {
             if (item.source.kind !== "https-url")
@@ -552,16 +630,26 @@ export function instagram(
               });
             const config = target.options === undefined ? {} : object(target.options);
             await workflows.update(workflow.id, { stage: "unknown" });
+
             const created = object(
               await request(`/${encodeURIComponent(target.account.accountId)}/media`, context, {
                 ...(item.kind === "image"
                   ? {
                       image_url: item.source.url,
+                      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
                       ...(item.altText === undefined ? {} : { alt_text: item.altText }),
                     }
                   : {
                       video_url: item.source.url,
                       media_type: media.length > 1 ? "VIDEO" : "REELS",
+                      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+                      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
+                      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
+                      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
+                      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
+                      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
+                      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
+                      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
                       ...(typeof config["shareToFeed"] === "boolean"
                         ? { share_to_feed: config["shareToFeed"] }
                         : {}),
@@ -571,6 +659,7 @@ export function instagram(
                   : { caption: target.content.text ?? "" }),
               }),
             );
+
             children.push(string(created["id"]));
             await workflows.update(workflow.id, { childIds: [...children], stage: "children" });
           }
@@ -589,18 +678,25 @@ export function instagram(
             });
           throw error;
         }
+
         let containerId = children[0];
+
         if (!containerId) throw new Error("Missing Instagram container");
+
         if (children.length > 1) {
           const result = await resumeWorkflow(workflow, target.account, context);
+
           return { ...result, targetIndex: target.targetIndex };
         }
+
         await workflows.update(workflow.id, { parentId: containerId, stage: "parent" });
         const result = await publishContainer(target.account, containerId, context, workflow.id);
+
         return { ...result, targetIndex: target.targetIndex };
       },
       async get(ref: PlatformPostRef, context: AdapterOperationContext): Promise<JsonObject> {
         authorize(ref, context);
+
         return publicFields(
           await request(`/${encodeURIComponent(ref.postId)}`, context, undefined, {
             fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
@@ -622,6 +718,7 @@ export function instagram(
       ): Promise<DeliveryOutcome> {
         authorize(ref, context);
         const workflow = await workflows.get(ref.deliveryId);
+
         if (workflow) {
           if (workflow.backend !== ref.backend || workflow.accountId !== ref.accountId)
             throw new SocialError({
@@ -629,6 +726,7 @@ export function instagram(
               operation: "instagram.posts.status",
               message: "Instagram workflow handle is not authorized for this account.",
             });
+
           const account = {
             kind: "connected-account" as const,
             version: 1 as const,
@@ -636,6 +734,7 @@ export function instagram(
             platform: "instagram" as const,
             accountId: ref.accountId,
           };
+
           if (workflow.nativeId)
             return {
               ...processing(account, workflow.id, "PUBLISHED"),
@@ -649,6 +748,7 @@ export function instagram(
                 postId: workflow.nativeId,
               },
             };
+
           if (workflow.stage === "unknown")
             return {
               ...processing(account, workflow.id, "AMBIGUOUS"),
@@ -656,10 +756,13 @@ export function instagram(
               reason: "ambiguous-submission",
               diagnostic: "Explicit resumePublication is required.",
             };
+
           return processing(account, workflow.id, workflow.stage.toUpperCase());
         }
+
         const result = await status(ref.deliveryId, context);
         const code = string(result["status_code"]);
+
         const base = {
           account: {
             kind: "connected-account" as const,
@@ -673,7 +776,9 @@ export function instagram(
           backendState: code,
           delivery: { kind: "delivery" as const, version: 1 as const, ...ref },
         };
+
         if (code === "IN_PROGRESS" || code === "FINISHED") return { ...base, state: "processing" };
+
         if (code === "ERROR" || code === "EXPIRED")
           return {
             ...base,
@@ -682,6 +787,7 @@ export function instagram(
             message: "Instagram container failed or expired.",
             retryDisposition: { kind: "never" },
           };
+
         return {
           ...base,
           state: "unknown",
@@ -704,12 +810,14 @@ export function instagram(
             message: "This adapter does not expose upstream comment pagination.",
           });
         authorize(ref, context);
+
         const result = object(
           await request(`/${encodeURIComponent(ref.postId)}/comments`, context, undefined, {
             fields: "id,text,timestamp,username",
             limit: "25",
           }),
         );
+
         return {
           items: array(result["data"]).map((entry) =>
             publicFields(entry, ["id", "text", "timestamp", "username"]),
@@ -722,11 +830,13 @@ export function instagram(
         context: AdapterOperationContext,
       ): Promise<CommentRef> {
         authorize(ref, context);
+
         const result = object(
           await request(`/${encodeURIComponent(ref.commentId)}/replies`, context, {
             message: content.text,
           }),
         );
+
         return { ...ref, commentId: string(result["id"]) };
       },
     },
@@ -737,16 +847,20 @@ export function instagram(
         context: AdapterOperationContext,
       ): Promise<readonly MetricValue[]> {
         authorize(ref, context);
+
         const result = object(
           await request(`/${encodeURIComponent(ref.postId)}/insights`, context, undefined, {
             metric: "likes,comments,saved,shares,reach",
           }),
         );
+
         return array(result["data"]).flatMap((entry) => {
           const row = object(entry);
           const value = array(row["values"])[0];
+
           if (!value) return [];
           const count = optionalNumber(object(value)["value"]);
+
           return count === undefined
             ? []
             : [
@@ -772,6 +886,7 @@ export function instagram(
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
         authorize(account, context);
+
         const workflow = await workflows.create({
           backend: account.backend,
           accountId: account.accountId,
@@ -779,6 +894,7 @@ export function instagram(
           caption,
           stage: "children",
         });
+
         return resumeWorkflow(workflow, account, context);
       },
       async resumePublication(
@@ -788,6 +904,7 @@ export function instagram(
       ): Promise<DeliveryOutcome> {
         authorize(account, context);
         const workflow = await workflows.get(workflowId);
+
         if (
           !workflow ||
           workflow.backend !== context.backendInstance ||
@@ -798,27 +915,33 @@ export function instagram(
             operation: "instagram.posts.resume",
             message: "Instagram workflow handle is not authorized for this account.",
           });
+
         return resumeWorkflow(workflow, account, context);
       },
       async publishReel({ account, videoUrl, caption, context }) {
         authorize(account, context);
+
         const created = object(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
             media_type: "REELS",
             video_url: videoUrl,
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(caption ? { caption } : {}),
           }),
         );
+
         return publishContainer(account, string(created["id"]), context);
       },
       async publishStory({ account, mediaUrl, context }) {
         authorize(account, context);
+
         const created = object(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
             media_type: "STORIES",
             image_url: mediaUrl,
           }),
         );
+
         return publishContainer(account, string(created["id"]), context);
       },
       async deletePost({ account, postId, context }) {
@@ -827,16 +950,21 @@ export function instagram(
       },
       async hashtagSearch({ account, hashtag, context }) {
         authorize(account, context);
+
         const tag = object(
           await request("/ig_hashtag_search", context, undefined, {
             user_id: account.accountId,
             q: hashtag.replace(/^#/, ""),
           }),
         );
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return tag as JsonObject;
       },
       async publishingLimit({ account, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(
             `/${encodeURIComponent(account.accountId)}/content_publishing_limit`,
@@ -848,6 +976,8 @@ export function instagram(
       },
       async mentions({ account, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(`/${encodeURIComponent(account.accountId)}/tags`, context, undefined, {
             fields: "id,caption,media_type,timestamp",

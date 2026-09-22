@@ -2,15 +2,18 @@ import { strict as assert } from "node:assert";
 import { it } from "node:test";
 import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
 import { xLike, xUnlike } from "../src/platforms/x-engagement.js";
+
 const context: AdapterOperationContext = {
   backendInstance: "direct",
   correlationId: "test",
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 };
+
 it("uses typed X like/unlike mutations with ownership and no replay", async () => {
   const calls: RequestInit[] = [];
   const urls: string[] = [];
   const account = connectedAccountRef({ backend: "direct", platform: "x", accountId: "u" });
+
   const result = await xLike(
     "123",
     account,
@@ -20,11 +23,13 @@ it("uses typed X like/unlike mutations with ownership and no replay", async () =
       fetch: async (_input, init) => {
         urls.push(String(_input));
         calls.push(init!);
+
         return new Response(JSON.stringify({ data: { liked: true } }), { status: 200 });
       },
     },
     context,
   );
+
   assert.equal(result.liked, true);
   assert.equal(calls[0]?.method, "POST");
   await xUnlike(
@@ -36,6 +41,7 @@ it("uses typed X like/unlike mutations with ownership and no replay", async () =
       fetch: async (_input, init) => {
         urls.push(String(_input));
         calls.push(init!);
+
         return new Response(JSON.stringify({ data: { liked: false } }), { status: 200 });
       },
     },
@@ -80,6 +86,7 @@ it("classifies a lost X mutation response as ambiguous without retry", async () 
 
 it("does not invent confirmation and bounds uncooperative fetch and response reads", async () => {
   const account = connectedAccountRef({ backend: "direct", platform: "x", accountId: "u" });
+
   for (const data of [{}, { data: { liked: false } }, { errors: [{ detail: "failed" }] }]) {
     await assert.rejects(
       xLike(
@@ -91,6 +98,7 @@ it("does not invent confirmation and bounds uncooperative fetch and response rea
       (error: any) => error.code === "ambiguous_outcome",
     );
   }
+
   for (const fetch of [
     async () => new Promise<Response>(() => {}),
     async () =>
@@ -108,6 +116,7 @@ it("does not invent confirmation and bounds uncooperative fetch and response rea
       (error: any) => error.code === "ambiguous_outcome",
     );
   }
+
   let calls = 0;
   await assert.rejects(
     xLike(
@@ -118,6 +127,7 @@ it("does not invent confirmation and bounds uncooperative fetch and response rea
         accessToken: "token",
         fetch: async () => {
           calls++;
+
           return Response.json({ data: { liked: true } });
         },
       },

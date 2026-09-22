@@ -1,4 +1,5 @@
 import { readdir } from "node:fs/promises";
+
 const decoder = new TextDecoder();
 
 const allowlistedPaths = new Set([
@@ -51,19 +52,24 @@ const paths = decoder
 // Generated assets are ignored by Git but are part of the user-facing product.
 async function addBuiltFiles(directory: string): Promise<void> {
   let entries;
+
   try {
     entries = await readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if ((error as { code?: string }).code === "ENOENT") return;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
     throw error;
   }
+
   for (const entry of entries) {
     const path = `${directory}/${entry.name}`;
+
     if (entry.isDirectory()) await addBuiltFiles(path);
     else if (entry.isFile()) paths.push(path);
   }
 }
+
 await addBuiltFiles("packages/social-sdk/dist");
+
 await addBuiltFiles("apps/docs/dist");
 
 const findings: string[] = [];
@@ -83,6 +89,7 @@ for (const path of paths) {
 
 if (findings.length > 0) {
   console.error("Legacy identity check failed:");
+
   for (const finding of findings) console.error(`- ${finding}`);
   process.exit(1);
 }

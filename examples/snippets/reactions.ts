@@ -14,7 +14,9 @@ export async function changeXReaction(input: {
     platform: "x",
     accountId: input.userId,
   });
+
   const operation = input.liked ? xLike : xUnlike;
+
   return operation(
     input.postId,
     account,
@@ -38,6 +40,7 @@ export async function likeBlueskyPost(input: {
     backend: "direct",
     auth: { service: input.service, accessJwt: input.accessJwt, did: input.did },
   });
+
   return adapter.native!.likePost({
     account: connectedAccountRef({ backend: "direct", platform: "bluesky", accountId: input.did }),
     post: { uri: input.uri, cid: input.cid },

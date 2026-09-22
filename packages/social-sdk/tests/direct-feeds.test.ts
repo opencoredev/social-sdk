@@ -14,7 +14,9 @@ const xContext: AdapterOperationContext = {
   correlationId: "feeds",
   retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
 };
+
 const threadsContext: AdapterOperationContext = { ...xContext };
+
 const instagramContext: AdapterOperationContext = {
   ...xContext,
   backendInstance: "instagram",
@@ -23,11 +25,13 @@ const instagramContext: AdapterOperationContext = {
 test("X account feeds use pagination_token and return selected fields", async () => {
   const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
   let requested: URL | undefined;
+
   const adapter = x({
     auth: { userId: "u1", accessToken: "token" },
     fetch: async (input, init) => {
       assert.equal(init?.method, "GET");
       requested = new URL(String(input));
+
       return Response.json({
         data: [
           {
@@ -42,6 +46,7 @@ test("X account feeds use pagination_token and return selected fields", async ()
       });
     },
   });
+
   const page = await adapter.posts!.list!(account, { cursor: "cursor-x", limit: 10 }, xContext);
   assert.equal(requested?.pathname, "/2/users/u1/tweets");
   assert.equal(requested?.searchParams.get("pagination_token"), "cursor-x");
@@ -55,6 +60,7 @@ test("X account feeds use pagination_token and return selected fields", async ()
   });
   await assert.rejects(
     adapter.posts!.list!(account, { limit: 101 }, xContext),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
   );
 });
@@ -62,11 +68,13 @@ test("X account feeds use pagination_token and return selected fields", async ()
 test("Threads account feeds use the after cursor and enforce account authorization", async () => {
   const account = connectedAccountRef({ backend: "default", platform: "threads", accountId: "u1" });
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "token" },
     fetch: async (input, init) => {
       assert.equal(init?.method, "GET");
       requested = new URL(String(input));
+
       return Response.json({
         data: [
           {
@@ -81,11 +89,13 @@ test("Threads account feeds use the after cursor and enforce account authorizati
       });
     },
   });
+
   const page = await adapter.posts!.list!(
     account,
     { cursor: "cursor-threads", limit: 4 },
     threadsContext,
   );
+
   assert.equal(requested?.pathname, "/v1.0/u1/threads");
   assert.equal(requested?.searchParams.get("after"), "cursor-threads");
   assert.equal(requested?.searchParams.get("limit"), "4");
@@ -95,16 +105,19 @@ test("Threads account feeds use the after cursor and enforce account authorizati
   await assert.rejects(
     adapter.posts!.list!({ ...account, accountId: "other" }, {}, threadsContext),
   );
+
   const finalAdapter = threads({
     auth: { userId: "u1", accessToken: "token" },
     fetch: async () => Response.json({ data: [], paging: { cursors: { after: "stale" } } }),
   });
+
   assert.equal(
     (await finalAdapter.posts!.list!(account, { limit: 1 }, threadsContext)).nextCursor,
     undefined,
   );
   await assert.rejects(
     adapter.posts!.list!(account, { limit: 101 }, threadsContext),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
   );
 });
@@ -115,12 +128,15 @@ test("Instagram account feeds use the after cursor and selected media fields", a
     platform: "instagram",
     accountId: "ig1",
   });
+
   let requested: URL | undefined;
+
   const adapter = instagram({
     auth: { accountId: "ig1", accessToken: "token" },
     fetch: async (input, init) => {
       assert.equal(init?.method, "GET");
       requested = new URL(String(input));
+
       return Response.json({
         data: [
           {
@@ -135,11 +151,13 @@ test("Instagram account feeds use the after cursor and selected media fields", a
       });
     },
   });
+
   const page = await adapter.posts!.list!(
     account,
     { cursor: "cursor-instagram", limit: 6 },
     instagramContext,
   );
+
   assert.equal(requested?.pathname, "/v25.0/ig1/media");
   assert.equal(requested?.searchParams.get("after"), "cursor-instagram");
   assert.equal(requested?.searchParams.get("limit"), "6");
@@ -150,16 +168,19 @@ test("Instagram account feeds use the after cursor and selected media fields", a
     media_type: "IMAGE",
     permalink: "https://instagram.invalid/1",
   });
+
   const finalAdapter = instagram({
     auth: { accountId: "ig1", accessToken: "token" },
     fetch: async () => Response.json({ data: [], paging: { cursors: { after: "stale" } } }),
   });
+
   assert.equal(
     (await finalAdapter.posts!.list!(account, { limit: 1 }, instagramContext)).nextCursor,
     undefined,
   );
   await assert.rejects(
     adapter.posts!.list!(account, { limit: 101 }, instagramContext),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
   );
 });

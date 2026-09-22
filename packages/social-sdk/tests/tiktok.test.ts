@@ -9,6 +9,7 @@ const account = connectedAccountRef({
   platform: "tiktok",
   accountId: "creator1",
 });
+
 const creator = {
   accountId: "creator1",
   backend: "default",
@@ -21,6 +22,7 @@ const creator = {
   stitchDisabled: false,
   maxVideoDurationSeconds: 60,
 };
+
 const request: PublishRequest = {
   targets: [
     {
@@ -51,15 +53,19 @@ const request: PublishRequest = {
     ],
   },
 };
+
 const context: AdapterOperationContext = {
   backendInstance: "default",
   correlationId: "test",
   retryBudget: { maxAttempts: 1, maxElapsedMs: 30000 },
 };
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const response = (data: unknown) => Response.json({ data, error: { code: "ok" } });
 
 it("TikTok validates consent and verified origins locally before any transfer", () => {
   let calls = 0;
+
   const adapter = tiktok({
     auth: { accessToken: "test", openId: "creator1" },
     verifiedMediaOrigins: ["https://media.example.test"],
@@ -68,6 +74,7 @@ it("TikTok validates consent and verified origins locally before any transfer", 
       throw new Error("must not run");
     },
   });
+
   const social = createSocial({ backend: adapter });
   assert.ok(social.posts.prepare(request).ok);
   assert.equal(
@@ -96,12 +103,14 @@ it("TikTok validates consent and verified origins locally before any transfer", 
 
 it("TikTok queries current creator restrictions and preserves explicit privacy/disclosures", async () => {
   const calls: string[] = [];
+
   const adapter = tiktok({
     auth: { accessToken: "test", openId: "creator1" },
     verifiedMediaOrigins: ["https://media.example.test"],
     fetch: async (input, init) => {
       const path = new URL(String(input)).pathname;
       calls.push(path);
+
       if (path.includes("creator_info"))
         return response({
           creator_username: "demo",
@@ -117,9 +126,11 @@ it("TikTok queries current creator restrictions and preserves explicit privacy/d
       assert.equal(body.post_info.brand_content_toggle, false);
       assert.equal(body.post_info.disable_comment, true);
       assert.equal(body.source_info.source, "PULL_FROM_URL");
+
       return response({ publish_id: "publish1" });
     },
   });
+
   const result = await createSocial({ backend: adapter }).posts.publish(request);
   assert.equal(result.outcomes[0]?.state, "accepted");
   assert.equal(result.outcomes[0]?.delivery?.deliveryId, "publish1");
@@ -128,11 +139,13 @@ it("TikTok queries current creator restrictions and preserves explicit privacy/d
 
 it("TikTok refuses changed creator privacy before initializing a post", async () => {
   let calls = 0;
+
   const adapter = tiktok({
     auth: { accessToken: "test", openId: "creator1" },
     verifiedMediaOrigins: ["https://media.example.test"],
     fetch: async () => {
       calls++;
+
       return response({
         creator_username: "demo",
         creator_nickname: "Demo",
@@ -140,6 +153,7 @@ it("TikTok refuses changed creator privacy before initializing a post", async ()
       });
     },
   });
+
   const result = await createSocial({ backend: adapter }).posts.publish(request);
   assert.equal(result.outcomes[0]?.state, "failed");
   assert.equal(calls, 1);
@@ -147,6 +161,7 @@ it("TikTok refuses changed creator privacy before initializing a post", async ()
 
 it("TikTok draft inbox remains accepted and large native IDs retain their exact decimal digits", async () => {
   let state = "SEND_TO_USER_INBOX";
+
   const adapter = tiktok({
     auth: { accessToken: "test", openId: "creator1" },
     verifiedMediaOrigins: [],
@@ -155,6 +170,7 @@ it("TikTok draft inbox remains accepted and large native IDs retain their exact 
         `{"error":{"code":"ok"},"data":{"status":"${state}","publicaly_available_post_id":[9007199254740993]}}`,
       ),
   });
+
   const ref = {
     kind: "delivery" as const,
     version: 1 as const,
@@ -163,10 +179,12 @@ it("TikTok draft inbox remains accepted and large native IDs retain their exact 
     accountId: "creator1",
     deliveryId: "p1",
   };
+
   assert.equal((await adapter.posts.getDelivery(ref, context)).state, "accepted");
   state = "PUBLISH_COMPLETE";
   const result = await adapter.posts.getDelivery(ref, context);
   assert.equal(result.state, "published");
+
   if (result.state === "published") assert.equal(result.post.postId, "9007199254740993");
 });
 
@@ -193,11 +211,14 @@ it("TikTok photo publishing keeps cover order and disables unrequested added mus
         "https://media.example.test/1.jpg",
         "https://media.example.test/2.jpg",
       ]);
+
       return response({ publish_id: "photo1" });
     },
   });
+
   const base = request.targets[0];
   assert.ok(base);
+
   const result = await createSocial({ backend: adapter }).posts.publish({
     targets: [{ ...base, options: { ...base.options, photoCoverIndex: 1 } }],
     content: {
@@ -209,5 +230,6 @@ it("TikTok photo publishing keeps cover order and disables unrequested added mus
       })),
     },
   });
+
   assert.equal(result.outcomes[0]?.state, "accepted");
 });

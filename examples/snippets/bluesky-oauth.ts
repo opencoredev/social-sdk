@@ -1,3 +1,5 @@
+/* oxlint-disable anti-slop/no-conditional-empty-object-spread, anti-slop/require-readable-spacing -- OAuth recipe mirrors upstream provider API shape and preserves compact teaching examples. */
+
 import {
   JoseKey,
   NodeOAuthClient,

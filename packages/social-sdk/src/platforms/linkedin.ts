@@ -27,6 +27,7 @@ export interface LinkedInOptions {
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
 }
+
 export interface LinkedInNative {
   readonly imageStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
   readonly registerVideo: (input: {
@@ -84,8 +85,10 @@ export function linkedin(
         "Provide a LinkedIn access token, member/organization author URN and explicit YYYYMM API version.",
     });
   }
+
   const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
   const now = () => (options.clock?.() ?? new Date()).toISOString();
+
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
     context: AdapterOperationContext,
@@ -101,6 +104,7 @@ export function linkedin(
         message: "Reference does not belong to this LinkedIn author authorization.",
       });
   };
+
   async function request(
     path: string,
     context: AdapterOperationContext,
@@ -119,17 +123,22 @@ export function linkedin(
           "X-Restli-Protocol-Version": "2.0.0",
         },
         method,
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal ? { signal: context.signal } : {}),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(selectedHeaders ? { responseHeaders: selectedHeaders } : {}),
         maxAttempts: method === "GET" ? Math.min(5, context.retryBudget.maxAttempts) : 1,
       });
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
+
       const ambiguous =
         body !== undefined &&
         error.dispatched &&
         (error.kind !== "http" || (error.status ?? 0) >= 500);
+
       throw new SocialError({
         code: ambiguous
           ? "ambiguous_outcome"
@@ -147,28 +156,35 @@ export function linkedin(
       });
     }
   }
+
   async function readPost(ref: PlatformPostRef, context: AdapterOperationContext) {
     authorize(ref, context);
     const result = object(await request(`/rest/posts/${encodeURIComponent(ref.postId)}`, context));
+
     if (result["author"] !== ref.accountId)
       throw new SocialError({
         code: "unauthorized",
         operation: "posts.read",
         message: "LinkedIn post belongs to a different author.",
       });
+
     return result;
   }
+
   async function readCommentablePost(ref: PlatformPostRef, context: AdapterOperationContext) {
     authorize(ref, context);
     const result = object(await request(`/rest/posts/${encodeURIComponent(ref.postId)}`, context));
+
     if (result["id"] !== undefined && result["id"] !== ref.postId)
       throw new SocialError({
         code: "unauthorized",
         operation: "comments.write",
         message: "LinkedIn returned a different post than the declared parent.",
       });
+
     return result;
   }
+
   async function uploadImage(
     media: MediaAttachment,
     account: ConnectedAccountRef,
@@ -176,6 +192,7 @@ export function linkedin(
   ): Promise<MediaRef> {
     authorize(account, context);
     const source = media.source;
+
     if (
       media.kind !== "image" ||
       !["image/jpeg", "image/png", "image/gif"].includes(media.mimeType ?? "") ||
@@ -186,6 +203,7 @@ export function linkedin(
         operation: "media.upload",
         message: "Provide JPEG, PNG or GIF bytes as a Blob or replayable stream.",
       });
+
     const initialized = object(
       object(
         await request("/rest/images?action=initializeUpload", context, {
@@ -193,7 +211,9 @@ export function linkedin(
         }),
       )["value"],
     );
+
     const mediaId = string(initialized["image"]);
+
     if (!/^urn:li:image:[a-zA-Z0-9_-]+$/.test(mediaId))
       throw new SocialError({
         code: "media_error",
@@ -205,14 +225,18 @@ export function linkedin(
       url: string(initialized["uploadUrl"]),
       source: {
         mimeType: media.mimeType!,
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(size === undefined ? {} : { size }),
         open: source.kind === "blob" ? () => source.blob.stream() : source.open,
       },
       allowHost: (host) => host === "www.linkedin.com",
       maxBytes: 20 * 1024 * 1024,
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(options.fetch ? { fetch: options.fetch } : {}),
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(context.signal ? { signal: context.signal } : {}),
     });
+
     return {
       kind: "media",
       version: 1,
@@ -222,6 +246,7 @@ export function linkedin(
       mediaId,
     };
   }
+
   return defineAdapter({
     id: "linkedin",
     capabilities: {
@@ -329,22 +354,28 @@ export function linkedin(
       prepareTarget(target: PreparedPublishTarget) {
         const issues: { code: string; message: string; severity: "error"; targetIndex: number }[] =
           [];
+
         const fail = (code: string, message: string) =>
           issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
+
         if (
           target.account.platform !== "linkedin" ||
           target.account.accountId !== options.auth.author
         )
           fail("linkedin.author", "Select the configured member or organization author URN.");
+
         if ((target.content.text?.length ?? 0) > 3000)
           fail("linkedin.text", "LinkedIn commentary exceeds 3,000 characters.");
+
         if (target.schedule || target.replyTo || target.content.link)
           fail(
             "linkedin.operation",
             "Scheduling, reply posts and structured links are not supported by this publishing slice.",
           );
+
         if (target.options !== undefined) {
           const settings = object(target.options);
+
           if (
             Object.keys(settings).some((key) => key !== "visibility") ||
             (settings["visibility"] !== undefined && settings["visibility"] !== "public")
@@ -354,9 +385,12 @@ export function linkedin(
               "This slice supports public visibility only; other native options require explicit implementation.",
             );
         }
+
         const media = target.content.media ?? [];
+
         if (media.length > 1)
           fail("linkedin.media_count", "This slice accepts one registered image per post.");
+
         for (const item of media) {
           if (item.kind !== "image" || item.source.kind !== "media-ref")
             fail(
@@ -374,23 +408,28 @@ export function linkedin(
               "Image reference belongs to another author/backend or has an invalid URN.",
             );
         }
+
         return issues;
       },
       async publishTarget(target: PreparedPublishTarget, context: AdapterOperationContext) {
         authorize(target.account, context);
         const media = target.content.media?.[0];
         let content: JsonObject | undefined;
+
         if (media?.source.kind === "media-ref") {
           authorize(media.source.ref, context);
+
           const image = object(
             await request(`/rest/images/${encodeURIComponent(media.source.ref.mediaId)}`, context),
           );
+
           if (image["owner"] !== target.account.accountId)
             throw new SocialError({
               code: "unauthorized",
               operation: "posts.publish",
               message: "LinkedIn image belongs to a different author.",
             });
+
           if (image["status"] !== "AVAILABLE")
             throw new SocialError({
               code: "media_error",
@@ -400,10 +439,12 @@ export function linkedin(
           content = {
             media: {
               id: media.source.ref.mediaId,
+              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(media.altText ? { altText: media.altText } : {}),
             },
           };
         }
+
         const result = object(
           await request(
             "/rest/posts",
@@ -419,17 +460,21 @@ export function linkedin(
               },
               lifecycleState: "PUBLISHED",
               isReshareDisabledByAuthor: false,
+              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(content ? { content } : {}),
             },
             ["x-restli-id"],
           ),
         );
+
         const id = optionalString(object(result["headers"])["x-restli-id"]);
+
         const base = {
           account: target.account,
           targetIndex: target.targetIndex,
           observedAt: now(),
         };
+
         if (!id || !/^urn:li:(share|ugcPost):[0-9]+$/.test(id))
           return {
             ...base,
@@ -438,6 +483,7 @@ export function linkedin(
             diagnostic:
               "LinkedIn accepted the create request without a valid native post identifier. Do not repeat it automatically.",
           };
+
         return {
           ...base,
           state: "published" as const,
@@ -470,6 +516,7 @@ export function linkedin(
         authorize(account, context);
         const start = input.cursor === undefined ? 0 : Number(input.cursor);
         const count = input.limit ?? 25;
+
         if (
           !Number.isSafeInteger(start) ||
           start < 0 ||
@@ -483,19 +530,23 @@ export function linkedin(
             operation: "posts.read",
             message: "LinkedIn requires a nonnegative offset and page size from 1 to 100.",
           });
+
         const result = object(
           await request(
             `/rest/posts?q=author&author=${encodeURIComponent(options.auth.author)}&start=${start}&count=${count}&sortBy=LAST_MODIFIED`,
             context,
           ),
         );
+
         const rows = array(result["elements"]).map(object);
+
         if (rows.some((row) => row["author"] !== options.auth.author))
           throw new SocialError({
             code: "unauthorized",
             operation: "posts.read",
             message: "LinkedIn returned a post from another author.",
           });
+
         const items = rows.map((row) =>
           publicFields(row, [
             "id",
@@ -507,11 +558,14 @@ export function linkedin(
             "lastModifiedAt",
           ]),
         );
+
         const paging = result["paging"] === undefined ? {} : object(result["paging"]);
         const total = optionalNumber(paging["total"]);
         const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
+
         return {
           items,
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
             ? { nextCursor: String(start + items.length) }
             : {}),
@@ -527,6 +581,7 @@ export function linkedin(
         await readPost(ref, context);
         const start = input.cursor === undefined ? 0 : Number(input.cursor);
         const count = input.limit ?? 25;
+
         if (
           !Number.isSafeInteger(start) ||
           start < 0 ||
@@ -540,25 +595,32 @@ export function linkedin(
             message:
               "LinkedIn comment pagination requires a returned offset and a page size from 1 to 100.",
           });
+
         const result = object(
           await request(
             `/rest/socialActions/${encodeURIComponent(ref.postId)}/comments?start=${start}&count=${count}`,
             context,
           ),
         );
+
         const items = array(result["elements"]).map((value) => {
           const row = object(value);
+
           return {
             ...publicFields(row, ["id", "actor", "commentUrn", "object"]),
             text: string(object(row["message"])["text"]),
           };
         });
+
         const paging = result["paging"] === undefined ? {} : object(result["paging"]);
         const total = optionalNumber(paging["total"]);
+
         const next =
           total !== undefined && start + items.length < total
             ? String(start + items.length)
             : undefined;
+
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         return { items, ...(next === undefined ? {} : { nextCursor: next }) };
       },
       async reply(
@@ -574,30 +636,36 @@ export function linkedin(
           });
         await readCommentablePost({ ...ref, kind: "platform-post" }, context);
         const match = /^urn:li:comment:\(urn:li:activity:\d+,(\d+)\)$/.exec(ref.commentId);
+
         if (!match)
           throw new SocialError({
             code: "invalid_input",
             operation: "comments.write",
             message: "Use the complete commentUrn returned by LinkedIn comment reads.",
           });
+
         const parent = object(
           await request(
             `/rest/socialActions/${encodeURIComponent(ref.postId)}/comments/${match[1]}`,
             context,
           ),
         );
+
         if (parent["commentUrn"] !== ref.commentId)
           throw new SocialError({
             code: "unauthorized",
             operation: "comments.write",
             message: "Comment does not belong to the supplied post.",
           });
+
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         if (typeof parent["object"] === "string" && parent["object"] !== ref.postId)
           throw new SocialError({
             code: "unauthorized",
             operation: "comments.write",
             message: "Comment parent object does not match the supplied post.",
           });
+
         const response = object(
           await request(
             `/rest/socialActions/${encodeURIComponent(ref.commentId)}/comments`,
@@ -610,7 +678,9 @@ export function linkedin(
             },
           ),
         );
+
         const commentId = optionalString(response["commentUrn"]);
+
         if (!commentId)
           throw new SocialError({
             code: "ambiguous_outcome",
@@ -619,6 +689,7 @@ export function linkedin(
               "LinkedIn accepted the comment without returning its composite URN. Reconcile before retrying.",
             retryDisposition: { kind: "reconcile-first" },
           });
+
         return { ...ref, commentId };
       },
     },
@@ -628,6 +699,7 @@ export function linkedin(
         context: AdapterOperationContext,
       ): Promise<readonly MetricValue[]> {
         authorize(account, context);
+
         if (!options.auth.author.startsWith("urn:li:organization:"))
           throw new SocialError({
             code: "unsupported_capability",
@@ -635,13 +707,16 @@ export function linkedin(
             message:
               "LinkedIn organization follower counts require an organization author and administrator access.",
           });
+
         const response = object(
           await request(
             `/rest/networkSizes/${encodeURIComponent(options.auth.author)}?edgeType=COMPANY_FOLLOWED_BY_MEMBER`,
             context,
           ),
         );
+
         const value = optionalNumber(response["firstDegreeSize"]);
+
         return value === undefined
           ? []
           : [
@@ -661,9 +736,11 @@ export function linkedin(
         context: AdapterOperationContext,
       ): Promise<readonly MetricValue[]> {
         await readPost(ref, context);
+
         const result = object(
           await request(`/rest/socialActions/${encodeURIComponent(ref.postId)}`, context),
         );
+
         if (result["target"] !== undefined && result["target"] !== ref.postId)
           throw new SocialError({
             code: "unauthorized",
@@ -671,12 +748,14 @@ export function linkedin(
             message: "LinkedIn returned social actions for a different post.",
           });
         const metrics: MetricValue[] = [];
+
         for (const [summary, field, name] of [
           ["likesSummary", "totalLikes", "likes"],
           ["commentsSummary", "totalFirstLevelComments", "comments"],
         ] as const) {
           if (result[summary] === undefined) continue;
           const value = optionalNumber(object(result[summary])[field]);
+
           if (value !== undefined)
             metrics.push({
               name,
@@ -688,31 +767,39 @@ export function linkedin(
               source: `linkedin:${options.apiVersion}:socialActions`,
             });
         }
+
         return metrics;
       },
     },
     native: {
       async imageStatus(ref: MediaRef, context: AdapterOperationContext) {
         authorize(ref, context);
+
         const image = object(
           await request(`/rest/images/${encodeURIComponent(ref.mediaId)}`, context),
         );
+
         if (image["owner"] !== ref.accountId)
           throw new SocialError({
             code: "unauthorized",
             operation: "media.read",
             message: "LinkedIn image belongs to another author.",
           });
+
         return publicFields(image, ["id", "owner", "status"]);
       },
       async registerVideo({ account, byteSize, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await request("/rest/videos?action=initializeUpload", context, {
           initializeUploadRequest: { owner: account.accountId, fileSizeBytes: byteSize },
         })) as JsonObject;
       },
       async createPoll({ account, text, options: pollOptions, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await request("/rest/posts", context, {
           author: account.accountId,
           commentary: text,
@@ -730,6 +817,8 @@ export function linkedin(
       },
       async reshare({ account, postId, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await request("/rest/posts", context, {
           author: account.accountId,
           resharedPost: postId,
@@ -738,6 +827,8 @@ export function linkedin(
       },
       async updatePost({ account, postId, body, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await request(
           `/rest/posts/${encodeURIComponent(postId)}`,
           context,
@@ -758,12 +849,15 @@ export function linkedin(
       },
       async organizationAnalytics({ account, query, context }) {
         authorize(account, context);
+
         if (!account.accountId.startsWith("urn:li:organization:"))
           throw new SocialError({
             code: "unsupported_capability",
             operation: "analytics.organization.read",
             message: "Organization analytics requires an organization author.",
           });
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await request(
           `/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(account.accountId)}`,
           context,

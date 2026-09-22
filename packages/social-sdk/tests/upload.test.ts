@@ -8,6 +8,7 @@ it("uploads incrementally with bounded demand, no auth, no redirect, and no repl
   let consumed = 0;
   let opened = 0;
   let largestAhead = 0;
+
   const result = await upload({
     url: "https://storage.example.test/video?signature=private",
     allowHost: (host) => host === "storage.example.test",
@@ -18,12 +19,15 @@ it("uploads incrementally with bounded demand, no auth, no redirect, and no repl
       size: 100 * 1024,
       open: () => {
         opened++;
+
         return new ReadableStream({
           pull(controller) {
             if (produced === 100) {
               controller.close();
+
               return;
             }
+
             produced++;
             largestAhead = Math.max(largestAhead, produced - consumed);
             controller.enqueue(new Uint8Array(1024));
@@ -36,10 +40,13 @@ it("uploads incrementally with bounded demand, no auth, no redirect, and no repl
       assert.equal(init?.redirect, "error");
       assert.ok(init?.body instanceof ReadableStream);
       const reader = init.body.getReader();
+
       while (!(await reader.read()).done) consumed++;
+
       return new Response(null, { headers: { etag: "test-etag" } });
     },
   });
+
   assert.equal(opened, 1);
   assert.equal(result.bytes, 100 * 1024);
   assert.ok(largestAhead <= 3, `buffered ${largestAhead} chunks`);
@@ -57,6 +64,7 @@ it("rejects oversized chunks and never reopens a failed stream", async () => {
         mimeType: "video/mp4",
         open: () => {
           opened++;
+
           return new ReadableStream({
             start(c) {
               c.enqueue(new Uint8Array(11));
@@ -68,6 +76,7 @@ it("rejects oversized chunks and never reopens a failed stream", async () => {
       fetch: async (_url, init) => {
         assert.ok(init?.body instanceof ReadableStream);
         await init.body.getReader().read();
+
         return new Response(null);
       },
     }),
@@ -87,6 +96,7 @@ it("rejects unsafe upload URLs and untrusted storage origins", async () => {
   ]) {
     assert.throws(() => httpsUrl(url));
   }
+
   await assert.rejects(
     upload({
       url: "https://attacker.example.test/a",
@@ -104,6 +114,7 @@ it("rejects unsafe upload URLs and untrusted storage origins", async () => {
 
 it("upload cleanup cannot hang on an uncooperative source cancellation hook", async () => {
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   const task = upload({
     url: "https://storage.example.test/upload",
     allowHost: () => true,
@@ -116,6 +127,7 @@ it("upload cleanup cannot hang on an uncooperative source cancellation hook", as
       throw new Error("network failed");
     },
   });
+
   try {
     await assert.rejects(
       Promise.race([
@@ -124,6 +136,7 @@ it("upload cleanup cannot hang on an uncooperative source cancellation hook", as
           timer = setTimeout(() => reject(new Error("cleanup hung")), 1000);
         }),
       ]),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof HttpError && error.kind === "network",
     );
   } finally {

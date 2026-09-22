@@ -9,12 +9,14 @@ test("backend quickstarts construct all three clients without environment secret
     calls++;
     throw new Error("unexpected network");
   };
+
   try {
     const clients = backendQuickstarts({
       bluesky: { service: "https://bsky.example", did: "did:plc:fixture", accessJwt: "fixture" },
       zernioApiKey: "fixture",
       postForMeApiKey: "fixture",
     });
+
     assert.deepEqual(Object.keys(clients), ["directBluesky", "managedZernio", "managedPostForMe"]);
     assert.equal(calls, 0);
   } finally {

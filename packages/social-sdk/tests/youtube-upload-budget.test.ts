@@ -30,10 +30,12 @@ it("uses one deadline across source reads and upload chunks", async () => {
     mimeType: "video/mp4",
     channelId: "c",
   };
+
   await assert.rejects(
     () =>
       sendYouTubeUpload(
         session,
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         {
           kind: "video",
           source: {
@@ -58,6 +60,7 @@ it("uses one deadline across source reads and upload chunks", async () => {
 
 it("cancels a hung POST even when fetch ignores AbortSignal", async () => {
   const controller = new AbortController();
+
   const pending = beginYouTubeUpload(
     { channelId: "c", size: 1, mimeType: "video/mp4", metadata: {} },
     {
@@ -67,6 +70,7 @@ it("cancels a hung POST even when fetch ignores AbortSignal", async () => {
       fetch: () => new Promise<Response>(() => undefined),
     },
   );
+
   setTimeout(() => controller.abort(), 5);
   await assert.rejects(pending, (error: { code?: string }) => error.code === "cancelled");
 });
@@ -82,6 +86,7 @@ it("does not dispatch when the supplied deadline already expired", async () => {
           deadlineAt: Date.now() - 1,
           fetch: async () => {
             calls++;
+
             return new Response(null);
           },
         },
@@ -98,12 +103,14 @@ it("shares timeout budget across multiple chunks", async () => {
     mimeType: "video/mp4",
     channelId: "c",
   };
+
   const bytes = new Uint8Array(session.size);
   let calls = 0;
   await assert.rejects(
     () =>
       sendYouTubeUpload(
         session,
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         {
           kind: "video",
           source: {
@@ -127,6 +134,7 @@ it("shares timeout budget across multiple chunks", async () => {
           fetch: async () => {
             calls++;
             await new Promise((resolve) => setTimeout(resolve, 700));
+
             return new Response(null, { status: 308 });
           },
         },

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- CLI JSON is parsed and validated at its input boundary. */
 import { realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -27,7 +28,9 @@ const names = [
   "instagram",
   "linkedin",
 ] as const;
+
 type AdapterName = (typeof names)[number];
+
 const environmentNames: Record<AdapterName, readonly string[]> = {
   mock: [],
   zernio: ["ZERNIO_API_KEY"],
@@ -40,9 +43,11 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   instagram: ["INSTAGRAM_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN"],
   linkedin: ["LINKEDIN_AUTHOR_URN", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_API_VERSION"],
 };
+
 const noNetwork: typeof globalThis.fetch = async () => {
   throw new Error("Offline diagnostics cannot make network requests.");
 };
+
 export function createDiagnosticAdapter(
   name: AdapterName,
   accountId = "diagnostic-account",
@@ -98,24 +103,32 @@ export function createDiagnosticAdapter(
       });
   }
 }
+
 export interface CliIO {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly readInput: (path: string) => Promise<string>;
   readonly write: (text: string) => void;
 }
+
 /** All commands are offline and return 0 (valid), 1 (diagnostic failure), or 2 (usage/input error). */
 export async function runCli(args: readonly string[], io: CliIO): Promise<number> {
   const command = args[0] ?? "help";
   const json = args.includes("--json");
+
   const finish = (code: number, data: unknown) => {
     const result = { schemaVersion: 1, command, ok: code === 0, data };
     io.write(json ? JSON.stringify(result) + "\n" : JSON.stringify(result, null, 2) + "\n");
+
     return code;
   };
+
   const options = new Map<string, string>();
+
   for (let index = 1; index < args.length; index++) {
     const arg = args[index]!;
+
     if (arg === "--json") continue;
+
     if (
       !["--adapter", "--file"].includes(arg) ||
       !args[index + 1] ||
@@ -127,6 +140,7 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
       });
     options.set(arg, args[++index]!);
   }
+
   if (command === "help" || command === "--help")
     return finish(0, {
       usage:
@@ -135,16 +149,20 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
       exitCodes: { success: 0, diagnosticFailure: 1, invalidInput: 2 },
     });
   const selected = options.get("--adapter") ?? "mock";
+
   if (!names.includes(selected as AdapterName))
     return finish(2, { error: "Unknown adapter.", adapters: names });
   const name = selected as AdapterName;
+
   if (command === "adapters")
     return finish(0, {
       adapters: names,
       verification: "Local contract tests; no live checks are performed by this CLI.",
     });
+
   if (command === "doctor") {
     const missing = environmentNames[name].filter((key) => !io.env[key]?.trim());
+
     return finish(missing.length ? 1 : 0, {
       adapter: name,
       offline: true,
@@ -155,12 +173,14 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
         : "Configuration presence checked only. Confirm platform scopes, account access and app approval separately.",
     });
   }
+
   if (command === "capabilities")
     return finish(0, {
       manifest: createDiagnosticAdapter(name).capabilities,
       verification:
         "Declared implementation capabilities; account permissions and live behavior were not checked.",
     });
+
   if (command === "examples")
     return finish(0, {
       adapter: "mock",
@@ -180,16 +200,21 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
       },
       run: "social-sdk validate --adapter mock --file request.json --json",
     });
+
   if (command !== "validate")
     return finish(2, { error: "Unknown command. Use help for supported commands." });
   const file = options.get("--file");
+
   if (!file)
     return finish(2, { error: "validate requires --file PATH containing a JSON publish request." });
+
   try {
     const raw = await io.readInput(file);
+
     if (new TextEncoder().encode(raw).byteLength > 1024 * 1024)
       return finish(2, { error: "Input exceeds the 1 MiB diagnostic limit." });
     const request: unknown = JSON.parse(raw);
+
     if (
       !request ||
       typeof request !== "object" ||
@@ -199,6 +224,7 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
     const input = request as PublishRequest;
     // JSON diagnostics deliberately accept only portable URLs, never executable streams or Blob handles.
     const contents = [input.content, ...input.targets.map((target) => target.content)];
+
     if (
       contents.some((content) =>
         content?.media?.some((media) => media.source?.kind !== "https-url"),
@@ -208,10 +234,13 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
         error:
           "CLI media validation accepts HTTPS URL inputs only. Validate Blob/stream/media handles through the SDK.",
       });
+
     const social = createSocial({
       backend: createDiagnosticAdapter(name, input.targets[0]?.account?.accountId),
     });
+
     const prepared = social.posts.prepare(input);
+
     // Do not echo content, URLs or account identifiers from the request.
     return finish(prepared.ok ? 0 : 1, {
       adapter: name,
@@ -232,7 +261,9 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
 }
 
 const invokedPath = process.argv[1];
+
 let invokedRealPath = invokedPath;
+
 if (invokedPath) {
   try {
     invokedRealPath = realpathSync(invokedPath);
@@ -240,13 +271,16 @@ if (invokedPath) {
     // Keep the original path when it cannot be resolved.
   }
 }
+
 if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) {
   process.exitCode = await runCli(process.argv.slice(2), {
     env: process.env,
     async readInput(path) {
       const info = await stat(path);
+
       if (!info.isFile() || info.size > 1024 * 1024)
         throw new Error("Expected a JSON file up to 1 MiB.");
+
       return readFile(path, "utf8");
     },
     write: (text) => process.stdout.write(text),

@@ -10,18 +10,21 @@ const context = {
   correlationId: "feed-test",
   retryBudget: { maxAttempts: 1, maxElapsedMs: 5_000 },
 };
+
 it("Post for Me lists only the requested account feed and preserves its cursor", async () => {
   const account = connectedAccountRef({
     backend: "default",
     platform: "x",
     accountId: "account-1",
   });
+
   const adapter = postForMe({
     apiKey: "test",
     fetch: async (input) => {
       const url = new URL(String(input));
       assert.equal(url.pathname, "/v1/social-account-feeds/account-1");
       assert.equal(url.searchParams.get("limit"), "2");
+
       return Response.json({
         data: [
           {
@@ -40,6 +43,7 @@ it("Post for Me lists only the requested account feed and preserves its cursor",
       });
     },
   });
+
   const page = await adapter.posts!.list!(account, { limit: 2 }, context);
   assert.deepEqual(page.items, [
     { social_account_id: "account-1", platform_post_id: "native-1", caption: "ok" },
@@ -53,21 +57,25 @@ it("Post for Me continues required-only pagination metadata without following ne
     platform: "x",
     accountId: "account-1",
   });
+
   const adapter = postForMe({
     apiKey: "test",
     fetch: async (input) => {
       const url = new URL(String(input));
       assert.equal(url.pathname, "/v1/social-account-feeds/account-1");
       assert.equal(url.searchParams.get("cursor"), "opaque-2");
+
       return Response.json({ data: [], meta: { cursor: "opaque-2", next: "opaque-3" } });
     },
   });
+
   const page = await adapter.posts!.list!(account, { cursor: "opaque-2" }, context);
   assert.equal(page.nextCursor, "opaque-2");
 });
 
 it("Zernio lists external native posts and filters platform/account destinations", async () => {
   const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "acct-1" });
+
   const adapter = zernio({
     apiKey: "test",
     fetch: async (input) => {
@@ -75,6 +83,7 @@ it("Zernio lists external native posts and filters platform/account destinations
       assert.equal(url.pathname, "/api/v1/posts");
       assert.equal(url.searchParams.get("source"), "external");
       assert.equal(url.searchParams.get("accountId"), "acct-1");
+
       return Response.json({
         posts: [
           {
@@ -100,6 +109,7 @@ it("Zernio lists external native posts and filters platform/account destinations
       });
     },
   });
+
   const page = await adapter.posts!.list!(account, {}, context);
   assert.equal(page.items.length, 1);
   assert.equal(page.items[0]?.["platformPostId"], "tweet-1");
@@ -114,12 +124,14 @@ it("Bluesky lists author-feed entries with safe post and repost reason fields", 
     platform: "bluesky",
     accountId: "did:plc:me",
   });
+
   const adapter = bluesky({
     auth: { service: "https://bsky.test", did: "did:plc:me", accessJwt: "token" },
     fetch: async (input) => {
       const url = new URL(String(input));
       assert.equal(url.pathname, "/xrpc/app.bsky.feed.getAuthorFeed");
       assert.equal(url.searchParams.get("actor"), "did:plc:me");
+
       return Response.json({
         feed: [
           {
@@ -141,6 +153,7 @@ it("Bluesky lists author-feed entries with safe post and repost reason fields", 
       });
     },
   });
+
   const page = await adapter.posts!.list!(account, { limit: 1 }, context);
   assert.equal(page.nextCursor, "next");
   assert.equal(page.items[0]?.["post"]["uri"], "at://post/1");

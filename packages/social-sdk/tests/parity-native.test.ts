@@ -13,18 +13,22 @@ const context: AdapterOperationContext = {
 
 test("Bluesky parity native routes preserve AT Protocol records", async () => {
   const paths: string[] = [];
+
   const adapter = bluesky({
     auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "token" },
     fetch: async (input) => {
       paths.push(new URL(String(input)).pathname);
+
       return Response.json({ uri: "at://did:plc:test/app.bsky.feed.repost/r1", cid: "cid" });
     },
   });
+
   const account = connectedAccountRef({
     backend: "default",
     platform: "bluesky",
     accountId: "did:plc:test",
   });
+
   await adapter.native!.repostPost({
     account,
     post: { uri: "at://did:plc:other/app.bsky.feed.post/p1", cid: "cid" },
@@ -43,14 +47,17 @@ test("Bluesky parity native routes preserve AT Protocol records", async () => {
 
 test("X parity native engagement and poll operations use typed routes", async () => {
   const calls: Array<{ path: string; method: string }> = [];
+
   const adapter = x({
     auth: { userId: "u1", accessToken: "token" },
     fetch: async (input, init) => {
       const url = new URL(String(input));
       calls.push({ path: url.pathname, method: init?.method ?? "GET" });
+
       return Response.json({ data: { id: "ok" } });
     },
   });
+
   const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
   await adapter.native!.createPoll({
     account,
@@ -72,6 +79,7 @@ test("X parity native engagement and poll operations use typed routes", async ()
 test("YouTube parity declares native API families", () => {
   const adapter = youtube({ auth: { accessToken: "token", channelId: "channel" } });
   const operations = adapter.capabilities.capabilities.map((entry) => entry.operation);
+
   for (const operation of [
     "posts.schedule",
     "thumbnails.write",

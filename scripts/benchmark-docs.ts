@@ -3,21 +3,28 @@ import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
 const root = resolve(import.meta.dir, "..");
+
 const output = join(root, "apps/docs/dist");
+
 async function files(directory: string): Promise<string[]> {
   const result: string[] = [];
+
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
+
     if (entry.isDirectory()) result.push(...(await files(path)));
     else result.push(path);
   }
+
   return result;
 }
+
 const assets = await Promise.all(
   (await files(output))
     .filter((path) => /\.(js|css)$/.test(path))
     .map(async (path) => {
       const bytes = await readFile(path);
+
       return {
         path: path.slice(output.length + 1),
         kind: path.endsWith(".js") ? "js" : "css",
@@ -26,6 +33,7 @@ const assets = await Promise.all(
       };
     }),
 );
+
 const total = (kind: string) =>
   assets
     .filter((asset) => asset.kind === kind)
@@ -37,9 +45,11 @@ const total = (kind: string) =>
       }),
       { bytes: 0, gzipBytes: 0, files: 0 },
     );
+
 const routes = await Promise.all(
   ["index.html", "docs/index.html", "docs/platforms/tiktok/index.html"].map(async (route) => {
     const html = await readFile(join(output, route), "utf8");
+
     const paths = [
       ...new Set(
         [...html.matchAll(/(?:src|href)=["']([^"']+\.(?:js|css))["']/g)].map((match) =>
@@ -47,7 +57,9 @@ const routes = await Promise.all(
         ),
       ),
     ];
+
     const referenced = assets.filter((asset) => paths.includes(asset.path));
+
     return {
       route: route.replace(/index.html$/, ""),
       htmlBytes: Buffer.byteLength(html),
@@ -56,6 +68,7 @@ const routes = await Promise.all(
     };
   }),
 );
+
 const report = {
   recordedAt: new Date().toISOString(),
   runtime: `Bun ${Bun.version}`,
@@ -64,9 +77,12 @@ const report = {
   totals: { js: total("js"), css: total("css") },
   routes,
 };
+
 await mkdir(join(root, "planning/evidence"), { recursive: true });
+
 await writeFile(
   join(root, "planning/evidence/docs-assets.json"),
   JSON.stringify(report, null, 2) + "\n",
 );
+
 console.log(JSON.stringify(report, null, 2));

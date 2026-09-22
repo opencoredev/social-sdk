@@ -10,9 +10,11 @@ const account = {
   platform: "bluesky" as const,
   accountId: "did:plc:test",
 };
+
 test("Bluesky caps remote image consumption before buffering the whole response", async () => {
   let produced = 0;
   let xrpcCalls = 0;
+
   const social = createSocial({
     backend: bluesky({
       auth: { service: "https://bsky.example", did: account.accountId, accessJwt: "fixture" },
@@ -22,8 +24,10 @@ test("Bluesky caps remote image consumption before buffering the whole response"
           xrpcCalls++;
           throw new Error("must not upload");
         }
+
         assert.equal(new Headers(init?.headers).has("authorization"), false);
         assert.equal(init?.redirect, "error");
+
         return new Response(
           new ReadableStream({
             pull(controller) {
@@ -36,6 +40,7 @@ test("Bluesky caps remote image consumption before buffering the whole response"
       },
     }),
   });
+
   const result = await social.posts.publish({
     targets: [{ account }],
     content: {
@@ -45,6 +50,7 @@ test("Bluesky caps remote image consumption before buffering the whole response"
       ],
     },
   });
+
   assert.notEqual(result.outcomes[0]?.state, "published");
   assert.ok(produced <= 13);
   assert.equal(xrpcCalls, 0);
@@ -57,6 +63,7 @@ test("Bluesky rejects oversized Blob before reading it and bounds uncooperative 
     reads++;
     throw new Error("oversized blob should not be opened");
   };
+
   const social = createSocial({
     backend: bluesky({
       auth: { service: "https://bsky.example", did: account.accountId, accessJwt: "fixture" },
@@ -64,13 +71,16 @@ test("Bluesky rejects oversized Blob before reading it and bounds uncooperative 
       fetch: async () => new Promise<Response>(() => {}),
     }),
   });
+
   const first = await social.posts.publish({
     targets: [{ account }],
     content: { media: [{ kind: "image", source: { kind: "blob", blob, fingerprint: "large" } }] },
   });
+
   assert.notEqual(first.outcomes[0]?.state, "published");
   assert.equal(reads, 0);
   const started = performance.now();
+
   const second = await social.posts.publish(
     {
       targets: [{ account }],
@@ -82,6 +92,7 @@ test("Bluesky rejects oversized Blob before reading it and bounds uncooperative 
     },
     { retryBudget: { maxAttempts: 1, maxElapsedMs: 10 } },
   );
+
   assert.notEqual(second.outcomes[0]?.state, "published");
   assert.ok(performance.now() - started < 1000);
 });

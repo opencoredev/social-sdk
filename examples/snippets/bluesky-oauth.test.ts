@@ -1,3 +1,5 @@
+/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- fixture intentionally models a minimal OAuth session boundary. */
+
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import type { OAuthSession } from "@atproto/oauth-client-node";

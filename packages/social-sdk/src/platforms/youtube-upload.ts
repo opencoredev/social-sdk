@@ -21,17 +21,21 @@ export interface YouTubeUploadOptions {
 }
 
 const deadlines = new WeakMap<object, number>();
+
 function deadlineFor(options: YouTubeUploadOptions): number {
   if (options.deadlineAt !== undefined) return options.deadlineAt;
   const existing = deadlines.get(options);
+
   if (existing !== undefined) return existing;
   const deadline = Date.now() + (options.timeoutMs ?? 120_000);
   deadlines.set(options, deadline);
+
   return deadline;
 }
 
 function remaining(options: YouTubeUploadOptions): number {
   const limit = deadlineFor(options);
+
   return limit - Date.now();
 }
 
@@ -50,7 +54,9 @@ async function bounded<T>(
       retryDisposition: { kind: "reconcile-first" },
     });
   }
+
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
       () =>
@@ -65,7 +71,9 @@ async function bounded<T>(
       timeoutMs,
     );
   });
+
   operation.catch(() => undefined);
+
   const cancelled = signal
     ? new Promise<never>((_, reject) =>
         signal.addEventListener(
@@ -83,6 +91,7 @@ async function bounded<T>(
         ),
       )
     : undefined;
+
   try {
     return await Promise.race(cancelled ? [operation, timeout, cancelled] : [operation, timeout]);
   } finally {
@@ -92,6 +101,7 @@ async function bounded<T>(
 
 function sessionUrl(value: string): URL {
   const url = new URL(value);
+
   if (
     url.origin !== "https://www.googleapis.com" ||
     url.pathname !== "/upload/youtube/v3/videos" ||
@@ -104,6 +114,7 @@ function sessionUrl(value: string): URL {
       message: "YouTube returned an unexpected upload origin or route.",
     });
   }
+
   return url;
 }
 
@@ -118,6 +129,7 @@ async function uploadRequest(
       operation: "youtube.upload",
       message: "Upload was cancelled before this request.",
     });
+
   if (remaining(options) <= 0)
     throw new SocialError({
       code: "timeout",
@@ -129,6 +141,7 @@ async function uploadRequest(
   const abort = () => controller.abort(options.signal?.reason);
   options.signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), remaining(options));
+
   try {
     const response = await bounded(
       (options.fetch ?? globalThis.fetch)(url, {
@@ -141,11 +154,14 @@ async function uploadRequest(
       "YouTube upload request exceeded its total deadline.",
       options.signal,
     );
+
     // Read response within the deadline, then return a bounded in-memory response.
     if (response.status === 308) {
       void response.body?.cancel().catch(() => undefined);
+
       return new Response(null, { status: response.status, headers: response.headers });
     }
+
     if (!response.ok) {
       void response.body?.cancel().catch(() => undefined);
       throw new SocialError({
@@ -156,20 +172,26 @@ async function uploadRequest(
         retryDisposition: response.status >= 500 ? { kind: "reconcile-first" } : { kind: "never" },
       });
     }
+
     if (response.status === 204 || response.headers.get("content-length") === "0") {
       void response.body?.cancel().catch(() => undefined);
+
       return new Response(null, { status: response.status, headers: response.headers });
     }
+
     if (init.method === "POST") {
       void response.body?.cancel().catch(() => undefined);
+
       return new Response(null, { status: response.status, headers: response.headers });
     }
+
     const body = await bounded(
       readJson(response, 2 * 1024 * 1024, controller.signal),
       remaining(options),
       "YouTube upload response exceeded its total deadline.",
       options.signal,
     );
+
     return Response.json(body, { status: response.status, headers: response.headers });
   } catch (error) {
     if (error instanceof SocialError) throw error;
@@ -200,6 +222,7 @@ export async function beginYouTubeUpload(
       operation: "youtube.upload",
       message: "Provide a positive video byte size no larger than 256 GiB and its video MIME type.",
     });
+
   const response = await uploadRequest(
     new URL(
       "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status,processingDetails",
@@ -215,20 +238,25 @@ export async function beginYouTubeUpload(
     },
     options,
   );
+
   const url = string(response.headers.get("location"));
   sessionUrl(url);
+
   return { url, size: input.size, mimeType: input.mimeType, channelId: input.channelId };
 }
 
 export type YouTubeUploadStatus =
   | { state: "incomplete"; nextByte: number }
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
   | { state: "complete"; video: Record<string, unknown> };
 
 async function statusFrom(response: Response): Promise<YouTubeUploadStatus> {
   if (response.status !== 308) return { state: "complete", video: object(await response.json()) };
   const range = response.headers.get("range");
+
   if (!range) return { state: "incomplete", nextByte: 0 };
   const matched = /^bytes=0-(\d+)$/.exec(range);
+
   if (!matched?.[1])
     throw new SocialError({
       code: "media_error",
@@ -236,12 +264,14 @@ async function statusFrom(response: Response): Promise<YouTubeUploadStatus> {
       message: "YouTube returned an invalid upload range.",
     });
   const nextByte = Number(matched[1]) + 1;
+
   if (!Number.isSafeInteger(nextByte))
     throw new SocialError({
       code: "media_error",
       operation: "youtube.upload",
       message: "YouTube returned an invalid upload offset.",
     });
+
   return { state: "incomplete", nextByte };
 }
 
@@ -276,6 +306,7 @@ export async function sendYouTubeUpload(
     });
   const operationOptions = options;
   const source = media.source;
+
   if (source.kind !== "blob" && source.kind !== "stream")
     throw new SocialError({
       code: "invalid_input",
@@ -290,13 +321,16 @@ export async function sendYouTubeUpload(
   let offset = startByte;
   let skipped = 0;
   let ended = false;
+
   try {
     while (offset < session.size) {
       const wanted = Math.min(chunkBytes, session.size - offset);
       const chunk = new Uint8Array(wanted);
       let written = 0;
+
       while (written < wanted) {
         operationOptions.signal?.throwIfAborted();
+
         if (cursor === buffered.byteLength) {
           const next = await bounded(
             reader.read(),
@@ -304,10 +338,12 @@ export async function sendYouTubeUpload(
             "YouTube upload source exceeded its total deadline.",
             operationOptions.signal,
           );
+
           if (next.done) {
             ended = true;
             break;
           }
+
           if (next.value.byteLength > chunkBytes)
             throw new SocialError({
               code: "media_error",
@@ -317,23 +353,27 @@ export async function sendYouTubeUpload(
           buffered = new Uint8Array(next.value);
           cursor = 0;
         }
+
         if (skipped < startByte) {
           const skip = Math.min(startByte - skipped, buffered.byteLength - cursor);
           skipped += skip;
           cursor += skip;
           continue;
         }
+
         const take = Math.min(wanted - written, buffered.byteLength - cursor);
         chunk.set(buffered.subarray(cursor, cursor + take), written);
         written += take;
         cursor += take;
       }
+
       if (ended || written !== wanted)
         throw new SocialError({
           code: "media_error",
           operation: "youtube.upload",
           message: "Source ended before its declared byte size.",
         });
+
       if (offset + wanted === session.size) {
         // Confirm the declared size before sending the chunk that finalizes publication.
         if (
@@ -354,6 +394,7 @@ export async function sendYouTubeUpload(
           });
         }
       }
+
       const result = await statusFrom(
         await uploadRequest(
           sessionUrl(session.url),
@@ -369,10 +410,13 @@ export async function sendYouTubeUpload(
           operationOptions,
         ),
       );
+
       if (result.state === "complete") return result;
+
       if (result.nextByte !== offset + wanted) return result;
       offset = result.nextByte;
     }
+
     return { state: "incomplete", nextByte: offset };
   } finally {
     void reader.cancel().catch(() => undefined);

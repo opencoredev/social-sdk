@@ -4,6 +4,7 @@ import { createExampleHandler } from "../src/app.js";
 import { mockBackend } from "@opencoredev/social-sdk/testing";
 import { openExampleDatabase } from "../src/storage.js";
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function request(path: string, value?: unknown, headers: Record<string, string> = {}) {
   return new Request(
     `http://example.test${path}`,
@@ -16,6 +17,7 @@ function request(path: string, value?: unknown, headers: Record<string, string> 
         },
   );
 }
+
 const publication = {
   accountIds: ["mock-account-1"],
   format: "text",
@@ -97,19 +99,23 @@ test("keeps video processing durable and reconciles after handler reconstruction
   const db = openExampleDatabase();
   const backend = mockBackend({ scenario: "media-processing-then-success" });
   const first = createExampleHandler({ backend, database: db });
+
   const input = {
     ...publication,
     format: "video",
     mediaUrl: "https://media.example.test/video.mp4",
     mediaMime: "video/mp4",
   };
+
   const sent = await (await first.handle(request("/api/publish", input))).json();
   assert.equal(sent.result.outcomes[0].state, "processing");
   backend.testing.advanceProcessing();
   const restarted = createExampleHandler({ backend, database: db });
+
   const response = await restarted.handle(
     request("/api/reconcile", { idempotencyKey: input.idempotencyKey }),
   );
+
   assert.equal(response.status, 200);
   assert.equal((await response.json()).result.outcomes[0].state, "published");
   assert.equal(
@@ -129,12 +135,15 @@ test("applies a verified pending event after restart, deduplicates and keeps ter
   const backend = mockBackend({ scenario: "media-processing-then-success" });
   const first = createExampleHandler({ backend, database: db });
   await first.handle(request("/api/publish", publication));
+
   const event = {
     eventId: "event-1",
     accountId: "mock-account-1",
     publicationKey: publication.idempotencyKey,
     type: "post.updated",
   };
+
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
   const send = (value: unknown) => request("/api/events", value, { "x-mock-signature": "valid" });
   assert.equal((await first.handle(request("/api/events", event))).status, 401);
   assert.deepEqual(await (await first.handle(send(event))).json(), {
@@ -163,11 +172,13 @@ test("applies a verified pending event after restart, deduplicates and keeps ter
   backend.testing.reset(); // An old provider processing observation must not undo publication.
   await restarted.handle(send({ ...event, eventId: "older-event" }));
   await restarted.handle(request("/api/events/process", {}));
+
   const current = await (
     await restarted.handle(
       request("/api/reconcile", { idempotencyKey: publication.idempotencyKey }),
     )
   ).json();
+
   assert.equal(current.result.outcomes[0].state, "published");
   db.close();
 });
@@ -176,11 +187,13 @@ test("reports each mixed outcome, keeps metrics server-side and replies to a ret
   const { handle } = createExampleHandler({
     backend: mockBackend({ scenario: "mixed-success-failure" }),
   });
+
   const result = await (
     await handle(
       request("/api/publish", { ...publication, accountIds: ["mock-account-1", "mock-account-2"] }),
     )
   ).json();
+
   assert.deepEqual(
     result.result.outcomes.map((outcome: { state: string }) => outcome.state),
     ["published", "failed"],
@@ -190,9 +203,11 @@ test("reports each mixed outcome, keeps metrics server-side and replies to a ret
   assert.equal(metrics.status, 200);
   assert.equal((await metrics.json()).metrics[0].name, "views");
   const comments = await (await handle(request("/api/comments/list", post))).json();
+
   const reply = await handle(
     request("/api/comments/reply", { ...post, commentId: comments.items[0].id, text: "reply" }),
   );
+
   assert.equal(reply.status, 200);
   assert.match((await reply.json()).comment.commentId, /^mock-reply-/);
 });
@@ -200,12 +215,14 @@ test("reports each mixed outcome, keeps metrics server-side and replies to a ret
 test("blocks cross-origin browser mutations before backend dispatch", async () => {
   const backend = mockBackend();
   const { handle } = createExampleHandler({ backend });
+
   const response = await handle(
     request("/api/publish", publication, {
       origin: "https://other.example.test",
       "sec-fetch-site": "cross-site",
     }),
   );
+
   assert.equal(response.status, 403);
   assert.equal(backend.testing.history().length, 0);
 });

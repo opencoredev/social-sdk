@@ -6,6 +6,7 @@ export function renderPublishResult(result: PublishResult): string[] {
 
 function renderOutcome(outcome: DeliveryOutcome): string {
   const target = `${outcome.account.platform}/${outcome.account.accountId}`;
+
   switch (outcome.state) {
     case "published":
       return `${target}: published (${outcome.post.postId})`;

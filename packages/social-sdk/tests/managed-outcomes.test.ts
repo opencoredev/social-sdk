@@ -2,6 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { zernioOutcome, postForMeOutcome } from "../src/cloud/outcomes.js";
 import type { ConnectedAccountRef } from "../src/core/types.js";
+
 const account: ConnectedAccountRef = {
   kind: "connected-account",
   version: 1,
@@ -9,6 +10,7 @@ const account: ConnectedAccountRef = {
   platform: "x",
   accountId: "account-a",
 };
+
 const context = { account, targetIndex: 0, observedAt: "2026-09-19T00:00:00Z" };
 
 it("maps Zernio per-account outcomes in a partial parent including two accounts on one platform", () => {
@@ -30,12 +32,16 @@ it("maps Zernio per-account outcomes in a partial parent including two accounts 
       },
     ],
   };
+
   assert.equal(zernioOutcome({ post }, context).state, "failed");
+
   const successful = zernioOutcome(
     { post },
     { ...context, account: { ...account, accountId: "account-b" } },
   );
+
   assert.equal(successful.state, "published");
+
   if (successful.state === "published")
     assert.equal(successful.post.postId, "12345678901234567890");
   assert.equal(zernioOutcome({ existingPost: post }, context).state, "failed");
@@ -57,6 +63,7 @@ it("does not turn unknown, missing, cancelled or parent-only outcomes into succe
       "unknown",
     );
   }
+
   assert.equal(
     zernioOutcome({ post: { _id: "p1", status: "published", platforms: [] } }, context).state,
     "unknown",

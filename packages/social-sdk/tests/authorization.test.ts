@@ -9,10 +9,12 @@ const account = connectedAccountRef({
   platform: "x",
   accountId: "victim-account",
 });
+
 const post = platformPostRef({ ...account, postId: "native-post" });
 
 it("tenant denial prevents analytics, comments, messages, post reads, and account lookup requests", async () => {
   let calls = 0;
+
   const social = createSocial({
     backend: zernio({
       apiKey: "test",
@@ -27,6 +29,7 @@ it("tenant denial prevents analytics, comments, messages, post reads, and accoun
       },
     },
   });
+
   const conversation = {
     kind: "conversation" as const,
     version: 1 as const,
@@ -35,6 +38,7 @@ it("tenant denial prevents analytics, comments, messages, post reads, and accoun
     accountId: account.accountId,
     conversationId: "c1",
   };
+
   const comment = {
     kind: "comment" as const,
     version: 1 as const,
@@ -44,6 +48,7 @@ it("tenant denial prevents analytics, comments, messages, post reads, and accoun
     postId: "p1",
     commentId: "c1",
   };
+
   for (const action of [
     () => social.accounts.get(account),
     () => social.posts.get(post),
@@ -56,6 +61,7 @@ it("tenant denial prevents analytics, comments, messages, post reads, and accoun
   ])
     await assert.rejects(
       action(),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "unauthorized",
     );
@@ -64,11 +70,13 @@ it("tenant denial prevents analytics, comments, messages, post reads, and accoun
 
 it("authorization for a different reference cannot authorize the requested account", async () => {
   let calls = 0;
+
   const social = createSocial({
     backend: zernio({
       apiKey: "test",
       fetch: async () => {
         calls++;
+
         return Response.json({});
       },
     }),
@@ -78,26 +86,32 @@ it("authorization for a different reference cannot authorize the requested accou
       },
     },
   });
+
   await assert.rejects(social.posts.get(post));
   assert.equal(calls, 0);
 });
 
 it("mixed-backend account discovery requires an explicit backend and cannot choose an arbitrary first key", async () => {
   const paths: string[] = [];
+
   const one = zernio({
     apiKey: "test",
     fetch: async (input) => {
       paths.push(String(input));
+
       return Response.json({ accounts: [], pagination: {} });
     },
   });
+
   const two = postForMe({
     apiKey: "test",
     fetch: async (input) => {
       paths.push(String(input));
+
       return Response.json({ data: [], meta: {} });
     },
   });
+
   const social = createSocial({ backends: { one, two } });
   await assert.rejects(social.accounts.list());
   assert.equal(paths.length, 0);
@@ -107,6 +121,7 @@ it("mixed-backend account discovery requires an explicit backend and cannot choo
 
 it("missing managed messaging is an unsupported capability instead of an empty inbox", async () => {
   let calls = 0;
+
   const social = createSocial({
     backend: postForMe({
       apiKey: "test",
@@ -116,8 +131,10 @@ it("missing managed messaging is an unsupported capability instead of an empty i
       },
     }),
   });
+
   await assert.rejects(
     social.messages.listConversations(account),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) =>
       error instanceof Error && "code" in error && error.code === "unsupported_capability",
   );
@@ -129,6 +146,7 @@ it("account metric reads require tenant authorization before dispatch", async ()
   const { mockBackend } = await import("../src/testing/index.js");
   const base = mockBackend();
   let calls = 0;
+
   const social = createSocial({
     backend: {
       ...base,
@@ -147,6 +165,7 @@ it("account metric reads require tenant authorization before dispatch", async ()
         ...base.analytics!,
         async getAccountMetrics() {
           calls++;
+
           return [];
         },
       },
@@ -157,6 +176,7 @@ it("account metric reads require tenant authorization before dispatch", async ()
       },
     },
   });
+
   await assert.rejects(
     social.analytics.getAccountMetrics({
       kind: "connected-account",

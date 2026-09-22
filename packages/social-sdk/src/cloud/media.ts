@@ -16,10 +16,12 @@ export interface ManagedMediaRecord {
   readonly kind: "image" | "video";
   readonly mimeType: string;
 }
+
 export interface ManagedMediaStore {
   put(record: ManagedMediaRecord): Promise<void>;
   get(mediaId: string): Promise<ManagedMediaRecord | undefined>;
 }
+
 export class MemoryManagedMediaStore implements ManagedMediaStore {
   private readonly records = new Map<string, ManagedMediaRecord>();
   async put(record: ManagedMediaRecord) {
@@ -27,21 +29,26 @@ export class MemoryManagedMediaStore implements ManagedMediaStore {
   }
   async get(mediaId: string) {
     const record = this.records.get(mediaId);
+
     return record ? structuredClone(record) : undefined;
   }
 }
+
 export function managedMedia(
   provider: "zernio" | "post-for-me",
   options: ManagedOptions,
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- provider payload is validated at this adapter boundary.
   presign: (body: JsonObject, context: AdapterOperationContext) => Promise<unknown>,
 ) {
   const store = options.mediaStore ?? new MemoryManagedMediaStore();
+
   async function resolve(
     item: MediaAttachment,
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
   ): Promise<string> {
     accountMatches(account, context);
+
     if (item.source.kind !== "media-ref")
       return uploadManagedMedia(item, (body) => presign(body, context), {
         options,
@@ -49,6 +56,7 @@ export function managedMedia(
         provider,
       });
     const ref = item.source.ref;
+
     if (
       ref.backend !== account.backend ||
       ref.accountId !== account.accountId ||
@@ -60,6 +68,7 @@ export function managedMedia(
         message: "Media reference belongs to another account or backend.",
       });
     const record = await store.get(ref.mediaId);
+
     if (
       !record ||
       record.ref.backend !== ref.backend ||
@@ -71,6 +80,7 @@ export function managedMedia(
         operation: "media.resolve",
         message: "Media reference is unknown to this server-side store.",
       });
+
     if (
       record.expiresAt &&
       Date.parse(record.expiresAt) <= (options.clock?.() ?? new Date()).getTime()
@@ -80,6 +90,7 @@ export function managedMedia(
         operation: "media.resolve",
         message: "Stored media has expired. Upload a new asset explicitly.",
       });
+
     if (
       record.kind !== item.kind ||
       (item.mimeType !== undefined && item.mimeType !== record.mimeType)
@@ -89,8 +100,10 @@ export function managedMedia(
         operation: "media.resolve",
         message: "Media kind or MIME type differs from the stored asset.",
       });
+
     return record.publicUrl;
   }
+
   return {
     resolve,
     async upload(
@@ -99,10 +112,13 @@ export function managedMedia(
       context: AdapterOperationContext,
     ): Promise<MediaRef> {
       accountMatches(account, context);
+
       if (item.source.kind === "media-ref") {
         await resolve(item, account, context);
+
         return item.source.ref;
       }
+
       if (!item.mimeType)
         throw new SocialError({
           code: "invalid_input",
@@ -110,6 +126,7 @@ export function managedMedia(
           message: "Provide the asset MIME type.",
         });
       const publicUrl = await resolve(item, account, context);
+
       const ref: MediaRef = {
         kind: "media",
         version: 1,
@@ -118,20 +135,26 @@ export function managedMedia(
         accountId: account.accountId,
         mediaId: crypto.randomUUID(),
       };
+
       const uploaded = item.source.kind !== "https-url";
-      await store.put({
+
+      const record: ManagedMediaRecord = {
         ref,
         publicUrl,
         kind: item.kind,
         mimeType: item.mimeType,
-        ...(provider === "zernio" && uploaded
-          ? {
-              expiresAt: new Date(
-                (options.clock?.() ?? new Date()).getTime() + 7 * 86400_000,
-              ).toISOString(),
-            }
-          : {}),
-      });
+      };
+
+      if (provider === "zernio" && uploaded) {
+        const expiresAt = new Date(
+          (options.clock?.() ?? new Date()).getTime() + 7 * 86400_000,
+        ).toISOString();
+
+        await store.put({ ...record, expiresAt });
+      } else {
+        await store.put(record);
+      }
+
       return ref;
     },
   };

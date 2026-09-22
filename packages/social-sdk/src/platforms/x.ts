@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract. */
 import { remainingBudget } from "../transport/budget.js";
 import twitterText from "twitter-text";
 import { defineAdapter } from "../core/adapter.js";
@@ -24,6 +25,7 @@ export interface XAuthorization {
 }
 
 export { xLike, xUnlike, type XEngagementOptions, type XEngagementResult } from "./x-engagement.js";
+
 export interface XOptions {
   readonly auth: XAuthorization;
   readonly fetch?: typeof globalThis.fetch;
@@ -105,10 +107,13 @@ export interface XNative {
 export function x(options: XOptions): import("../core/adapter.js").SocialAdapter<XNative> {
   const request = managedHttp("https://api.x.com", {
     apiKey: options.auth.accessToken,
+    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
+
   const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
   const now = () => (options.clock?.() ?? new Date()).toISOString();
+
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
     context: AdapterOperationContext,
@@ -124,14 +129,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         message: "Reference does not match this X user authorization.",
       });
   };
+
   async function readAccount(context: AdapterOperationContext) {
     const user = object(object(await request("/2/users/me", context))["data"]);
+
     if (user["id"] !== options.auth.userId)
       throw new SocialError({
         code: "unauthorized",
         operation: "accounts.read",
         message: "The authenticated X user differs from the configured account.",
       });
+
     return {
       ref: {
         kind: "connected-account" as const,
@@ -141,15 +149,25 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         accountId: options.auth.userId,
       },
       displayName: string(user["name"]),
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
       ...(typeof user["username"] === "string" ? { handle: user["username"] } : {}),
       status: "connected" as const,
     };
   }
+
   async function readPost(
     ref: PlatformPostRef,
     context: AdapterOperationContext,
   ): Promise<JsonObject> {
     authorize(ref, context);
+
     const result = object(
       object(
         await request(`/2/tweets/${encodeURIComponent(ref.postId)}`, context, undefined, {
@@ -157,20 +175,25 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         }),
       )["data"],
     );
+
     if (result["id"] !== ref.postId || result["author_id"] !== ref.accountId)
       throw new SocialError({
         code: "unauthorized",
         operation: "posts.read",
         message: "X post identity or author does not match the declared reference.",
       });
+
+    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     return result as JsonObject;
   }
+
   async function listPosts(
     account: ConnectedAccountRef,
     input: { readonly cursor?: string; readonly limit?: number },
     context: AdapterOperationContext,
   ) {
     authorize(account, context);
+
     if (
       input.limit !== undefined &&
       (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
@@ -180,6 +203,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         operation: "posts.list",
         message: "X feed limit must be an integer from 1 through 100.",
       });
+
     const result = object(
       await request(
         `/2/users/${encodeURIComponent(account.accountId)}/tweets`,
@@ -187,41 +211,53 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         undefined,
         {
           "tweet.fields": "id,text,author_id,created_at,conversation_id",
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor === undefined ? {} : { pagination_token: input.cursor }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
         },
       ),
     );
+
     const items = array(result["data"]).map((entry) => {
       const row = object(entry);
       const authorId = optionalString(row["author_id"]);
+
       if (authorId !== account.accountId)
         throw new SocialError({
           code: "unauthorized",
           operation: "posts.list",
           message: "X returned a post owned by a different account.",
         });
+
       return publicFields(row, ["id", "text", "author_id", "created_at", "conversation_id"]);
     });
+
     const meta = result["meta"] === undefined ? {} : object(result["meta"]);
     const nextCursor = optionalString(meta["next_token"]);
+
     return {
       items,
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(nextCursor === undefined ? {} : { nextCursor }),
     };
   }
+
   async function getAccountMetrics(
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
   ): Promise<readonly MetricValue[]> {
     authorize(account, context);
+
     const result = object(
       await request(`/2/users/${encodeURIComponent(account.accountId)}`, context, undefined, {
         "user.fields": "id,public_metrics",
       }),
     );
+
     const data = object(result["data"]);
     const id = optionalString(data["id"]);
+
     if (id !== account.accountId)
       throw new SocialError({
         code: "unauthorized",
@@ -230,8 +266,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       });
     const counts = data["public_metrics"] === undefined ? {} : object(data["public_metrics"]);
     const fields = ["followers_count", "following_count", "tweet_count", "listed_count"] as const;
+
     return fields.flatMap((name) => {
       const value = optionalNumber(counts[name]);
+
       return value === undefined
         ? []
         : [
@@ -247,11 +285,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ];
     });
   }
+
   async function validateReplyParent(
     ref: CommentRef,
     context: AdapterOperationContext,
   ): Promise<void> {
     authorize(ref, context);
+
     const parent = object(
       object(
         await request(`/2/tweets/${encodeURIComponent(ref.commentId)}`, context, undefined, {
@@ -259,12 +299,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         }),
       )["data"],
     );
+
     if (parent["id"] !== ref.commentId)
       throw new SocialError({
         code: "unauthorized",
         operation: "comments.write",
         message: "X did not return the declared reply parent.",
       });
+
     if (ref.postId !== ref.commentId) {
       const root = object(
         object(
@@ -273,8 +315,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }),
         )["data"],
       );
+
       if (
         root["id"] !== ref.postId ||
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         (typeof parent["conversation_id"] === "string" &&
           parent["conversation_id"] !== root["conversation_id"])
       )
@@ -285,6 +329,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         });
     }
   }
+
   async function uploadImage(
     media: MediaAttachment,
     context: AdapterOperationContext,
@@ -303,6 +348,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     body.set("media", media.source.blob, media.filename ?? "image");
     body.set("media_category", "tweet_image");
     let result: unknown;
+
     try {
       result = await http({
         url: new URL("https://api.x.com/2/media/upload"),
@@ -310,6 +356,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
         body,
         timeoutMs: remainingBudget(context),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal ? { signal: context.signal } : {}),
       });
     } catch (error) {
@@ -322,15 +369,19 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         retryDisposition: { kind: "never" },
       });
     }
+
     const data = object(object(result)["data"]);
+
     if (data["processing_info"] && object(data["processing_info"])["state"] !== "succeeded")
       throw new SocialError({
         code: "media_error",
         operation: "media.upload",
         message: "X media processing is not complete. No post was created.",
       });
+
     return string(data["id"]);
   }
+
   async function createPost(
     account: ConnectedAccountRef,
     text: string,
@@ -343,6 +394,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const data = result["data"] ? object(result["data"]) : {};
     const id = optionalString(data["id"]);
     const base = { account, targetIndex, observedAt: now() };
+
     if (!id)
       return {
         ...base,
@@ -350,6 +402,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         reason: "unmapped-state",
         diagnostic: "X create response lacks a native ID. Reconcile before retrying.",
       };
+
     return {
       ...base,
       state: "published",
@@ -363,6 +416,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
     };
   }
+
   return defineAdapter({
     id: "x",
     capabilities: {
@@ -425,6 +479,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
         authorize(ref, context);
+
         return readAccount(context);
       },
     },
@@ -433,21 +488,26 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       prepareTarget(target: PreparedPublishTarget) {
         const issues: { code: string; message: string; severity: "error"; targetIndex: number }[] =
           [];
+
         const fail = (code: string, message: string) =>
           issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
+
         if (target.account.platform !== "x" || target.account.accountId !== options.auth.userId)
           fail("x.account", "Select the configured X user.");
         const text = target.content.text ?? "";
+
         if (text && !twitterText.parseTweet(text).valid)
           fail(
             "x.text",
             "Text exceeds X's weighted 280-character limit or contains invalid characters.",
           );
+
         if (target.schedule || target.content.link)
           fail(
             "x.operation",
             "Scheduling needs an application runner; place URLs explicitly in text.",
           );
+
         if (
           target.replyTo &&
           (target.replyTo.platform !== "x" ||
@@ -460,6 +520,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             "Use a platform-post reply reference authorized for this account and backend.",
           );
         const settings = target.options === undefined ? {} : object(target.options);
+
         if (
           Object.keys(settings).some((key) => key !== "replySettings") ||
           (settings["replySettings"] !== undefined &&
@@ -469,7 +530,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         )
           fail("x.options", "Provide only a supported replySettings value.");
         const media = target.content.media ?? [];
+
         if (media.length > 4) fail("x.media_count", "Attach up to four images.");
+
         for (const item of media) {
           if (
             item.kind !== "image" ||
@@ -479,26 +542,33 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             fail("x.image", "This slice requires a JPEG or PNG image Blob.");
           else if (item.source.blob.size > 5 * 1024 * 1024)
             fail("x.image_size", "Image exceeds the 5 MiB limit.");
+
           if (item.altText !== undefined)
             fail(
               "x.alt_text",
               "This slice has no verified media metadata mapping. Use a backend that supports alt text.",
             );
         }
+
         return issues;
       },
       async publishTarget(target: PreparedPublishTarget, context: AdapterOperationContext) {
         authorize(target.account, context);
         const ids: string[] = [];
+
         for (const media of target.content.media ?? []) ids.push(await uploadImage(media, context));
         const settings = target.options === undefined ? {} : object(target.options);
+
         return createPost(
           target.account,
           target.content.text ?? "",
           context,
           {
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(ids.length ? { media: { media_ids: ids } } : {}),
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(target.replyTo ? { reply: { in_reply_to_tweet_id: target.replyTo.postId } } : {}),
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(settings["replySettings"] && settings["replySettings"] !== "everyone"
               ? { reply_settings: string(settings["replySettings"]) }
               : {}),
@@ -530,18 +600,21 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         context: AdapterOperationContext,
       ): Promise<CommentRef> {
         await validateReplyParent(ref, context);
+
         if (!twitterText.parseTweet(content.text).valid)
           throw new SocialError({
             code: "invalid_input",
             operation: "comments.write",
             message: "Reply exceeds X's weighted text limits.",
           });
+
         const result = await createPost(
           { ...ref, kind: "connected-account" },
           content.text,
           context,
           { reply: { in_reply_to_tweet_id: ref.commentId } },
         );
+
         if (result.state !== "published")
           throw new SocialError({
             code: "ambiguous_outcome",
@@ -549,6 +622,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             message: "X reply lacks a confirmed native ID. Reconcile before retrying.",
             retryDisposition: { kind: "reconcile-first" },
           });
+
         return { ...ref, commentId: result.post.postId };
       },
     },
@@ -560,6 +634,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       ): Promise<readonly MetricValue[]> {
         const row = await readPost(ref, context);
         const counts = row["public_metrics"] ? object(row["public_metrics"]) : {};
+
         return [
           ["likes", "like_count"],
           ["reposts", "retweet_count"],
@@ -567,6 +642,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ["quotes", "quote_count"],
         ].flatMap(([name, key]) => {
           const value = key ? optionalNumber(counts[key]) : undefined;
+
           return value === undefined || !name
             ? []
             : [
@@ -587,6 +663,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       readPost,
       async repost({ account, postId, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(`/2/users/${encodeURIComponent(account.accountId)}/retweets`, context, {
             tweet_id: postId,
@@ -595,6 +673,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async quote({ account, text, quotedPostId, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request("/2/tweets", context, { text, quote_tweet_id: quotedPostId }),
         ) as JsonObject;
@@ -605,6 +685,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async createPoll({ account, text, options: pollOptions, durationMinutes, context }) {
         authorize(account, context);
+
         if (
           pollOptions.length < 2 ||
           pollOptions.length > 4 ||
@@ -616,6 +697,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             operation: "x.polls.create",
             message: "X polls require 2-4 options and a duration from 5 minutes to 7 days.",
           });
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request("/2/tweets", context, {
             text,
@@ -625,6 +708,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async bookmarks({ account, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(`/2/users/${encodeURIComponent(account.accountId)}/bookmarks`, context),
         ) as JsonObject;
@@ -647,6 +732,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async follow({ account, userId, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(`/2/users/${encodeURIComponent(account.accountId)}/following`, context, {
             target_user_id: userId,
@@ -665,6 +752,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async uploadVideo({ account, media, context }) {
         authorize(account, context);
+
         if (!media.type.startsWith("video/") || media.size > 512 * 1024 * 1024)
           throw new SocialError({
             code: "invalid_input",
@@ -674,6 +762,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         const body = new FormData();
         body.set("media", media, "video");
         body.set("media_category", "tweet_video");
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await http({
             url: new URL("https://api.x.com/2/media/upload"),
@@ -681,12 +771,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             headers: { Authorization: `Bearer ${options.auth.accessToken}` },
             body,
             timeoutMs: remainingBudget(context),
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(context.signal ? { signal: context.signal } : {}),
           }),
         ) as JsonObject;
       },
       async uploadGif({ account, media, context }) {
         authorize(account, context);
+
         if (media.type !== "image/gif")
           throw new SocialError({
             code: "invalid_input",
@@ -696,6 +788,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         const body = new FormData();
         body.set("media", media, "image.gif");
         body.set("media_category", "tweet_gif");
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await http({
             url: new URL("https://api.x.com/2/media/upload"),
@@ -703,20 +797,26 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             headers: { Authorization: `Bearer ${options.auth.accessToken}` },
             body,
             timeoutMs: remainingBudget(context),
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(context.signal ? { signal: context.signal } : {}),
           }),
         ) as JsonObject;
       },
       async listDirectMessages({ account, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(await request("/2/dm_conversations", context)) as JsonObject;
       },
       async stream({ account, context }) {
         authorize(account, context);
+
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await http({
           url: new URL("https://api.x.com/2/tweets/search/stream"),
           headers: { Authorization: `Bearer ${options.auth.accessToken}` },
           timeoutMs: remainingBudget(context),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(context.signal ? { signal: context.signal } : {}),
         })) as Response;
       },

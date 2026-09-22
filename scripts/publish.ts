@@ -22,5 +22,6 @@ child.once("exit", (code, signal) => {
     console.error(`Release terminated by ${signal}.`);
     process.exit(1);
   }
+
   process.exit(code ?? 1);
 });

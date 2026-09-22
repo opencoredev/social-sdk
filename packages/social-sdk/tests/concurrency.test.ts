@@ -39,9 +39,12 @@ function post(ref: ConnectedAccountRef) {
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
+
   const promise = new Promise<void>((next) => {
     resolve = next;
   });
+
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
   return { promise, resolve };
 }
 
@@ -50,6 +53,7 @@ async function eventually(predicate: () => boolean): Promise<void> {
     if (predicate()) return;
     await new Promise<void>((resolve) => setTimeout(resolve, 1));
   }
+
   assert.fail("Timed out waiting for adapter dispatch");
 }
 
@@ -61,8 +65,10 @@ function makeAdapter(
     state.calls += 1;
     state.active += 1;
     state.peak = Math.max(state.peak, state.active);
+
     try {
       await state.gate;
+
       return value;
     } finally {
       state.active -= 1;
@@ -118,13 +124,16 @@ function makeAdapter(
 test("all network facades share one backend capacity", async () => {
   const gate = deferred();
   const state = { active: 0, peak: 0, calls: 0, gate: gate.promise };
+
   const social = createSocial({
     backend: makeAdapter("default", state),
     concurrency: 1,
     maxQueued: 10,
   });
+
   const ref = account("default");
   const postRef = post(ref);
+
   const operations = [
     social.accounts.get(ref),
     social.posts.publish({ targets: [{ account: ref }], content: { text: "hello" } }),
@@ -135,6 +144,7 @@ test("all network facades share one backend capacity", async () => {
     social.comments.list(postRef),
     social.messages.listConversations(ref),
   ];
+
   await eventually(() => state.calls === 1);
   assert.equal(state.peak, 1);
   gate.resolve();
@@ -148,11 +158,13 @@ test("a slow backend does not consume another backend's capacity", async () => {
   const second = deferred();
   const a = { active: 0, peak: 0, calls: 0, gate: first.promise };
   const b = { active: 0, peak: 0, calls: 0, gate: second.promise };
+
   const social = createSocial({
     backends: { a: makeAdapter("a", a), b: makeAdapter("b", b) },
     concurrency: 1,
     maxQueued: 1,
   });
+
   const one = social.accounts.get(account("a"));
   await eventually(() => a.calls === 1);
   const two = social.accounts.get(account("b"));
@@ -167,15 +179,18 @@ test("a slow backend does not consume another backend's capacity", async () => {
 test("queue overflow rejects before the adapter is called", async () => {
   const gate = deferred();
   const state = { active: 0, peak: 0, calls: 0, gate: gate.promise };
+
   const social = createSocial({
     backend: makeAdapter("default", state),
     concurrency: 1,
     maxQueued: 0,
   });
+
   const first = social.accounts.get(account("default"));
   await eventually(() => state.calls === 1);
   await assert.rejects(
     social.accounts.get(account("default", "account-2")),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) => error instanceof SocialError && error.code === "rate_limited",
   );
   assert.equal(state.calls, 1);
@@ -186,21 +201,26 @@ test("queue overflow rejects before the adapter is called", async () => {
 test("cancelling a queued call frees its queue slot", async () => {
   const gate = deferred();
   const state = { active: 0, peak: 0, calls: 0, gate: gate.promise };
+
   const social = createSocial({
     backend: makeAdapter("default", state),
     concurrency: 1,
     maxQueued: 1,
   });
+
   const first = social.accounts.get(account("default"));
   await eventually(() => state.calls === 1);
   const controller = new AbortController();
+
   const cancelled = social.accounts.get(account("default", "account-2"), {
     signal: controller.signal,
   });
+
   await new Promise<void>((resolve) => setTimeout(resolve, 1));
   controller.abort();
   await assert.rejects(
     cancelled,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) => error instanceof SocialError && error.code === "cancelled",
   );
   const third = social.accounts.get(account("default", "account-3"));

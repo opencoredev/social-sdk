@@ -1,3 +1,7 @@
 {
-  "ignorePatterns": ["planning/**", "apps/docs/docs/reference/capabilities.mdx"]
+  "ignorePatterns": [
+    "planning/**",
+    "apps/docs/docs/reference/capabilities.mdx",
+    "tools/oxlint/anti-slop/**"
+  ]
 }

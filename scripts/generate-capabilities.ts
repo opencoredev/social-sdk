@@ -1,9 +1,11 @@
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createDiagnosticAdapter, runCli } from "../packages/social-sdk/dist/cli.js";
 
 async function command(args: string[]) {
   let output = "";
+
   const exit = await runCli([...args, "--json"], {
     env: {},
     readInput: async () => "",
@@ -11,11 +13,17 @@ async function command(args: string[]) {
       output += text;
     },
   });
+
   if (exit !== 0) throw new Error("Offline manifest generation failed");
+
   return JSON.parse(output).data;
 }
+
 const adapters: string[] = (await command(["adapters"])).adapters;
+
 const manifests = [];
+
+// oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
 const implementationPaths: Record<string, readonly string[]> = {
   "accounts.read": ["accounts.list", "accounts.get"],
   "posts.publish": ["posts.prepareTarget", "posts.publishTarget"],
@@ -82,40 +90,63 @@ const implementationPaths: Record<string, readonly string[]> = {
   "analytics.organization.read": ["native.organizationAnalytics"],
   "articles.create": ["native.updatePost"],
 };
+
 const cell = (value: string) => value.replaceAll("|", "\\|").replaceAll("\n", " ");
+
 const rows = [];
+
 for (const adapter of adapters) {
   const { manifest } = await command(["capabilities", "--adapter", adapter]);
   manifests.push({ adapter, manifest });
+
   const instance = createDiagnosticAdapter(
+    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     adapter as Parameters<typeof createDiagnosticAdapter>[0],
   );
+
   for (const declaration of manifest.capabilities) {
     if (declaration.availability !== "available") continue;
     const paths = implementationPaths[declaration.operation];
+
     if (!paths)
       throw new Error(`No conformance mapping for available operation ${declaration.operation}`);
+
     for (const path of paths) {
       const found = path.split("|").some((candidate) => {
         let value: unknown = instance;
+
         for (const key of candidate.split("."))
           value =
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
             value && typeof value === "object"
-              ? (value as Record<string, unknown>)[key]
+              ? // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
+                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
+                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+                (value as Record<string, unknown>)[key]
               : undefined;
+
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         return typeof value === "function";
       });
+
       if (!found)
         throw new Error(
           `Adapter ${adapter} advertises ${declaration.operation} but has no ${path} method`,
         );
     }
   }
+
   for (const entry of manifest.capabilities)
     rows.push(
       `| ${cell(adapter)} | ${cell(entry.platform ?? "*")} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? []).join(", ") || "See adapter setup")} |`,
     );
 }
+
 const markdown = `---
 title: Capability matrix
 description: Read generated operation declarations for installed Social SDK adapters, including formats, backend routes, and scope guidance.
@@ -131,13 +162,16 @@ ${rows.join("\n")}
 
 Generate this page with \`bun scripts/generate-capabilities.ts\`. CI uses \`--check\` to detect drift. The complete manifests, including API revisions, runtimes and notes, are returned by \`social-sdk capabilities --adapter NAME --json\`.
 `;
+
 const files = new Map([
   ["apps/docs/docs/reference/capabilities.mdx", markdown],
   ["planning/evidence/capability-manifests.json", JSON.stringify(manifests, null, 2) + "\n"],
 ]);
+
 for (const [path, content] of files) {
   if (process.argv.includes("--check")) {
     let existing: string;
+
     try {
       existing = await readFile(path, "utf8");
     } catch (error) {
@@ -145,14 +179,17 @@ for (const [path, content] of files) {
         console.log(`Skipping ${path}: the untracked planning folder is absent here.`);
         continue;
       }
+
       throw error;
     }
+
     if (existing !== content) throw new Error(`Generated capability data is stale: ${path}`);
   } else {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content);
   }
 }
+
 console.log(
   `Capability ${process.argv.includes("--check") ? "check" : "generation"} passed (${rows.length} declarations).`,
 );

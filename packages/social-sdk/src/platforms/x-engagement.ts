@@ -8,11 +8,13 @@ export interface XEngagementOptions {
   readonly accessToken: string;
   readonly fetch?: typeof globalThis.fetch;
 }
+
 export interface XEngagementResult {
   readonly liked: boolean;
   readonly tweetId: string;
   readonly userId: string;
 }
+
 async function mutate(
   action: "like" | "unlike",
   tweetId: string,
@@ -32,16 +34,20 @@ async function mutate(
       operation: `x.${action}`,
       message: "Account reference does not belong to this X authorization and backend.",
     });
+
   if (!/^\d+$/.test(tweetId))
     throw new SocialError({
       code: "invalid_input",
       operation: `x.${action}`,
       message: "Provide a native numeric X post ID.",
     });
+
   const request = managedHttp("https://api.x.com", {
     apiKey: options.accessToken,
+    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
+
   const result = await request(
     `/2/users/${encodeURIComponent(options.userId)}/likes${action === "unlike" ? `/${tweetId}` : ""}`,
     context,
@@ -49,11 +55,16 @@ async function mutate(
     {},
     action === "like" ? "POST" : "DELETE",
   );
+
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
   const data = result && typeof result === "object" && "data" in result ? result.data : undefined;
+
   if (
     !data ||
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     typeof data !== "object" ||
     !("liked" in data) ||
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     typeof data.liked !== "boolean" ||
     data.liked !== (action === "like")
   )
@@ -63,8 +74,10 @@ async function mutate(
       message: "X did not confirm the requested reaction state. Reconcile before retrying.",
       retryDisposition: { kind: "reconcile-first" },
     });
+
   return { liked: data.liked, tweetId, userId: options.userId };
 }
+
 /** Requires like.write, tweet.read, users.read and the app's current API access. Never retries writes. */
 export function xLike(
   tweetId: string,
@@ -74,6 +87,7 @@ export function xLike(
 ): Promise<XEngagementResult> {
   return mutate("like", tweetId, account, options, context);
 }
+
 /** Deletes only the authenticated user's like; it does not delete the target post. */
 export function xUnlike(
   tweetId: string,

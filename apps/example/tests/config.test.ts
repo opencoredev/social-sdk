@@ -9,11 +9,13 @@ test("example defaults to a local mock and requires explicit real account member
     () => exampleBackendConfig({ EXAMPLE_BACKEND: "post-for-me", EXAMPLE_ACCOUNT_IDS: "a" }),
     /POST_FOR_ME_API_KEY/,
   );
+
   const configured = exampleBackendConfig({
     EXAMPLE_BACKEND: "zernio",
     EXAMPLE_ACCOUNT_IDS: "a,b",
     ZERNIO_API_KEY: "fixture",
   });
+
   assert.equal(configured.backend?.id, "zernio");
   assert.equal(
     configured.membership?.({ principal: "local-demo-user", tenantId: "local-demo-tenant" }, "a"),

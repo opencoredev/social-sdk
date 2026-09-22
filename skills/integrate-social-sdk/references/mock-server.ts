@@ -10,6 +10,7 @@ const account = connectedAccountRef({
   platform: "x",
   accountId: "mock-account-1",
 });
+
 const authorization: AuthorizationPolicy = {
   async authorizeTargets({ accounts, context }) {
     if (context.authorization?.tenantId !== "tenant_demo") {
@@ -19,6 +20,7 @@ const authorization: AuthorizationPolicy = {
         reason: "tenant is not authorized",
       }));
     }
+
     return accounts.map((candidate) => ({
       account: candidate,
       allowed: candidate.accountId === account.accountId,

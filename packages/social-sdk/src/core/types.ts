@@ -1,5 +1,7 @@
 export type JsonPrimitive = string | number | boolean | null;
+
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
+
 export interface JsonObject {
   readonly [key: string]: JsonValue;
 }
@@ -13,6 +15,7 @@ export type KnownPlatform =
   | "tiktok"
   | "x"
   | "youtube";
+
 export type Platform = KnownPlatform | (string & {});
 
 interface ReferenceBase<K extends string> {
@@ -166,6 +169,7 @@ export interface TargetContentOverride {
 export interface XPublishOptions {
   readonly replySettings?: "everyone" | "following" | "mentionedUsers";
 }
+
 export interface BlueskyPublishOptions {
   readonly languages?: readonly string[];
   /** Explicit DID mentions using UTF-8 byte offsets; no implicit handle lookup. */
@@ -175,14 +179,17 @@ export interface BlueskyPublishOptions {
     readonly did: string;
   }[];
 }
+
 export interface ThreadsPublishOptions {
   readonly replyControl?: "everyone" | "accountsYouFollow" | "mentionedOnly";
 }
+
 export interface YouTubePublishOptions {
   readonly title: string;
   readonly visibility: "private" | "unlisted" | "public";
   readonly madeForKids: boolean;
 }
+
 export interface TikTokPublishOptions {
   readonly privacy:
     | "SELF_ONLY"
@@ -201,9 +208,11 @@ export interface TikTokPublishOptions {
   readonly consentGiven: boolean;
   readonly creatorInfo?: JsonObject;
 }
+
 export interface InstagramPublishOptions {
   readonly shareToFeed?: boolean;
 }
+
 export interface LinkedInPublishOptions {
   readonly visibility?: "connections" | "public";
 }
@@ -246,6 +255,7 @@ export type CheckedPublishTargets<T extends readonly PublishTarget[]> = {
     readonly options?: PublishOptionsFor<T[K]["account"]["platform"]>;
   };
 };
+
 export type CheckedPublishRequest<T extends PublishRequest> = T & {
   readonly targets: CheckedPublishTargets<NoInfer<T["targets"]>>;
 };
@@ -322,6 +332,7 @@ export type DeliveryOutcome =
     });
 
 export type PublicationStatus = "pending" | "complete" | "partial";
+
 export interface PublishResult {
   readonly status: PublicationStatus;
   readonly publication: PublicationRef;

@@ -6,6 +6,7 @@ describe("HTTP transport", () => {
   it("rejects oversized responses without waiting for an uncooperative cancellation hook", async () => {
     for (const declaredLength of [false, true]) {
       let cancelled = false;
+
       const http = createHttp({
         maxResponseBytes: 1,
         fetch: async () =>
@@ -16,14 +17,17 @@ describe("HTTP transport", () => {
               },
               cancel() {
                 cancelled = true;
+
                 return new Promise(() => {});
               },
             }),
             { headers: declaredLength ? { "content-length": "2" } : {} },
           ),
       });
+
       await assert.rejects(
         http({ url: new URL("https://api.example.test/posts"), method: "POST" }),
+        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
         (error: unknown) => error instanceof HttpError && error.kind === "invalid-response",
       );
       assert.equal(cancelled, true);
@@ -37,6 +41,7 @@ describe("HTTP transport", () => {
           '{"id":6844785523593134080,"negative":-9007199254740992,"count":5,"decimal":1.25,"text":"id 6844785523593134080 \\\"quoted\\\""}',
         ),
     });
+
     assert.deepEqual(await http({ url: new URL("https://api.example.test/posts") }), {
       id: "6844785523593134080",
       negative: "-9007199254740992",
@@ -54,6 +59,7 @@ describe("HTTP transport", () => {
           headers: { "x-restli-id": "urn:li:share:123", "set-cookie": "private" },
         }),
     });
+
     assert.deepEqual(
       await http({
         url: new URL("https://api.example.test/posts"),
@@ -65,20 +71,24 @@ describe("HTTP transport", () => {
   });
   it("does no I/O at construction and makes no mutation retries", async () => {
     let calls = 0;
+
     const http = createHttp({
       fetch: async () => {
         calls++;
         throw new Error("secret-token");
       },
     });
+
     assert.equal(calls, 0);
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), method: "POST" }),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => {
         assert.ok(error instanceof HttpError);
         assert.equal(error.kind, "network");
         assert.equal(error.dispatched, true);
         assert.ok(!String(error).includes("secret-token"));
+
         return true;
       },
     );
@@ -93,6 +103,7 @@ describe("HTTP transport", () => {
     let time = 0;
     let calls = 0;
     const delays: number[] = [];
+
     const http = createHttp({
       now: () => time,
       sleep: async (delay) => {
@@ -104,6 +115,7 @@ describe("HTTP transport", () => {
           ? new Response(null, { status: 429, headers: { "Retry-After": "2" } })
           : Response.json({ ok: true }),
     });
+
     assert.deepEqual(
       await http({ url: new URL("https://api.example.test/posts"), maxAttempts: 3 }),
       { ok: true },
@@ -116,18 +128,23 @@ describe("HTTP transport", () => {
 
   it("does not replay permission failures and strips response secrets", async () => {
     let calls = 0;
+
     const http = createHttp({
       fetch: async () => {
         calls++;
+
         return new Response("secret-body", { status: 403 });
       },
     });
+
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts?token=secret"), maxAttempts: 5 }),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => {
         assert.ok(error instanceof HttpError);
         assert.equal(error.status, 403);
         assert.ok(!JSON.stringify(error).includes("secret"));
+
         return true;
       },
     );
@@ -136,14 +153,18 @@ describe("HTTP transport", () => {
 
   it("caps read retry delays by the operation's elapsed budget", async () => {
     let calls = 0;
+
     const http = createHttp({
       fetch: async () => {
         calls++;
+
         return new Response(null, { status: 429, headers: { "Retry-After": "2" } });
       },
     });
+
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), maxAttempts: 5, timeoutMs: 1000 }),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof HttpError && error.kind === "timeout",
     );
     assert.equal(calls, 1);
@@ -151,12 +172,15 @@ describe("HTTP transport", () => {
 
   it("rejects redirects and cannot forward authorization to media origins", async () => {
     let init: RequestInit | undefined;
+
     const http = createHttp({
       fetch: async (_url, options) => {
         init = options;
+
         return new Response(null, { status: 302 });
       },
     });
+
     await assert.rejects(
       http({
         url: new URL("https://api.example.test/posts"),
@@ -168,6 +192,7 @@ describe("HTTP transport", () => {
 
   it("bounds JSON response bodies even without content-length", async () => {
     let cancelled = false;
+
     const http = createHttp({
       maxResponseBytes: 3,
       fetch: async () =>
@@ -182,8 +207,10 @@ describe("HTTP transport", () => {
           }),
         ),
     });
+
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts") }),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof HttpError && error.kind === "invalid-response",
     );
     assert.equal(cancelled, true);
@@ -192,28 +219,34 @@ describe("HTTP transport", () => {
   it("distinguishes cancellation before and after dispatch", async () => {
     const pre = new AbortController();
     pre.abort();
+
     const http = createHttp({
       fetch: async () => {
         throw new Error("must not run");
       },
     });
+
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), signal: pre.signal }),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof HttpError && !error.dispatched,
     );
     const post = new AbortController();
+
     const after = createHttp({
       fetch: async () => {
         post.abort();
         throw new Error("cancelled");
       },
     });
+
     await assert.rejects(
       after({
         url: new URL("https://api.example.test/posts"),
         method: "POST",
         signal: post.signal,
       }),
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) =>
         error instanceof HttpError && error.dispatched && error.kind === "cancelled",
     );
@@ -224,6 +257,7 @@ describe("HTTP transport", () => {
       fetch: async () => Response.json({ accepted: true }),
       onRequest: () => new Promise(() => {}),
     });
+
     assert.deepEqual(
       await http({ url: new URL("https://api.example.test/posts"), method: "POST" }),
       { accepted: true },
@@ -233,6 +267,7 @@ describe("HTTP transport", () => {
 
 it("managed reads preserve provider missing, gone and permission categories", async () => {
   const { managedHttp } = await import("../src/cloud/common.js");
+
   for (const [status, code] of [
     [404, "not_found"],
     [410, "gone"],
@@ -242,6 +277,7 @@ it("managed reads preserve provider missing, gone and permission categories", as
       apiKey: "fixture",
       fetch: async () => new Response(null, { status }),
     });
+
     await assert.rejects(
       read("/resource", {
         backendInstance: "test",

@@ -28,15 +28,13 @@ export class MemoryCredentialStore implements CredentialStore<StoredCredential> 
     key: string,
   ): Promise<{ readonly value: StoredCredential; readonly revision: string } | undefined> {
     const found = this.#values.get(key);
-    return found === undefined
-      ? undefined
-      : {
-          value: {
-            ...found.value,
-            ...(found.value.scopes === undefined ? {} : { scopes: [...found.value.scopes] }),
-          },
-          revision: found.revision,
-        };
+
+    if (found === undefined) return undefined;
+    const value = { ...found.value };
+
+    if (found.value.scopes !== undefined) value.scopes = [...found.value.scopes];
+
+    return { value, revision: found.revision };
   }
 
   async compareAndSet(input: {
@@ -45,15 +43,15 @@ export class MemoryCredentialStore implements CredentialStore<StoredCredential> 
     readonly value: StoredCredential;
   }): Promise<{ readonly updated: boolean; readonly revision?: string }> {
     const current = this.#values.get(input.key);
+
     if ((current?.revision ?? undefined) !== input.expectedRevision) return { updated: false };
     const revision = `credential-${++this.#sequence}`;
-    this.#values.set(input.key, {
-      value: {
-        ...input.value,
-        ...(input.value.scopes === undefined ? {} : { scopes: [...input.value.scopes] }),
-      },
-      revision,
-    });
+    const value = { ...input.value };
+
+    if (input.value.scopes !== undefined) value.scopes = [...input.value.scopes];
+
+    this.#values.set(input.key, { value, revision });
+
     return { updated: true, revision };
   }
 
@@ -68,13 +66,17 @@ export class MemoryCredentialLock implements CredentialLock {
 
   async acquire(key: string, ttlMs: number): Promise<CredentialLease | undefined> {
     const current = this.#leases.get(key);
+
     if (current !== undefined && Date.parse(current.expiresAt) > Date.now()) return undefined;
+
     const lease = {
       key,
       token: `lease-${++this.#sequence}`,
       expiresAt: new Date(Date.now() + ttlMs).toISOString(),
     };
+
     this.#leases.set(key, lease);
+
     return lease;
   }
 
@@ -98,12 +100,14 @@ export class CredentialManager {
 
   async save(key: string, value: StoredCredential, expectedRevision?: string): Promise<string> {
     const result = await this.store.compareAndSet({ key, expectedRevision, value });
+
     if (!result.updated || result.revision === undefined)
       throw new SocialError({
         code: "upstream_failure",
         operation: "credentials.save",
         message: "Credential revision changed; reload before saving",
       });
+
     return result.revision;
   }
 
@@ -112,14 +116,17 @@ export class CredentialManager {
     refresh: (current: StoredCredential) => Promise<StoredCredential>,
   ): Promise<StoredCredential> {
     const lease = await this.lock.acquire(key, this.lockTtlMs);
+
     if (lease === undefined)
       throw new SocialError({
         code: "upstream_failure",
         operation: "credentials.rotate",
         message: "Another worker is already refreshing this credential",
       });
+
     try {
       const current = await this.store.get(key);
+
       if (current === undefined)
         throw new SocialError({
           code: "reconnect_required",
@@ -127,11 +134,13 @@ export class CredentialManager {
           message: "No credential is stored for this account",
         });
       const next = await refresh(current.value);
+
       const saved = await this.store.compareAndSet({
         key,
         expectedRevision: current.revision,
         value: next,
       });
+
       if (!saved.updated)
         throw new SocialError({
           code: "upstream_failure",
@@ -139,6 +148,7 @@ export class CredentialManager {
           message:
             "Credential changed while refreshing; do not repeat the provider request blindly",
         });
+
       return next;
     } finally {
       await this.lock.release(lease);
