@@ -173,7 +173,7 @@ export default defineConfig({
     // Explicit events keep documentation demand measurable without collecting
     // page text, form values, query strings, or session recordings.
     posthog: {
-      host: "https://us.i.posthog.com",
+      host: "https://y.social-sdk.dev",
       key: "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw",
     },
     scripts: [
