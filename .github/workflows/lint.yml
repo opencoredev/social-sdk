@@ -1,0 +1,32 @@
+name: Lint
+
+# Runs on every push to any branch, not just main, so lint feedback lands
+# seconds after a push instead of after the full release gate.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: tenki-standard-medium-4c-8g
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Oxlint (anti-slop, shadcn)
+        run: bun run lint
+      - name: Anti-slop bundle sync
+        run: bun scripts/check-anti-slop-bundle.ts
+      - name: Format
+        run: bun run format:check
