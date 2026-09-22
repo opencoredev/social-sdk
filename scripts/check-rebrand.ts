@@ -26,6 +26,7 @@ const bannedTerms = [
   ["legacy product name", ["email", " sdk"].join("")],
   ["legacy documentation framework", ["fuma", "docs"].join("")],
   ["legacy content service", ["no", "tra"].join("")],
+  ["legacy analytics service", ["post", "hog"].join("")],
   ["legacy component", ["convex", "-email"].join("")],
   ["legacy product domain", ["email", "-sdk.dev"].join("")],
 ];
@@ -76,6 +77,11 @@ for (const path of paths) {
   const content = decoder.decode(bytes).toLowerCase();
 
   for (const [label, term] of bannedTerms) {
+    if (
+      label === "legacy analytics service" &&
+      (path === "apps/docs/blume.config.ts" || path.startsWith("apps/docs/dist/"))
+    )
+      continue;
     if (content.includes(term)) findings.push(`${path}: ${label}`);
   }
 }

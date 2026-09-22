@@ -216,7 +216,6 @@ export default defineConfig({
                 const event = classify(window.location.pathname);
                 if (event) window.posthog.capture(event[0], event[1]);
               };
-              emit();
               document.addEventListener("astro:page-load", emit);
             };
             start();
