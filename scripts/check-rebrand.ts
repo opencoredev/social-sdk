@@ -91,6 +91,7 @@ if (findings.length > 0) {
   console.error("Legacy identity check failed:");
 
   for (const finding of findings) console.error(`- ${finding}`);
+
   process.exit(1);
 }
 
