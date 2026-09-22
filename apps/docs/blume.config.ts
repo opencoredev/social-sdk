@@ -171,7 +171,7 @@ export default defineConfig({
   },
   analytics: {
     // Explicit events keep documentation demand measurable without collecting
-    // page text, form values, query strings, or session recordings.
+    // page text, form values, or session recordings.
     posthog: {
       host: "https://y.social-sdk.dev",
       key: "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw",
@@ -181,16 +181,33 @@ export default defineConfig({
         content: `
           (() => {
             const classify = (path) => {
-              const platform = path.match(/^\\/platforms\\/([^/]+)/)?.[1];
-              const integration = path.match(/^\\/integrations\\/([^/]+)/)?.[1];
+              const relativePath = path === "/docs" ? "/" : path.startsWith("/docs/") ? path.slice(5) : path;
+              const platform = relativePath.match(/^\\/platforms\\/([^/]+)/)?.[1];
+              const integration = relativePath.match(/^\\/integrations\\/([^/]+)/)?.[1];
               if (platform) return ["sdk_platform_interest", { platform }];
               if (integration) return ["sdk_integration_interest", { integration }];
-              if (path === "/getting-started/installation") return ["sdk_install_interest", {}];
-              if (path === "/getting-started/mock-quickstart") return ["sdk_quickstart_interest", {}];
+              if (relativePath === "/getting-started/installation") return ["sdk_install_interest", {}];
+              if (relativePath === "/getting-started/mock-quickstart") return ["sdk_quickstart_interest", {}];
               return null;
             };
             const start = () => {
               if (!window.posthog) return setTimeout(start, 100);
+              window.posthog.set_config({
+                autocapture: false,
+                capture_pageview: false,
+                capture_pageleave: false,
+                disable_session_recording: true,
+                before_send: (event) => {
+                  const currentUrl = event?.properties?.$current_url;
+                  if (typeof currentUrl === "string") {
+                    try {
+                      const url = new URL(currentUrl);
+                      event.properties.$current_url = url.origin + url.pathname;
+                    } catch {}
+                  }
+                  return event;
+                },
+              });
               if (!window.__socialSdkInitialPageview) {
                 window.__socialSdkInitialPageview = true;
                 window.posthog.capture("$pageview");
@@ -200,14 +217,7 @@ export default defineConfig({
                 if (event) window.posthog.capture(event[0], event[1]);
               };
               emit();
-              document.addEventListener("click", (click) => {
-                const link = click.target.closest?.("a[href]");
-                if (!link) return;
-                const url = new URL(link.href, window.location.origin);
-                if (url.origin !== window.location.origin) return;
-                const event = classify(url.pathname);
-                if (event) window.posthog.capture(event[0], event[1]);
-              }, { passive: true });
+              document.addEventListener("astro:page-load", emit);
             };
             start();
           })();
