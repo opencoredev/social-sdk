@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
@@ -51,21 +50,16 @@ export interface ExampleHandler {
   client: SocialClient;
 }
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
 const record = (value: unknown): value is Record<string, unknown> =>
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const json = (value: unknown, status = 200) => Response.json(value, { status });
 
 const fail = (message: string, status = 400): never => {
   throw new Response(message, { status });
 };
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
 const required = (input: Record<string, unknown>, key: string): string =>
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
   typeof input[key] === "string" && input[key].length > 0 ? input[key] : fail(`${key} is required`);
 
 async function bytes(request: Request, limit = 1_000_000): Promise<Uint8Array> {
@@ -106,7 +100,6 @@ async function bytes(request: Request, limit = 1_000_000): Promise<Uint8Array> {
   return result;
 }
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
 async function body(request: Request): Promise<Record<string, unknown>> {
   const raw = await bytes(request);
   let value: unknown;
@@ -170,7 +163,6 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     return account?.ref ?? fail("Account is not authorized for this tenant", 403);
   }
 
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
   async function post(input: Record<string, unknown>): Promise<PlatformPostRef> {
     const account = await authorizedAccount(
       required(input, "accountId"),
@@ -251,7 +243,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
       if (request.method === "POST" && path === "/api/mock/advance") {
         if (!simulated || !("testing" in backend))
           return fail("Mock controls are unavailable", 404);
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+        // SAFETY: The `testing` capability check above narrows this adapter to the mock implementation.
         (backend as MockSocialAdapter).testing.advanceProcessing();
 
         return json({ simulated: true, advanced: true });
@@ -271,7 +263,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           ].includes(scenario)
         )
           return fail("Unsupported mock scenario");
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+        // SAFETY: The scenario allowlist above proves this value is a supported mock scenario.
         (backend as MockSocialAdapter).testing.setScenario(scenario as MockScenario);
 
         return json({ simulated: true });
@@ -333,7 +325,6 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         if (!options.connection) return fail("OAuth is not configured", 501);
         const ids = input["accountIds"];
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string"))
           return fail("accountIds must be strings");
 
@@ -356,7 +347,6 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           !Array.isArray(ids) ||
           !ids.length ||
           ids.length > 20 ||
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
           !ids.every((id) => typeof id === "string") ||
           new Set(ids).size !== ids.length
         )
@@ -372,17 +362,13 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
 
           if (choices !== undefined && !record(choices))
             return fail("Per-account options must be objects");
+
+          // SAFETY: `choices` passed the record boundary check immediately above.
+          const options = choices as JsonObject | undefined;
+
           targets.push({
             account: await authorizedAccount(id),
-            // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-            // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-            // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-            ...(choices === undefined ? {} : { options: choices as JsonObject }),
+            ...(options === undefined ? {} : { options }),
           });
         }
 
@@ -503,15 +489,8 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         );
 
         if (!simulated) {
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-          const event = decoded as unknown as SocialEvent;
+          // SAFETY: The selected backend decoder returns the normalized event contract for non-simulated requests.
+          const event = decoded as SocialEvent;
 
           if (
             event.version !== 1 ||
@@ -551,9 +530,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         }
 
         const eventId = required(decoded, "eventId");
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         const key = typeof decoded["publicationKey"] === "string" ? decoded["publicationKey"] : "";
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         const accountId = typeof decoded["accountId"] === "string" ? decoded["accountId"] : "";
         const publication = publications.get(session.tenantId, key);
 
@@ -579,7 +556,6 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           if (
             !record(entry.payload) ||
             entry.payload["tenantId"] !== session.tenantId ||
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
             typeof entry.payload["publicationKey"] !== "string"
           )
             continue;
