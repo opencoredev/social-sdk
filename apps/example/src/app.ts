@@ -492,7 +492,8 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
 
         if (!simulated) {
           // SAFETY: The selected backend decoder returns the normalized event contract for non-simulated requests.
-          const event = decoded as SocialEvent;
+          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- the decoder's JsonObject must cross into the normalized event contract.
+          const event = decoded as unknown as SocialEvent;
 
           if (
             event.version !== 1 ||
