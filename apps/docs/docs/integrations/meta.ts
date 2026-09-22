@@ -9,6 +9,7 @@ export default defineMeta({
     "nextjs",
     "convex",
     "supabase",
+    "neon",
     "express",
     "hono",
     "tanstack-start",

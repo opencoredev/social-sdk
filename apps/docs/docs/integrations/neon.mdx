@@ -1,0 +1,370 @@
+---
+title: Neon
+description: Run Social SDK inside a Neon Function next to Neon Postgres, and reconcile deliveries on a scheduled Function Trigger.
+---
+
+Neon Functions run Node.js 24, one of the SDK's tested runtimes, so the SDK runs inside the function itself. The function runs in the same region as its branch's Postgres and gets `DATABASE_URL` injected. Reconciliation runs on a scheduled Function Trigger, so you don't need an outside scheduler. Connected accounts, publication records, delivery references, and the webhook inbox live in your own Postgres tables.
+
+## Install
+
+```package-install
+@opencoredev/social-sdk
+```
+
+The examples also use `hono`, `pg`, and `@neon/config`.
+
+## Declare the function
+
+Declare the function and its reconciliation schedule in `neon.ts`. The slug becomes part of the public URL and can't be changed after the first deploy.
+
+```ts neon.ts
+import { defineConfig } from "@neon/config/v1";
+
+export default defineConfig({
+  functions: {
+    social: {
+      name: "social publishing",
+      source: "src/index.ts",
+      env: {
+        THREADS_USER_ID: process.env.THREADS_USER_ID!,
+        THREADS_ACCESS_TOKEN: process.env.THREADS_ACCESS_TOKEN!,
+      },
+    },
+  },
+  triggers: {
+    "social-reconcile": {
+      type: "schedule",
+      function: "social",
+      cron: "*/10 * * * *",
+      functionPath: "/reconcile",
+    },
+  },
+});
+```
+
+`env` values are read when `neon deploy` evaluates the file, so load them from a local file that stays out of version control:
+
+```bash
+neon deploy --env .env.production
+```
+
+Each deployment keeps its own snapshot of these variables. Changing a token means deploying again.
+
+## Schema
+
+```sql
+create table connected_accounts (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references tenants (id),
+  platform text not null,
+  account_id text not null,
+  backend text not null default 'default',
+  created_at timestamptz not null default now(),
+  unique (tenant_id, platform, account_id)
+);
+
+create table deliveries (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references tenants (id),
+  idempotency_key text not null,
+  state text not null,
+  delivery_ref jsonb,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, idempotency_key)
+);
+
+create index deliveries_pending on deliveries (state)
+  where state in ('processing', 'unknown');
+
+create table idempotency_claims (
+  claim_id uuid primary key default gen_random_uuid(),
+  scope text not null,
+  key text not null,
+  fingerprint text not null,
+  target_keys jsonb not null,
+  outcomes jsonb not null default '{}',
+  unique (scope, key)
+);
+
+create table threads_workflows (
+  id text primary key,
+  workflow jsonb not null,
+  claimed_until timestamptz
+);
+```
+
+Tokens do not belong in these tables. The function connects as the database owner, so every query must filter by the tenant you verified.
+
+## Durable stores
+
+Neon runs several isolates in parallel and can evict any of them, so nothing the SDK needs later can live in memory. Two stores need Postgres:
+
+- The client's `idempotencyStore` stops a retried request from posting twice. `MemoryIdempotencyStore` only covers one isolate.
+- The Threads adapter's `workflowStore` holds each post between the publish call and the Threads API writes. The default `MemoryThreadsWorkflowStore` loses the post when the isolate goes away.
+
+```ts src/stores.ts
+import type { Pool } from "pg";
+import type { IdempotencyStore } from "@opencoredev/social-sdk";
+import type { ThreadsWorkflow, ThreadsWorkflowStore } from "@opencoredev/social-sdk/threads";
+
+export function postgresIdempotencyStore(pool: Pool): IdempotencyStore {
+  return {
+    async claim({ scope, key, fingerprint, targetKeys }) {
+      const inserted = await pool.query(
+        `insert into idempotency_claims (scope, key, fingerprint, target_keys)
+         values ($1, $2, $3, $4)
+         on conflict (scope, key) do nothing
+         returning claim_id`,
+        [scope, key, fingerprint, JSON.stringify(targetKeys)],
+      );
+      if (inserted.rows[0])
+        return { kind: "new", claimId: inserted.rows[0].claim_id, outcomes: {} };
+
+      const { rows } = await pool.query(
+        "select claim_id, fingerprint, target_keys, outcomes from idempotency_claims where scope = $1 and key = $2",
+        [scope, key],
+      );
+      const row = rows[0];
+      if (
+        row.fingerprint !== fingerprint ||
+        JSON.stringify(row.target_keys) !== JSON.stringify(targetKeys)
+      )
+        return { kind: "conflict" };
+
+      return { kind: "existing", claimId: row.claim_id, outcomes: row.outcomes };
+    },
+    async saveOutcome({ claimId, targetKey, outcome }) {
+      await pool.query(
+        "update idempotency_claims set outcomes = outcomes || jsonb_build_object($2::text, $3::jsonb) where claim_id = $1",
+        [claimId, targetKey, JSON.stringify(outcome)],
+      );
+    },
+  };
+}
+
+export function postgresThreadsWorkflowStore(pool: Pool): ThreadsWorkflowStore {
+  return {
+    async create(input) {
+      const workflow: ThreadsWorkflow = { ...input, id: crypto.randomUUID() };
+      await pool.query("insert into threads_workflows (id, workflow) values ($1, $2)", [
+        workflow.id,
+        JSON.stringify(workflow),
+      ]);
+      return workflow;
+    },
+    async get(id) {
+      const { rows } = await pool.query("select workflow from threads_workflows where id = $1", [
+        id,
+      ]);
+      return rows[0]?.workflow;
+    },
+    async update(id, update) {
+      const { rows } = await pool.query(
+        "update threads_workflows set workflow = workflow || $2::jsonb where id = $1 returning workflow",
+        [id, JSON.stringify(update)],
+      );
+      if (!rows[0]) throw new Error("Threads workflow not found");
+      return rows[0].workflow;
+    },
+    // A lease, not a lock, so a claim held by an evicted isolate expires on its own.
+    async claim(id) {
+      const { rowCount } = await pool.query(
+        `update threads_workflows set claimed_until = now() + interval '5 minutes'
+         where id = $1 and (claimed_until is null or claimed_until < now())`,
+        [id],
+      );
+      return rowCount === 1;
+    },
+    async release(id) {
+      await pool.query("update threads_workflows set claimed_until = null where id = $1", [id]);
+    },
+  };
+}
+```
+
+Keep the lease longer than the retry budget you pass to `resumePublication` below, so a claim can't expire while its isolate is still writing to Threads.
+
+## Publish from the function
+
+Threads publishing takes two steps. `posts.publish` records the post in the workflow store and returns `processing`; the adapter's native `resumePublication` makes the Threads API calls. The route runs both, so a post normally goes out during the request.
+
+```ts src/index.ts
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { Pool } from "pg";
+import { createSocial, connectedAccountRef, type DeliveryRef } from "@opencoredev/social-sdk";
+import { threads } from "@opencoredev/social-sdk/threads";
+import { postgresIdempotencyStore, postgresThreadsWorkflowStore } from "./stores";
+
+// Each isolate keeps its own pool, so total connections are max × live isolates.
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+
+const social = createSocial({
+  backend: threads({
+    auth: {
+      userId: process.env.THREADS_USER_ID!,
+      accessToken: process.env.THREADS_ACCESS_TOKEN!,
+    },
+    workflowStore: postgresThreadsWorkflowStore(pool),
+  }),
+  idempotencyStore: postgresIdempotencyStore(pool),
+});
+
+// Native calls skip the client's tenant checks, so callers authorize the account first.
+const native = social.native("default", { acknowledgeUnsafe: true })!;
+
+async function advance(deliveryId: string, ref: DeliveryRef) {
+  const account = connectedAccountRef({
+    backend: ref.backend,
+    platform: "threads",
+    accountId: ref.accountId,
+  });
+  const outcome = await native.resumePublication(account, ref.deliveryId, {
+    backendInstance: ref.backend,
+    correlationId: deliveryId,
+    retryBudget: { maxAttempts: 3, maxElapsedMs: 60_000 },
+  });
+  await pool.query(
+    "update deliveries set state = $2 where id = $1 and state not in ('published', 'failed')",
+    [deliveryId, outcome.state],
+  );
+  return outcome;
+}
+
+function parsePublishBody(body: unknown) {
+  if (typeof body !== "object" || body === null) return undefined;
+  const { draftId, text } = body as Record<string, unknown>;
+  if (typeof draftId !== "string" || !/^[\w-]{1,100}$/.test(draftId)) return undefined;
+  // Threads caps a post at 500 characters.
+  if (typeof text !== "string" || text.length === 0 || text.length > 500) return undefined;
+  return { draftId, text };
+}
+
+const app = new Hono();
+
+app.post("/publish", bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
+  const tenant = await requireTenant(c); // your JWT or API-key check
+  const input = parsePublishBody(await c.req.json().catch(() => null));
+  if (!input) return c.text("Expected a draftId and 1 to 500 characters of text", 400);
+  const { draftId, text } = input;
+
+  const { rows } = await pool.query(
+    "select account_id, backend from connected_accounts where tenant_id = $1 and platform = 'threads'",
+    [tenant.id],
+  );
+  const acct = rows[0];
+  if (!acct) return c.text("No authorized Threads account", 403);
+
+  const result = await social.posts.publish(
+    {
+      targets: [
+        {
+          account: connectedAccountRef({
+            backend: acct.backend,
+            platform: "threads",
+            accountId: acct.account_id,
+          }),
+        },
+      ],
+      content: { text },
+      idempotencyKey: draftId,
+    },
+    // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+    { authorization: { tenantId: tenant.id } },
+  );
+
+  const outcome = result.outcomes[0];
+  // A concurrent duplicate can report unknown with no delivery reference; it must not
+  // replace a row that reconciliation can still resume, or undo a final state.
+  const { rows: saved } = await pool.query(
+    `insert into deliveries (tenant_id, idempotency_key, state, delivery_ref)
+     values ($1, $2, $3, $4)
+     on conflict (tenant_id, idempotency_key) do update set
+       state = case
+         when deliveries.state in ('published', 'failed') then deliveries.state
+         when excluded.delivery_ref is null and deliveries.delivery_ref is not null
+           then deliveries.state
+         else excluded.state
+       end,
+       delivery_ref = coalesce(excluded.delivery_ref, deliveries.delivery_ref)
+     returning id, state, delivery_ref`,
+    [tenant.id, draftId, outcome?.state ?? "unknown", outcome?.delivery ?? null],
+  );
+  const row = saved[0];
+
+  const state =
+    row.state === "processing" && row.delivery_ref
+      ? (await advance(row.id, row.delivery_ref)).state
+      : row.state;
+
+  return c.json({ status: result.status, state });
+});
+
+export default app;
+```
+
+A Neon Function has a public HTTPS URL that anyone can call. `requireTenant` has to reject the request before any database or SDK work: verify a JWT against your auth provider's JWKS (Neon Auth injects `NEON_AUTH_JWKS_URL` when it is enabled on the branch) or check an API key. The public URL also means browsers can call the function directly, so a long publish like a video upload doesn't hit your web host's request time limit. If you do this, handle `OPTIONS` and set CORS headers.
+
+## Reconcile on a schedule
+
+A delivery can still be `processing` after the request ends: Threads may not have finished processing the media, or Neon may have evicted the isolate partway through. The trigger declared in `neon.ts` sends a `POST` to `/reconcile` every ten minutes, even when the compute has scaled to zero, and the route resumes those workflows. The route is public, but Neon strips client-set `X-Neon-*` headers, so only trigger calls carry `X-Neon-Trigger-Invocation-Id`.
+
+```ts
+app.post("/reconcile", async (c) => {
+  if (!c.req.header("x-neon-trigger-invocation-id")) return c.text("forbidden", 403);
+
+  // The join skips deliveries whose account the tenant has since disconnected.
+  const { rows } = await pool.query(
+    `select d.id, d.delivery_ref from deliveries d
+     join connected_accounts a
+       on a.tenant_id = d.tenant_id
+      and a.platform = 'threads'
+      and a.account_id = d.delivery_ref->>'accountId'
+     where d.state = 'processing'
+     limit 20`,
+  );
+
+  for (const row of rows) await advance(row.id, row.delivery_ref);
+
+  return c.json({ resumed: rows.length });
+});
+```
+
+The workflow store's claim stops two isolates from resuming the same post at once, so an overlapping or redelivered run does no harm. A workflow whose publish outcome is `unknown` is never replayed: `resumePublication` reports `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes. Pick whatever cadence suits you; the SDK never polls on its own.
+
+To test the route locally, run `neon dev` and replay the trigger call:
+
+```bash
+curl -X POST http://localhost:8787/reconcile \
+  -H "X-Neon-Trigger-Invocation-Id: local-test" \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"scheduled_at":"2026-09-22T12:00:00Z"}}'
+```
+
+## Webhooks
+
+Hono exposes the untouched request as `c.req.raw`, which verification needs:
+
+```ts
+app.post("/events", async (c) => {
+  const body = new Uint8Array(await c.req.raw.arrayBuffer());
+  const verification = await adapter.webhooks?.verify(
+    { headers: Object.fromEntries(c.req.raw.headers), body },
+    context,
+  );
+  if (!verification?.valid) return c.text("unauthorized", 401);
+  // decode, resolve tenants, insert into events_inbox with ON CONFLICT DO NOTHING
+  return c.text("accepted", 202);
+});
+```
+
+Keep the inbox in an `events_inbox` table with a unique dedupe key, following the [events guide](/events). Process pending rows from a second scheduled trigger instead of `waitUntil`: Neon documents `waitUntil` for short post-response work, and an evicted isolate drops anything still in memory.
+
+## Notes
+
+- When Neon evicts an isolate, it sends `SIGINT` and stops the process five seconds later. If that happens before `posts.publish` saves anything, the caller retries with the same draft ID and the idempotency store keeps the retry from posting twice. If it happens after, the workflow is already in Postgres and the next reconcile run picks it up.
+- Each branch gets its own function URL and a copy of the parent's data, including `connected_accounts` and `threads_workflows`. Deploy preview branches with test credentials so a preview can't post to production accounts.
+- Neon enforces a per-account limit on concurrent invocations and answers extra requests with `429` and a `Retry-After` header before your handler runs. No publish happened in that case, so the caller can retry.
+- Functions are available only in some Neon regions. Check the [Neon Functions overview](https://neon.com/docs/compute/functions/overview) before creating the project.
+- The Neon details on this page come from Neon's documentation as of September 22, 2026: [runtime limits](https://neon.com/docs/compute/functions/reference/runtime-limits) (Node.js 24, isolates, eviction, `waitUntil`, the concurrency limit), [environment variables](https://neon.com/docs/compute/functions/environment-variables), [deploy and manage](https://neon.com/docs/compute/functions/deploy) (slugs), [scheduled triggers](https://neon.com/docs/compute/functions/triggers/schedule) (cron, `X-Neon-*` headers, scale to zero), [Function Triggers](https://neon.com/docs/compute/functions/triggers/overview) (local replay), and the [`neon.ts` reference](https://neon.com/docs/reference/neon-ts). Neon Functions change often, so check those pages before relying on a limit.
+- The samples have not been run against a live Neon project or Threads account.

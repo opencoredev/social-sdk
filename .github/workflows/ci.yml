@@ -10,6 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  changeset:
+    name: Changeset
+    # Package changes need a changeset so they ship through the version PR.
+    # Only the bot-opened version PR is exempt.
+    if: >-
+      github.event_name == 'pull_request' &&
+      !(github.head_ref == 'changeset-release/main' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login == 'github-actions[bot]')
+    runs-on: tenki-standard-medium-4c-8g
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run changeset status --since=origin/${{ github.base_ref }}
+
   verify:
     name: Offline verification
     runs-on: tenki-standard-medium-4c-8g

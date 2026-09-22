@@ -4,6 +4,8 @@ TypeScript social platform integrations with direct and optional managed backend
 
 This package is ESM-only. Provider credentials stay on the server. Importing the root or constructing a client makes no network requests.
 
+Supported runtimes are Node.js 22.12+, Node.js 24, and Bun.
+
 ```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
 import { mockBackend } from "@opencoredev/social-sdk/testing";
