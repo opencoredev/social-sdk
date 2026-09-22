@@ -16,5 +16,6 @@ export default defineMeta({
     "nestjs",
     "trigger-dev",
     "inngest",
+    "restate",
   ],
 });
