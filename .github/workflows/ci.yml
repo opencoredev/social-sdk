@@ -13,7 +13,12 @@ jobs:
   changeset:
     name: Changeset
     # Package changes need a changeset so they ship through the version PR.
-    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
+    # Only the bot-opened version PR is exempt.
+    if: >-
+      github.event_name == 'pull_request' &&
+      !(github.head_ref == 'changeset-release/main' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login == 'github-actions[bot]')
     runs-on: tenki-standard-medium-4c-8g
     steps:
       - uses: actions/checkout@v4
