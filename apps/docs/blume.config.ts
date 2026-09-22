@@ -11,7 +11,7 @@ export default defineConfig({
       alt: "Social SDK megaphone mark",
     },
     text: "Social SDK",
-    href: "/",
+    href: "/docs",
   },
   basePath: "/docs",
   feedback: false,
