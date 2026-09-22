@@ -2,7 +2,7 @@
 
 Social SDK is a TypeScript toolkit for adding social-platform features to an application. It is designed for direct platform integrations and optional managed backends, with explicit account references, capability checks, and per-destination outcomes.
 
-The selected local implementation passes the deterministic release gate. Live provider verification remains dependent on approved accounts and credentials. Nothing has been published or deployed from this workspace. The npm package remains private until the owner approves the package identity, release configuration, and first release.
+The selected local implementation passes the deterministic release gate. Live provider verification remains dependent on approved accounts and credentials. The package is publishable through the guarded release workflow; no publication is performed unless the owner enables the release authorization setting.
 
 ## Workspace
 
@@ -34,4 +34,4 @@ The SDK keeps four concerns distinct:
 
 A selected account determines its backend route. The SDK does not silently switch providers, retry ambiguous public writes, or treat provider processing as proof that content is published.
 
-See [the implementation ledger](./planning/implementation-status.md) for current evidence and blockers. Public setup and API documentation lives under `apps/docs/docs/`. See [release readiness](./planning/release-readiness.md) for exact support, test results, run commands, and owner actions.
+Public setup and API documentation lives under `apps/docs/docs/`.

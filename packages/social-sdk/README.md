@@ -2,7 +2,7 @@
 
 TypeScript social platform integrations with direct and optional managed backends.
 
-This local prerelease is ESM-only. Provider credentials stay on the server. Importing the root or constructing a client makes no network requests.
+This package is ESM-only. Provider credentials stay on the server. Importing the root or constructing a client makes no network requests.
 
 ```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
@@ -21,4 +21,4 @@ const result = await social.posts.publish({
 console.log(result.outcomes[0]?.state);
 ```
 
-Run the workspace documentation for setup and capability limits. This prerelease has no live-verification guarantee. It is private and cannot be published until the owner authorizes release.
+Run the workspace documentation for setup and capability limits. Live provider verification remains dependent on approved accounts and credentials. Publication is controlled by the guarded release workflow.

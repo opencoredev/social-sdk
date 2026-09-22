@@ -20,7 +20,7 @@
     "changeset": "changeset",
     "rebrand:check": "bun scripts/check-rebrand.ts",
     "release:gate": "bun scripts/release-gate.ts",
-    "release": "turbo run build --filter=@opencoredev/social-sdk && changeset publish",
+    "release": "bun scripts/publish.ts",
     "pack:check": "bun scripts/check-package.ts",
     "benchmark": "bun scripts/benchmark.ts",
     "benchmark:media": "node --expose-gc scripts/benchmark-media.mjs",
