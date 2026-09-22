@@ -77,12 +77,19 @@ for (const path of paths) {
   const content = decoder.decode(bytes).toLowerCase();
 
   for (const [label, term] of bannedTerms) {
-    if (
-      label === "legacy analytics service" &&
-      (path === "apps/docs/blume.config.ts" || path.startsWith("apps/docs/dist/"))
-    )
-      continue;
-    if (content.includes(term)) findings.push(`${path}: ${label}`);
+    let checkedContent = content;
+    if (label === "legacy analytics service") {
+      if (path === "apps/docs/blume.config.ts") continue;
+      if (path.startsWith("apps/docs/dist/") && path.endsWith(".html")) {
+        checkedContent = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, (script) =>
+          script.includes("window." + term) &&
+          (script.includes("https://y.social-sdk.dev") || script.includes("sdk_platform_interest"))
+            ? ""
+            : script,
+        );
+      }
+    }
+    if (checkedContent.includes(term)) findings.push(`${path}: ${label}`);
   }
 }
 
