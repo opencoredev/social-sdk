@@ -12,5 +12,5 @@
     "version": false,
     "tag": false
   },
-  "createGithubReleases": false
+  "createGithubReleases": true
 }
