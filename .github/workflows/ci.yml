@@ -12,7 +12,7 @@ permissions:
 jobs:
   verify:
     name: Offline verification
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-medium-4c-8g
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -28,7 +28,7 @@ jobs:
 
   node-24:
     name: Node 24 tests
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-medium-4c-8g
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
