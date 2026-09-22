@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/no-conditional-empty-object-spread, anti-slop/require-safety-comment-for-type-assertion -- facade dispatch keeps capability-specific branches together. */
 import { decodeCursor, encodeCursor, iterateItems, type IterationOptions } from "./pagination.js";
 import { createConcurrencyLimiter } from "./concurrency.js";
 import type { AuthorizationPolicy, SocialAdapter } from "./adapter.js";
@@ -13,6 +14,8 @@ import type {
   AuthorizationContext,
   ConnectedAccountRef,
   AccountRecord,
+  AnalyticsReport,
+  AnalyticsReportQuery,
   BackendPostRef,
   ScheduledJobRef,
   ScheduleCancellation,
@@ -37,9 +40,13 @@ import type {
   MetricValue,
   RetryBudget,
   CheckedPublishRequest,
+  SearchPostsInput,
+  ProfileRecord,
+  ProfileRef,
+  RelationshipRecord,
 } from "./types.js";
 
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-known-value-widening -- Adapter and pagination boundaries intentionally accept arbitrary rejection values and build narrow option records. */
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-known-value-widening, anti-slop/no-runtime-typeof -- Adapter and pagination boundaries intentionally accept arbitrary rejection values and build narrow option records. */
 
 export type BackendRegistry = Readonly<Record<string, SocialAdapter<unknown>>>;
 
@@ -63,6 +70,28 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
       options?: PublishCallOptions &
         IterationOptions & { readonly backend?: string; readonly limit?: number },
     ): AsyncIterable<AccountRecord>;
+  };
+  readonly graph: {
+    getProfile(
+      account: ConnectedAccountRef,
+      input: { readonly profileId?: string; readonly handle?: string },
+      options?: PublishCallOptions,
+    ): Promise<ProfileRecord>;
+    listRelationships(
+      account: ConnectedAccountRef,
+      input: {
+        readonly kind: "following" | "followers" | "blocked" | "muted";
+        readonly cursor?: string;
+        readonly limit?: number;
+      },
+      options?: PublishCallOptions,
+    ): Promise<Page<RelationshipRecord>>;
+    follow(target: ProfileRef, options?: PublishCallOptions): Promise<RelationshipRecord>;
+    unfollow(target: ProfileRef, options?: PublishCallOptions): Promise<void>;
+    block(target: ProfileRef, options?: PublishCallOptions): Promise<RelationshipRecord>;
+    unblock(target: ProfileRef, options?: PublishCallOptions): Promise<void>;
+    mute(target: ProfileRef, options?: PublishCallOptions): Promise<RelationshipRecord>;
+    unmute(target: ProfileRef, options?: PublishCallOptions): Promise<void>;
   };
   readonly posts: {
     list(
@@ -94,6 +123,18 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
       options?: PublishCallOptions,
     ): Promise<DeliveryOutcome>;
   };
+  readonly search: {
+    posts(
+      account: ConnectedAccountRef,
+      input: SearchPostsInput,
+      options?: PublishCallOptions,
+    ): Promise<Page<JsonObject>>;
+    iteratePosts(
+      account: ConnectedAccountRef,
+      input: Omit<SearchPostsInput, "cursor">,
+      options?: PublishCallOptions & IterationOptions,
+    ): AsyncIterable<JsonObject>;
+  };
   readonly media: {
     upload(
       input: MediaAttachment,
@@ -110,6 +151,11 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
       ref: PlatformPostRef,
       options?: PublishCallOptions,
     ): Promise<readonly MetricValue[]>;
+    getReport(
+      ref: ConnectedAccountRef,
+      query: AnalyticsReportQuery,
+      options?: PublishCallOptions,
+    ): Promise<AnalyticsReport>;
   };
   readonly comments: {
     list(
@@ -148,6 +194,21 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
       content: { readonly text: string },
       options?: PublishCallOptions,
     ): Promise<JsonObject>;
+  };
+  readonly notifications: {
+    list(
+      account: ConnectedAccountRef,
+      options?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
+    ): Promise<Page<JsonObject>>;
+    iterate(
+      account: ConnectedAccountRef,
+      options?: PublishCallOptions & IterationOptions & { readonly limit?: number },
+    ): AsyncIterable<JsonObject>;
+    markSeen(
+      account: ConnectedAccountRef,
+      input?: { readonly seenAt?: string },
+      options?: PublishCallOptions,
+    ): Promise<void>;
   };
   capabilities(): Readonly<{ [K in keyof B]: B[K]["capabilities"] }>;
   adapter<K extends keyof B>(
@@ -599,6 +660,51 @@ export function createSocial(
     }
   }
 
+  async function authorizeRefWithFallback(
+    operation: import("./types.js").OperationName,
+    fallback: import("./types.js").OperationName,
+    account: ConnectedAccountRef,
+    options: PublishCallOptions | undefined,
+    correlationId: string,
+  ): Promise<void> {
+    try {
+      await authorizeRef(operation, account, options, correlationId);
+    } catch (error) {
+      if (!(error instanceof SocialError) || error.code !== "unauthorized") throw error;
+      await authorizeRef(fallback, account, options, correlationId);
+    }
+  }
+
+  function validateAccountRef(account: ConnectedAccountRef, operation: string): void {
+    if (
+      account === null ||
+      typeof account !== "object" ||
+      account.kind !== "connected-account" ||
+      account.version !== 1 ||
+      typeof account.backend !== "string" ||
+      !account.backend.trim() ||
+      !account.platform ||
+      typeof account.accountId !== "string" ||
+      !account.accountId.trim()
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "A valid connected account reference is required",
+      });
+  }
+
+  function validDateOnly(value: string): boolean {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00Z`);
+
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+
+  function validTimestamp(value: unknown): value is string {
+    return typeof value === "string" && value.trim() !== "" && !Number.isNaN(Date.parse(value));
+  }
+
   function selected(
     ref: { readonly backend: string; readonly kind?: string; readonly version?: number },
     operation: string,
@@ -941,6 +1047,182 @@ export function createSocial(
     },
   };
 
+  const graphFacade = {
+    async getProfile(
+      account: ConnectedAccountRef,
+      input: { readonly profileId?: string; readonly handle?: string },
+      callOptions?: PublishCallOptions,
+    ): Promise<ProfileRecord> {
+      validateAccountRef(account, "profiles.read");
+      if (
+        input === null ||
+        typeof input !== "object" ||
+        (input.profileId !== undefined &&
+          input.handle !== undefined &&
+          typeof input.profileId !== "string" &&
+          typeof input.handle !== "string") ||
+        (input.profileId !== undefined &&
+          (typeof input.profileId !== "string" || input.profileId.trim() === "")) ||
+        (input.handle !== undefined &&
+          (typeof input.handle !== "string" || input.handle.trim() === ""))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "profiles.read",
+          message: "Profile selector fields must be nonempty strings when provided",
+        });
+      const correlationId = `social-${++correlationSequence}`;
+      await authorizeRef("profiles.read", account, callOptions, correlationId);
+      const adapter = selected(account, "profiles.read");
+      requireCapability(adapter, "profiles.read", account.platform, account.backend);
+      if (adapter.graph?.getProfile === undefined) unsupported("profiles.read", account.backend);
+      return dispatch(account.backend, callOptions?.signal, "profiles.read", () =>
+        adapter.graph!.getProfile!(
+          account,
+          input,
+          makeContext(account.backend, correlationId, callOptions),
+        ),
+      );
+    },
+    async listRelationships(
+      account: ConnectedAccountRef,
+      input: {
+        readonly kind: "following" | "followers" | "blocked" | "muted";
+        readonly cursor?: string;
+        readonly limit?: number;
+      },
+      callOptions?: PublishCallOptions,
+    ): Promise<Page<RelationshipRecord>> {
+      validateAccountRef(account, "graph.read");
+      if (
+        input === null ||
+        typeof input !== "object" ||
+        !["following", "followers", "blocked", "muted"].includes(input.kind) ||
+        (input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "graph.read",
+          message: !["following", "followers", "blocked", "muted"].includes(input?.kind)
+            ? "Relationship kind must be following, followers, blocked, or muted"
+            : "Relationship page limit must be a positive integer",
+        });
+      const correlationId = `social-${++correlationSequence}`;
+      await authorizeRef("graph.read", account, callOptions, correlationId);
+      const adapter = selected(account, "graph.read");
+      requireCapability(adapter, "graph.read", account.platform, account.backend);
+      if (adapter.graph?.listRelationships === undefined)
+        unsupported("graph.read", account.backend);
+      const scope = JSON.stringify([
+        account.backend,
+        "graph.read",
+        callOptions?.authorization?.tenantId ?? null,
+        account.platform,
+        account.accountId,
+        input.kind,
+        input.limit ?? null,
+      ]);
+      const page = await dispatch(account.backend, callOptions?.signal, "graph.read", () =>
+        adapter.graph!.listRelationships!(
+          account,
+          {
+            ...input,
+            ...(input.cursor === undefined ? {} : { cursor: decodeCursor(scope, input.cursor) }),
+          },
+          makeContext(account.backend, correlationId, callOptions),
+        ),
+      );
+      return encodePage(scope, page);
+    },
+    follow: (target: ProfileRef, options?: PublishCallOptions) =>
+      graphMutation(target, "graph.follow", options) as Promise<RelationshipRecord>,
+    unfollow: (target: ProfileRef, options?: PublishCallOptions) =>
+      graphMutation(target, "graph.unfollow", options) as Promise<void>,
+    block: (target: ProfileRef, options?: PublishCallOptions) =>
+      graphMutation(target, "graph.block", options) as Promise<RelationshipRecord>,
+    unblock: (target: ProfileRef, options?: PublishCallOptions) =>
+      graphMutation(target, "graph.unblock", options) as Promise<void>,
+    mute: (target: ProfileRef, options?: PublishCallOptions) =>
+      graphMutation(target, "graph.mute", options) as Promise<RelationshipRecord>,
+    unmute: (target: ProfileRef, options?: PublishCallOptions) =>
+      graphMutation(target, "graph.unmute", options) as Promise<void>,
+  };
+
+  async function graphMutation(
+    target: ProfileRef,
+    operation:
+      | "graph.follow"
+      | "graph.unfollow"
+      | "graph.block"
+      | "graph.unblock"
+      | "graph.mute"
+      | "graph.unmute",
+    callOptions: PublishCallOptions | undefined,
+  ): Promise<RelationshipRecord | void> {
+    if (
+      target === null ||
+      typeof target !== "object" ||
+      target.kind !== "profile" ||
+      target.version !== 1 ||
+      typeof target.backend !== "string" ||
+      target.backend.trim() === "" ||
+      typeof target.platform !== "string" ||
+      target.platform.trim() === "" ||
+      typeof target.accountId !== "string" ||
+      target.accountId.trim() === "" ||
+      typeof target.profileId !== "string" ||
+      target.profileId.trim() === ""
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "A valid profile reference is required",
+      });
+    const account: ConnectedAccountRef = {
+      kind: "connected-account",
+      version: 1,
+      backend: target.backend,
+      platform: target.platform,
+      accountId: target.accountId,
+    };
+    const correlationId = `social-${++correlationSequence}`;
+    await authorizeRef(operation, account, callOptions, correlationId);
+    const adapter = selected(target, operation);
+    requireCapability(adapter, operation, target.platform, target.backend);
+    if (adapter.graph === undefined) unsupported(operation, target.backend);
+    const context = makeContext(target.backend, correlationId, callOptions);
+    return dispatch<RelationshipRecord | void>(
+      target.backend,
+      callOptions?.signal,
+      operation,
+      async () => {
+        switch (operation) {
+          case "graph.follow":
+            if (adapter.graph!.follow === undefined) unsupported(operation, target.backend);
+            return await adapter.graph!.follow(target, context);
+          case "graph.unfollow":
+            if (adapter.graph!.unfollow === undefined) unsupported(operation, target.backend);
+            await adapter.graph!.unfollow(target, context);
+            return undefined;
+          case "graph.block":
+            if (adapter.graph!.block === undefined) unsupported(operation, target.backend);
+            return await adapter.graph!.block(target, context);
+          case "graph.unblock":
+            if (adapter.graph!.unblock === undefined) unsupported(operation, target.backend);
+            await adapter.graph!.unblock(target, context);
+            return undefined;
+          case "graph.mute":
+            if (adapter.graph!.mute === undefined) unsupported(operation, target.backend);
+            return await adapter.graph!.mute(target, context);
+          case "graph.unmute":
+            if (adapter.graph!.unmute === undefined) unsupported(operation, target.backend);
+            await adapter.graph!.unmute(target, context);
+            return undefined;
+        }
+      },
+    );
+  }
+
   async function lifecycle<R extends PlatformPostRef | BackendPostRef | ScheduledJobRef>(
     ref: R,
     expectedKind: R["kind"],
@@ -1092,15 +1374,14 @@ export function createSocial(
 
         results.push(result);
 
-        if (request.stopOnFailure !== false && result.status !== "complete") break;
+        if (request.stopOnFailure !== false && result.status === "partial") break;
       }
 
       const status =
-        results.length === request.items.length &&
-        results.every((item) => item.status === "complete")
-          ? "complete"
-          : results.some((item) => item.status === "partial") || results.length > 0
-            ? "partial"
+        results.length < request.items.length || results.some((item) => item.status === "partial")
+          ? "partial"
+          : results.every((item) => item.status === "complete")
+            ? "complete"
             : "pending";
 
       return { status, items: results };
@@ -1154,6 +1435,88 @@ export function createSocial(
     },
   };
 
+  const searchFacade = {
+    async posts(
+      account: ConnectedAccountRef,
+      input: SearchPostsInput,
+      callOptions?: PublishCallOptions,
+    ): Promise<Page<JsonObject>> {
+      validateAccountRef(account, "search.posts");
+      if (
+        input === undefined ||
+        typeof input.query !== "string" ||
+        !input.query.trim() ||
+        (input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1)) ||
+        (input.startTime !== undefined &&
+          (typeof input.startTime !== "string" || !validTimestamp(input.startTime))) ||
+        (input.endTime !== undefined &&
+          (typeof input.endTime !== "string" || !validTimestamp(input.endTime))) ||
+        (input.startTime !== undefined &&
+          input.endTime !== undefined &&
+          Date.parse(input.startTime) > Date.parse(input.endTime)) ||
+        (input.scope !== undefined && input.scope !== "recent" && input.scope !== "all")
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "search.posts",
+          message:
+            "Search requires an account reference, a nonempty query, and a positive page limit.",
+        });
+
+      const correlationId = `social-${++correlationSequence}`;
+      await authorizeRef("search.posts", account, callOptions, correlationId);
+      const adapter = selected(account, "search.posts");
+      requireCapability(adapter, "search.posts", account.platform, account.backend);
+      const search = adapter.search;
+
+      if (search === undefined) unsupported("search.posts", account.backend);
+
+      const scope = await fingerprint([
+        account.backend,
+        "search.posts",
+        callOptions?.authorization?.tenantId ?? null,
+        account.platform,
+        account.accountId,
+        input.query,
+        input.limit ?? null,
+        input.startTime ?? null,
+        input.endTime ?? null,
+        input.scope ?? "recent",
+      ]);
+
+      const providerInput = { ...input };
+
+      if (input.cursor !== undefined) {
+        Object.assign(providerInput, { cursor: decodeCursor(scope, input.cursor) });
+      }
+
+      const page = await dispatch(account.backend, callOptions?.signal, "search.posts", () =>
+        search.posts(
+          account,
+          providerInput,
+          makeContext(account.backend, correlationId, callOptions),
+        ),
+      );
+
+      return encodePage(scope, page);
+    },
+    iteratePosts(
+      account: ConnectedAccountRef,
+      input: Omit<SearchPostsInput, "cursor">,
+      callOptions?: PublishCallOptions & IterationOptions,
+    ): AsyncIterable<JsonObject> {
+      return iterateItems(
+        (cursor) =>
+          searchFacade.posts(
+            account,
+            { ...input, ...iterationPageOptions(undefined, cursor) },
+            callOptions,
+          ),
+        callOptions,
+      );
+    },
+  };
+
   const mediaFacade = {
     async upload(
       input: MediaAttachment,
@@ -1182,8 +1545,15 @@ export function createSocial(
       ref: ConnectedAccountRef,
       callOptions?: PublishCallOptions,
     ): Promise<readonly MetricValue[]> {
+      validateAccountRef(ref, "analytics.account.read");
       const correlationId = `social-${++correlationSequence}`;
-      await authorizeRef("analytics.read", ref, callOptions, correlationId);
+      await authorizeRefWithFallback(
+        "analytics.account.read",
+        "analytics.read",
+        ref,
+        callOptions,
+        correlationId,
+      );
       const adapter = selected(ref, "analytics.getAccountMetrics");
       requireCapability(adapter, "analytics.account.read", ref.platform, ref.backend);
 
@@ -1219,6 +1589,52 @@ export function createSocial(
       return dispatch(ref.backend, callOptions?.signal, "analytics.read", () =>
         adapter.analytics!.getPostMetrics(
           ref,
+          makeContext(ref.backend, correlationId, callOptions),
+        ),
+      );
+    },
+    async getReport(
+      ref: ConnectedAccountRef,
+      query: AnalyticsReportQuery,
+      callOptions?: PublishCallOptions,
+    ): Promise<AnalyticsReport> {
+      validateAccountRef(ref, "analytics.report.read");
+      if (
+        query === undefined ||
+        query === null ||
+        !validDateOnly(query.from) ||
+        !validDateOnly(query.to) ||
+        query.from > query.to ||
+        !Array.isArray(query.metrics) ||
+        query.metrics.length === 0 ||
+        query.metrics.some(
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- runtime query boundary.
+          (metric) => typeof metric !== "string" || !metric.trim(),
+        ) ||
+        (query.dimensions !== undefined &&
+          (!Array.isArray(query.dimensions) ||
+            query.dimensions.some(
+              // oxlint-disable-next-line anti-slop/no-runtime-typeof -- runtime query boundary.
+              (dimension) => typeof dimension !== "string" || !dimension.trim(),
+            )))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "analytics.report.read",
+          message:
+            "Reports require an ordered YYYY-MM-DD range, at least one metric, and nonempty dimensions.",
+        });
+      const correlationId = `social-${++correlationSequence}`;
+      await authorizeRef("analytics.report.read", ref, callOptions, correlationId);
+      const adapter = selected(ref, "analytics.getReport");
+      requireCapability(adapter, "analytics.report.read", ref.platform, ref.backend);
+
+      if (!adapter.analytics?.getReport) unsupported("analytics.report.read", ref.backend);
+
+      return dispatch(ref.backend, callOptions?.signal, "analytics.report.read", () =>
+        adapter.analytics!.getReport!(
+          ref,
+          query,
           makeContext(ref.backend, correlationId, callOptions),
         ),
       );
@@ -1420,13 +1836,102 @@ export function createSocial(
     },
   };
 
+  const notificationsFacade = {
+    async list(
+      account: ConnectedAccountRef,
+      callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
+    ): Promise<Page<JsonObject>> {
+      validateAccountRef(account, "notifications.read");
+      if (
+        callOptions?.limit !== undefined &&
+        (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "notifications.read",
+          message: "Notification page limit must be a positive integer",
+        });
+      const correlationId = `social-${++correlationSequence}`;
+      await authorizeRef("notifications.read", account, callOptions, correlationId);
+      const adapter = selected(account, "notifications.list");
+      requireCapability(adapter, "notifications.read", account.platform, account.backend);
+
+      if (adapter.notifications === undefined) unsupported("notifications.read", account.backend);
+
+      const cursorScope = JSON.stringify([
+        account.backend,
+        "notifications.read",
+        callOptions?.authorization?.tenantId ?? null,
+        account.platform,
+        account.accountId,
+        callOptions?.limit ?? null,
+      ]);
+      const received = await dispatch(
+        account.backend,
+        callOptions?.signal,
+        "notifications.read",
+        () =>
+          adapter.notifications!.list(
+            account,
+            decodePageOptions(cursorScope, callOptions),
+            makeContext(account.backend, correlationId, callOptions),
+          ),
+      );
+
+      return encodePage(cursorScope, received);
+    },
+    iterate(
+      account: ConnectedAccountRef,
+      callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
+    ): AsyncIterable<JsonObject> {
+      return iterateItems(
+        (cursor) => notificationsFacade.list(account, iterationPageOptions(callOptions, cursor)),
+        callOptions,
+      );
+    },
+    async markSeen(
+      account: ConnectedAccountRef,
+      input: { readonly seenAt?: string } = {},
+      callOptions?: PublishCallOptions,
+    ): Promise<void> {
+      validateAccountRef(account, "notifications.seen");
+      if (
+        input === null ||
+        typeof input !== "object" ||
+        (input.seenAt !== undefined && !validTimestamp(input.seenAt))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "notifications.seen",
+          message: "seenAt must be a valid timestamp",
+        });
+      const correlationId = `social-${++correlationSequence}`;
+      await authorizeRef("notifications.seen", account, callOptions, correlationId);
+      const adapter = selected(account, "notifications.markSeen");
+      requireCapability(adapter, "notifications.seen", account.platform, account.backend);
+
+      if (adapter.notifications === undefined) unsupported("notifications.seen", account.backend);
+
+      return dispatch(account.backend, callOptions?.signal, "notifications.seen", () =>
+        adapter.notifications!.markSeen(
+          account,
+          input,
+          makeContext(account.backend, correlationId, callOptions),
+        ),
+      );
+    },
+  };
+
   return {
     accounts: accountsFacade,
+    graph: graphFacade,
     posts: postsFacade,
+    search: searchFacade,
     media: mediaFacade,
     analytics: analyticsFacade,
     comments: commentsFacade,
     messages: messagesFacade,
+    notifications: notificationsFacade,
     capabilities: () =>
       Object.fromEntries(entries.map(([key, adapter]) => [key, adapter.capabilities])),
     adapter: (backend, acknowledgement) => {

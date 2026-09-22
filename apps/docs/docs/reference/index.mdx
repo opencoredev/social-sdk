@@ -7,7 +7,9 @@ The package root exports the core client and shared types. Optional direct integ
 
 The public contract currently centers on `createSocial`, `connectedAccountRef`, the `posts.prepare` and `posts.publish` operations, capability manifests, structured `SocialError` values, and the deterministic testing backend. The [mock quickstart](/getting-started/mock-quickstart) is the smallest complete example.
 
-Adapters extend the contract with account, media, reads, analytics, comments, messages, webhooks, and native access as their implementations become available. A missing module or capability is unavailable; it is never represented by an empty successful response.
+Adapters extend the contract with account, media, reads, search, analytics, comments, messages, webhooks, and native access as their implementations become available. A missing module or capability is unavailable; it is never represented by an empty successful response.
+
+Use [Search posts](/reads/search) for the `SearchPostsInput` contract and a custom adapter registration example. A custom search provider can share a platform with a direct publishing adapter while keeping its own backend key, credentials, and capability declaration.
 
 The CLI and generated capability matrix belong here once their package exports and command output have been verified in a packed consumer. Keep examples compiled against the same source version as this reference.
 

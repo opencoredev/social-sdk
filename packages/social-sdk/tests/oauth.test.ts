@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/require-readable-spacing -- provider fixtures are intentionally grouped. */
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { xOAuth, youtubeOAuth, refreshOAuthToken } from "../src/server/oauth.js";
@@ -154,6 +155,58 @@ describe("provider-specific OAuth contracts", () => {
       seen.some((item) => item.includes("202609")),
       true,
     );
+  });
+
+  it("persists only validated accounts selected by the caller", async () => {
+    const saved: string[] = [];
+    const provider = youtubeOAuth({
+      clientId: "client",
+      credentialSink: {
+        save: async ({ account }) => saved.push(account.ref.accountId),
+      },
+      selectAccounts: (accounts) => [accounts[1]!.ref.accountId],
+      fetch: async (url, _init) =>
+        String(url).includes("token")
+          ? response({ access_token: "at" })
+          : response({
+              items: [
+                { id: "channel-1", snippet: { title: "One" } },
+                { id: "channel-2", snippet: { title: "Two" } },
+              ],
+            }),
+    });
+
+    const accounts = await provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=${attempt.state}`,
+      attempt: { ...attempt, platforms: ["youtube"] },
+    });
+
+    assert.equal(accounts.length, 2);
+    assert.deepEqual(saved, ["channel-2"]);
+  });
+
+  it("persists every validated account by default for multi-account discovery", async () => {
+    const saved: string[] = [];
+    const provider = youtubeOAuth({
+      clientId: "client",
+      credentialSink: { save: async ({ account }) => saved.push(account.ref.accountId) },
+      fetch: async (url) =>
+        String(url).includes("token")
+          ? response({ access_token: "at" })
+          : response({
+              items: [
+                { id: "channel-1", snippet: { title: "One" } },
+                { id: "channel-2", snippet: { title: "Two" } },
+              ],
+            }),
+    });
+
+    await provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=${attempt.state}`,
+      attempt: { ...attempt, platforms: ["youtube"] },
+    });
+
+    assert.deepEqual(saved, ["channel-1", "channel-2"]);
   });
 
   it("does not follow redirects or accept oversized token responses", async () => {

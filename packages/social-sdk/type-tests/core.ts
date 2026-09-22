@@ -44,6 +44,13 @@ void social.posts.publish({
   content: { text: "Hello" },
 });
 
+void social.search.posts(x, {
+  query: "#social-sdk -is:retweet",
+  limit: 10,
+  startTime: "2026-01-01T00:00:00.000Z",
+  scope: "recent",
+});
+
 const youtube = connectedAccountRef({
   backend: "default",
   platform: "youtube",

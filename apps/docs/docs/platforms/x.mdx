@@ -11,7 +11,9 @@ The direct X adapter uses an existing bearer token and user ID. For a multi-user
   <Step title="Get API access">
     Create an app in the X developer portal and confirm your API plan covers the operations you
     need. Request the `tweet.read`, `tweet.write`, `users.read`, `offline.access`, and `media.write`
-    scopes for the implemented operations.
+    scopes for the implemented operations. Add `dm.read` to read messages and `dm.write` to send
+    them. Recent post search and Direct Messages additionally require the access and plan tier that
+    X currently assigns to your app.
   </Step>
   <Step title="Store credentials server-side">
     Set `X_USER_ID` and `X_ACCESS_TOKEN` in server configuration. Never ship them to a browser
@@ -30,6 +32,8 @@ import { x } from "@opencoredev/social-sdk/x";
 const social = createSocial({
   backend: x({
     auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
+    // Required for full-archive search and filtered stream.
+    appBearerToken: process.env.X_APP_BEARER_TOKEN,
   }),
 });
 
@@ -88,6 +92,32 @@ if (outcome?.state === "unknown" && outcome.delivery) {
 }
 ```
 
+### Search recent posts
+
+The normalized `search.posts` operation uses X's recent-search endpoint. It accepts a non-empty X
+query and returns the provider's post objects in a paginated `Page<JsonObject>`:
+
+```ts
+const page = await social.search.posts(account, {
+  query: "from:opencoredev has:links -is:retweet",
+  limit: 25,
+});
+
+for (const post of page.items) console.log(post["id"], post["text"]);
+```
+
+Pass `page.nextCursor` unchanged with the same query, scope, and limit to continue. X validates the
+query and limits each recent request to its supported `max_results` range (10–100); omit `limit` to
+let X choose the default. Set `scope: "all"` only when the app's X plan exposes full-archive
+search; that route permits the wider provider limit and query length. Recent search is the default
+and covers X's recent index, not the complete historical archive. Retain the provider fields and
+`created_at` value if you are building an application index.
+
+Recent search availability, retention, rate limits, and monthly usage depend on the app's X API
+plan and project permissions. The SDK does not grant access, widen the retention window, or retry
+around a quota. A denied or unavailable route is surfaced as a structured provider error. Search
+results are not proof that every matching post exists or remains publicly readable.
+
 ### Like and unlike posts
 
 The X platform entrypoint exports `xLike` and `xUnlike` for credential-ready server code. They require an acting connected-account reference, a native numeric post ID, server-side credentials, and an operation context whose `backendInstance` matches the account. These helpers sit outside `createSocial` authorization and concurrency middleware: authorize the acting account in your application before calling them.
@@ -117,9 +147,91 @@ console.log(state.liked);
 
 Both require the app's current API access and `like.write`, `tweet.read`, and `users.read` scopes. They make one mutation request and return the provider-confirmed `liked` state. A lost response, malformed confirmation, or uncertain server failure throws `ambiguous_outcome`; inspect current reaction state before deciding whether to retry. Unliking removes the acting user's reaction, not the target post. Request contracts: [like a post](https://docs.x.com/x-api/users/like-post), [unlike a post](https://docs.x.com/x-api/users/unlike-post).
 
+### Read profiles and relationships
+
+The normalized graph facade resolves an X profile by ID or handle, lists followers, following,
+muted users, and blocked users, and supports follow, unfollow, mute, unmute, block, and unblock mutations. Profile
+and relationship records retain the X user ID in `ref.profileId`.
+
+```ts
+const profile = await social.graph.getProfile(account, { handle: "alice" });
+const following = await social.graph.listRelationships(account, {
+  kind: "following",
+  limit: 25,
+});
+
+if (following.nextCursor) {
+  const next = await social.graph.listRelationships(account, {
+    kind: "following",
+    cursor: following.nextCursor,
+  });
+}
+
+await social.graph.follow(profile.ref);
+await social.graph.mute(profile.ref);
+```
+
+These operations require user-context OAuth scopes such as `users.read`, `follows.read`,
+`follows.write`, `mute.read`, `mute.write`, and `block.write`, subject to the app's current X API
+tier. Block and unblock writes are Enterprise-only in X's API. `kind: "blocked"` remains
+available for blocked-list reads when the account has the required `block.read` access.
+
+### Pin lists and send direct messages
+
+The native X module exposes pinned-list mutations and paginated reads, plus direct-message
+operations for an existing conversation and for creating a group conversation:
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+await native.pinList({ account, listId: "123", context });
+const pinned = await native.pinnedLists({ account, limit: 20, context });
+await native.sendConversationMessage({ account, conversationId: "456", text: "Hello", context });
+await native.createGroupConversation({
+  account,
+  participantIds: ["u2", "u3"],
+  message: "Welcome",
+  context,
+});
+```
+
+These methods require the corresponding `list.write`, `list.read`, or `dm.write` scope and the
+X plan access for the endpoint. `listDirectMessages` returns the standard `Page` shape, including
+`nextCursor` when X returns `meta.next_token`.
+
+### Use normalized messages
+
+The normalized messages facade uses X's Direct Messages endpoints with the configured user token:
+
+```ts
+const conversations = await social.messages.listConversations(account, { limit: 50 });
+const conversationId = conversations.items[0]?.["dm_conversation_id"];
+if (typeof conversationId !== "string") throw new Error("No conversation selected");
+
+const conversation = {
+  kind: "conversation" as const,
+  version: 1 as const,
+  backend: account.backend,
+  platform: "x" as const,
+  accountId: account.accountId,
+  conversationId,
+};
+
+const messages = await social.messages.listMessages(conversation, { limit: 50 });
+await social.messages.send(conversation, { text: "Hello" });
+```
+
+X has no conversation-list endpoint. `listConversations` reads `GET /2/dm_events`, keeps the
+latest event for each distinct `dm_conversation_id` in that page, and preserves X's pagination
+cursor. `listMessages` reads `GET /2/dm_conversations/{dm_conversation_id}/dm_events`, and `send`
+uses `POST /2/dm_conversations/{dm_conversation_id}/messages`. These methods require a user-context
+token with `dm.read`, `users.read`, and `tweet.read`; sending also requires `dm.write`. Availability
+still depends on the X API tier and Direct Messages access for the app.
+
 ## Native operations
 
-The typed native module also exposes video and GIF uploads, polls, reposts and quotes, deletion, bookmarks, follows, direct-message reads, and filtered streams. Video and GIF processing is asynchronous; persist the returned media state and reconcile it before publishing.
+The typed native module also exposes user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, video and GIF uploads, polls, quotes, deletion, bookmarks, and filtered streams. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
+
+Full-archive search (`searchAllPosts`) and filtered streams require an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
 
 ## Limits and requirements
 

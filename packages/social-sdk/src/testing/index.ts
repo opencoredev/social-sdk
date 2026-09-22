@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/require-readable-spacing -- deterministic mock adapter fixtures stay grouped by surface. */
 import {
   SocialError,
   connectedAccountRef,
@@ -14,6 +15,7 @@ import {
   type IdempotencyClaimInput,
   type IdempotencyStore,
   type JsonPrimitive,
+  type ProfileRecord,
   type SocialAdapter,
 } from "../core/index.js";
 
@@ -95,6 +97,14 @@ function mockManifest(): CapabilityManifest {
       { operation: "comments.read", platform: "*", availability: "available" },
       { operation: "comments.write", platform: "*", availability: "available" },
       { operation: "analytics.read", platform: "*", availability: "available" },
+      { operation: "analytics.account.read", platform: "*", availability: "available" },
+      { operation: "analytics.report.read", platform: "*", availability: "available" },
+      { operation: "search.posts", platform: "*", availability: "available" },
+      { operation: "profiles.read", platform: "*", availability: "available" },
+      { operation: "graph.read", platform: "*", availability: "available" },
+      { operation: "graph.follow", platform: "*", availability: "available" },
+      { operation: "notifications.read", platform: "*", availability: "available" },
+      { operation: "notifications.seen", platform: "*", availability: "available" },
       { operation: "webhooks.verify", platform: "*", availability: "available" },
     ],
   };
@@ -444,7 +454,51 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
         return { ...comment, commentId: `mock-reply-${sequence}` };
       },
     },
+    graph: {
+      async getProfile(account, input, context): Promise<ProfileRecord> {
+        record("profiles.get", context, account);
+        const profile: ProfileRecord = {
+          ref: {
+            kind: "profile",
+            version: 1,
+            backend: account.backend,
+            platform: account.platform,
+            accountId: account.accountId,
+            profileId: input.profileId ?? input.handle ?? "mock-profile",
+          },
+          displayName: "Mock Profile",
+        };
+        if (input.handle !== undefined) return { ...profile, handle: input.handle };
+        return profile;
+      },
+      async listRelationships(account, _input, context) {
+        record("graph.listRelationships", context, account);
+        return { items: [] };
+      },
+      async follow(target, context) {
+        record("graph.follow", context, connectedAccountRef(target));
+        return { profile: target, relationship: "following" };
+      },
+    },
+    search: {
+      async posts(account, input, context) {
+        record("search.posts", context, account);
+        return {
+          items: [
+            {
+              id: "mock-search-result",
+              text: input.query,
+              accountId: account.accountId,
+            },
+          ],
+        };
+      },
+    },
     analytics: {
+      async getAccountMetrics(account, context) {
+        record("analytics.getAccountMetrics", context, account);
+        return [];
+      },
       async getPostMetrics(post, context) {
         record("analytics.getPostMetrics", context, connectedAccountRef(post));
 
@@ -460,6 +514,19 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
             source: "mock",
           },
         ];
+      },
+      async getReport(account, query, context) {
+        record("analytics.getReport", context, account);
+        return { query, rows: [], fetchedAt: clock().toISOString(), source: "mock" };
+      },
+    },
+    notifications: {
+      async list(account, _input, context) {
+        record("notifications.list", context, account);
+        return { items: [] };
+      },
+      async markSeen(account, _input, context) {
+        record("notifications.markSeen", context, account);
       },
     },
     webhooks: {
@@ -510,7 +577,8 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     native: { scenario: () => scenario },
   });
 
-  return adapter;
+  // SAFETY: defineAdapter preserves the supplied testing controller and native mock shape.
+  return adapter as MockSocialAdapter;
 }
 
 interface StoredClaim {

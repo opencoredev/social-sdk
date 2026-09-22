@@ -17,6 +17,8 @@ import { array, object, string, optionalString, optionalNumber } from "../transp
 import { upload } from "../transport/upload.js";
 import { publicFields } from "../cloud/common.js";
 
+/* oxlint-disable anti-slop/require-readable-spacing -- Existing adapter style keeps compact guards and native dispatch blocks. */
+
 export interface LinkedInOptions {
   readonly auth: {
     readonly accessToken: string;
@@ -26,6 +28,53 @@ export interface LinkedInOptions {
   readonly apiVersion: string;
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
+}
+
+export interface LinkedInTimeInterval {
+  readonly granularity: "DAY" | "WEEK" | "MONTH";
+  readonly start?: number;
+  readonly end?: number;
+}
+
+export interface LinkedInFollowerBreakdown {
+  readonly dimension:
+    | "function"
+    | "seniority"
+    | "industry"
+    | "geo"
+    | "geoCountry"
+    | "staffCountRange"
+    | "associationType";
+  readonly value: string;
+  readonly organicFollowerCount?: number | undefined;
+  readonly paidFollowerCount?: number | undefined;
+}
+
+export interface LinkedInFollowerStatistics {
+  readonly organization: string;
+  readonly interval?: LinkedInTimeInterval | undefined;
+  readonly organicFollowerGain?: number | undefined;
+  readonly paidFollowerGain?: number | undefined;
+  readonly breakdowns: readonly LinkedInFollowerBreakdown[];
+}
+
+export interface LinkedInPageStatistics {
+  readonly organization: string;
+  readonly interval?: LinkedInTimeInterval | undefined;
+  readonly views: Readonly<Record<string, number>>;
+  readonly clicks: Readonly<Record<string, number>>;
+  readonly breakdowns: {
+    readonly dimension: string;
+    readonly value: string;
+    readonly views: Readonly<Record<string, number>>;
+    readonly clicks: Readonly<Record<string, number>>;
+  }[];
+}
+
+export interface LinkedInShareStatistics {
+  readonly organization: string;
+  readonly interval?: LinkedInTimeInterval | undefined;
+  readonly metrics: Readonly<Record<string, number>>;
 }
 
 export interface LinkedInNative {
@@ -68,6 +117,25 @@ export interface LinkedInNative {
     readonly query?: JsonObject;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  readonly getOrganizationFollowerStatistics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly interval?: LinkedInTimeInterval;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInFollowerStatistics[]>;
+  readonly getOrganizationPageStatistics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly interval?: LinkedInTimeInterval;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInPageStatistics[]>;
+  readonly getOrganizationShareStatistics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly interval?: LinkedInTimeInterval;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInShareStatistics[]>;
+  readonly getOrganizationFollowerCount: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context: AdapterOperationContext;
+  }) => Promise<number | undefined>;
 }
 
 export function linkedin(
@@ -247,6 +315,242 @@ export function linkedin(
     };
   }
 
+  /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing -- These helpers normalize documented LinkedIn response facets at the transport boundary. */
+  const organizationOnly = (
+    account: ConnectedAccountRef,
+    context: AdapterOperationContext,
+    operation: string,
+  ) => {
+    authorize(account, context);
+    if (!account.accountId.startsWith("urn:li:organization:"))
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation,
+        message:
+          "LinkedIn organization analytics require an organization account, not a member account.",
+      });
+  };
+
+  const statisticsPath = (
+    path: string,
+    finder: "organization" | "organizationalEntity",
+    account: ConnectedAccountRef,
+    interval?: LinkedInTimeInterval,
+  ) => {
+    const params = [`q=${finder}`, `${finder}=${encodeURIComponent(account.accountId)}`];
+    if (interval) {
+      if (
+        interval.start !== undefined &&
+        (!Number.isSafeInteger(interval.start) || interval.start < 0)
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "analytics.organization.read",
+          message: "Interval start must be a nonnegative epoch-millisecond integer.",
+        });
+      if (interval.end !== undefined && (!Number.isSafeInteger(interval.end) || interval.end < 0))
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "analytics.organization.read",
+          message: "Interval end must be a nonnegative epoch-millisecond integer.",
+        });
+      if (
+        interval.start !== undefined &&
+        interval.end !== undefined &&
+        interval.end <= interval.start
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "analytics.organization.read",
+          message: "Interval end must be after interval start.",
+        });
+      if (interval.start === undefined)
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "analytics.organization.read",
+          message: "Interval start is required for time-bound organization statistics.",
+        });
+      const rangeParts = [
+        `start:${interval.start}`,
+        ...(interval.end === undefined ? [] : [`end:${interval.end}`]),
+      ];
+      const range = `(timeRange:(${rangeParts.join(",")}),timeGranularityType:${interval.granularity})`;
+      if (!["DAY", "WEEK", "MONTH"].includes(interval.granularity))
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "analytics.organization.read",
+          message: "Interval granularity must be DAY, WEEK or MONTH.",
+        });
+      params.push(`timeIntervals=${range}`);
+    }
+    return `${path}?${params.join("&")}`;
+  };
+
+  const numberMap = (value: unknown): Readonly<Record<string, number>> => {
+    const row = value === undefined ? {} : object(value);
+    const output: Record<string, number> = {};
+    for (const [key, item] of Object.entries(row)) {
+      const number = optionalNumber(item);
+      if (number !== undefined) output[key] = number;
+      else if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+        const nestedObject = object(item);
+        const nested = ["pageViews", "uniquePageViews", "clicks", "count"]
+          .map((name) => optionalNumber(nestedObject[name]))
+          .find((candidate) => candidate !== undefined);
+        if (nested !== undefined) output[key] = nested;
+        else {
+          for (const [nestedKey, nestedValue] of Object.entries(nestedObject)) {
+            const nestedNumber = optionalNumber(nestedValue);
+            if (nestedNumber !== undefined) output[`${key}.${nestedKey}`] = nestedNumber;
+          }
+        }
+      }
+    }
+    return output;
+  };
+
+  const followerBreakdowns = (row: Record<string, unknown>): LinkedInFollowerBreakdown[] => {
+    const dimensions = [
+      ["function", "followerCountsByFunction", "function"],
+      ["seniority", "followerCountsBySeniority", "seniority"],
+      ["industry", "followerCountsByIndustry", "industry"],
+      ["geo", "followerCountsByGeo", "geo"],
+      ["geoCountry", "followerCountsByGeoCountry", "geo"],
+      ["staffCountRange", "followerCountsByStaffCountRange", "staffCountRange"],
+      ["associationType", "followerCountsByAssociationType", "associationType"],
+    ] as const;
+    const output: LinkedInFollowerBreakdown[] = [];
+    for (const [dimension, field, key] of dimensions) {
+      if (row[field] === undefined) continue;
+      for (const value of array(row[field])) {
+        const item = object(value);
+        const label = optionalString(item[key]);
+        if (!label) continue;
+        const counts = item["followerCounts"] === undefined ? {} : object(item["followerCounts"]);
+        output.push({
+          dimension,
+          value: label,
+          ...(optionalNumber(counts["organicFollowerCount"]) === undefined
+            ? {}
+            : { organicFollowerCount: optionalNumber(counts["organicFollowerCount"]) }),
+          ...(optionalNumber(counts["paidFollowerCount"]) === undefined
+            ? {}
+            : { paidFollowerCount: optionalNumber(counts["paidFollowerCount"]) }),
+        });
+      }
+    }
+    return output;
+  };
+
+  const parseInterval = (
+    row: Record<string, unknown>,
+    requestedGranularity?: LinkedInTimeInterval["granularity"],
+  ): LinkedInTimeInterval | undefined => {
+    if (row["timeRange"] === undefined) return undefined;
+    const range = object(row["timeRange"]);
+    const start = optionalNumber(range["start"]);
+    const end = optionalNumber(range["end"]);
+    const granularity = requestedGranularity ?? optionalString(row["timeGranularityType"]);
+    if (
+      (granularity !== "DAY" && granularity !== "WEEK" && granularity !== "MONTH") ||
+      (start === undefined && end === undefined)
+    )
+      return undefined;
+    return {
+      granularity,
+      ...(start === undefined ? {} : { start }),
+      ...(end === undefined ? {} : { end }),
+    };
+  };
+
+  const parseFollowerStatistics = (
+    result: Record<string, unknown>,
+    requestedGranularity?: LinkedInTimeInterval["granularity"],
+  ): LinkedInFollowerStatistics[] =>
+    array(result["elements"]).map((value) => {
+      const row = object(value);
+      const gains = row["followerGains"] === undefined ? {} : object(row["followerGains"]);
+      return {
+        organization: string(row["organizationalEntity"]),
+        ...(parseInterval(row, requestedGranularity) === undefined
+          ? {}
+          : { interval: parseInterval(row, requestedGranularity) }),
+        ...(optionalNumber(gains["organicFollowerGain"]) === undefined
+          ? {}
+          : { organicFollowerGain: optionalNumber(gains["organicFollowerGain"]) }),
+        ...(optionalNumber(gains["paidFollowerGain"]) === undefined
+          ? {}
+          : { paidFollowerGain: optionalNumber(gains["paidFollowerGain"]) }),
+        breakdowns: followerBreakdowns(row),
+      };
+    });
+
+  const pageBreakdowns = (row: Record<string, unknown>) => {
+    const output: LinkedInPageStatistics["breakdowns"] = [];
+    for (const [field, dimension, key] of [
+      ["pageStatisticsByFunction", "function", "function"],
+      ["pageStatisticsBySeniority", "seniority", "seniority"],
+      ["pageStatisticsByIndustryV2", "industryV2", "industryV2"],
+      ["pageStatisticsByIndustry", "industry", "industry"],
+      ["pageStatisticsByGeo", "geo", "geo"],
+      ["pageStatisticsByGeoCountry", "geoCountry", "geo"],
+      ["pageStatisticsByStaffCountRange", "staffCountRange", "staffCountRange"],
+    ] as const) {
+      if (row[field] === undefined) continue;
+      for (const value of array(row[field])) {
+        const item = object(value);
+        const label = optionalString(item[key]);
+        if (!label) continue;
+        const stats = item["pageStatistics"] === undefined ? {} : object(item["pageStatistics"]);
+        const views = stats["views"] === undefined ? {} : object(stats["views"]);
+        const clicks = stats["clicks"] === undefined ? {} : object(stats["clicks"]);
+        output.push({
+          dimension,
+          value: label,
+          views: numberMap(views),
+          clicks: numberMap(clicks),
+        });
+      }
+    }
+    return output;
+  };
+
+  const parsePageStatistics = (
+    result: Record<string, unknown>,
+    requestedGranularity?: LinkedInTimeInterval["granularity"],
+  ): LinkedInPageStatistics[] =>
+    array(result["elements"]).map((value) => {
+      const row = object(value);
+      const total =
+        row["totalPageStatistics"] === undefined ? {} : object(row["totalPageStatistics"]);
+      return {
+        organization: string(row["organization"]),
+        ...(parseInterval(row, requestedGranularity) === undefined
+          ? {}
+          : { interval: parseInterval(row, requestedGranularity) }),
+        views: numberMap(total["views"]),
+        clicks: numberMap(total["clicks"]),
+        breakdowns: pageBreakdowns(row),
+      };
+    });
+
+  const parseShareStatistics = (
+    result: Record<string, unknown>,
+    requestedGranularity?: LinkedInTimeInterval["granularity"],
+  ): LinkedInShareStatistics[] =>
+    array(result["elements"]).map((value) => {
+      const row = object(value);
+      return {
+        organization: string(row["organizationalEntity"]),
+        ...(parseInterval(row, requestedGranularity) === undefined
+          ? {}
+          : { interval: parseInterval(row, requestedGranularity) }),
+        metrics: numberMap(row["totalShareStatistics"]),
+      };
+    });
+
+  /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof */
+
   return defineAdapter({
     id: "linkedin",
     capabilities: {
@@ -301,7 +605,12 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "analytics.organization.read",
-          availability: "permission-required" as const,
+          availability: options.auth.author.startsWith("urn:li:organization:")
+            ? ("available" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["rw_organization_admin", "r_organization_admin"],
+          notes:
+            "Requires the Community Management API product and organization administrator access. Member accounts are not eligible.",
         },
         {
           platform: "linkedin",
@@ -323,6 +632,18 @@ export function linkedin(
           notes:
             "Organization total followers only; authenticated member must administer the organization. No member-profile analytics claimed.",
         },
+        ...["analytics.followers.read", "analytics.page.read", "analytics.shares.read"].map(
+          (operation) => ({
+            platform: "linkedin" as const,
+            operation,
+            availability: options.auth.author.startsWith("urn:li:organization:")
+              ? ("available" as const)
+              : ("account-ineligible" as const),
+            requiredScopes: ["rw_organization_admin", "r_organization_admin"],
+            notes:
+              "Community Management API product and organization administrator access are required. Member accounts are not eligible.",
+          }),
+        ),
         {
           platform: "linkedin",
           operation: "posts.list",
@@ -332,7 +653,7 @@ export function linkedin(
               ? "r_organization_social"
               : "r_member_social",
           ],
-          notes: "Author feed requires approved read access for the configured author.",
+          notes: "Author-feed pagination uses the returned offset cursor.",
         },
         {
           platform: "linkedin",
@@ -847,7 +1168,7 @@ export function linkedin(
           "DELETE",
         );
       },
-      async organizationAnalytics({ account, query, context }) {
+      async organizationAnalytics({ account, context }) {
         authorize(account, context);
 
         if (!account.accountId.startsWith("urn:li:organization:"))
@@ -861,8 +1182,63 @@ export function linkedin(
         return (await request(
           `/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(account.accountId)}`,
           context,
-          query,
         )) as JsonObject;
+      },
+      async getOrganizationFollowerStatistics({ account, interval, context }) {
+        organizationOnly(account, context, "analytics.followers.read");
+        return parseFollowerStatistics(
+          object(
+            await request(
+              statisticsPath(
+                "/rest/organizationalEntityFollowerStatistics",
+                "organizationalEntity",
+                account,
+                interval,
+              ),
+              context,
+            ),
+          ),
+          interval?.granularity,
+        );
+      },
+      async getOrganizationPageStatistics({ account, interval, context }) {
+        organizationOnly(account, context, "analytics.page.read");
+        return parsePageStatistics(
+          object(
+            await request(
+              statisticsPath("/rest/organizationPageStatistics", "organization", account, interval),
+              context,
+            ),
+          ),
+          interval?.granularity,
+        );
+      },
+      async getOrganizationShareStatistics({ account, interval, context }) {
+        organizationOnly(account, context, "analytics.shares.read");
+        return parseShareStatistics(
+          object(
+            await request(
+              statisticsPath(
+                "/rest/organizationalEntityShareStatistics",
+                "organizationalEntity",
+                account,
+                interval,
+              ),
+              context,
+            ),
+          ),
+          interval?.granularity,
+        );
+      },
+      async getOrganizationFollowerCount({ account, context }) {
+        organizationOnly(account, context, "analytics.account.read");
+        const response = object(
+          await request(
+            `/rest/networkSizes/${encodeURIComponent(account.accountId)}?edgeType=COMPANY_FOLLOWED_BY_MEMBER`,
+            context,
+          ),
+        );
+        return optionalNumber(response["firstDegreeSize"]);
       },
     },
   });

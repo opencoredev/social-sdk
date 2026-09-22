@@ -38,8 +38,10 @@ The exported `iterateItems` helper accepts a callback that reads one page from a
 
 Account pagination and iteration have deterministic tests under Node and Bun. Provider list endpoints may still have upstream history limits or changing results between requests. A completed traversal is a view of those responses, not a transactionally consistent snapshot.
 
-## Feeds, comments, and conversations
+## Feeds, search, comments, and conversations
 
-`posts.list(account, options)`, `comments.list(post, options)`, `messages.listConversations(account, options)`, and `messages.listMessages(conversation, options)` accept `cursor` and `limit`. Their cursors bind the backend, tenant, account, resource, and page size. Pass the returned value unchanged. An adapter with no upstream continuation rejects a supplied cursor instead of returning page one again.
+`posts.list(account, options)`, `social.search.posts(account, options)`, `comments.list(post, options)`, `messages.listConversations(account, options)`, `messages.listMessages(conversation, options)`, `notifications.list(account, options)`, and `graph.listRelationships(account, options)` accept `cursor` and `limit`. Their cursors bind the backend, tenant, account, resource, query where applicable, relationship kind, and page size. Pass the returned value unchanged. An adapter with no upstream continuation rejects a supplied cursor instead of returning page one again.
 
-Use `posts.iterate`, `comments.iterate`, `messages.iterateConversations`, or `messages.iterateMessages` for lazy bounded traversal. Each method accepts the same `maxPages`, `maxItems`, and cancellation controls as account iteration. The capability manifest identifies which adapters implement each list operation.
+Use `posts.iterate`, `search.iteratePosts`, `comments.iterate`, `messages.iterateConversations`, `messages.iterateMessages`, or `notifications.iterate` for lazy bounded traversal. `graph.listRelationships` is page-based. Each iterator accepts the same `maxPages`, `maxItems`, and cancellation controls as account iteration. The capability manifest identifies which adapters implement each list operation.
+
+Search cursors are provider cursors, not durable checkpoints. A provider may add, remove, or reorder matches while a query is being traversed. Persist a cursor only with the exact query and request scope that produced it, and stop when the provider omits `nextCursor`.

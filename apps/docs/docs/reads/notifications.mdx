@@ -1,0 +1,18 @@
+---
+title: Notifications
+description: Read provider notifications and mark them seen when the adapter supports those operations.
+---
+
+Use `social.notifications.list(account, options)` for one page of provider-shaped notification
+objects. The page uses the same opaque cursor contract as feeds and search.
+
+```ts
+const page = await social.notifications.list(account, { limit: 50 });
+for (const notification of page.items) console.log(notification);
+await social.notifications.markSeen(account, { seenAt: new Date().toISOString() });
+```
+
+`social.notifications.iterate(account, options)` traverses pages lazily with `maxPages`,
+`maxItems`, and cancellation controls. Notification event types differ across providers, so the
+SDK preserves their payloads instead of presenting a cross-platform taxonomy. `notifications.read`
+and `notifications.seen` are separate capabilities.

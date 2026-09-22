@@ -1,6 +1,7 @@
-/* oxlint-disable anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract. */
+/* oxlint-disable anti-slop/no-conditional-empty-object-spread, anti-slop/no-known-value-widening, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type, anti-slop/require-readable-spacing -- provider query and response boundaries are validated locally. */
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError } from "../core/errors.js";
+import { profileRef } from "../core/types.js";
 import type {
   AdapterOperationContext,
   CommentRef,
@@ -10,20 +11,87 @@ import type {
   MetricValue,
   PlatformPostRef,
   PreparedPublishTarget,
+  Page,
+  ProfileRecord,
 } from "../core/types.js";
 import { managedHttp, publicFields } from "../cloud/common.js";
+import { HttpError } from "../transport/http.js";
 import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
 
 export interface InstagramOptions {
-  /** Instagram Login for professional accounts; Facebook Login tokens are not interchangeable. */
-  readonly auth: { readonly accessToken: string; readonly accountId: string };
+  /** Instagram Login by default. Facebook Login is required for business discovery and hashtags. */
+  readonly auth: {
+    readonly accessToken: string;
+    readonly accountId: string;
+    readonly flavor?: "instagram-login" | "facebook-login";
+  };
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
   readonly workflowStore?: InstagramWorkflowStore;
 }
 
 export interface InstagramNative {
+  readonly moderateComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly commentId: string;
+    readonly hidden: boolean;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly deleteComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly commentId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly setCommentsEnabled: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly mediaId: string;
+    readonly enabled: boolean;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly listCommentReplies: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly commentId: string;
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  readonly listMentions: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  readonly mentionedMedia: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly mediaId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly mentionedComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly commentId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly listTaggedMedia: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  readonly hashtagMedia: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly hashtagId: string;
+    readonly kind: "top" | "recent";
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  readonly businessDiscovery: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly username: string;
+    readonly fields?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
   readonly publishReel: (input: {
     readonly account: ConnectedAccountRef;
     readonly videoUrl: string;
@@ -51,8 +119,10 @@ export interface InstagramNative {
   }) => Promise<JsonObject>;
   readonly mentions: (input: {
     readonly account: ConnectedAccountRef;
+    readonly cursor?: string;
+    readonly limit?: number;
     readonly context: AdapterOperationContext;
-  }) => Promise<JsonObject>;
+  }) => Promise<Page<JsonObject>>;
 }
 
 export interface InstagramWorkflow {
@@ -112,8 +182,13 @@ export function instagram(
   options: InstagramOptions,
 ): import("../core/adapter.js").SocialAdapter<InstagramNative> {
   const apiVersion = "v25.0";
+  const flavor = options.auth.flavor ?? "instagram-login";
+  const origin =
+    flavor === "facebook-login"
+      ? `https://graph.facebook.com/${apiVersion}`
+      : `https://graph.instagram.com/${apiVersion}`;
 
-  const request = managedHttp(`https://graph.instagram.com/${apiVersion}`, {
+  const request = managedHttp(origin, {
     apiKey: options.auth.accessToken,
     // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -121,6 +196,54 @@ export function instagram(
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
   const workflows = options.workflowStore ?? new MemoryInstagramWorkflowStore();
+
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated here.
+  const validatedObject = (value: unknown, operation: string): Record<string, unknown> => {
+    try {
+      return object(value);
+    } catch (error) {
+      if (error instanceof HttpError && error.kind === "invalid-response")
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: error.message,
+          cause: error,
+        });
+      throw error;
+    }
+  };
+
+  const requireFacebookLogin = (operation: string) => {
+    if (flavor !== "facebook-login")
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation,
+        message: `${operation} requires a Facebook Login Graph API access token for an Instagram professional account.`,
+        retryDisposition: { kind: "never" },
+      });
+  };
+
+  const pageLimit = (limit: number | undefined, max = 50) => {
+    const value = limit ?? 25;
+    if (!Number.isSafeInteger(value) || value < 1 || value > max)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "instagram.pagination",
+        message: `Instagram page limit must be an integer from 1 through ${max}.`,
+      });
+    return value;
+  };
+
+  const page = (result: Record<string, unknown>, fields: readonly string[]): Page<JsonObject> => {
+    const items = array(result["data"]).map((entry) => publicFields(entry, fields));
+    const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+    const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
+    const nextCursor =
+      typeof cursors["after"] === "string" && cursors["after"].length > 0
+        ? cursors["after"]
+        : undefined;
+    return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
+  };
 
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
@@ -134,7 +257,7 @@ export function instagram(
       throw new SocialError({
         code: "unauthorized",
         operation: "instagram",
-        message: "Account reference does not match this Instagram Login authorization.",
+        message: "Account reference does not match this Instagram authorization.",
       });
   };
 
@@ -442,7 +565,17 @@ export function instagram(
 
   const readAccount = async (context: AdapterOperationContext) => {
     const response = object(
-      await request("/me", context, undefined, { fields: "user_id,username,account_type" }),
+      await request(
+        flavor === "facebook-login" ? `/${encodeURIComponent(options.auth.accountId)}` : "/me",
+        context,
+        undefined,
+        {
+          fields:
+            flavor === "facebook-login"
+              ? "id,username,account_type"
+              : "user_id,username,account_type",
+        },
+      ),
     );
 
     const id = optionalString(response["user_id"]) ?? optionalString(response["id"]);
@@ -468,12 +601,51 @@ export function instagram(
     };
   };
 
+  const listMentions: InstagramNative["listMentions"] = async ({
+    account,
+    cursor,
+    limit,
+    context,
+  }) => {
+    authorize(account, context);
+    const query: Record<string, string> = {
+      fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
+      limit: String(pageLimit(limit)),
+    };
+    if (cursor !== undefined) query["after"] = cursor;
+    const result = validatedObject(
+      await request(`/${encodeURIComponent(account.accountId)}/tags`, context, undefined, query),
+      "instagram.mentions.read",
+    );
+    return page(result, [
+      "id",
+      "caption",
+      "media_type",
+      "media_product_type",
+      "permalink",
+      "timestamp",
+      "username",
+    ]);
+  };
+
+  const profileFields = [
+    "id",
+    "username",
+    "name",
+    "biography",
+    "profile_picture_url",
+    "followers_count",
+    "follows_count",
+    "media_count",
+    "website",
+  ] as const;
+
   return defineAdapter({
     id: "instagram",
     capabilities: {
       schemaVersion: 1 as const,
       backend: "instagram",
-      apiRevision: "Instagram Login Graph v25.0",
+      apiRevision: `${flavor === "facebook-login" ? "Facebook Login" : "Instagram Login"} Graph v25.0`,
       runtime: ["node22", "node24", "bun"],
       capabilities: [
         {
@@ -493,11 +665,50 @@ export function instagram(
           "comments.read",
           "comments.write",
           "analytics.read",
+          "analytics.account.read",
         ].map((operation) => ({
           operation,
           platform: "instagram",
           availability: "available" as const,
         })),
+        {
+          platform: "instagram",
+          operation: "comments.moderate",
+          availability: "available" as const,
+          requiredScopes:
+            flavor === "facebook-login"
+              ? ["instagram_manage_comments", "pages_read_engagement"]
+              : ["instagram_business_manage_comments"],
+          notes:
+            "Hide or unhide a comment, or enable or disable comments on media. Instagram Login and Facebook Login are supported where the account and app permissions qualify.",
+        },
+        {
+          platform: "instagram",
+          operation: "comments.delete",
+          availability: "available" as const,
+          requiredScopes:
+            flavor === "facebook-login"
+              ? ["instagram_manage_comments", "pages_read_engagement"]
+              : ["instagram_business_manage_comments"],
+        },
+        {
+          platform: "instagram",
+          operation: "comments.replies.read",
+          availability: "available" as const,
+          requiredScopes:
+            flavor === "facebook-login"
+              ? ["instagram_manage_comments", "pages_read_engagement"]
+              : ["instagram_business_manage_comments"],
+        },
+        {
+          platform: "instagram",
+          operation: "profiles.read",
+          availability: "available" as const,
+          requiredScopes:
+            flavor === "facebook-login"
+              ? ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"]
+              : ["instagram_business_basic", "instagram_business_manage_insights"],
+        },
         {
           platform: "instagram",
           operation: "reels.publish",
@@ -506,13 +717,34 @@ export function instagram(
         },
         { platform: "instagram", operation: "stories.publish", availability: "available" as const },
         { platform: "instagram", operation: "posts.delete", availability: "available" as const },
-        { platform: "instagram", operation: "hashtags.search", availability: "available" as const },
+        ...(flavor === "facebook-login"
+          ? [
+              {
+                platform: "instagram",
+                operation: "hashtags.search",
+                availability: "available" as const,
+                requiredScopes: ["instagram_basic", "instagram_public_content_access"],
+                notes:
+                  "Requires Facebook Login, an Instagram Public Content Access app review approval, and a qualifying Instagram professional account.",
+              },
+            ]
+          : []),
         {
           platform: "instagram",
           operation: "publishing.limit.read",
           availability: "available" as const,
         },
-        { platform: "instagram", operation: "mentions.read", availability: "available" as const },
+        {
+          platform: "instagram",
+          operation: "mentions.read",
+          availability: "available" as const,
+          requiredScopes:
+            flavor === "facebook-login"
+              ? ["instagram_basic", "instagram_manage_comments", "pages_read_engagement"]
+              : ["instagram_business_basic", "instagram_business_manage_comments"],
+          notes:
+            "native.listMentions, native.listTaggedMedia, and native.mentions read the paginated /{ig-user-id}/tags edge with paging.cursors.after. Specific mentionedMedia and mentionedComment lookups require Facebook Login.",
+        },
         {
           platform: "instagram",
           operation: "product.tagging",
@@ -803,26 +1035,18 @@ export function instagram(
         input: { readonly cursor?: string; readonly limit?: number },
         context: AdapterOperationContext,
       ) {
-        if (input.cursor !== undefined)
-          throw new SocialError({
-            code: "unsupported_capability",
-            operation: "comments.read",
-            message: "This adapter does not expose upstream comment pagination.",
-          });
         authorize(ref, context);
 
+        const query: Record<string, string> = {
+          fields: "id,text,timestamp,username",
+          limit: String(pageLimit(input.limit)),
+        };
+        if (input.cursor !== undefined) query["after"] = input.cursor;
         const result = object(
-          await request(`/${encodeURIComponent(ref.postId)}/comments`, context, undefined, {
-            fields: "id,text,timestamp,username",
-            limit: "25",
-          }),
+          await request(`/${encodeURIComponent(ref.postId)}/comments`, context, undefined, query),
         );
 
-        return {
-          items: array(result["data"]).map((entry) =>
-            publicFields(entry, ["id", "text", "timestamp", "username"]),
-          ),
-        };
+        return page(result, ["id", "text", "timestamp", "username"]);
       },
       async reply(
         ref: CommentRef,
@@ -877,7 +1101,207 @@ export function instagram(
         });
       },
     },
+    graph: {
+      async getProfile(account, input, context): Promise<ProfileRecord> {
+        authorize(account, context);
+        let profile: JsonObject;
+
+        if (input.profileId === undefined && input.handle === undefined) {
+          const own = validatedObject(
+            await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
+              fields:
+                flavor === "facebook-login"
+                  ? "id,username,name,biography,profile_picture_url,followers_count,follows_count,media_count,website"
+                  : "user_id,id,username,name,biography,profile_picture_url,followers_count,follows_count,media_count,website",
+            }),
+            "profiles.read",
+          );
+          profile = publicFields(own, profileFields);
+          const ownId = optionalString(own["user_id"]);
+          if (ownId !== undefined) profile = { ...profile, id: ownId };
+        } else if (input.profileId !== undefined) {
+          profile = publicFields(
+            await request(`/${encodeURIComponent(input.profileId)}`, context, undefined, {
+              fields:
+                "id,username,name,biography,profile_picture_url,followers_count,follows_count,media_count,website",
+            }),
+            profileFields,
+          );
+        } else {
+          requireFacebookLogin("instagram.profiles.read");
+          const username = input.handle;
+          if (username === undefined)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "profiles.read",
+              message: "An Instagram profile ID or handle is required.",
+            });
+          if (!/^[A-Za-z0-9._]{1,30}$/.test(username))
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "profiles.read",
+              message:
+                "Instagram profile handles must contain only letters, numbers, periods, or underscores.",
+            });
+          const response = object(
+            await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
+              fields: `business_discovery.username(${username}){id,username,name,biography,profile_picture_url,followers_count,follows_count,media_count,website}`,
+            }),
+          );
+          profile = publicFields(response["business_discovery"], [
+            "id",
+            "username",
+            "name",
+            "biography",
+            "profile_picture_url",
+            "followers_count",
+            "follows_count",
+            "media_count",
+            "website",
+          ]);
+        }
+
+        const id = string(profile["id"]);
+        return {
+          ref: profileRef({
+            backend: account.backend,
+            platform: "instagram",
+            accountId: account.accountId,
+            profileId: id,
+          }),
+          ...(typeof profile["name"] === "string" ? { displayName: profile["name"] } : {}),
+          ...(typeof profile["username"] === "string" ? { handle: profile["username"] } : {}),
+          ...(typeof profile["profile_picture_url"] === "string"
+            ? { avatarUrl: profile["profile_picture_url"] }
+            : {}),
+          ...(typeof profile["biography"] === "string" ? { bio: profile["biography"] } : {}),
+          native: profile,
+        };
+      },
+    },
     native: {
+      async moderateComment({ account, commentId, hidden, context }) {
+        authorize(account, context);
+        await request(
+          `/${encodeURIComponent(commentId)}`,
+          context,
+          undefined,
+          { hide: String(hidden) },
+          "POST",
+        );
+      },
+      async deleteComment({ account, commentId, context }) {
+        authorize(account, context);
+        await request(`/${encodeURIComponent(commentId)}`, context, undefined, {}, "DELETE");
+      },
+      async setCommentsEnabled({ account, mediaId, enabled, context }) {
+        authorize(account, context);
+        await request(
+          `/${encodeURIComponent(mediaId)}`,
+          context,
+          undefined,
+          { comment_enabled: String(enabled) },
+          "POST",
+        );
+      },
+      async listCommentReplies({ account, commentId, cursor, limit, context }) {
+        authorize(account, context);
+        const query: Record<string, string> = {
+          fields: "id,text,timestamp,username",
+          limit: String(pageLimit(limit)),
+        };
+        if (cursor !== undefined) query["after"] = cursor;
+        return page(
+          object(
+            await request(`/${encodeURIComponent(commentId)}/replies`, context, undefined, query),
+          ),
+          ["id", "text", "timestamp", "username"],
+        );
+      },
+      listMentions,
+      async mentionedMedia({ account, mediaId, context }) {
+        authorize(account, context);
+        requireFacebookLogin("instagram.mentions.read");
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated provider object boundary.
+        return validatedObject(
+          await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
+            fields: `mentioned_media.media_id(${encodeURIComponent(mediaId)}){id,caption,media_type,media_url,timestamp,username,comments_count,like_count}`,
+          }),
+          "instagram.mentions.read",
+        ) as JsonObject;
+      },
+      async mentionedComment({ account, commentId, context }) {
+        authorize(account, context);
+        requireFacebookLogin("instagram.mentions.read");
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated provider object boundary.
+        return validatedObject(
+          await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
+            fields: `mentioned_comment.comment_id(${encodeURIComponent(commentId)}){id,text,timestamp,like_count,media}`,
+          }),
+          "instagram.mentions.read",
+        ) as JsonObject;
+      },
+      async listTaggedMedia({ account, cursor, limit, context }) {
+        authorize(account, context);
+        const query: Record<string, string> = {
+          fields: "id,caption,media_type,permalink,timestamp,username",
+          limit: String(pageLimit(limit)),
+        };
+        if (cursor !== undefined) query["after"] = cursor;
+        return page(
+          validatedObject(
+            await request(
+              `/${encodeURIComponent(account.accountId)}/tags`,
+              context,
+              undefined,
+              query,
+            ),
+            "instagram.mentions.read",
+          ),
+          ["id", "caption", "media_type", "permalink", "timestamp", "username"],
+        );
+      },
+      async hashtagMedia({ account, hashtagId, kind, cursor, limit, context }) {
+        authorize(account, context);
+        requireFacebookLogin("instagram.hashtags.search");
+        const query: Record<string, string> = {
+          user_id: account.accountId,
+          fields: "id,caption,media_type,permalink,timestamp,username",
+          limit: String(pageLimit(limit, 50)),
+        };
+        if (cursor !== undefined) query["after"] = cursor;
+        return page(
+          object(
+            await request(
+              `/${encodeURIComponent(hashtagId)}/${kind}_media`,
+              context,
+              undefined,
+              query,
+            ),
+          ),
+          ["id", "caption", "media_type", "permalink", "timestamp", "username"],
+        );
+      },
+      async businessDiscovery({ account, username, fields, context }) {
+        authorize(account, context);
+        requireFacebookLogin("instagram.profiles.businessDiscovery");
+        if (!/^[A-Za-z0-9._]{1,30}$/.test(username))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "instagram.profiles.businessDiscovery",
+            message:
+              "Business discovery usernames must contain only letters, numbers, periods, or underscores.",
+          });
+        const selectedFields =
+          fields ??
+          `business_discovery.username(${username}){id,username,name,biography,followers_count,media_count,profile_picture_url,media.limit(25){id,caption,media_type,permalink,timestamp}}`;
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated provider object boundary.
+        return object(
+          await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
+            fields: selectedFields,
+          }),
+        ) as JsonObject;
+      },
       publishContainer,
       async publishCarousel(
         account: ConnectedAccountRef,
@@ -950,21 +1374,33 @@ export function instagram(
       },
       async hashtagSearch({ account, hashtag, context }) {
         authorize(account, context);
-
-        const tag = object(
+        requireFacebookLogin("instagram.hashtags.search");
+        const normalized = hashtag.replace(/^#/, "").trim();
+        if (!normalized)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "instagram.hashtags.search",
+            message: "Instagram hashtag search requires a non-empty hashtag name.",
+          });
+        const result = validatedObject(
           await request("/ig_hashtag_search", context, undefined, {
             user_id: account.accountId,
-            q: hashtag.replace(/^#/, ""),
+            q: normalized,
           }),
+          "instagram.hashtags.search",
         );
-
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return tag as JsonObject;
+        return {
+          data: array(result["data"]).map((entry) => {
+            const row = object(entry);
+            return { id: string(row["id"]) };
+          }),
+        };
       },
       async publishingLimit({ account, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+        // SAFETY: object() establishes an object response; this native method intentionally
+        // preserves Meta's provider-specific config object after validating its outer shape.
         return object(
           await request(
             `/${encodeURIComponent(account.accountId)}/content_publishing_limit`,
@@ -974,15 +1410,13 @@ export function instagram(
           ),
         ) as JsonObject;
       },
-      async mentions({ account, context }) {
-        authorize(account, context);
-
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return object(
-          await request(`/${encodeURIComponent(account.accountId)}/tags`, context, undefined, {
-            fields: "id,caption,media_type,timestamp",
-          }),
-        ) as JsonObject;
+      async mentions({ account, cursor, limit, context }) {
+        return listMentions({
+          account,
+          ...(cursor === undefined ? {} : { cursor }),
+          ...(limit === undefined ? {} : { limit }),
+          context,
+        });
       },
     },
   });

@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- OAuth responses are unknown by contract and validated at this boundary. */
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- OAuth responses are unknown by contract and validated at this boundary. */
 import { SocialError } from "../core/errors.js";
 import { connectedAccountRef, type Platform } from "../core/types.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
@@ -25,6 +25,14 @@ export interface OAuthProviderOptions {
   readonly redirectUri?: string;
   readonly fetch?: typeof globalThis.fetch;
   readonly credentialSink?: OAuthCredentialSink;
+  /**
+   * Selects which validated discovered accounts receive persisted credentials.
+   * When omitted, credentials are persisted for every discovered account.
+   */
+  readonly selectAccounts?: (
+    accounts: readonly ConnectionAccount[],
+    attempt: ConnectionAttempt,
+  ) => readonly string[] | Promise<readonly string[]>;
   /** Optional label for callers; the attempt's backend is always authoritative. */
   readonly backend?: string;
   readonly scopes?: readonly string[];
@@ -463,6 +471,34 @@ function providerIdentity(
     );
 }
 
+function validateDiscoveredAccounts(
+  attempt: ConnectionAttempt,
+  accounts: readonly ConnectionAccount[],
+): void {
+  if (accounts.length === 0)
+    fail("oauth.accounts", "The provider returned no connected accounts", "invalid_input");
+  const seen = new Set<string>();
+
+  for (const item of accounts) {
+    const { ref } = item;
+
+    if (
+      ref.kind !== "connected-account" ||
+      ref.version !== 1 ||
+      ref.backend !== attempt.backend ||
+      !attempt.platforms.includes(ref.platform) ||
+      !ref.accountId ||
+      seen.has(ref.accountId)
+    )
+      fail(
+        "oauth.accounts",
+        "Provider returned an invalid or duplicate account for this connection attempt",
+        "unauthorized",
+      );
+    seen.add(ref.accountId);
+  }
+}
+
 export function oauthProvider(
   kind: ProviderKind,
   options: OAuthProviderOptions,
@@ -582,14 +618,32 @@ export function oauthProvider(
       );
 
       providerIdentity(kind, result.accountHint, accounts);
+      validateDiscoveredAccounts(input.attempt, accounts);
 
-      for (const item of accounts)
-        if (options.credentialSink)
-          await options.credentialSink.save({
-            account: item,
-            token: result.token,
-            attempt: input.attempt,
-          });
+      if (options.credentialSink) {
+        const selectedIds = options.selectAccounts
+          ? await options.selectAccounts(accounts, input.attempt)
+          : accounts.map((item) => item.ref.accountId);
+        const selected = new Set(selectedIds);
+
+        if (
+          selected.size !== selectedIds.length ||
+          selectedIds.some((id) => !accounts.some((item) => item.ref.accountId === id))
+        )
+          fail(
+            "oauth.accounts",
+            "Credential selection must contain distinct discovered account IDs",
+            "invalid_input",
+          );
+
+        for (const item of accounts)
+          if (selected.has(item.ref.accountId))
+            await options.credentialSink.save({
+              account: item,
+              token: result.token,
+              attempt: input.attempt,
+            });
+      }
 
       return accounts;
     },

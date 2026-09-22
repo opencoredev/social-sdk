@@ -1,0 +1,22 @@
+---
+title: Analytics reports
+description: Read bounded account reports without inventing provider history.
+---
+
+`social.analytics.getReport(account, query)` requests a bounded report from an adapter that
+declares `analytics.report.read`.
+
+```ts
+const report = await social.analytics.getReport(account, {
+  from: "2026-01-01",
+  to: "2026-01-31",
+  metrics: ["views", "likes"],
+  dimensions: ["day"],
+});
+```
+
+Dates use `YYYY-MM-DD` and the range is inclusive of the provider's interpretation. `metrics`
+must contain at least one nonempty name. Rows preserve provider metric names and dimensions, while
+`fetchedAt` and `source` identify the returned snapshot. An empty row set is a valid provider result,
+not proof that all historical values are zero. Unsupported reports fail with
+`unsupported_capability`; the client does not synthesize a report from post metrics.

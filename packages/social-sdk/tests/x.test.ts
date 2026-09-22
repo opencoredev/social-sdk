@@ -1,11 +1,17 @@
+/* oxlint-disable anti-slop/require-readable-spacing -- compact mocked transport fixtures. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
-import { createSocial, connectedAccountRef } from "../src/index.js";
+import { createSocial, connectedAccountRef, type AdapterOperationContext } from "../src/index.js";
 import { x } from "../src/platforms/x.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
 
 const auth = { userId: "u1", accessToken: "test" };
+const operationContext: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: "x-test",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+};
 
 it("X image publishing uses OAuth2 v2 media upload and preserves reply settings", async () => {
   const methods: string[] = [];
@@ -122,6 +128,136 @@ it("X validates upstream account ownership and exposes only returned metrics", a
   assert.equal(metrics[0]?.measuredAt, undefined);
 });
 
+it("X search posts uses the recent endpoint, preserves query operators, and encodes cursors", async () => {
+  let requested: URL | undefined;
+
+  const social = createSocial({
+    backend: x({
+      auth,
+      appBearerToken: "app-test",
+      fetch: async (input) => {
+        requested = new URL(String(input));
+
+        return Response.json({
+          data: [
+            {
+              id: "searched-1",
+              text: "AI has:links -is:retweet",
+              author_id: "other-user",
+              created_at: "2026-09-22T12:00:00.000Z",
+              secret: "redact",
+            },
+          ],
+          meta: { next_token: "next-page" },
+        });
+      },
+    }),
+  });
+
+  const page = await social.search.posts(account, {
+    query: "AI has:links -is:retweet lang:en",
+    limit: 10,
+    startTime: "2026-09-20T00:00:00.000Z",
+    endTime: "2026-09-22T00:00:00.000Z",
+  });
+
+  assert.equal(requested?.pathname, "/2/tweets/search/recent");
+  assert.equal(requested?.searchParams.get("query"), "AI has:links -is:retweet lang:en");
+  assert.equal(requested?.searchParams.get("max_results"), "10");
+  assert.equal(requested?.searchParams.get("start_time"), "2026-09-20T00:00:00.000Z");
+  assert.equal(page.items[0]?.["id"], "searched-1");
+  assert.equal(page.items[0]?.["secret"], undefined);
+  assert.match(page.nextCursor ?? "", /^social-v1\./);
+});
+
+it("X preserves requested tweet objects and treats omitted data as an empty page", async () => {
+  let calls = 0;
+  const social = createSocial({
+    backend: x({
+      auth,
+      fetch: async () => {
+        calls++;
+        return calls === 1
+          ? Response.json({
+              data: [
+                {
+                  id: "1",
+                  public_metrics: { like_count: 2 },
+                  entities: { hashtags: [] },
+                  attachments: { media_keys: [] },
+                },
+              ],
+            })
+          : Response.json({ meta: {} });
+      },
+    }),
+  });
+  const searched = await social.search.posts(account, { query: "hello", limit: 10 });
+  assert.deepEqual(searched.items[0]?.["public_metrics"], { like_count: 2 });
+  assert.deepEqual(searched.items[0]?.["entities"], { hashtags: [] });
+  const listed = await social.posts.list(account);
+  assert.deepEqual(listed.items, []);
+});
+
+it("X search posts supports full archive limits and rejects an invalid range", async () => {
+  let requested: URL | undefined;
+
+  const social = createSocial({
+    backend: x({
+      auth,
+      appBearerToken: "app-test",
+      fetch: async (input) => {
+        requested = new URL(String(input));
+
+        return Response.json({ data: [] });
+      },
+    }),
+  });
+
+  await social.search.posts(account, { query: "research", scope: "all", limit: 500 });
+  assert.equal(requested?.pathname, "/2/tweets/search/all");
+  assert.equal(requested?.searchParams.get("max_results"), "500");
+
+  await assert.rejects(
+    social.search.posts(account, {
+      query: "research",
+      startTime: "2026-09-23T00:00:00.000Z",
+      endTime: "2026-09-22T00:00:00.000Z",
+      limit: 10,
+    }),
+    /startTime must be earlier than endTime|Search requires/,
+  );
+});
+
+it("X app-only reads request explicit fields and preserve pagination", async () => {
+  const calls: URL[] = [];
+  const social = createSocial({
+    backend: x({
+      auth: { userId: "u1" },
+      appBearerToken: "app-token",
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        calls.push(url);
+        if (url.pathname === "/2/users/u2")
+          return Response.json({ data: { id: "u2", name: "Alice", username: "alice" } });
+        return Response.json({
+          data: [{ id: "u2", name: "Alice", username: "alice" }],
+          meta: { next_token: "next" },
+        });
+      },
+    }),
+  });
+  const profile = await social.graph.getProfile(account, { profileId: "u2" });
+  assert.equal(profile.handle, "alice");
+  assert.equal(
+    calls[0]?.searchParams.get("user.fields"),
+    "id,name,username,description,created_at,public_metrics,profile_image_url,verified",
+  );
+  const page = await social.graph.listRelationships(account, { kind: "followers", limit: 5 });
+  assert.equal(calls[1]?.searchParams.get("max_results"), "5");
+  assert.match(page.nextCursor ?? "", /^social-v1\./);
+});
+
 it("X validates the declared reply parent conversation before creating a reply", async () => {
   const methods: string[] = [];
 
@@ -155,4 +291,53 @@ it("X validates the declared reply parent conversation before creating a reply",
     /conversation/,
   );
   assert.deepEqual(methods, ["GET", "GET"]);
+});
+
+it("X native pinned lists, conversation DMs, and group DMs use v2 endpoints", async () => {
+  const requests: { path: string; method: string; body?: string }[] = [];
+  const social = createSocial({
+    backend: x({
+      auth,
+      fetch: async (input, init) => {
+        requests.push({
+          path: new URL(String(input)).pathname,
+          method: init?.method ?? "GET",
+          body: String(init?.body ?? ""),
+        });
+        return Response.json({ data: [{ id: "l1" }], meta: { next_token: "next" } });
+      },
+    }),
+  });
+  const native = social.native("default", { acknowledgeUnsafe: true });
+  await native.pinList({ account, listId: "l1", context: operationContext });
+  await native.unpinList({ account, listId: "l1", context: operationContext });
+  const page = await native.pinnedLists({ account, context: operationContext });
+  await native.sendConversationMessage({
+    account,
+    conversationId: "c1",
+    text: "hi",
+    context: operationContext,
+  });
+  await native.createGroupConversation({
+    account,
+    participantIds: ["u2", "u3"],
+    message: "hello",
+    context: operationContext,
+  });
+  assert.equal(page.items[0]?.["id"], "l1");
+  assert.deepEqual(
+    requests.map((request) => [request.path, request.method]),
+    [
+      ["/2/users/u1/pinned_lists", "POST"],
+      ["/2/users/u1/pinned_lists/l1", "DELETE"],
+      ["/2/users/u1/pinned_lists", "GET"],
+      ["/2/dm_conversations/c1/messages", "POST"],
+      ["/2/dm_conversations", "POST"],
+    ],
+  );
+  assert.deepEqual(JSON.parse(requests[4]?.body ?? "{}"), {
+    conversation_type: "Group",
+    participant_ids: ["u2", "u3"],
+    message: { text: "hello" },
+  });
 });

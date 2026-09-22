@@ -21,4 +21,10 @@ const result = await social.posts.publish({
 console.log(result.outcomes[0]?.state);
 ```
 
+The client also exposes capability-checked read surfaces for `social.search.posts` and
+`social.search.iteratePosts`, `social.graph` profile and relationship methods,
+`social.notifications` including `iterate`, and `social.analytics.getReport`. These methods keep
+provider-shaped payloads where platforms differ and fail explicitly when the selected adapter does
+not declare the requested capability.
+
 Run the workspace documentation for setup and capability limits. Live provider verification remains dependent on approved accounts and credentials. Publication is controlled by the guarded release workflow.

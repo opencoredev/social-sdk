@@ -1,0 +1,22 @@
+---
+title: Social graph
+description: Read profiles and relationships, and apply supported relationship mutations.
+---
+
+`social.graph` is a capability-checked facade. A provider can implement `profiles.read`,
+`graph.read`, or individual mutations without implementing the entire graph. The client reports
+an unavailable capability explicitly and never infers a relationship from a feed.
+
+```ts
+const profile = await social.graph.getProfile(account, { handle: "someone" });
+const page = await social.graph.listRelationships(account, { kind: "followers", limit: 50 });
+await social.graph.follow(profile.ref);
+```
+
+`listRelationships` returns `Page<RelationshipRecord>` with an opaque `nextCursor`. Pass it back
+with the same account, relationship kind, backend, and page size. Follow, block, mute, and their
+inverse methods are separate capabilities, so check the selected adapter before rendering an action.
+
+The normalized graph is available where a direct or managed adapter declares the corresponding
+capability. Profile and relationship fields remain intentionally small; provider-specific fields
+belong in native adapter methods.

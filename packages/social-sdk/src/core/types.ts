@@ -101,7 +101,8 @@ export type SocialRef =
   | BackendPostRef
   | MediaRef
   | CommentRef
-  | ConversationRef;
+  | ConversationRef
+  | ProfileRef;
 
 export function connectedAccountRef<P extends Platform>(input: {
   backend: string;
@@ -351,6 +352,17 @@ export interface Page<T> {
   readonly metadata?: JsonObject;
 }
 
+/** Account-scoped search for provider posts. Provider-specific filters remain in the query syntax. */
+export interface SearchPostsInput {
+  readonly query: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly startTime?: string;
+  readonly endTime?: string;
+  /** Provider search horizon. Adapters may reject unsupported horizons. */
+  readonly scope?: "recent" | "all";
+}
+
 export interface MetricValue {
   readonly name: string;
   readonly value: number;
@@ -359,6 +371,30 @@ export interface MetricValue {
   readonly measuredAt?: string;
   readonly fetchedAt?: string;
   readonly freshness?: "reported" | "unknown";
+  readonly source: string;
+}
+
+/**
+ * A bounded, account-scoped analytics query that adapters can honor without
+ * inventing historical values. Dates use the provider-neutral YYYY-MM-DD
+ * representation; providers may expose fewer metrics or dimensions.
+ */
+export interface AnalyticsReportQuery {
+  readonly from: string;
+  readonly to: string;
+  readonly metrics: readonly string[];
+  readonly dimensions?: readonly string[];
+}
+
+export interface AnalyticsReportRow {
+  readonly dimensions: JsonObject;
+  readonly metrics: Readonly<Record<string, number>>;
+}
+
+export interface AnalyticsReport {
+  readonly query: AnalyticsReportQuery;
+  readonly rows: readonly AnalyticsReportRow[];
+  readonly fetchedAt: string;
   readonly source: string;
 }
 
@@ -397,6 +433,48 @@ export interface AccountRecord {
   readonly status: "connected" | "reconnect-required" | "revoked" | "unknown";
 }
 
+/** A provider profile addressed from a connected account. */
+export interface ProfileRef extends ReferenceBase<"profile"> {
+  readonly platform: Platform;
+  readonly accountId: string;
+  /** Provider-native actor/user identifier. */
+  readonly profileId: string;
+}
+
+/** Normalized public profile fields. Provider-specific fields stay in `native`. */
+export interface ProfileRecord {
+  readonly ref: ProfileRef;
+  readonly displayName?: string;
+  readonly handle?: string;
+  readonly avatarUrl?: string;
+  readonly bio?: string;
+  readonly native?: JsonObject;
+}
+
+export type RelationshipKind = "following" | "follower" | "blocked" | "muted";
+
+export interface RelationshipRecord {
+  readonly profile: ProfileRef;
+  readonly relationship: RelationshipKind;
+  readonly since?: string;
+}
+
+export function profileRef(input: {
+  backend: string;
+  platform: Platform;
+  accountId: string;
+  profileId: string;
+}): ProfileRef {
+  return {
+    kind: "profile",
+    version: 1,
+    backend: input.backend,
+    platform: input.platform,
+    accountId: input.accountId,
+    profileId: input.profileId,
+  };
+}
+
 export interface AuthorizationContext {
   readonly tenantId?: string;
   readonly principalId?: string;
@@ -424,12 +502,25 @@ export interface AdapterOperationContext extends OperationContext {
 export type OperationName =
   | "posts.publish"
   | "accounts.read"
+  | "profiles.read"
+  | "graph.read"
+  | "graph.follow"
+  | "graph.unfollow"
+  | "graph.block"
+  | "graph.unblock"
+  | "graph.mute"
+  | "graph.unmute"
   | "posts.read"
+  | "search.posts"
   | "analytics.read"
+  | "analytics.account.read"
+  | "analytics.report.read"
   | "comments.read"
   | "comments.write"
   | "messages.read"
   | "messages.write"
+  | "notifications.read"
+  | "notifications.seen"
   | "posts.cancelScheduled"
   | "posts.deleteBackendRecord"
   | "posts.removeFromPlatform"

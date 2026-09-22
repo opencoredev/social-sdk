@@ -26,6 +26,14 @@ Feeds remain provider-specific; they are not cross-platform search results. An a
 
 `posts.list(account, { limit, cursor })` reads one page from a supported account feed. `posts.iterate` traverses lazily with explicit bounds. Feed entries can include native content created outside the SDK; feed access remains subject to the provider's history and permission limits. Check the separate `posts.list` declaration before showing a feed.
 
+## Search
+
+`search.posts(account, { query, cursor, limit })` runs a provider search for the selected account and returns a regular `Page<JsonObject>`. The query is required and is sent to the provider unchanged after local validation. A returned `nextCursor` is opaque: pass it back with the same backend, account, query, and page size. Use `search.iteratePosts(account, input, { maxPages, maxItems })` for lazy bounded traversal. Pass authorization, cancellation, and retry options as the third argument to either method.
+
+Search results are not a complete archive and are not equivalent to the selected account's feed. Providers choose which posts are indexed, how queries are interpreted, how far back results go, and which fields are returned. Missing search capability fails with `unsupported_capability`; it does not return an empty page. Preserve the provider payload and its timestamps when building an index, and treat repeated runs as changing views rather than a snapshot.
+
+See [Search posts](/reads/search) for time bounds, iteration, and registering a custom third-party search adapter.
+
 The shared transport preserves HTTP 404 as `not_found`, 410 as `gone`, and 403 as `missing_permission`. A 404 does not prove permanent deletion: some providers use it for inaccessible resources. Do not replace these errors with an empty feed or zero metrics.
 
 ## Post metrics
@@ -50,9 +58,21 @@ console.log(metrics.map((metric) => `${metric.name}: ${metric.value}`));
 
 Metric names, freshness, period, and source remain provider-specific within the normalized fields. The normalized API does not promise account-wide totals, feed analytics, audience demographics, or historical backfills. Check the selected backend's capability declaration and preserve missing values in your UI. See the [capability matrix](/reference/capabilities) and [platform guides](/platforms).
 
+## Profiles and relationships
+
+`social.graph` provides optional profile reads, relationship pages, and relationship mutations through a capability-checked adapter boundary. Providers may support only a subset such as follows, blocks, or mutes. A missing capability is reported explicitly; the SDK does not infer relationships from a feed.
+
+## Notifications
+
+`social.notifications.list` and `social.notifications.markSeen` are available when the selected provider exposes them. Notification payloads remain provider-shaped so applications can preserve event details without implying that every platform reports the same event types.
+
+## Reports
+
+`social.analytics.getReport` is an optional time-bounded report surface. It returns normalized rows and preserves the provider metric names and dimensions. It does not create historical data when the provider does not retain it. YouTube currently supplies the direct report implementation; other providers can add it through their own adapter capability.
+
 ## Account counts
 
-`social.analytics.getAccountMetrics(account, options)` reads current account-level counts when `analytics.account.read` is available. Direct Bluesky returns follower, following, and post counts; YouTube returns channel statistics and suppresses hidden subscriber counts; TikTok uses the `user.info.stats` permission for creator counts. LinkedIn returns organization total followers for administrators with `rw_organization_admin`; member-profile account metrics are not available. Missing values are omitted and reported zeroes remain zero. These snapshots have a fetch time, not an invented historical measurement timestamp.
+`social.analytics.getAccountMetrics(account, options)` reads current account-level counts when `analytics.account.read` is available. Policies that still allow the older `analytics.read` operation remain compatible. Direct Bluesky returns follower, following, and post counts; YouTube returns channel statistics and suppresses hidden subscriber counts; TikTok uses the `user.info.stats` permission for creator counts. LinkedIn returns organization total followers for administrators with `rw_organization_admin`; member-profile account metrics are not available. Missing values are omitted and reported zeroes remain zero. These snapshots have a fetch time, not an invented historical measurement timestamp.
 
 TikTok post metrics use `video.list` access through `video/query`. A requested video's identity must match the returned video. This API does not provide follower-history collection; applications must explicitly persist their own samples if they need history.
 

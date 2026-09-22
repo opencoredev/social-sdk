@@ -1,0 +1,114 @@
+---
+title: Search posts
+description: Search supported provider indexes with scoped pagination, bounded iteration, and custom adapters for third-party search APIs.
+---
+
+Use `social.search.posts(account, input, options)` to search the selected backend's post index.
+The shared client handles tenant authorization, concurrency, cancellation, and query-bound cursors.
+The adapter owns provider query syntax and result fields. Search does not imply a complete archive
+or a common ranking algorithm.
+
+## Request and response
+
+`SearchPostsInput` requires `query`. It accepts `cursor`, `limit`, `startTime`, `endTime`, and a
+provider search `scope` (`recent` or `all`) where the adapter supports both horizons.
+Time bounds use RFC 3339 timestamps and are passed to adapters that support them. A provider that
+cannot express an option rejects it rather than silently broadening the search. See the
+[X guide](/platforms/x) for recent-search limits and access requirements.
+
+Each result is a `Page<JsonObject>` with `items` and an optional `nextCursor`. Items preserve the
+provider's post fields; they are not normalized publication outcomes. Reuse a cursor only with
+the account, backend, authorization scope, query, time bounds, and page size that produced it.
+
+`social.search.iteratePosts(account, input, options)` fetches lazily. Put `maxPages`, `maxItems`,
+`signal`, and `authorization` in `options`. The same [pagination bounds](/reference/pagination)
+apply as for account and feed iteration. The SDK does not persist results, deduplicate an index,
+or schedule background searches for you.
+
+## Register a third-party search adapter
+
+A third-party API can participate through the public `SearchAdapter` and `SocialAdapter` contracts.
+It does not need to implement publishing. Register it under its own backend key so the same
+platform can use a direct publishing adapter and a separate search provider.
+
+This example connects an application-owned search function. That function must call the selected
+API, validate its response from `unknown`, and return only fields the application is allowed to read.
+There is no bundled Unipile integration; for a service such as Unipile, implement that function
+against the account's authorized API contract and its current search product.
+
+The smallest adapter shape is:
+
+```ts
+const search: SearchAdapter = {
+  async posts(account, input, context) {
+    const response: unknown = await searchProvider({
+      accountId: account.accountId,
+      query: input.query,
+      cursor: input.cursor,
+      signal: context.signal,
+    });
+    return decodeProviderPage(response); // validate items and nextCursor here
+  },
+};
+```
+
+`searchProvider` and `decodeProviderPage` are application code. Keep provider credentials and
+response validation inside that boundary; do not cast an untrusted response to `Page<JsonObject>`.
+
+```ts
+import {
+  connectedAccountRef,
+  createSocial,
+  type SearchAdapter,
+  type SocialAdapter,
+} from "@opencoredev/social-sdk";
+
+export function createResearchClient(search: SearchAdapter) {
+  const research: SocialAdapter = {
+    id: "research-api",
+    capabilities: {
+      schemaVersion: 1,
+      backend: "research-api",
+      apiRevision: "application-search-v1",
+      runtime: ["node22", "node24", "bun"],
+      capabilities: [
+        {
+          platform: "linkedin",
+          operation: "search.posts",
+          availability: "available",
+          notes: "Requires the application's authorized search provider account.",
+        },
+      ],
+    },
+    search,
+  };
+
+  return createSocial({ backends: { research } });
+}
+
+export async function searchResearchAccount(search: SearchAdapter, accountId: string) {
+  const social = createResearchClient(search);
+  const account = connectedAccountRef({
+    backend: "research",
+    platform: "linkedin",
+    accountId,
+  });
+
+  return social.search.posts(account, { query: "distributed systems", limit: 20 });
+}
+```
+
+The `search.posts` adapter method receives the account, input, and `AdapterOperationContext`.
+Use `context.signal` for cancellation and `context.retryBudget` to bound reads. Return the raw
+provider continuation token as `nextCursor`; the shared client wraps it before returning it to
+the caller. Never pass the shared client's wrapped cursor directly to a provider endpoint.
+
+In a multi-tenant server, also configure `authorization` on `createSocial` and supply each call's
+authenticated authorization context. Resolve `accountId` from the tenant's stored connection;
+the example's function parameter is not a browser trust boundary. Keep credentials in your
+adapter closure or server credential store, and exclude them from result objects and errors.
+
+Declare only implemented routes. A third-party provider's ability to search LinkedIn does not
+make `search.posts` available on the bundled direct LinkedIn adapter. Native people, company,
+job, or other non-post searches need their own typed native methods; do not label those results
+as posts to fit this interface.

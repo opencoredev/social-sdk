@@ -15,8 +15,17 @@ Calling an undeclared operation fails fast with an `unsupported_capability` erro
 
 ## Availability states
 
-Declarations distinguish available operations from gated ones. An approval-dependent operation has real code but needs a platform review, audit, or app product before public use. A platform-limited operation is one the upstream API does not offer standard apps at all. The distinction keeps roadmap honesty out of your error handling.
+Every operation the SDK implements is declared `available`, even when the platform gates it behind a paid tier, an app review, or an enterprise product. The declaration's `requiredScopes` and `notes` say what access you need. If your app has that access, the call goes through. If it does not, the platform rejects the request and the SDK surfaces that as a `SocialError`. Other availability values mark operations the SDK does not implement for that account, such as `approval-dependent` work that is not built yet, `account-ineligible` account types, or features the upstream API does not offer at all.
 
 ## Evidence backs every claim
 
 A declaration says what the code implements; [evidence levels](/testing/evidence-levels) say how far it has been proven, from implemented through contract-tested to live-verified and released. A provider's upstream feature is not treated as supported until Social SDK has matching code and evidence. Conformance checks keep the manifests, runtime methods, and generated docs in agreement.
+
+## Search is bounded by the provider
+
+`search.posts` is a normalized operation where an adapter can express provider search as a page of
+post objects. It does not promise a shared query language, a complete archive, stable ordering, or
+the same retention window on every platform. Query syntax, fields, permissions, rate limits, and
+historical access remain provider-specific. Use the platform guide and capability declaration for
+the selected route, and keep native access for search products that need provider features outside
+this contract.

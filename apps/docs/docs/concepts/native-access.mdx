@@ -7,14 +7,14 @@ The shared operation model covers what every platform can express faithfully. Ev
 
 ## Two native surfaces
 
-Adapters expose a typed native module for platform-specific operations: reposts, quotes, polls, follows, profile updates, feed discovery, thumbnails, captions, and more. The [capability matrix](/reference/capabilities) lists each platform's native declarations.
+Adapters expose a typed native module for platform-specific operations: reposts, quotes, polls, follows, profile updates, feed discovery, thumbnails, captions, and more. Platform search routes that have no faithful shared contract remain native; the normalized `search.posts` operation is listed separately in the capability manifest. The [capability matrix](/reference/capabilities) lists each platform's native declarations.
 
 ```ts
 const native = social.native("default", { acknowledgeUnsafe: true });
 const profile = await native.getProfile({ account, context });
 ```
 
-Selected reactions also ship as credential-ready helpers importable straight from a platform entrypoint, such as `xLike` and `xUnlike`, for server code that manages its own credentials. Native modules also cover media workflows, graph operations, moderation and notification reads, platform search, captions, playlists, analytics products, and gated live or messaging routes where the provider exposes them.
+Selected reactions also ship as credential-ready helpers importable straight from a platform entrypoint, such as `xLike` and `xUnlike`, for server code that manages its own credentials. Native modules also cover media workflows, graph operations, notification reads, platform search, captions, playlists, analytics products, and gated live or messaging routes where the provider exposes them. Moderation and reporting are not normalized or generally implemented across the bundled adapters.
 
 ## What acknowledgeUnsafe means
 

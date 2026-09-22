@@ -33,7 +33,7 @@ Selected reactions are available as typed native helpers: [X like/unlike and eng
 
 ## Messages
 
-Messaging is available only on adapters that advertise `messages.read` or `messages.write`. The current Zernio manifest advertises conversation listing, message listing, and sending for X, Bluesky, Instagram, and Facebook. The local mock and Post for Me adapters do not advertise normalized messaging.
+Messaging is available only on adapters that advertise `messages.read` or `messages.write`. The current Zernio manifest advertises conversation listing, message listing, and sending for X, Bluesky, Instagram, and Facebook. On X, the conversation list is derived from the latest event for each conversation in the current `/2/dm_events` page. The local mock and Post for Me adapters do not advertise normalized messaging.
 
 ```ts
 // social and accountRef belong to your authorized Zernio connection.

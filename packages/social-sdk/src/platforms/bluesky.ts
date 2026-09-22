@@ -1,10 +1,11 @@
-/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
+/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof -- validated external boundary or fixture contract. */
 import { readBinary } from "../transport/binary.js";
 import { remainingBudget } from "../transport/budget.js";
 import {
   connectedAccountRef,
   defineAdapter,
   platformPostRef,
+  profileRef,
   type AccountRecord,
   type AdapterOperationContext,
   type CapabilityManifest,
@@ -15,6 +16,8 @@ import {
   type MediaInput,
   type MetricValue,
   type Page,
+  type ProfileRecord,
+  type RelationshipRecord,
   type SocialAdapter,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
@@ -53,6 +56,31 @@ export interface BlueskyPostRef {
   readonly cid: string;
 }
 
+/** Query parameters accepted by the public app.bsky.feed.searchPosts endpoint. */
+export interface BlueskySearchPostsInput {
+  readonly account: ConnectedAccountRef;
+  readonly query: string;
+  readonly scope?: "recent" | "all";
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly sort?: "latest" | "top";
+  readonly since?: string;
+  readonly until?: string;
+  readonly mentions?: string;
+  readonly author?: string;
+  readonly lang?: string;
+  readonly domain?: string;
+  readonly url?: string;
+  readonly tags?: readonly string[];
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskySearchPostsResult {
+  readonly posts: readonly JsonObject[];
+  readonly cursor?: string;
+  readonly hitsTotal?: number;
+}
+
 export interface BlueskyNative {
   readonly getPost: (input: {
     readonly uri: string;
@@ -62,6 +90,7 @@ export interface BlueskyNative {
     readonly uri: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  readonly searchPosts: (input: BlueskySearchPostsInput) => Promise<BlueskySearchPostsResult>;
   readonly likePost: (input: {
     readonly post: BlueskyPostRef;
     readonly account: ConnectedAccountRef;
@@ -99,16 +128,53 @@ export interface BlueskyNative {
     readonly did: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  readonly unfollow: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly followUri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
   readonly block: (input: {
     readonly account: ConnectedAccountRef;
     readonly did: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  readonly unblock: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly blockUri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
   readonly mute: (input: {
     readonly account: ConnectedAccountRef;
     readonly did: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  readonly unmute: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly did: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly getFollowers: (input: BlueskyActorPageInput) => Promise<BlueskyActorPageResult>;
+  readonly getFollows: (input: BlueskyActorPageInput) => Promise<BlueskyActorPageResult>;
+  readonly getMutes: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
+  readonly getBlocks: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
+  readonly getLikes: (input: BlueskyPostPageInput) => Promise<BlueskyLikePageResult>;
+  readonly getActorLikes: (input: BlueskyActorPageInput) => Promise<BlueskyFeedPageResult>;
+  readonly searchActors: (input: BlueskyActorSearchInput) => Promise<BlueskyActorPageResult>;
+  readonly searchActorsTypeahead: (
+    input: BlueskyActorSearchInput,
+  ) => Promise<BlueskyActorPageResult>;
+  readonly createList: (input: BlueskyCreateListInput) => Promise<BlueskyPostRef>;
+  readonly updateList: (input: BlueskyUpdateListInput) => Promise<void>;
+  readonly deleteList: (input: BlueskyOwnedRecordInput) => Promise<void>;
+  readonly addListItem: (input: BlueskyListItemInput) => Promise<BlueskyPostRef>;
+  readonly removeListItem: (input: BlueskyOwnedRecordInput) => Promise<void>;
+  readonly getList: (input: BlueskyListPageInput) => Promise<JsonObject>;
+  readonly getLists: (input: BlueskyActorPageInput) => Promise<JsonObject>;
+  readonly muteList: (input: BlueskyListActionInput) => Promise<void>;
+  readonly unmuteList: (input: BlueskyListActionInput) => Promise<void>;
+  readonly blockList: (input: BlueskyListActionInput) => Promise<void>;
+  readonly unblockList: (input: BlueskyListActionInput) => Promise<void>;
+  readonly createModerationReport: (input: BlueskyModerationReportInput) => Promise<JsonObject>;
   readonly listNotifications: (input: {
     readonly account: ConnectedAccountRef;
     readonly cursor?: string;
@@ -155,6 +221,86 @@ export interface BlueskyNative {
     readonly text: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+}
+
+export interface BlueskyPageInput {
+  readonly account: ConnectedAccountRef;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyActorPageInput extends BlueskyPageInput {
+  readonly actor?: string;
+}
+
+export interface BlueskyPostPageInput extends BlueskyPageInput {
+  readonly uri: string;
+  readonly cid?: string;
+}
+
+export interface BlueskyActorSearchInput extends BlueskyPageInput {
+  readonly query: string;
+}
+
+export interface BlueskyActorPageResult {
+  readonly actors: readonly JsonObject[];
+  readonly cursor?: string;
+}
+
+export interface BlueskyLikePageResult {
+  readonly likes: readonly JsonObject[];
+  readonly cursor?: string;
+}
+
+export interface BlueskyFeedPageResult {
+  readonly feed: readonly JsonObject[];
+  readonly cursor?: string;
+}
+
+export interface BlueskyCreateListInput {
+  readonly account: ConnectedAccountRef;
+  readonly name: string;
+  readonly purpose: "app.bsky.graph.defs#curatelist" | "app.bsky.graph.defs#modlist";
+  readonly description?: string;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyUpdateListInput extends BlueskyCreateListInput {
+  readonly listUri: string;
+}
+
+export interface BlueskyOwnedRecordInput {
+  readonly account: ConnectedAccountRef;
+  readonly uri: string;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyListItemInput {
+  readonly account: ConnectedAccountRef;
+  readonly listUri: string;
+  readonly subject: string;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyListPageInput extends BlueskyPageInput {
+  readonly listUri: string;
+}
+
+export interface BlueskyListActionInput {
+  readonly account: ConnectedAccountRef;
+  readonly listUri: string;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyModerationReportInput {
+  readonly account: ConnectedAccountRef;
+  readonly reasonType: string;
+  readonly subject:
+    | { readonly $type: "com.atproto.admin.defs#repoRef"; readonly did: string }
+    | { readonly $type: "com.atproto.repo.strongRef"; readonly uri: string; readonly cid: string };
+  readonly reason?: string;
+  readonly context?: AdapterOperationContext;
 }
 
 function endpoint(service: string, method: string): URL {
@@ -563,6 +709,26 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         availability: "available",
         formats: ["text", "image"],
       },
+      ...[
+        "graph.read",
+        "graph.follow",
+        "graph.unfollow",
+        "graph.block",
+        "graph.unblock",
+        "graph.mute",
+        "graph.unmute",
+        "likes.read",
+        "likes.write",
+        "lists.read",
+        "lists.write",
+        "profiles.search",
+        "moderation.report",
+      ].map((operation) => ({
+        operation,
+        platform: "bluesky" as const,
+        availability: "available" as const,
+        requiredScopes: ["repo"],
+      })),
       {
         operation: "posts.list",
         platform: "bluesky",
@@ -600,14 +766,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         "posts.repost",
         "posts.quote",
         "posts.delete",
-        "graph.follow",
-        "graph.block",
-        "graph.mute",
         "notifications.read",
         "notifications.seen",
         "profile.read",
+        "profiles.read",
         "profile.update",
         "feeds.read",
+        "search.posts",
         "chat.read",
         "chat.write",
       ].map((operation) => ({
@@ -702,6 +867,37 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       });
   };
 
+  const pageQuery = (input: BlueskyPageInput): URLSearchParams => {
+    const limit = input.limit ?? 50;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "bluesky.graph.read",
+        message: "Page size must be between 1 and 100.",
+      });
+    return new URLSearchParams({
+      limit: String(limit),
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+    });
+  };
+
+  const recordKey = (uri: string, collection: string): string => {
+    const prefix = `at://${auth.did}/${collection}/`;
+    const key = uri.startsWith(prefix) ? uri.slice(prefix.length) : "";
+    if (!/^[A-Za-z0-9._~:-]{1,512}$/.test(key) || key === "." || key === "..")
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "bluesky.record.delete",
+        message: "Record URI must belong to this account.",
+      });
+    return key;
+  };
+
+  const actorPage = (response: JsonObject, key: string): BlueskyActorPageResult => ({
+    actors: array(response[key] ?? []).map((value) => object(value) as unknown as JsonObject),
+    ...(typeof response["cursor"] === "string" ? { cursor: response["cursor"] } : {}),
+  });
+
   const native: BlueskyNative = {
     async getPost(input) {
       const context = input.context ?? {
@@ -738,6 +934,90 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       return object(
         await xrpc(`app.bsky.feed.getPostThread?${query.toString()}`, context),
       ) as JsonObject;
+    },
+    async searchPosts(input) {
+      const context = nativeContext(input.context, "bluesky.search.posts");
+      assertNativeAccount(input.account, context, "bluesky.search.posts");
+
+      const queryText = input.query.trim();
+      if (!queryText)
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.search.posts",
+          message: "Bluesky search query is required.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const limit = input.limit ?? 50;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.search.posts",
+          message: "Bluesky search page size must be between 1 and 100.",
+          retryDisposition: { kind: "never" },
+        });
+
+      if (input.sort !== undefined && input.sort !== "latest" && input.sort !== "top")
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.search.posts",
+          message: "Bluesky search sort must be latest or top.",
+          retryDisposition: { kind: "never" },
+        });
+      if (input.scope === "all")
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.search.posts",
+          message: "Bluesky search does not support scope 'all'.",
+        });
+
+      if (input.context !== undefined && input.context.backendInstance !== backend)
+        throw new SocialError({
+          code: "unauthorized",
+          operation: "bluesky.search.posts",
+          message: "Account reference does not belong to this Bluesky adapter.",
+        });
+
+      const query = new URLSearchParams({ q: queryText, limit: String(limit) });
+      const optional = {
+        cursor: input.cursor,
+        sort: input.sort,
+        since: input.since,
+        until: input.until,
+        mentions: input.mentions,
+        author: input.author,
+        lang: input.lang,
+        domain: input.domain,
+        url: input.url,
+      } as const;
+      for (const [key, value] of Object.entries(optional))
+        if (value !== undefined && value.trim() !== "") query.set(key, value);
+      for (const tag of input.tags ?? []) {
+        const normalizedTag = tag.trim();
+        if (normalizedTag) query.append("tag", normalizedTag);
+      }
+
+      const response = object(await xrpc(`app.bsky.feed.searchPosts?${query}`, context));
+      const posts = array(response["posts"]).map((post) => {
+        const value = object(post);
+
+        // The XRPC transport has already decoded a JSON payload; `object` validates
+        // the record boundary while the recursive JSON shape is preserved for callers.
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion
+        return value as JsonObject;
+      });
+      const cursorValue = response["cursor"];
+      const hitsTotalValue = response["hitsTotal"];
+
+      return {
+        posts,
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(typeof cursorValue === "string" ? { cursor: cursorValue } : {}),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(typeof hitsTotalValue === "number" && Number.isSafeInteger(hitsTotalValue)
+          ? { hitsTotal: hitsTotalValue }
+          : {}),
+      };
     },
     async likePost(input) {
       if (
@@ -937,6 +1217,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         }),
       ) as JsonObject;
     },
+    async unfollow(input) {
+      const context = nativeContext(input.context, "bluesky.unfollow");
+      assertNativeAccount(input.account, context, "bluesky.unfollow");
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.follow",
+          rkey: recordKey(input.followUri, "app.bsky.graph.follow"),
+        }),
+      });
+    },
     async block(input) {
       const context = nativeContext(input.context, "bluesky.block");
       assertNativeAccount(input.account, context, "bluesky.block");
@@ -956,6 +1247,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         }),
       ) as JsonObject;
     },
+    async unblock(input) {
+      const context = nativeContext(input.context, "bluesky.unblock");
+      assertNativeAccount(input.account, context, "bluesky.unblock");
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.block",
+          rkey: recordKey(input.blockUri, "app.bsky.graph.block"),
+        }),
+      });
+    },
     async mute(input) {
       const context = nativeContext(input.context, "bluesky.mute");
       assertNativeAccount(input.account, context, "bluesky.mute");
@@ -965,6 +1267,280 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         await xrpc("app.bsky.graph.muteActor", context, {
           body: JSON.stringify({ actor: input.did }),
         }),
+      ) as JsonObject;
+    },
+    async unmute(input) {
+      const context = nativeContext(input.context, "bluesky.unmute");
+      assertNativeAccount(input.account, context, "bluesky.unmute");
+      await xrpc("app.bsky.graph.unmuteActor", context, {
+        body: JSON.stringify({ actor: input.did }),
+      });
+    },
+    async getFollowers(input) {
+      const context = nativeContext(input.context, "bluesky.graph.followers");
+      assertNativeAccount(input.account, context, "bluesky.graph.followers");
+      const q = pageQuery(input);
+      q.set("actor", input.actor ?? auth.did);
+      return actorPage(
+        object(await xrpc(`app.bsky.graph.getFollowers?${q}`, context)) as JsonObject,
+        "followers",
+      );
+    },
+    async getFollows(input) {
+      const context = nativeContext(input.context, "bluesky.graph.follows");
+      assertNativeAccount(input.account, context, "bluesky.graph.follows");
+      const q = pageQuery(input);
+      q.set("actor", input.actor ?? auth.did);
+      return actorPage(
+        object(await xrpc(`app.bsky.graph.getFollows?${q}`, context)) as JsonObject,
+        "follows",
+      );
+    },
+    async getMutes(input) {
+      const context = nativeContext(input.context, "bluesky.graph.mutes");
+      assertNativeAccount(input.account, context, "bluesky.graph.mutes");
+      return actorPage(
+        object(await xrpc(`app.bsky.graph.getMutes?${pageQuery(input)}`, context)) as JsonObject,
+        "mutes",
+      );
+    },
+    async getBlocks(input) {
+      const context = nativeContext(input.context, "bluesky.graph.blocks");
+      assertNativeAccount(input.account, context, "bluesky.graph.blocks");
+      return actorPage(
+        object(await xrpc(`app.bsky.graph.getBlocks?${pageQuery(input)}`, context)) as JsonObject,
+        "blocks",
+      );
+    },
+    async getLikes(input) {
+      const context = nativeContext(input.context, "bluesky.likes.read");
+      assertNativeAccount(input.account, context, "bluesky.likes.read");
+      const q = pageQuery(input);
+      q.set("uri", input.uri);
+      if (input.cid) q.set("cid", input.cid);
+      const value = object(await xrpc(`app.bsky.feed.getLikes?${q}`, context));
+      return {
+        likes: array(value["likes"] ?? []).map((entry) => object(entry) as JsonObject),
+        ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
+      };
+    },
+    async getActorLikes(input) {
+      const context = nativeContext(input.context, "bluesky.likes.actor");
+      assertNativeAccount(input.account, context, "bluesky.likes.actor");
+      const q = pageQuery(input);
+      q.set("actor", input.actor ?? auth.did);
+      const value = object(await xrpc(`app.bsky.feed.getActorLikes?${q}`, context));
+      return {
+        feed: array(value["feed"] ?? []).map((entry) => object(entry) as JsonObject),
+        ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
+      };
+    },
+    async searchActors(input) {
+      const context = nativeContext(input.context, "bluesky.profiles.search");
+      assertNativeAccount(input.account, context, "bluesky.profiles.search");
+      if (!input.query.trim())
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.profiles.search",
+          message: "Actor search query is required.",
+        });
+      const q = pageQuery(input);
+      q.set("q", input.query.trim());
+      return actorPage(
+        object(await xrpc(`app.bsky.actor.searchActors?${q}`, context)) as JsonObject,
+        "actors",
+      );
+    },
+    async searchActorsTypeahead(input) {
+      const context = nativeContext(input.context, "bluesky.profiles.search");
+      assertNativeAccount(input.account, context, "bluesky.profiles.search");
+      if (!input.query.trim())
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.profiles.search",
+          message: "Actor search query is required.",
+        });
+      const q = new URLSearchParams({ q: input.query.trim(), limit: String(input.limit ?? 8) });
+      return actorPage(
+        object(await xrpc(`app.bsky.actor.searchActorsTypeahead?${q}`, context)) as JsonObject,
+        "actors",
+      );
+    },
+    async createList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.create");
+      assertNativeAccount(input.account, context, "bluesky.lists.create");
+      const record = {
+        $type: "app.bsky.graph.list",
+        name: input.name,
+        purpose: input.purpose,
+        createdAt: new Date().toISOString(),
+        ...(input.description === undefined ? {} : { description: input.description }),
+      } as unknown as JsonObject;
+      return postRef(
+        object(
+          await xrpc("com.atproto.repo.createRecord", context, {
+            body: JSON.stringify({ repo: auth.did, collection: "app.bsky.graph.list", record }),
+          }),
+        ) as unknown as JsonObject,
+      );
+    },
+    async updateList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.update");
+      assertNativeAccount(input.account, context, "bluesky.lists.update");
+      const existing = object(
+        await xrpc(
+          `com.atproto.repo.getRecord?repo=${encodeURIComponent(auth.did)}&collection=app.bsky.graph.list&rkey=${encodeURIComponent(recordKey(input.listUri, "app.bsky.graph.list"))}`,
+          context,
+        ),
+      );
+      const record = object(existing["value"]);
+      const next: JsonObject = {
+        ...record,
+        name: input.name,
+        purpose: input.purpose,
+        ...(input.description === undefined ? {} : { description: input.description }),
+      };
+      await xrpc("com.atproto.repo.putRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.list",
+          rkey: recordKey(input.listUri, "app.bsky.graph.list"),
+          record: next,
+        }),
+      });
+    },
+    async deleteList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.delete");
+      assertNativeAccount(input.account, context, "bluesky.lists.delete");
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.list",
+          rkey: recordKey(input.uri, "app.bsky.graph.list"),
+        }),
+      });
+    },
+    async addListItem(input) {
+      const context = nativeContext(input.context, "bluesky.lists.items.add");
+      assertNativeAccount(input.account, context, "bluesky.lists.items.add");
+      return postRef(
+        object(
+          await xrpc("com.atproto.repo.createRecord", context, {
+            body: JSON.stringify({
+              repo: auth.did,
+              collection: "app.bsky.graph.listitem",
+              record: {
+                $type: "app.bsky.graph.listitem",
+                list: input.listUri,
+                subject: input.subject,
+                createdAt: new Date().toISOString(),
+              },
+            }),
+          }),
+        ) as unknown as JsonObject,
+      );
+    },
+    async removeListItem(input) {
+      const context = nativeContext(input.context, "bluesky.lists.items.remove");
+      assertNativeAccount(input.account, context, "bluesky.lists.items.remove");
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.listitem",
+          rkey: recordKey(input.uri, "app.bsky.graph.listitem"),
+        }),
+      });
+    },
+    async getList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.get");
+      assertNativeAccount(input.account, context, "bluesky.lists.get");
+      const q = pageQuery(input);
+      q.set("list", input.listUri);
+      return object(await xrpc(`app.bsky.graph.getList?${q}`, context)) as JsonObject;
+    },
+    async getLists(input) {
+      const context = nativeContext(input.context, "bluesky.lists.list");
+      assertNativeAccount(input.account, context, "bluesky.lists.list");
+      const q = pageQuery(input);
+      q.set("actor", input.actor ?? auth.did);
+      return object(await xrpc(`app.bsky.graph.getLists?${q}`, context)) as JsonObject;
+    },
+    async muteList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.mute");
+      assertNativeAccount(input.account, context, "bluesky.lists.mute");
+      await xrpc("app.bsky.graph.muteActorList", context, {
+        body: JSON.stringify({ list: input.listUri }),
+      });
+    },
+    async unmuteList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.unmute");
+      assertNativeAccount(input.account, context, "bluesky.lists.unmute");
+      await xrpc("app.bsky.graph.unmuteActorList", context, {
+        body: JSON.stringify({ list: input.listUri }),
+      });
+    },
+    async blockList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.block");
+      assertNativeAccount(input.account, context, "bluesky.lists.block");
+      await xrpc("com.atproto.repo.createRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.listblock",
+          record: {
+            $type: "app.bsky.graph.listblock",
+            subject: input.listUri,
+            createdAt: new Date().toISOString(),
+          },
+        }),
+      });
+    },
+    async unblockList(input) {
+      const context = nativeContext(input.context, "bluesky.lists.unblock");
+      assertNativeAccount(input.account, context, "bluesky.lists.unblock");
+      let cursor: string | undefined;
+      let record: JsonObject | undefined;
+
+      do {
+        const query = new URLSearchParams({
+          repo: auth.did,
+          collection: "app.bsky.graph.listblock",
+          limit: "100",
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        const records = object(
+          await xrpc(`com.atproto.repo.listRecords?${query.toString()}`, context),
+        );
+        record = array(records["records"])
+          .map((value) => object(value) as JsonObject)
+          .find((value) => object(value["value"])["subject"] === input.listUri);
+        cursor = typeof records["cursor"] === "string" ? records["cursor"] : undefined;
+      } while (record === undefined && cursor !== undefined);
+
+      if (record === undefined)
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.lists.unblock",
+          message: "No list block record was found for this list.",
+        });
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.listblock",
+          rkey: recordKey(string(record["uri"]), "app.bsky.graph.listblock"),
+        }),
+      });
+    },
+    async createModerationReport(input) {
+      const context = nativeContext(input.context, "bluesky.moderation.report");
+      assertNativeAccount(input.account, context, "bluesky.moderation.report");
+      const body: JsonObject = {
+        repo: auth.did,
+        reasonType: input.reasonType,
+        subject: input.subject,
+        ...(input.reason === undefined ? {} : { reason: input.reason }),
+      };
+      return object(
+        await xrpc("com.atproto.moderation.createReport", context, { body: JSON.stringify(body) }),
       ) as JsonObject;
     },
     async listNotifications(input) {
@@ -1081,6 +1657,129 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     id: backend,
     capabilities,
     native,
+    graph: {
+      async getProfile(account, input, context): Promise<ProfileRecord> {
+        const value = await native.getProfile({
+          account,
+          ...(input.profileId === undefined ? {} : { actor: input.profileId }),
+          ...(input.profileId === undefined && input.handle !== undefined
+            ? { actor: input.handle }
+            : {}),
+          context,
+        });
+        const actor = object(value) as JsonObject;
+        const id = string(actor["did"]);
+        return {
+          ref: profileRef({
+            backend,
+            platform: "bluesky",
+            accountId: account.accountId,
+            profileId: id,
+          }),
+          ...(typeof actor["displayName"] === "string"
+            ? { displayName: actor["displayName"] }
+            : {}),
+          ...(typeof actor["handle"] === "string" ? { handle: actor["handle"] } : {}),
+          ...(typeof actor["avatar"] === "string" ? { avatarUrl: actor["avatar"] } : {}),
+          ...(typeof actor["description"] === "string" ? { bio: actor["description"] } : {}),
+          native: actor,
+        };
+      },
+      async listRelationships(account, input, context): Promise<Page<RelationshipRecord>> {
+        const result =
+          input.kind === "following"
+            ? await native.getFollows({
+                account,
+                context,
+                ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+                ...(input.limit === undefined ? {} : { limit: input.limit }),
+              })
+            : input.kind === "followers"
+              ? await native.getFollowers({
+                  account,
+                  context,
+                  ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+                  ...(input.limit === undefined ? {} : { limit: input.limit }),
+                })
+              : input.kind === "blocked"
+                ? await native.getBlocks({
+                    account,
+                    context,
+                    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+                    ...(input.limit === undefined ? {} : { limit: input.limit }),
+                  })
+                : await native.getMutes({
+                    account,
+                    context,
+                    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+                    ...(input.limit === undefined ? {} : { limit: input.limit }),
+                  });
+        return {
+          items: result.actors.map((actor) => {
+            const value = object(actor);
+            const id = string(value["did"]);
+            return {
+              profile: profileRef({
+                backend,
+                platform: "bluesky",
+                accountId: account.accountId,
+                profileId: id,
+              }),
+              relationship:
+                input.kind === "following"
+                  ? "following"
+                  : input.kind === "followers"
+                    ? "follower"
+                    : input.kind,
+            };
+          }),
+          ...(result.cursor === undefined ? {} : { nextCursor: result.cursor }),
+        };
+      },
+      async follow(target, context): Promise<RelationshipRecord> {
+        await native.follow({ account, did: target.profileId, context });
+        return { profile: target, relationship: "following" };
+      },
+      async unfollow(target, context): Promise<void> {
+        const profile = object(
+          await native.getProfile({ account, actor: target.profileId, context }),
+        );
+        const viewer = object(profile["viewer"] ?? {});
+        const uri = viewer["following"];
+        if (typeof uri !== "string" || !uri)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "graph.unfollow",
+            message: "A follow record URI is required to unfollow.",
+          });
+        await native.unfollow({ account, followUri: uri, context });
+      },
+      async block(target, context): Promise<RelationshipRecord> {
+        await native.block({ account, did: target.profileId, context });
+        return { profile: target, relationship: "blocked" };
+      },
+      async unblock(target, context): Promise<void> {
+        const profile = object(
+          await native.getProfile({ account, actor: target.profileId, context }),
+        );
+        const viewer = object(profile["viewer"] ?? {});
+        const uri = viewer["blocking"];
+        if (typeof uri !== "string" || !uri)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "graph.unblock",
+            message: "A block record URI is required to unblock.",
+          });
+        await native.unblock({ account, blockUri: uri, context });
+      },
+      async mute(target, context): Promise<RelationshipRecord> {
+        await native.mute({ account, did: target.profileId, context });
+        return { profile: target, relationship: "muted" };
+      },
+      async unmute(target, context): Promise<void> {
+        await native.unmute({ account, did: target.profileId, context });
+      },
+    },
     accounts: {
       async list(_input, context): Promise<Page<AccountRecord>> {
         const session = await verifiedSession(context);
@@ -1114,6 +1813,92 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           ...(session.handle === undefined ? {} : { handle: session.handle }),
           status: "connected",
         };
+      },
+    },
+    search: {
+      async posts(account, input, context): Promise<Page<JsonObject>> {
+        if (!accountMatches(account, auth, backend))
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "search.posts",
+            message: "The account reference does not belong to this adapter.",
+            account,
+          });
+
+        const result = await native.searchPosts({
+          account,
+          query: input.query,
+          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...(input.startTime === undefined ? {} : { since: input.startTime }),
+          ...(input.endTime === undefined ? {} : { until: input.endTime }),
+          ...(input.scope === undefined ? {} : { scope: input.scope }),
+          context,
+        });
+
+        return {
+          items: result.posts,
+          ...(result.cursor === undefined ? {} : { nextCursor: result.cursor }),
+          ...(result.hitsTotal === undefined ? {} : { metadata: { hitsTotal: result.hitsTotal } }),
+        };
+      },
+    },
+    notifications: {
+      async list(
+        account: ConnectedAccountRef,
+        input: { readonly cursor?: string; readonly limit?: number },
+        context: AdapterOperationContext,
+      ): Promise<Page<JsonObject>> {
+        if (!accountMatches(account, auth, backend))
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "bluesky.notifications.list",
+            message: "The account reference does not belong to this adapter.",
+            account,
+          });
+
+        const response = await native.listNotifications({
+          account,
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          context,
+        });
+        const values = response["notifications"];
+        const items =
+          values === undefined
+            ? []
+            : array(values).map((value) => {
+                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated provider notification object.
+                return object(value) as JsonObject;
+              });
+        const cursor = response["cursor"];
+
+        return {
+          items,
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
+          ...(typeof cursor === "string" ? { nextCursor: cursor } : {}),
+        };
+      },
+      async markSeen(
+        account: ConnectedAccountRef,
+        input: { readonly seenAt?: string },
+        context: AdapterOperationContext,
+      ): Promise<void> {
+        if (!accountMatches(account, auth, backend))
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "bluesky.notifications.seen",
+            message: "The account reference does not belong to this adapter.",
+            account,
+          });
+        await native.markNotificationsSeen({
+          account,
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.seenAt === undefined ? {} : { seenAt: input.seenAt }),
+          context,
+        });
       },
     },
     posts: {

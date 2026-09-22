@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/require-readable-spacing -- provider fixture setup stays grouped by scenario. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
@@ -38,6 +39,164 @@ it("YouTube preserves empty permission and server failures without replay", asyn
     );
     assert.equal(calls, 1);
   }
+});
+
+it("YouTube returns an empty Analytics report when the period has no rows", async () => {
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async () => Response.json({ columnHeaders: [{ name: "views", columnType: "METRIC" }] }),
+  });
+  const report = await adapter.analytics!.getReport!(
+    account,
+    { from: "2026-01-01", to: "2026-01-02", metrics: ["views"] },
+    {
+      backendInstance: "default",
+      correlationId: "empty-report",
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+    },
+  );
+  assert.deepEqual(report.rows, []);
+});
+
+it("YouTube native resources use Data API routes and preserve page tokens", async () => {
+  const calls: URL[] = [];
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      calls.push(url);
+      return Response.json({ items: [], nextPageToken: "next" });
+    },
+  });
+  const context = {
+    backendInstance: "default",
+    correlationId: "native",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+  await adapter.native!.playlists({ action: "list", mine: true, pageToken: "p1", context });
+  await adapter.native!.playlistItems({
+    action: "list",
+    playlistId: "PL1",
+    pageToken: "p2",
+    context,
+  });
+  await adapter.native!.search({
+    q: "sdk",
+    type: "video",
+    order: "date",
+    pageToken: "p3",
+    context,
+  });
+  assert.equal(calls[0]?.pathname, "/youtube/v3/playlists");
+  assert.equal(calls[0]?.searchParams.get("mine"), "true");
+  assert.equal(calls[1]?.searchParams.get("pageToken"), "p2");
+  assert.equal(calls[2]?.pathname, "/youtube/v3/search");
+});
+
+it("YouTube normalized search rejects unsupported scope and oversized limits", async () => {
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async () => Response.json({ items: [] }),
+  });
+  const context = {
+    backendInstance: "default",
+    correlationId: "search-validation",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+  await assert.rejects(
+    () => adapter.search!.posts(account, { query: "x", scope: "all" }, context),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- node:test predicate receives unknown.
+    (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+  );
+  await assert.rejects(
+    () => adapter.search!.posts(account, { query: "x", limit: 51 }, context),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- node:test predicate receives unknown.
+    (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+  );
+});
+
+it("YouTube native deletes accept 204 responses", async () => {
+  const methods: string[] = [];
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (_input, init) => {
+      methods.push(init?.method ?? "GET");
+      return new Response(null, { status: 204 });
+    },
+  });
+  const context = {
+    backendInstance: "default",
+    correlationId: "deletes",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+  await adapter.native!.captions({ action: "delete", videoId: "v", captionId: "c", context });
+  await adapter.native!.playlists({ action: "delete", playlistId: "p", context });
+  await adapter.native!.playlistItems({ action: "delete", playlistItemId: "i", context });
+  await adapter.native!.subscriptions({ action: "delete", subscriptionId: "s", context });
+  await adapter.native!.commentsModeration({ action: "delete", commentId: "c", context });
+  assert.deepEqual(methods, ["DELETE", "DELETE", "DELETE", "DELETE", "DELETE"]);
+});
+
+it("YouTube captions use resource download route and related multipart metadata", async () => {
+  const calls: { url: URL; init?: RequestInit }[] = [];
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (input, init) => {
+      calls.push({ url: new URL(String(input)), init });
+      return input.toString().includes("/captions/c1")
+        ? new Response("WEBVTT", { status: 200 })
+        : Response.json({ id: "c1" });
+    },
+  });
+  const context = {
+    backendInstance: "default",
+    correlationId: "captions",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+  await adapter.native!.captions({ action: "download", videoId: "v", captionId: "c1", context });
+  await adapter.native!.captions({
+    action: "insert",
+    videoId: "v",
+    caption: {
+      kind: "image",
+      filename: "a.vtt",
+      mimeType: "text/vtt",
+      source: { kind: "blob", blob: new Blob(["WEBVTT"]), fingerprint: "x" },
+    },
+    body: { snippet: { language: "en", name: "English" } },
+    context,
+  });
+  assert.equal(calls[0]?.url.pathname, "/youtube/v3/captions/c1");
+  assert.match(
+    String(calls[1]?.init?.headers && new Headers(calls[1].init.headers).get("Content-Type")),
+    /multipart\/related/,
+  );
+});
+
+it("YouTube thumbnails use the upload endpoint", async () => {
+  let seen: URL | undefined;
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (input) => {
+      seen = new URL(String(input));
+      return Response.json({ kind: "youtube#thumbnail" });
+    },
+  });
+  await adapter.native!.setThumbnail({
+    videoId: "v1",
+    thumbnail: {
+      kind: "image",
+      mimeType: "image/jpeg",
+      source: { kind: "blob", blob: new Blob(["x"]), fingerprint: "x" },
+    },
+    context: {
+      backendInstance: "default",
+      correlationId: "thumbnail",
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+    },
+  });
+  assert.equal(seen?.pathname, "/upload/youtube/v3/thumbnails/set");
+  assert.equal(seen?.searchParams.get("videoId"), "v1");
 });
 
 it("YouTube refuses short and overlong sources before final upload dispatch", async () => {

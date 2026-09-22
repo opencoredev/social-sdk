@@ -86,7 +86,44 @@ Resumable upload sessions can be persisted with `saveUploadSession`. A non-compl
 
 ## Native operations
 
-The native module covers publish scheduling, thumbnails, captions, playlists, video update/delete, Analytics API reports, and live-broadcast calls. Live broadcasts remain approval and eligibility dependent.
+Provider-shaped operations are available on `social.native`:
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+await native.playlists({ action: "list", mine: true, context });
+await native.playlistItems({
+  action: "insert",
+  playlistId: "PL...",
+  body: { snippet: { playlistId: "PL...", resourceId: { kind: "youtube#video", videoId: "v1" } } },
+  context,
+});
+await native.setThumbnail({ videoId: "v1", thumbnail, context });
+await native.updateVideo({
+  videoId: "v1",
+  body: {
+    snippet: { title: "Updated title", description: "...", tags: ["sdk"], categoryId: "22" },
+    status: { privacyStatus: "private" },
+  },
+  context,
+});
+await native.rateVideo({ videoId: "v1", rating: "like", context });
+await native.captions({
+  action: "insert",
+  videoId: "v1",
+  caption,
+  body: { snippet: { language: "en", name: "English" } },
+  context,
+});
+await native.subscriptions({ action: "list", context });
+await native.commentsModeration({
+  action: "setModerationStatus",
+  commentId: "c1",
+  moderationStatus: "heldForReview",
+  context,
+});
+```
+
+`updateVideo` fetches the current `snippet` and `status` first, then sends the complete resource required by `videos.update`. Caption downloads use `action: "download"`; insert and update require explicit metadata and media. Held-for-review threads use `native.heldComments`. The normalized `social.search.posts(account, { query })` maps to public `search.list` results with `type=video`; YouTube accepts only the `recent` scope and limits pages to 50 items. Use `native.search` for provider filters such as `channelId`, `order`, and date bounds.
 
 ## Limits and requirements
 
@@ -95,6 +132,8 @@ Unverified Google projects may be restricted to private uploads. The adapter doe
 :::
 
 - Quota, channel eligibility, scopes, and API audit status remain upstream conditions.
+- Data API quota costs are method-specific: list/search/get operations generally cost 1 unit; playlist and video mutations cost 50; `thumbnails.set` costs approximately 50; captions list/delete cost 50, insert 400, update 450, and download 200; subscriptions mutations cost 50; comment moderation mutations cost 50. `search.list` is also subject to Google's documented 100-calls-per-day Search Queries limit.
+- Playlist and video management generally uses `youtube` or `youtube.readonly`; ratings and captions use `youtube.force-ssl`; uploads use `youtube.upload`. Google OAuth verification, channel ownership, and project quota remain approval or account conditions.
 - Current evidence is contract coverage, not a live channel verification.
 
 See YouTube's [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) documentation for current audit and quota rules.

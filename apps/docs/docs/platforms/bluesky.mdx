@@ -121,9 +121,49 @@ It creates an `app.bsky.feed.like` record in the acting account's repository and
 
 Bluesky replies preserve the native AT URI and CID through the adapter's native post metadata. Native reads and thread reads are available through `social.native('default', { acknowledgeUnsafe: true })`; this path bypasses normalized middleware and must be wrapped by your tenant policy.
 
+### Search posts natively
+
+`native.searchPosts` calls `app.bsky.feed.searchPosts`. Supply a non-empty query and, optionally,
+`sort` (`latest` or `top`), `since`, `until`, `mentions`, `author`, `lang`, `domain`, `url`, and
+`tags`. Pages contain provider post objects, an optional cursor, and an optional `hitsTotal`.
+Bluesky documents the cursor as best effort; it may not traverse every hit. The endpoint accepts
+1–100 results per request (default 25), and time bounds use ISO dates or datetimes with an
+inclusive `since` and exclusive `until`.
+
+The normalized search facade supports the provider's `recent` horizon. Bluesky does not define an
+`all` horizon for this endpoint, so `scope: "all"` is rejected before a request is sent.
+
+### Read and change relationships
+
+The normalized graph facade maps to AT Protocol profile and graph procedures. Relationship pages use
+`app.bsky.graph.getFollowers`, `getFollows`, `getBlocks`, and `getMutes`; follow and block create
+repository records, while unfollow and unblock delete those records. Mute and unmute use
+`muteActor` and `unmuteActor`.
+
+```ts
+const profile = await social.graph.getProfile(account, { handle: "alice.bsky.social" });
+const followers = await social.graph.listRelationships(account, { kind: "followers", limit: 50 });
+await social.graph.follow(profile.ref);
+await social.graph.mute(profile.ref);
+```
+
+### Search actors, likes, lists, and reports
+
+Use `native.searchActors` or `native.searchActorsTypeahead` for actor discovery. Likes use
+`app.bsky.feed.getLikes` and `getActorLikes` for reads and repository records for writes. List
+creation and item changes use `app.bsky.graph.list` and `listitem` records; list views and list
+mutes use `app.bsky.graph.muteActorList` and `unmuteActorList`. List blocks are
+`app.bsky.graph.listblock` records that the adapter creates and removes with repository procedures.
+Moderation reports call `com.atproto.moderation.createReport` and require an authenticated
+moderation service.
+
 ## Native operations
 
-The typed native module covers video upload, reposts and quote posts, deletion, graph follows/blocks/mutes, notification reads and seen state, profile reads/updates, feed discovery, and `chat.bsky` conversation/message operations. Video and chat responses remain provider-controlled processing or moderation states; persist native references and reconcile explicitly. Bluesky chat consent and moderation requirements still apply.
+The typed native module covers video upload, reposts and quote posts, deletion, graph relationships,
+likes, actor search, lists, moderation reports, notification reads and seen state, profile
+reads/updates, feed discovery, search, and `chat.bsky` conversation/message operations. Video and
+chat responses remain provider-controlled processing or moderation states; persist native
+references and reconcile explicitly. Bluesky chat consent and moderation requirements still apply.
 
 ## Limits and requirements
 

@@ -27,7 +27,18 @@ it("verifies Zernio raw bytes and rejects altered, malformed, absent, or wrong s
   const headers = new Headers({ "X-Zernio-Signature": signature });
   assert.equal((await verifyZernioWebhook({ secret, headers, body: raw })).bodyAuthenticated, true);
 
-  for (const bad of ["", "0", "zz".repeat(32), signature.toUpperCase(), "0".repeat(64)]) {
+  assert.equal(
+    (
+      await verifyZernioWebhook({
+        secret,
+        headers: new Headers({ "X-Zernio-Signature": signature.toUpperCase() }),
+        body: raw,
+      })
+    ).bodyAuthenticated,
+    true,
+  );
+
+  for (const bad of ["", "0", "zz".repeat(32), "0".repeat(64)]) {
     await assert.rejects(
       verifyZernioWebhook({
         secret,

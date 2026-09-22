@@ -1,5 +1,7 @@
 import type {
   AccountRecord,
+  AnalyticsReport,
+  AnalyticsReportQuery,
   BackendPostRef,
   ScheduledJobRef,
   ScheduleCancellation,
@@ -17,8 +19,12 @@ import type {
   Page,
   OperationName,
   PlatformPostRef,
+  ProfileRecord,
+  ProfileRef,
+  RelationshipRecord,
   PreparationIssue,
   PreparedPublishTarget,
+  SearchPostsInput,
 } from "./types.js";
 
 export interface AccountsAdapter {
@@ -27,6 +33,35 @@ export interface AccountsAdapter {
     context: AdapterOperationContext,
   ): Promise<Page<AccountRecord>>;
   get(ref: ConnectedAccountRef, context: AdapterOperationContext): Promise<AccountRecord>;
+}
+
+/** Optional normalized profile and social-graph operations.
+ *
+ * Providers may implement only the operations they expose. Unsupported
+ * operations remain discoverable through the capability manifest and are
+ * rejected by the client before any request is dispatched.
+ */
+export interface GraphAdapter {
+  getProfile?(
+    account: ConnectedAccountRef,
+    input: { readonly profileId?: string; readonly handle?: string },
+    context: AdapterOperationContext,
+  ): Promise<ProfileRecord>;
+  listRelationships?(
+    account: ConnectedAccountRef,
+    input: {
+      readonly kind: "following" | "followers" | "blocked" | "muted";
+      readonly cursor?: string;
+      readonly limit?: number;
+    },
+    context: AdapterOperationContext,
+  ): Promise<Page<RelationshipRecord>>;
+  follow?(target: ProfileRef, context: AdapterOperationContext): Promise<RelationshipRecord>;
+  unfollow?(target: ProfileRef, context: AdapterOperationContext): Promise<void>;
+  block?(target: ProfileRef, context: AdapterOperationContext): Promise<RelationshipRecord>;
+  unblock?(target: ProfileRef, context: AdapterOperationContext): Promise<void>;
+  mute?(target: ProfileRef, context: AdapterOperationContext): Promise<RelationshipRecord>;
+  unmute?(target: ProfileRef, context: AdapterOperationContext): Promise<void>;
 }
 
 export interface PostsAdapter {
@@ -52,6 +87,14 @@ export interface PostsAdapter {
   removeFromPlatform?(ref: PlatformPostRef, context: AdapterOperationContext): Promise<void>;
 }
 
+export interface SearchAdapter {
+  posts(
+    account: ConnectedAccountRef,
+    input: SearchPostsInput,
+    context: AdapterOperationContext,
+  ): Promise<Page<JsonObject>>;
+}
+
 export interface MediaAdapter {
   upload(
     input: MediaAttachment,
@@ -69,6 +112,12 @@ export interface AnalyticsAdapter {
     post: PlatformPostRef,
     context: AdapterOperationContext,
   ): Promise<readonly MetricValue[]>;
+  /** Reads a bounded account report when the provider exposes one. */
+  getReport?(
+    account: ConnectedAccountRef,
+    query: AnalyticsReportQuery,
+    context: AdapterOperationContext,
+  ): Promise<AnalyticsReport>;
 }
 
 export interface CommentsAdapter {
@@ -102,6 +151,20 @@ export interface MessagesAdapter {
   ): Promise<JsonObject>;
 }
 
+/** Account notifications exposed by a provider. Payloads remain provider-shaped. */
+export interface NotificationsAdapter {
+  list(
+    account: ConnectedAccountRef,
+    input: { readonly cursor?: string; readonly limit?: number },
+    context: AdapterOperationContext,
+  ): Promise<Page<JsonObject>>;
+  markSeen(
+    account: ConnectedAccountRef,
+    input: { readonly seenAt?: string },
+    context: AdapterOperationContext,
+  ): Promise<void>;
+}
+
 export interface WebhookVerification {
   readonly valid: boolean;
   readonly method: "hmac" | "shared-secret" | "mock";
@@ -123,11 +186,14 @@ export interface SocialAdapter<TNative = never> {
   readonly id: string;
   readonly capabilities: CapabilityManifest;
   readonly accounts?: AccountsAdapter;
+  readonly graph?: GraphAdapter;
   readonly posts?: PostsAdapter;
+  readonly search?: SearchAdapter;
   readonly media?: MediaAdapter;
   readonly analytics?: AnalyticsAdapter;
   readonly comments?: CommentsAdapter;
   readonly messages?: MessagesAdapter;
+  readonly notifications?: NotificationsAdapter;
   readonly webhooks?: WebhooksAdapter;
   readonly native?: TNative;
 }

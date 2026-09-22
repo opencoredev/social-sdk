@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unknown-parameters -- test cases keep fixture setup together and exercise runtime-invalid inputs. */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -354,6 +355,99 @@ describe("core publication contract", () => {
     assert.equal(result.items.length, 2);
     assert.equal(result.items[0]?.outcomes[0]?.state, "published");
     assert.equal(result.items[1]?.status, "partial");
+  });
+
+  test("scheduled sequence items count as successful scheduling outcomes", async () => {
+    const scheduledAdapter = defineAdapter({
+      id: "scheduled",
+      capabilities: {
+        ...manifest,
+        backend: "scheduled",
+      },
+      posts: {
+        prepareTarget: () => [],
+        async publishTarget(target) {
+          return {
+            state: "scheduled",
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: new Date().toISOString(),
+            job: {
+              kind: "scheduled-job",
+              version: 1,
+              backend: target.account.backend,
+              platform: target.account.platform,
+              accountId: target.account.accountId,
+              jobId: `job-${target.targetIndex}`,
+            },
+          };
+        },
+      },
+    });
+    const social = createSocial({ backend: scheduledAdapter });
+    const result = await social.posts.publishSequence({
+      idempotencyKey: "scheduled-sequence",
+      items: [
+        {
+          targets: [{ account: account("default", "one") }],
+          content: { text: "one" },
+        },
+        {
+          targets: [{ account: account("default", "two") }],
+          content: { text: "two" },
+        },
+      ],
+    });
+
+    assert.equal(result.status, "pending");
+    assert.equal(result.items.length, 2);
+  });
+
+  test("new read facades validate input before dispatch", async () => {
+    const mock = mockBackend();
+    const social = createSocial({ backend: mock });
+    const invalid = connectedAccountRef({ backend: "default", platform: "x", accountId: "" });
+
+    await assert.rejects(social.search.posts(invalid, { query: "x" }), { code: "invalid_input" });
+    await assert.rejects(
+      social.analytics.getReport(account("default", "mock-account-1"), {
+        from: "2026-02-01",
+        to: "2026-01-01",
+        metrics: [],
+      }),
+      { code: "invalid_input" },
+    );
+    await assert.rejects(
+      social.notifications.list(account("default", "mock-account-1"), { limit: 0 }),
+      { code: "invalid_input" },
+    );
+    await assert.rejects(
+      social.analytics.getReport(account("default", "mock-account-1"), {
+        from: "2024-02-31",
+        to: "2024-03-01",
+        metrics: ["views"],
+      }),
+      { code: "invalid_input" },
+    );
+    await social.graph.getProfile(account("default", "mock-account-1"), {});
+    await assert.rejects(
+      social.graph.getProfile(account("default", "mock-account-1"), null as never),
+      { code: "invalid_input" },
+    );
+    await assert.rejects(
+      social.graph.listRelationships(account("default", "mock-account-1"), {
+        kind: "invalid" as never,
+      }),
+      (error: unknown) =>
+        error instanceof SocialError &&
+        error.code === "invalid_input" &&
+        error.message.includes("Relationship kind"),
+    );
+    await assert.rejects(
+      social.notifications.markSeen(account("default", "mock-account-1"), null as never),
+      { code: "invalid_input" },
+    );
+    await assert.rejects(social.graph.follow(null as never), { code: "invalid_input" });
   });
 
   test("references are versioned and JSON-safe", () => {

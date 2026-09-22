@@ -1,8 +1,10 @@
+/* oxlint-disable anti-slop/require-readable-spacing -- authorization fixtures are intentionally grouped. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
 import { zernio } from "../src/cloud/zernio.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
+import { mockBackend } from "../src/testing/index.js";
 
 const account = connectedAccountRef({
   backend: "default",
@@ -89,6 +91,25 @@ it("authorization for a different reference cannot authorize the requested accou
 
   await assert.rejects(social.posts.get(post));
   assert.equal(calls, 0);
+});
+
+it("keeps analytics account metrics compatible with analytics.read policies", async () => {
+  const mock = mockBackend();
+  const social = createSocial({
+    backend: mock,
+    authorization: {
+      async authorizeTargets({ operation, accounts }) {
+        return accounts.map((candidate) => ({
+          account: candidate,
+          allowed: operation === "analytics.read",
+        }));
+      },
+    },
+  });
+
+  await social.analytics.getAccountMetrics(
+    connectedAccountRef({ backend: "default", platform: "x", accountId: "mock-account-1" }),
+  );
 });
 
 it("mixed-backend account discovery requires an explicit backend and cannot choose an arbitrary first key", async () => {

@@ -46,6 +46,46 @@
           "availability": "available"
         },
         {
+          "operation": "analytics.account.read",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
+          "operation": "analytics.report.read",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
+          "operation": "search.posts",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
+          "operation": "profiles.read",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
+          "operation": "graph.read",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
+          "operation": "graph.follow",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
+          "operation": "notifications.read",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
+          "operation": "notifications.seen",
+          "platform": "*",
+          "availability": "available"
+        },
+        {
           "operation": "webhooks.verify",
           "platform": "*",
           "availability": "available"
@@ -1366,6 +1406,110 @@
           ]
         },
         {
+          "operation": "graph.read",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "graph.follow",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "graph.unfollow",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "graph.block",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "graph.unblock",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "graph.mute",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "graph.unmute",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "likes.read",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "likes.write",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "lists.read",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "lists.write",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "profiles.search",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
+          "operation": "moderation.report",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ]
+        },
+        {
           "operation": "posts.list",
           "platform": "bluesky",
           "availability": "available",
@@ -1434,21 +1578,6 @@
           "availability": "available"
         },
         {
-          "operation": "graph.follow",
-          "platform": "bluesky",
-          "availability": "available"
-        },
-        {
-          "operation": "graph.block",
-          "platform": "bluesky",
-          "availability": "available"
-        },
-        {
-          "operation": "graph.mute",
-          "platform": "bluesky",
-          "availability": "available"
-        },
-        {
           "operation": "notifications.read",
           "platform": "bluesky",
           "availability": "available"
@@ -1464,12 +1593,22 @@
           "availability": "available"
         },
         {
+          "operation": "profiles.read",
+          "platform": "bluesky",
+          "availability": "available"
+        },
+        {
           "operation": "profile.update",
           "platform": "bluesky",
           "availability": "available"
         },
         {
           "operation": "feeds.read",
+          "platform": "bluesky",
+          "availability": "available"
+        },
+        {
+          "operation": "search.posts",
           "platform": "bluesky",
           "availability": "available"
         },
@@ -1504,8 +1643,7 @@
           "availability": "available",
           "formats": [
             "text",
-            "image",
-            "video"
+            "image"
           ],
           "requiredScopes": [
             "tweet.read",
@@ -1533,6 +1671,11 @@
         {
           "platform": "x",
           "operation": "analytics.read",
+          "availability": "available"
+        },
+        {
+          "platform": "x",
+          "operation": "analytics.account.read",
           "availability": "available"
         },
         {
@@ -1577,6 +1720,158 @@
         },
         {
           "platform": "x",
+          "operation": "mentions.read",
+          "availability": "available"
+        },
+        {
+          "platform": "x",
+          "operation": "likes.read",
+          "availability": "available"
+        },
+        {
+          "platform": "x",
+          "operation": "likes.write",
+          "availability": "available"
+        },
+        {
+          "platform": "x",
+          "operation": "lists.read",
+          "availability": "available"
+        },
+        {
+          "platform": "x",
+          "operation": "lists.write",
+          "availability": "available"
+        },
+        {
+          "platform": "x",
+          "operation": "timelines.read",
+          "availability": "available"
+        },
+        {
+          "platform": "x",
+          "operation": "graph.read",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "follows.read",
+            "mute.read",
+            "block.read"
+          ],
+          "notes": "The required read scope depends on the requested relationship kind."
+        },
+        {
+          "platform": "x",
+          "operation": "profiles.read",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read"
+          ]
+        },
+        {
+          "platform": "x",
+          "operation": "graph.follow",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "follows.write"
+          ],
+          "notes": "Follow writes require an eligible paid X API tier."
+        },
+        {
+          "platform": "x",
+          "operation": "graph.unfollow",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "follows.write"
+          ],
+          "notes": "Follow writes require an eligible paid X API tier."
+        },
+        {
+          "platform": "x",
+          "operation": "graph.mute",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "mute.write"
+          ]
+        },
+        {
+          "platform": "x",
+          "operation": "graph.unmute",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "mute.write"
+          ]
+        },
+        {
+          "platform": "x",
+          "operation": "graph.block",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "block.write"
+          ],
+          "notes": "Enterprise plan only."
+        },
+        {
+          "platform": "x",
+          "operation": "graph.unblock",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "block.write"
+          ],
+          "notes": "Enterprise plan only."
+        },
+        {
+          "platform": "x",
+          "operation": "lists.pinned.read",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "list.read"
+          ]
+        },
+        {
+          "platform": "x",
+          "operation": "lists.pinned.write",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "list.write"
+          ]
+        },
+        {
+          "platform": "x",
+          "operation": "messages.conversation.write",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.write"
+          ]
+        },
+        {
+          "platform": "x",
+          "operation": "messages.group.write",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.write"
+          ]
+        },
+        {
+          "platform": "x",
+          "operation": "search.posts",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Recent search covers the last 7 days. Full-archive search requires an eligible X API pay-per-use or Enterprise plan."
+        },
+        {
+          "platform": "x",
           "operation": "media.video",
           "availability": "available",
           "formats": [
@@ -1591,15 +1886,30 @@
         {
           "platform": "x",
           "operation": "messages.read",
-          "availability": "permission-required",
+          "availability": "available",
           "requiredScopes": [
-            "dm.read"
-          ]
+            "dm.read",
+            "users.read",
+            "tweet.read"
+          ],
+          "notes": "Requires a user-context token and an X API tier that includes Direct Messages."
+        },
+        {
+          "platform": "x",
+          "operation": "messages.write",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.write",
+            "dm.read",
+            "users.read",
+            "tweet.read"
+          ],
+          "notes": "Requires a user-context token and an X API tier that includes Direct Messages."
         },
         {
           "platform": "x",
           "operation": "streams.read",
-          "availability": "approval-dependent",
+          "availability": "available",
           "notes": "Filtered stream access depends on the X API tier."
         }
       ]
@@ -1653,14 +1963,36 @@
           "availability": "available"
         },
         {
-          "operation": "comments.read",
+          "operation": "analytics.account.read",
           "platform": "threads",
           "availability": "available"
         },
         {
+          "operation": "comments.read",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_read_replies"
+          ]
+        },
+        {
           "operation": "comments.write",
           "platform": "threads",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_manage_replies"
+          ]
+        },
+        {
+          "operation": "comments.moderate",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_manage_replies"
+          ],
+          "notes": "Hiding replies and pending-reply moderation require Threads reply-management permissions."
         },
         {
           "operation": "posts.quote",
@@ -1685,12 +2017,39 @@
         {
           "operation": "search.keyword",
           "platform": "threads",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_keyword_search"
+          ]
+        },
+        {
+          "operation": "profiles.read",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic"
+          ],
+          "notes": "The profile endpoint reads the authorized app-scoped user; profile lookup requires threads_profile_discovery."
+        },
+        {
+          "operation": "search.posts",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_keyword_search"
+          ],
+          "notes": "Without threads_keyword_search approval, results are limited to the authorized user's posts."
         },
         {
           "operation": "mentions.read",
           "platform": "threads",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_manage_mentions"
+          ]
         },
         {
           "operation": "messages.read",
@@ -1774,11 +2133,67 @@
           ]
         },
         {
+          "operation": "playlists.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ]
+        },
+        {
+          "operation": "playlists.write",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ]
+        },
+        {
           "operation": "thumbnails.write",
           "platform": "youtube",
           "availability": "available",
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
+          ]
+        },
+        {
+          "operation": "videos.update",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ]
+        },
+        {
+          "operation": "posts.update",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ]
+        },
+        {
+          "operation": "videos.delete",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ]
+        },
+        {
+          "operation": "posts.delete",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ]
+        },
+        {
+          "operation": "videos.rate",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.force-ssl"
           ]
         },
         {
@@ -1798,24 +2213,42 @@
           ]
         },
         {
-          "operation": "playlists.read",
+          "operation": "subscriptions.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ]
+        },
+        {
+          "operation": "subscriptions.write",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ]
+        },
+        {
+          "operation": "search.keyword",
           "platform": "youtube",
           "availability": "available"
         },
         {
-          "operation": "playlists.write",
+          "operation": "search.posts",
           "platform": "youtube",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Uses search.list with type=video. Each request costs 100 quota units."
         },
         {
-          "operation": "posts.update",
+          "operation": "comments.moderate",
           "platform": "youtube",
-          "availability": "available"
-        },
-        {
-          "operation": "posts.delete",
-          "platform": "youtube",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.force-ssl"
+          ]
         },
         {
           "operation": "analytics.youtube.read",
@@ -1826,9 +2259,22 @@
           ]
         },
         {
+          "operation": "analytics.report.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/yt-analytics.readonly"
+          ],
+          "notes": "Reports require an explicit bounded date range and provider-supported metrics."
+        },
+        {
           "operation": "live.broadcasts",
           "platform": "youtube",
-          "availability": "approval-dependent"
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "The channel must have live streaming enabled in YouTube Studio. Use native access: liveBroadcasts."
         }
       ]
     }
@@ -1980,6 +2426,45 @@
           "availability": "available"
         },
         {
+          "operation": "analytics.account.read",
+          "platform": "instagram",
+          "availability": "available"
+        },
+        {
+          "platform": "instagram",
+          "operation": "comments.moderate",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_manage_comments"
+          ],
+          "notes": "Hide or unhide a comment, or enable or disable comments on media. Instagram Login and Facebook Login are supported where the account and app permissions qualify."
+        },
+        {
+          "platform": "instagram",
+          "operation": "comments.delete",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_manage_comments"
+          ]
+        },
+        {
+          "platform": "instagram",
+          "operation": "comments.replies.read",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_manage_comments"
+          ]
+        },
+        {
+          "platform": "instagram",
+          "operation": "profiles.read",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_insights"
+          ]
+        },
+        {
           "platform": "instagram",
           "operation": "reels.publish",
           "availability": "available",
@@ -1999,18 +2484,18 @@
         },
         {
           "platform": "instagram",
-          "operation": "hashtags.search",
-          "availability": "available"
-        },
-        {
-          "platform": "instagram",
           "operation": "publishing.limit.read",
           "availability": "available"
         },
         {
           "platform": "instagram",
           "operation": "mentions.read",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_comments"
+          ],
+          "notes": "native.listMentions, native.listTaggedMedia, and native.mentions read the paginated /{ig-user-id}/tags edge with paging.cursors.after. Specific mentionedMedia and mentionedComment lookups require Facebook Login."
         },
         {
           "platform": "instagram",
@@ -2108,7 +2593,12 @@
         {
           "platform": "linkedin",
           "operation": "analytics.organization.read",
-          "availability": "permission-required"
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin",
+            "r_organization_admin"
+          ],
+          "notes": "Requires the Community Management API product and organization administrator access. Member accounts are not eligible."
         },
         {
           "platform": "linkedin",
@@ -2131,12 +2621,42 @@
         },
         {
           "platform": "linkedin",
+          "operation": "analytics.followers.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin",
+            "r_organization_admin"
+          ],
+          "notes": "Community Management API product and organization administrator access are required. Member accounts are not eligible."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.page.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin",
+            "r_organization_admin"
+          ],
+          "notes": "Community Management API product and organization administrator access are required. Member accounts are not eligible."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.shares.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin",
+            "r_organization_admin"
+          ],
+          "notes": "Community Management API product and organization administrator access are required. Member accounts are not eligible."
+        },
+        {
+          "platform": "linkedin",
           "operation": "posts.list",
           "availability": "available",
           "requiredScopes": [
             "r_member_social"
           ],
-          "notes": "Author feed requires approved read access for the configured author."
+          "notes": "Author-feed pagination uses the returned offset cursor."
         },
         {
           "platform": "linkedin",

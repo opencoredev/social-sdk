@@ -5,19 +5,19 @@ description: Compare the social operations, content formats, permissions, and ev
 
 Use this page to choose a platform adapter before you read its setup guide. The matrix describes the normalized surface currently implemented in Social SDK. Platform-native parity operations are listed in the capability matrix and each platform guide; they do not certify credentials, app review, account eligibility, or a successful live request.
 
-| Platform                                                                                                  | Publish                        | Read             | Comments    | Analytics                 |
-| --------------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------- | ----------- | ------------------------- |
-| [<img src="/integrations/x.svg" width="16" height="16" alt="" /> X](/platforms/x)                         | Text, images                   | Posts, feeds     | Write       | Post metrics              |
-| [<img src="/integrations/threads.svg" width="16" height="16" alt="" /> Threads](/platforms/threads)       | Text, images, video, carousels | Posts, feeds     | Read, write | Post and lifetime metrics |
-| [<img src="/integrations/bluesky.svg" width="16" height="16" alt="" /> Bluesky](/platforms/bluesky)       | Text, images                   | Posts, feeds     | Read, write | Post and account          |
-| [<img src="/integrations/youtube.svg" width="16" height="16" alt="" /> YouTube](/platforms/youtube)       | Video                          | Videos, channels | Read, write | Post and account          |
-| [<img src="/integrations/tiktok.svg" width="16" height="16" alt="" /> TikTok](/platforms/tiktok)          | Images, video, carousels       | Posts, feeds     | —           | Account                   |
-| [<img src="/integrations/instagram.svg" width="16" height="16" alt="" /> Instagram](/platforms/instagram) | Images, video, carousels       | Posts, feeds     | Read, write | Post and account          |
-| [<img src="/integrations/linkedin.svg" width="16" height="16" alt="" /> LinkedIn](/platforms/linkedin)    | Text, images                   | Posts, feeds     | Read, write | Post and account          |
+| Platform  | Publish                        | Read                                  | Search          | Analytics                 |
+| --------- | ------------------------------ | ------------------------------------- | --------------- | ------------------------- |
+| X         | Text, images                   | Posts, feeds, graph where declared    | Recent posts    | Post metrics              |
+| Threads   | Text, images, video, carousels | Posts, feeds, profiles where declared | Declared search | Post and lifetime metrics |
+| Bluesky   | Text, images                   | Posts, feeds, graph where declared    | Declared search | Post and account          |
+| YouTube   | Video                          | Videos, channels                      | Posts           | Post, account, reports    |
+| TikTok    | Images, video, carousels       | Posts, feeds                          | Not exposed     | Account                   |
+| Instagram | Images, video, carousels       | Posts, feeds, profiles where declared | Not exposed     | Post and account          |
+| LinkedIn  | Text, images                   | Posts, feeds                          | Not exposed     | Post and account          |
 
-A dash means the normalized direct adapter does not expose that operation. Native modules add typed platform-specific operations such as video uploads, reposts, profiles, captions, playlists, drafts, and approval-gated features; see the capability matrix for their exact status. Content limits, permissions, account rules, upload behavior, API versions, and processing states remain platform-specific; open the platform guide for those details. Managed backends may expose additional operations for the same platform through their own route.
+“Not exposed” means the normalized direct adapter does not expose that operation. “Where declared” means the selected adapter implements the corresponding `graph` or profile capability; it is not a promise that every account or platform supports every method. Native modules add typed platform-specific operations such as video uploads, reposts, profiles, captions, playlists, drafts, and approval-gated features; see the capability matrix for their exact status. Content limits, permissions, account rules, upload behavior, API versions, and processing states remain platform-specific; open the platform guide for those details. Managed backends may expose additional operations for the same platform through their own route.
 
-The normalized table is intentionally compact. For example, X native operations include video/GIF uploads, polls, bookmarks, follows, reposts, quotes, deletion, direct-message reads, and filtered streams; YouTube native operations include thumbnails, captions, playlists, video updates/deletion, Analytics API reports, and live broadcasts. The platform pages document the equivalent native surface for every direct adapter.
+The normalized table is intentionally compact. Search, where declared, returns provider-shaped post objects with provider pagination and retention limits; it is not a cross-platform archive. For example, X native operations include video/GIF uploads, polls, bookmarks, follows, reposts, quotes, deletion, direct-message reads, and filtered streams; YouTube native operations include thumbnails, captions, playlists, video updates/deletion, Analytics API reports, and live broadcasts. The platform pages document the equivalent native surface for every direct adapter.
 
 ## Platform guides
 

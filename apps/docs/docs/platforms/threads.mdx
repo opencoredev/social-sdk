@@ -108,7 +108,11 @@ if (outcome?.state === "processing" && outcome.delivery) {
 
 ## Beyond publishing
 
-Reads, lifetime metrics, replies, quote posts, reposts, deletion, keyword search, and mentions are exposed through the typed adapter and native module. Threads messaging remains a documented platform limit for standard apps. Native calls still require explicit tenant authorization.
+Reads, lifetime metrics, replies, quote posts, reposts, deletion, keyword search, and mentions are exposed through the typed adapter and native module. Normalized search is `social.search.posts(account, { query, cursor, limit, startTime, endTime, scope })`; it calls `GET /keyword_search` with the documented post fields and returns a page with an optional next cursor. Threads supports the recent search horizon only, so `scope: "all"` is rejected with `invalid_input`. The native search method additionally accepts `searchType` (`TOP` or `RECENT`), `searchMode` (`KEYWORD` or `TAG`), `mediaType`, `since`, `until`, and `authorUsername`. Public keyword search requires Meta's `threads_keyword_search` approval; without it, results may be limited to the authorized account's own posts. The adapter sends `q` and preserves empty result pages as `{ items: [] }`.
+
+Profile reads use `GET /{threads-user-id}?fields=...` for the authorized app-scoped user. A public username can use `GET /profile_lookup?username=...`, which requires `threads_profile_discovery` and is subject to Meta's discovery limits. Profile responses are mapped from `profile_picture_url` and `biography`; if discovery omits an ID, the adapter preserves that limitation in the native result instead of claiming the username is a provider ID. Threads does not expose follow, block, or mute APIs, so those graph operations are not advertised.
+
+Reply moderation is available through native methods: `hideReply` calls `POST /{reply-id}/manage_reply` with `hide=true|false`; `listConversation` calls `GET /{media-id}/conversation`; `listPendingReplies` calls `GET /{media-id}/pending_replies`; and `managePendingReply` calls `POST /{reply-id}/manage_pending_reply` with `approve=true|false`. These operations require `threads_manage_replies` (and `threads_read_replies` for reads). Mentions call `GET /{threads-user-id}/mentions` and require `threads_manage_mentions` approval.
 
 ## Limits and requirements
 

@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof -- validated external boundary or fixture contract. */
+/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import {
   connectedAccountRef,
   defineAdapter,
@@ -13,6 +13,9 @@ import {
   type ConnectedAccountRef,
   type PreparedPublishTarget,
   type Page,
+  type ProfileRecord,
+  profileRef,
+  type SearchPostsInput,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
 import { managedHttp, publicFields } from "../cloud/common.js";
@@ -44,6 +47,20 @@ export interface ThreadsWorkflowStore {
   update(id: string, update: Partial<ThreadsWorkflow>): Promise<ThreadsWorkflow>;
   claim(id: string): Promise<boolean>;
   release?(id: string): Promise<void>;
+}
+
+export interface ThreadsSearchInput {
+  readonly account: ConnectedAccountRef;
+  readonly query: string;
+  readonly cursor?: string;
+  readonly searchType?: "TOP" | "RECENT";
+  readonly searchMode?: "KEYWORD" | "TAG";
+  readonly mediaType?: "TEXT" | "IMAGE" | "VIDEO";
+  readonly since?: string;
+  readonly until?: string;
+  readonly limit?: number;
+  readonly authorUsername?: string;
+  readonly context: AdapterOperationContext;
 }
 
 export class MemoryThreadsWorkflowStore implements ThreadsWorkflowStore {
@@ -113,12 +130,7 @@ export interface ThreadsNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
-  readonly search: (input: {
-    readonly account: ConnectedAccountRef;
-    readonly query: string;
-    readonly cursor?: string;
-    readonly context: AdapterOperationContext;
-  }) => Promise<JsonObject>;
+  readonly search: (input: ThreadsSearchInput) => Promise<JsonObject>;
   readonly mentions: (input: {
     readonly account: ConnectedAccountRef;
     readonly cursor?: string;
@@ -126,6 +138,31 @@ export interface ThreadsNative {
   }) => Promise<JsonObject>;
   readonly getProfile: (input: {
     readonly account: ConnectedAccountRef;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly hideReply: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly replyId: string;
+    readonly hide: boolean;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly listConversation: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly mediaId: string;
+    readonly cursor?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly listPendingReplies: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly mediaId: string;
+    readonly cursor?: string;
+    readonly approvalStatus?: "pending" | "ignored";
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly managePendingReply: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly replyId: string;
+    readonly approve: boolean;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
 }
@@ -193,6 +230,18 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   }
 
   const account = accountRef(backend, auth.userId);
+
+  function pageFrom(result: JsonObject): Page<JsonObject> {
+    const items = array(result["data"]).map((entry) => {
+      // SAFETY: object() validates each provider data entry as a JSON object.
+      return object(entry) as JsonObject;
+    });
+    const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+    const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
+    const nextCursor = optionalString(cursors["after"]);
+
+    return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
+  }
 
   async function readAccount(context: AdapterOperationContext) {
     const v = await request(
@@ -655,14 +704,59 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       { operation: "posts.list", platform: "threads", availability: "available" },
       { operation: "posts.status", platform: "threads", availability: "available" },
       { operation: "analytics.read", platform: "threads", availability: "available" },
-      { operation: "comments.read", platform: "threads", availability: "available" },
-      { operation: "comments.write", platform: "threads", availability: "available" },
+      { operation: "analytics.account.read", platform: "threads", availability: "available" },
+      {
+        operation: "comments.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_read_replies"],
+      },
+      {
+        operation: "comments.write",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_manage_replies"],
+      },
+      {
+        operation: "comments.moderate",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_manage_replies"],
+        notes:
+          "Hiding replies and pending-reply moderation require Threads reply-management permissions.",
+      },
       { operation: "posts.quote", platform: "threads", availability: "available" },
       { operation: "posts.repost", platform: "threads", availability: "available" },
       { operation: "posts.delete", platform: "threads", availability: "available" },
       { operation: "profile.read", platform: "threads", availability: "available" },
-      { operation: "search.keyword", platform: "threads", availability: "available" },
-      { operation: "mentions.read", platform: "threads", availability: "available" },
+      {
+        operation: "search.keyword",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_keyword_search"],
+      },
+      {
+        operation: "profiles.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic"],
+        notes:
+          "The profile endpoint reads the authorized app-scoped user; profile lookup requires threads_profile_discovery.",
+      },
+      {
+        operation: "search.posts",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_keyword_search"],
+        notes:
+          "Without threads_keyword_search approval, results are limited to the authorized user's posts.",
+      },
+      {
+        operation: "mentions.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_manage_mentions"],
+      },
       {
         operation: "messages.read",
         platform: "threads",
@@ -730,11 +824,45 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         context,
       );
     },
-    async search({ account, query, cursor, context }) {
+    async search({
+      account,
+      query,
+      cursor,
+      searchType,
+      searchMode,
+      mediaType,
+      since,
+      until,
+      limit,
+      authorUsername,
+      context,
+    }) {
       authorize(account, "threads.search");
 
+      const q = query.trim();
+      if (!q) fail("threads.search", "A search query is required.", "invalid_input");
+      if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100))
+        fail(
+          "threads.search",
+          "Search limit must be an integer from 1 through 100.",
+          "invalid_input",
+        );
+
+      const params = new URLSearchParams({
+        q,
+        fields: "id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post",
+      });
+      if (searchType !== undefined) params.set("search_type", searchType);
+      if (searchMode !== undefined) params.set("search_mode", searchMode);
+      if (mediaType !== undefined) params.set("media_type", mediaType);
+      if (since !== undefined) params.set("since", since);
+      if (until !== undefined) params.set("until", until);
+      if (limit !== undefined) params.set("limit", String(limit));
+      if (authorUsername !== undefined) params.set("author_username", authorUsername);
+      if (cursor !== undefined) params.set("after", cursor);
+
       return request(
-        `keyword_search?query=${encodeURIComponent(query)}${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`,
+        `keyword_search?${params.toString()}`,
         { method: "GET" },
         "threads.search",
         context,
@@ -754,9 +882,50 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       authorize(account, "threads.profile.read");
 
       return request(
-        `${encodeURIComponent(account.accountId)}?fields=id,username,name,threads_profile_picture_url`,
+        `${encodeURIComponent(account.accountId)}?fields=id,username,name,profile_picture_url,biography,is_verified`,
         { method: "GET" },
         "threads.profile.read",
+        context,
+      );
+    },
+    async hideReply({ account, replyId, hide, context }) {
+      authorize(account, "threads.comments.moderate");
+      return request(
+        `${encodeURIComponent(replyId)}/manage_reply?hide=${String(hide)}`,
+        { method: "POST" },
+        "threads.comments.moderate",
+        context,
+      );
+    },
+    async listConversation({ account, mediaId, cursor, context }) {
+      authorize(account, "threads.comments.conversation");
+      return request(
+        `${encodeURIComponent(mediaId)}/conversation?fields=id,text,username,permalink,timestamp,is_reply,hide_status${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`,
+        { method: "GET" },
+        "threads.comments.conversation",
+        context,
+      );
+    },
+    async listPendingReplies({ account, mediaId, cursor, approvalStatus, context }) {
+      authorize(account, "threads.comments.pending");
+      const params = new URLSearchParams({
+        fields: "id,text,username,timestamp,is_reply,hide_status,reply_approval_status",
+      });
+      if (cursor !== undefined) params.set("after", cursor);
+      if (approvalStatus !== undefined) params.set("approval_status", approvalStatus);
+      return request(
+        `${encodeURIComponent(mediaId)}/pending_replies?${params.toString()}`,
+        { method: "GET" },
+        "threads.comments.pending",
+        context,
+      );
+    },
+    async managePendingReply({ account, replyId, approve, context }) {
+      authorize(account, "threads.comments.moderate");
+      return request(
+        `${encodeURIComponent(replyId)}/manage_pending_reply?approve=${String(approve)}`,
+        { method: "POST" },
+        "threads.comments.moderate",
         context,
       );
     },
@@ -772,6 +941,87 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         authorize(ref, "threads.accounts.get");
 
         return readAccount(context);
+      },
+    },
+    graph: {
+      async getProfile(account, input, context): Promise<ProfileRecord> {
+        authorize(account, "profiles.read");
+        let result: JsonObject;
+        if (input.handle !== undefined) {
+          result = await request(
+            `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=id,username,name,profile_picture_url,biography,is_verified`,
+            { method: "GET" },
+            "profiles.read",
+            context,
+          );
+        } else {
+          const profileId = input.profileId ?? account.accountId;
+          if (profileId !== account.accountId)
+            fail(
+              "profiles.read",
+              "Threads profile reads are limited to the authorized app-scoped user.",
+              "unauthorized",
+            );
+          result = await request(
+            `${encodeURIComponent(profileId)}?fields=id,username,name,profile_picture_url,biography,is_verified`,
+            { method: "GET" },
+            "profiles.read",
+            context,
+          );
+        }
+        const returnedProfileId = optionalString(result["id"]);
+        const profileId =
+          returnedProfileId ??
+          input.profileId ??
+          (input.handle ? `lookup:${input.handle}` : undefined);
+        if (profileId === undefined)
+          fail("profiles.read", "Threads profile response did not return a profile ID.");
+        const handle = optionalString(result["username"]) ?? input.handle;
+        const displayName = optionalString(result["name"]);
+        const avatarUrl =
+          optionalString(result["profile_picture_url"]) ??
+          optionalString(result["threads_profile_picture_url"]);
+        const bio =
+          optionalString(result["biography"]) ?? optionalString(result["threads_biography"]);
+        return {
+          ref: profileRef({
+            backend,
+            platform: "threads",
+            accountId: account.accountId,
+            profileId,
+          }),
+          ...(displayName === undefined ? {} : { displayName }),
+          ...(handle === undefined ? {} : { handle }),
+          ...(avatarUrl === undefined ? {} : { avatarUrl }),
+          ...(bio === undefined ? {} : { bio }),
+          native:
+            returnedProfileId === undefined ? { ...result, _profileIdUnavailable: true } : result,
+        };
+      },
+    },
+    search: {
+      async posts(account, input: SearchPostsInput, context): Promise<Page<JsonObject>> {
+        authorize(account, "search.posts");
+        if (input.scope === "all")
+          fail("search.posts", "Threads search does not support scope 'all'.", "invalid_input");
+        const query = input.query.trim();
+        if (!query) fail("search.posts", "A search query is required.", "invalid_input");
+        const params = new URLSearchParams({
+          q: query,
+          fields:
+            "id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post",
+        });
+        if (input.limit !== undefined) params.set("limit", String(input.limit));
+        if (input.cursor !== undefined) params.set("after", input.cursor);
+        if (input.startTime !== undefined) params.set("since", input.startTime);
+        if (input.endTime !== undefined) params.set("until", input.endTime);
+        const result = await request(
+          `keyword_search?${params.toString()}`,
+          { method: "GET" },
+          "search.posts",
+          context,
+        );
+        return pageFrom(result);
       },
     },
     posts: {

@@ -659,7 +659,7 @@ export function tiktok(
         post: PlatformPostRef,
         context: AdapterOperationContext,
       ): Promise<readonly MetricValue[]> {
-        // https://developers.tiktok.com/doc/research-api-specs-query-videos/
+        // https://developers.tiktok.com/doc/tiktok-api-v2-video-query/ (Display API video query)
         authorize(post, context);
 
         const result = data(

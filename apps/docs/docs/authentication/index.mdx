@@ -50,6 +50,8 @@ The server package includes direct OAuth factories for YouTube, X, TikTok, Threa
 
 The defaults are a starting point. Pass `scopes` for the operation you are connecting, such as Google's `https://www.googleapis.com/auth/youtube.upload` for uploads or LinkedIn's organization permission when your app has that product approval. Provider app review, account eligibility, callback registration, and quota remain application setup responsibilities.
 
+When a provider discovers more than one account, the default credential sink receives credentials for every validated account. Pass `selectAccounts` to an OAuth factory when credentials should be persisted for only a chosen subset. The selector receives the discovered accounts and attempt and must return distinct discovered account IDs. This selection controls credential persistence; `ConnectionManager.select` still controls which discovered accounts become tenant grants.
+
 A complete server flow looks like this:
 
 ```ts

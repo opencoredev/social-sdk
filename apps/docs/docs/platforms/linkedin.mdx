@@ -119,6 +119,47 @@ for (const metric of metrics) console.log(metric.name, metric.value);
 
 Metrics contain only counts returned by LinkedIn. Missing counts remain absent, and request time is recorded as `fetchedAt`, not `measuredAt`.
 
+### Read Community Management statistics
+
+The typed native module exposes organization follower demographics and gains, page views and clicks,
+share statistics, and the follower count. These calls require the Community Management API product,
+an organization administrator grant (`rw_organization_admin` or `r_organization_admin`), and an
+organization account. Member accounts fail before a request is sent. Empty `elements` responses return
+an empty array.
+
+```ts
+const followers = await social
+  .native("default", { acknowledgeUnsafe: true })
+  .getOrganizationFollowerStatistics({ account, context });
+const pages = await social
+  .native("default", { acknowledgeUnsafe: true })
+  .getOrganizationPageStatistics({
+    account,
+    interval: { granularity: "DAY", start: Date.now() - 7 * 86_400_000 },
+    context,
+  });
+const shares = await social
+  .native("default", { acknowledgeUnsafe: true })
+  .getOrganizationShareStatistics({ account, context });
+const followerCount = await social
+  .native("default", { acknowledgeUnsafe: true })
+  .getOrganizationFollowerCount({ account, context });
+```
+
+These methods call `organizationalEntityFollowerStatistics`, `organizationPageStatistics`,
+`organizationalEntityShareStatistics`, and `networkSizes/{orgUrn}` with the configured
+`LinkedIn-Version` header. Lifetime follower results include demographic breakdowns. Time-bound
+follower results contain organic and paid gains, while page and share results contain the provider's
+returned time-bucket metrics. For a time-bound request, pass a nonnegative epoch-millisecond
+`start` (and optionally `end`) with `granularity: "DAY"`, `"WEEK"`, or `"MONTH"`. The adapter sends
+the Rest.li 2.0 query form `timeIntervals=(timeRange:(start:...,end:...),timeGranularityType:DAY)`
+with literal delimiters, as required by LinkedIn. The response's `timeRange` is preserved in the
+returned `interval`, using the requested granularity when LinkedIn omits it from each row.
+
+Page statistics preserve nested click metrics such as `careersPageClicks` and
+`mobileCareersPageClicks`, as well as nested view counts such as `allPageViews` and
+`uniquePageViews`.
+
 ## Native operations
 
 The native module covers multi-image posts, video and document uploads, polls, reactions, reshares, updates, deletion, and organization analytics. Articles remain approval dependent.
@@ -129,4 +170,4 @@ The native module covers multi-image posts, video and document uploads, polls, r
 - Messaging is unsupported.
 - Current evidence is offline contract tests; no account, app approval, or live post has been verified.
 
-Sources: [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).
+Sources: [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).

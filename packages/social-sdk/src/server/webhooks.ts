@@ -35,7 +35,7 @@ export async function verifyZernioWebhook(input: {
   if (!input.secret) denied();
   const signature = input.headers.get("X-Zernio-Signature");
 
-  if (!signature || !/^[0-9a-f]{64}$/.test(signature)) denied();
+  if (!signature || !/^[0-9a-f]{64}$/i.test(signature)) denied();
   const bytes = new Uint8Array(32);
 
   for (let index = 0; index < 32; index++)

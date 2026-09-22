@@ -3,7 +3,7 @@ title: Instagram
 description: Publish Instagram professional-account media and use typed native Reels, Stories, hashtag, limit, and mention operations.
 ---
 
-The direct Instagram adapter uses Instagram Login for a professional account. Supply an access token and the account ID on the server; the adapter does not perform OAuth, account discovery, or tenant membership checks.
+The direct Instagram adapter uses Instagram Login for a professional account by default. Supply an access token and the account ID on the server; the adapter does not perform OAuth, account discovery, or tenant membership checks. Set `auth.flavor` to `"facebook-login"` when using the Facebook Login Graph API host and token.
 
 ## Setup
 
@@ -29,6 +29,8 @@ const social = createSocial({
     auth: {
       accessToken: process.env.INSTAGRAM_ACCESS_TOKEN!,
       accountId: process.env.INSTAGRAM_ACCOUNT_ID!,
+      // Use "facebook-login" for business discovery, tagged media, and hashtag search.
+      flavor: "instagram-login",
     },
   }),
 });
@@ -107,6 +109,117 @@ await social.comments.reply(
 );
 ```
 
+### Read profiles
+
+The normalized graph reader returns the authorized professional account when no selector is supplied. A handle uses Meta's `business_discovery` field and therefore requires Facebook Login.
+
+```ts
+const ownProfile = await social.graph.getProfile(account, {});
+const publicProfile = await social.graph.getProfile(account, { handle: "bluebottle" });
+console.log(ownProfile.handle, publicProfile.displayName);
+```
+
+The own-profile request is `GET /{ig-user-id}` with profile fields. Handle lookup is `GET /{ig-user-id}?fields=business_discovery.username(...)`. An Instagram Login token raises `unsupported_capability` for handle lookup.
+
+### Moderate comments
+
+Comment moderation uses the Graph API comment and media nodes. `moderateComment` maps to `POST /{ig-comment-id}?hide=true|false`, `deleteComment` maps to `DELETE /{ig-comment-id}`, and `setCommentsEnabled` maps to `POST /{ig-media-id}?comment_enabled=true|false`.
+
+```ts
+const instagramNative = social.native("default", { acknowledgeUnsafe: true });
+const context = {
+  backendInstance: "default",
+  correlationId: "instagram-native",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+};
+
+await instagramNative.moderateComment({
+  account,
+  commentId: "17873440459141021",
+  hidden: true,
+  context,
+});
+await instagramNative.setCommentsEnabled({
+  account,
+  mediaId: "17873440459141020",
+  enabled: true,
+  context,
+});
+await instagramNative.deleteComment({ account, commentId: "17873440459141021", context });
+```
+
+These mutations accept Instagram User access tokens with Instagram Login or a Facebook User/Page token with Facebook Login. For Instagram Login, request `instagram_business_basic` and `instagram_business_manage_comments`; Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement` (plus any permissions Meta requires for the Page role). Meta limits deletion and hiding by media ownership and does not support live video comments.
+
+### Read replies and mentions
+
+Use `listCommentReplies` for the paginated `GET /{ig-comment-id}/replies` edge. The result has `items` and an optional `nextCursor`; pass that cursor back as `cursor`. An empty provider `data` array returns an empty `items` array.
+
+```ts
+const replies = await instagramNative.listCommentReplies({
+  account,
+  commentId: "17873440459141021",
+  limit: 25,
+  context,
+});
+const nextReplies = replies.nextCursor
+  ? await instagramNative.listCommentReplies({
+      account,
+      commentId: "17873440459141021",
+      cursor: replies.nextCursor,
+      context,
+    })
+  : undefined;
+```
+
+Replies can use either login flavor when the token has the permissions required for the selected Graph host. Instagram Login uses `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`.
+
+`listMentions`, `listTaggedMedia`, and `mentions` read `GET /{ig-user-id}/tags` and return the same cursor-paginated page shape. `mentions` is an alias for `listMentions`. Instagram Login uses `instagram_business_basic` and `instagram_business_manage_comments`; Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`. `mentionedMedia` and `mentionedComment` query the `mentioned_media` and `mentioned_comment` field expansions for a known media or comment ID and require Facebook Login.
+
+```ts
+const tagged = await instagramNative.listTaggedMedia({ account, limit: 25, context });
+const mentions = await instagramNative.mentions({ account, limit: 25, context });
+const captionMention = await instagramNative.mentionedMedia({
+  account,
+  mediaId: "17873440459141021",
+  context,
+});
+const commentMention = await instagramNative.mentionedComment({
+  account,
+  commentId: "17873440459141022",
+  context,
+});
+```
+
+### Business discovery and hashtag search
+
+Business discovery uses Facebook Login and maps to `GET /{ig-user-id}?fields=business_discovery.username(...)`. The default field expansion requests profile counts and a bounded media edge; pass `fields` when you need a different expansion.
+
+```ts
+const profile = await instagramNative.businessDiscovery({
+  account,
+  username: "bluebottle",
+  fields: "business_discovery.username(bluebottle){id,username,followers_count,media_count}",
+  context,
+});
+```
+
+Hashtag search is available only with Facebook Login, Instagram Public Content Access app review, and the `instagram_basic` permission. Call `hashtagSearch` to resolve a name through `GET /ig_hashtag_search`, then read `top_media` or `recent_media` with `hashtagMedia`.
+
+```ts
+const hashtag = await instagramNative.hashtagSearch({ account, hashtag: "coffee", context });
+// The search response contains the resolved node in data[0].id.
+const hashtagId = "17843857450040591"; // read this from hashtag.data[0].id
+const recent = await instagramNative.hashtagMedia({
+  account,
+  hashtagId,
+  kind: "recent",
+  limit: 25,
+  context,
+});
+```
+
+If an Instagram Login adapter calls a Facebook Login-only operation, it raises `SocialError` with `code: "unsupported_capability"`. Hashtag lookups are limited to 30 unique hashtags in a rolling seven-day period, and media returned by hashtag search cannot be commented on.
+
 ### Read post metrics
 
 Metrics are the values returned by Instagram Insights; absent metrics remain absent.
@@ -118,11 +231,13 @@ for (const metric of metrics) console.log(metric.name, metric.value, metric.unit
 
 ## Native operations
 
-The typed native module exposes Reels and Stories container publishing, post deletion, hashtag search, publishing-limit reads, and tagged/mention reads. Product tagging and messaging are declared approval dependent and require the corresponding Meta products and app review.
+The typed native module exposes Reels and Stories container publishing, post deletion, publishing-limit reads, comment moderation, comment replies, tagged and mentioned media reads, business discovery, and hashtag search. Product tagging and messaging are declared approval dependent and require the corresponding Meta products and app review.
 
 ## Limits and requirements
 
 - Media must be publicly reachable over HTTPS; the adapter does not upload local bytes.
 - Account authorization and Instagram professional-account eligibility remain application responsibilities.
+- Instagram Login uses `graph.instagram.com`; Facebook Login uses `graph.facebook.com`. Facebook Login operations require the Facebook token, connected Page access, and the permissions listed in Meta's [Instagram Platform documentation](https://developers.facebook.com/documentation/instagram-platform/).
+- Meta may require Advanced Access or App Review for accounts outside your own organization, comment moderation, business discovery, and public hashtag content.
 
 See the [capability matrix](/reference/capabilities) and [events](/events).
