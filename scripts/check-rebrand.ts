@@ -88,9 +88,7 @@ for (const path of paths) {
               ? 4
               : 0;
           let remaining = allowedOccurrences;
-          return script.replace(new RegExp(term, "g"), (match) =>
-            remaining-- > 0 ? "" : match,
-          );
+          return script.replace(new RegExp(term, "g"), (match) => (remaining-- > 0 ? "" : match));
         });
       }
     }
