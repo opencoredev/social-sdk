@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc"],
-  "jsPlugins": ["@shadcn/lint", "./tools/oxlint/anti-slop/index.ts"],
+  "jsPlugins": ["@shadcn/lint", "./tools/oxlint/anti-slop/index.js"],
   "ignorePatterns": ["tools/oxlint/anti-slop/**"],
   "categories": {
     "correctness": "error"
