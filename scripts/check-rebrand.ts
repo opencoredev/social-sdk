@@ -1,3 +1,5 @@
+/* oxlint-disable anti-slop/require-readable-spacing -- this scanner intentionally keeps compact control flow. */
+
 import { readdir } from "node:fs/promises";
 
 const decoder = new TextDecoder();
