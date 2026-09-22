@@ -10,6 +10,7 @@ const result = await Bun.build({
 if (!result.success) throw new Error("Anti-slop plugin bundle failed to build");
 
 const expected = await readFile("tools/oxlint/anti-slop/index.js");
+
 const actual = Buffer.from(await result.outputs[0].arrayBuffer());
 
 if (!expected.equals(actual))
