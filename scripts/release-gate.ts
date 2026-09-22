@@ -82,6 +82,8 @@ await required("frozen dependency install", "bun", ["install", "--frozen-lockfil
 
 await required("lint", "bun", ["run", "lint"]);
 
+await required("Anti-slop bundle sync", "bun", ["scripts/check-anti-slop-bundle.ts"]);
+
 await required("format check", "bun", ["run", "format:check"]);
 
 await required("workspace typecheck", "bun", ["run", "check-types"]);
