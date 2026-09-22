@@ -320,12 +320,14 @@
         grid-template-columns: 1fr 1fr;
         gap: 22px;
       }
-      .rules ul {
-        list-style: none;
+      .rules .rule-card {
         border: 2.2px solid var(--ink);
         border-radius: 10px;
         padding: 18px 22px;
         background: var(--card);
+      }
+      .rules ul {
+        list-style: none;
       }
       .rules li {
         padding: 7px 0 7px 34px;
@@ -769,20 +771,24 @@
           </svg>
         </h2>
         <div class="rules">
-          <ul class="do">
+          <div class="rule-card do">
             <h3>Please do</h3>
-            <li>Use the mark or lockup as provided, at any size, on paper or ink backgrounds.</li>
-            <li>Write the name as two words: Social SDK.</li>
-            <li>Use these assets in articles, talks, integrations, and "works with" contexts.</li>
-            <li>Pick the cream variants whenever the background is dark.</li>
-          </ul>
-          <ul class="dont">
+            <ul>
+              <li>Use the mark or lockup as provided, at any size, on paper or ink backgrounds.</li>
+              <li>Write the name as two words: Social SDK.</li>
+              <li>Use these assets in articles, talks, integrations, and "works with" contexts.</li>
+              <li>Pick the cream variants whenever the background is dark.</li>
+            </ul>
+          </div>
+          <div class="rule-card dont">
             <h3>Please don't</h3>
-            <li>Recolor the megaphone or swap the orange for another accent.</li>
-            <li>Add gradients, shadows, outlines, or a container the mark didn't come with.</li>
-            <li>Stretch, rotate, or redraw the mark, or set the wordmark in another face.</li>
-            <li>Imply endorsement, or use the mark as your own app's icon.</li>
-          </ul>
+            <ul>
+              <li>Recolor the megaphone or swap the orange for another accent.</li>
+              <li>Add gradients, shadows, outlines, or a container the mark didn't come with.</li>
+              <li>Stretch, rotate, or redraw the mark, or set the wordmark in another face.</li>
+              <li>Imply endorsement, or use the mark as your own app's icon.</li>
+            </ul>
+          </div>
         </div>
         <p class="note" style="margin-top: 20px">
           questions? open an issue — the brand lives in the repo like everything else.
@@ -823,6 +829,7 @@
           };
           try {
             const response = await fetch(button.dataset.src);
+            if (!response.ok) throw new Error(`Asset request failed: ${response.status}`);
             if (button.dataset.copy === "png") {
               if (typeof ClipboardItem === "undefined" || !window.isSecureContext) {
                 settle("needs https");
@@ -841,8 +848,9 @@
                 area.style.opacity = "0";
                 document.body.appendChild(area);
                 area.select();
-                document.execCommand("copy");
+                const copied = document.execCommand("copy");
                 area.remove();
+                if (!copied) throw new Error("Clipboard copy rejected");
               }
             }
             settle("copied!");
