@@ -190,6 +190,7 @@ Threads publishing takes two steps. `posts.publish` records the post in the work
 
 ```ts src/index.ts
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { Pool } from "pg";
 import { createSocial, connectedAccountRef, type DeliveryRef } from "@opencoredev/social-sdk";
 import { threads } from "@opencoredev/social-sdk/threads";
@@ -223,15 +224,29 @@ async function advance(deliveryId: string, ref: DeliveryRef) {
     correlationId: deliveryId,
     retryBudget: { maxAttempts: 3, maxElapsedMs: 60_000 },
   });
-  await pool.query("update deliveries set state = $2 where id = $1", [deliveryId, outcome.state]);
+  await pool.query(
+    "update deliveries set state = $2 where id = $1 and state not in ('published', 'failed')",
+    [deliveryId, outcome.state],
+  );
   return outcome;
+}
+
+function parsePublishBody(body: unknown) {
+  if (typeof body !== "object" || body === null) return undefined;
+  const { draftId, text } = body as Record<string, unknown>;
+  if (typeof draftId !== "string" || !/^[\w-]{1,100}$/.test(draftId)) return undefined;
+  // Threads caps a post at 500 characters.
+  if (typeof text !== "string" || text.length === 0 || text.length > 500) return undefined;
+  return { draftId, text };
 }
 
 const app = new Hono();
 
-app.post("/publish", async (c) => {
+app.post("/publish", bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
   const tenant = await requireTenant(c); // your JWT or API-key check
-  const { draftId, text } = await c.req.json();
+  const input = parsePublishBody(await c.req.json().catch(() => null));
+  if (!input) return c.text("Expected a draftId and 1 to 500 characters of text", 400);
+  const { draftId, text } = input;
 
   const { rows } = await pool.query(
     "select account_id, backend from connected_accounts where tenant_id = $1 and platform = 'threads'",
@@ -240,34 +255,47 @@ app.post("/publish", async (c) => {
   const acct = rows[0];
   if (!acct) return c.text("No authorized Threads account", 403);
 
-  const result = await social.posts.publish({
-    targets: [
-      {
-        account: connectedAccountRef({
-          backend: acct.backend,
-          platform: "threads",
-          accountId: acct.account_id,
-        }),
-      },
-    ],
-    content: { text },
-    idempotencyKey: draftId,
-  });
-
-  const outcome = result.outcomes[0];
-  const saved = await pool.query(
-    `insert into deliveries (tenant_id, idempotency_key, state, delivery_ref)
-     values ($1, $2, $3, $4)
-     on conflict (tenant_id, idempotency_key)
-     do update set state = excluded.state, delivery_ref = excluded.delivery_ref
-     returning id`,
-    [tenant.id, draftId, outcome?.state ?? "unknown", outcome?.delivery ?? null],
+  const result = await social.posts.publish(
+    {
+      targets: [
+        {
+          account: connectedAccountRef({
+            backend: acct.backend,
+            platform: "threads",
+            accountId: acct.account_id,
+          }),
+        },
+      ],
+      content: { text },
+      idempotencyKey: draftId,
+    },
+    // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+    { authorization: { tenantId: tenant.id } },
   );
 
+  const outcome = result.outcomes[0];
+  // A concurrent duplicate can report unknown with no delivery reference; it must not
+  // replace a row that reconciliation can still resume, or undo a final state.
+  const { rows: saved } = await pool.query(
+    `insert into deliveries (tenant_id, idempotency_key, state, delivery_ref)
+     values ($1, $2, $3, $4)
+     on conflict (tenant_id, idempotency_key) do update set
+       state = case
+         when deliveries.state in ('published', 'failed') then deliveries.state
+         when excluded.delivery_ref is null and deliveries.delivery_ref is not null
+           then deliveries.state
+         else excluded.state
+       end,
+       delivery_ref = coalesce(excluded.delivery_ref, deliveries.delivery_ref)
+     returning id, state, delivery_ref`,
+    [tenant.id, draftId, outcome?.state ?? "unknown", outcome?.delivery ?? null],
+  );
+  const row = saved[0];
+
   const state =
-    outcome?.state === "processing" && outcome.delivery
-      ? (await advance(saved.rows[0].id, outcome.delivery)).state
-      : (outcome?.state ?? "unknown");
+    row.state === "processing" && row.delivery_ref
+      ? (await advance(row.id, row.delivery_ref)).state
+      : row.state;
 
   return c.json({ status: result.status, state });
 });
