@@ -1,3 +1,5 @@
+/* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-conditional-empty-object-spread -- this example parses JSON requests and provider events at explicit boundaries. */
+
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
