@@ -1,5 +1,11 @@
 # @opencoredev/social-sdk
 
+## 0.1.2
+
+### Patch Changes
+
+- 4b6b3b3: Document the supported Node.js and Bun runtimes in the package README.
+
 ## 0.1.1
 
 ### Patch Changes
