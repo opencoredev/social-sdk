@@ -192,7 +192,12 @@ Threads publishing takes two steps. `posts.publish` records the post in the work
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { Pool } from "pg";
-import { createSocial, connectedAccountRef, type DeliveryRef } from "@opencoredev/social-sdk";
+import {
+  createSocial,
+  connectedAccountRef,
+  type DeliveryOutcome,
+  type DeliveryRef,
+} from "@opencoredev/social-sdk";
 import { threads } from "@opencoredev/social-sdk/threads";
 import { postgresIdempotencyStore, postgresThreadsWorkflowStore } from "./stores";
 
@@ -224,11 +229,16 @@ async function advance(deliveryId: string, ref: DeliveryRef) {
     correlationId: deliveryId,
     retryBudget: { maxAttempts: 3, maxElapsedMs: 60_000 },
   });
-  await pool.query(
-    "update deliveries set state = $2 where id = $1 and state not in ('published', 'failed')",
+  // The case keeps a terminal state, and RETURNING reads back the persisted state
+  // even when a concurrent resume already finished it.
+  const { rows } = await pool.query(
+    `update deliveries
+       set state = case when state in ('published', 'failed') then state else $2 end
+     where id = $1
+     returning state`,
     [deliveryId, outcome.state],
   );
-  return outcome;
+  return { ...outcome, state: rows[0].state as DeliveryOutcome["state"] };
 }
 
 function parsePublishBody(body: unknown) {
