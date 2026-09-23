@@ -3,48 +3,104 @@
   "routes": [
     {
       "src": "/|/docs(?:/.*)?",
-      "headers": { "Vary": "Accept" },
+      "headers": {
+        "Vary": "Accept"
+      },
       "continue": true
     },
     {
       "src": "/",
-      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
-      "headers": { "Content-Type": "text/markdown; charset=utf-8" },
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": "^(?!.*text/markdown\\s*;\\s*q=0(?:\\.0{0,3})?\\s*(?:,|$)).*text/markdown.*"
+        }
+      ],
+      "headers": {
+        "Content-Type": "text/markdown; charset=utf-8"
+      },
       "dest": "/index.md"
     },
     {
       "src": "/docs/?",
-      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
-      "headers": { "Content-Type": "text/markdown; charset=utf-8" },
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": "^(?!.*text/markdown\\s*;\\s*q=0(?:\\.0{0,3})?\\s*(?:,|$)).*text/markdown.*"
+        }
+      ],
+      "headers": {
+        "Content-Type": "text/markdown; charset=utf-8"
+      },
       "dest": "/docs.md"
     },
     {
       "src": "/docs/([^.]+?)/?",
-      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
-      "headers": { "Content-Type": "text/markdown; charset=utf-8" },
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": "^(?!.*text/markdown\\s*;\\s*q=0(?:\\.0{0,3})?\\s*(?:,|$)).*text/markdown.*"
+        }
+      ],
+      "headers": {
+        "Content-Type": "text/markdown; charset=utf-8"
+      },
       "dest": "/docs/$1.md",
       "check": true
     },
-    { "handle": "filesystem" },
+    {
+      "handle": "filesystem"
+    },
     {
       "src": "/api/.*",
       "status": 404,
-      "headers": { "Content-Type": "application/json; charset=utf-8" },
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8"
+      },
       "dest": "/404.json"
     },
     {
       "src": "/.*",
-      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": "^(?!.*text/markdown\\s*;\\s*q=0(?:\\.0{0,3})?\\s*(?:,|$)).*text/markdown.*"
+        }
+      ],
       "status": 404,
-      "headers": { "Content-Type": "text/markdown; charset=utf-8", "Vary": "Accept" },
+      "headers": {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Vary": "Accept"
+      },
       "dest": "/404.md"
     },
     {
       "src": "/.*",
-      "has": [{ "type": "header", "key": "accept", "value": ".*application/json.*" }],
+      "has": [
+        {
+          "type": "header",
+          "key": "accept",
+          "value": "^(?!.*application/json\\s*;\\s*q=0(?:\\.0{0,3})?\\s*(?:,|$)).*application/json.*"
+        }
+      ],
       "status": 404,
-      "headers": { "Content-Type": "application/json; charset=utf-8", "Vary": "Accept" },
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8",
+        "Vary": "Accept"
+      },
       "dest": "/404.json"
+    },
+    {
+      "src": "/.*",
+      "status": 404,
+      "headers": {
+        "Vary": "Accept"
+      },
+      "dest": "/404.html"
     }
   ]
 }
