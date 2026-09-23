@@ -357,6 +357,28 @@ describe("core publication contract", () => {
     assert.equal(result.items[1]?.status, "partial");
   });
 
+  test("replyToPrevious rejects multi-target chains before dispatch", async () => {
+    const social = createSocial({ backend: mockBackend() });
+
+    await assert.rejects(
+      social.posts.publishSequence({
+        idempotencyKey: "chain",
+        replyToPrevious: true,
+        items: [
+          { targets: [{ account: account("default", "mock-account-1") }], content: { text: "a" } },
+          {
+            targets: [
+              { account: account("default", "mock-account-1") },
+              { account: account("default", "mock-account-2") },
+            ],
+            content: { text: "b" },
+          },
+        ],
+      }),
+      { code: "invalid_input" },
+    );
+  });
+
   test("scheduled sequence items count as successful scheduling outcomes", async () => {
     const scheduledAdapter = defineAdapter({
       id: "scheduled",

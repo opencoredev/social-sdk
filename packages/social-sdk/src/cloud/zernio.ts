@@ -197,20 +197,34 @@ export function zernio(options: ManagedOptions) {
       async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
         accountMatches(ref, context);
 
-        const response = object(
-          await request("/v1/accounts", context, undefined, {
-            platform: ref.platform === "x" ? "twitter" : ref.platform,
-          }),
-        );
+        const platform = ref.platform === "x" ? "twitter" : ref.platform;
+        let raw: ReturnType<typeof object> | undefined;
 
-        const raw = array(response["accounts"])
-          .map(object)
-          .find(
-            (item) =>
-              item["_id"] === ref.accountId &&
-              (item["platform"] === ref.platform ||
-                item["platform"] === (ref.platform === "x" ? "twitter" : ref.platform)),
+        // The list endpoint is paginated, so keep reading until the account appears.
+        for (let page = 1; page <= 100 && !raw; page++) {
+          const response = object(
+            await request("/v1/accounts", context, undefined, {
+              platform,
+              page: String(page),
+              limit: "100",
+            }),
           );
+
+          raw = array(response["accounts"])
+            .map(object)
+            .find(
+              (item) =>
+                item["_id"] === ref.accountId &&
+                (item["platform"] === ref.platform || item["platform"] === platform),
+            );
+
+          const pagination = response["pagination"] ? object(response["pagination"]) : {};
+
+          const pages =
+            optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
+
+          if (pages === undefined || page >= pages) break;
+        }
 
         if (!raw)
           throw new SocialError({

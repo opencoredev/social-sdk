@@ -149,7 +149,10 @@ it("makes mentions an alias for the paginated tags reader", async () => {
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async () =>
       new Response(
-        JSON.stringify({ data: [{ id: "media1" }], paging: { cursors: { after: "next" } } }),
+        JSON.stringify({
+          data: [{ id: "media1" }],
+          paging: { cursors: { after: "next" }, next: "https://graph.facebook.com/next" },
+        }),
       ),
   });
   const account = connectedAccountRef({
@@ -159,6 +162,23 @@ it("makes mentions an alias for the paginated tags reader", async () => {
   });
   const result = await adapter.native?.mentions({ account, context: context() });
   assert.deepEqual(result, { items: [{ id: "media1" }], nextCursor: "next" });
+});
+
+it("stops paginating when Graph omits paging.next", async () => {
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
+    fetch: async () =>
+      new Response(
+        JSON.stringify({ data: [{ id: "media1" }], paging: { cursors: { after: "last" } } }),
+      ),
+  });
+  const account = connectedAccountRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+  const result = await adapter.native?.mentions({ account, context: context() });
+  assert.deepEqual(result, { items: [{ id: "media1" }] });
 });
 
 it("returns processing for a continuation handle and rejects cross-account references", async () => {
@@ -549,7 +569,10 @@ it("lists comment replies across cursors and keeps an empty page empty", async (
         ? new Response(
             JSON.stringify({
               data: [{ id: "reply-1", text: "first" }],
-              paging: { cursors: { after: "reply-cursor" } },
+              paging: {
+                cursors: { after: "reply-cursor" },
+                next: "https://graph.instagram.com/next",
+              },
             }),
           )
         : new Response(JSON.stringify({ data: [] }));
@@ -592,7 +615,10 @@ it("lists tagged media mentions with cursor pagination and handles an empty data
         ? new Response(
             JSON.stringify({
               data: [{ id: "media-1", caption: "hello" }],
-              paging: { cursors: { after: "mention-cursor" } },
+              paging: {
+                cursors: { after: "mention-cursor" },
+                next: "https://graph.instagram.com/next",
+              },
             }),
           )
         : new Response(JSON.stringify({ data: [] }));

@@ -457,21 +457,43 @@ export function postForMe(options: ManagedOptions) {
                     ["comments", "replyCount"],
                     ["reposts", "repostCount"],
                   ]
-                : [];
+                : // Other platforms report provider-shaped counters; accept the common spellings.
+                  [
+                    ["likes", "likes"],
+                    ["likes", "like_count"],
+                    ["likes", "likeCount"],
+                    ["comments", "comments"],
+                    ["comments", "comment_count"],
+                    ["comments", "commentCount"],
+                    ["comments", "replies"],
+                    ["shares", "shares"],
+                    ["shares", "share_count"],
+                    ["reposts", "reposts"],
+                    ["reposts", "repost_count"],
+                    ["views", "views"],
+                    ["views", "view_count"],
+                    ["views", "viewCount"],
+                    ["impressions", "impressions"],
+                    ["reach", "reach"],
+                  ];
+
+        const seen = new Set<string>();
 
         for (const [name, key] of fields) {
+          if (seen.has(name)) continue;
           const value = optionalNumber(values[key]);
 
-          if (value !== undefined)
-            result.push({
-              name,
-              value,
-              unit: "count",
-              period: "lifetime",
-              fetchedAt: now(),
-              freshness: "unknown",
-              source: `post-for-me:${ref.platform}:feed`,
-            });
+          if (value === undefined) continue;
+          seen.add(name);
+          result.push({
+            name,
+            value,
+            unit: "count",
+            period: "lifetime",
+            fetchedAt: now(),
+            freshness: "unknown",
+            source: `post-for-me:${ref.platform}:feed`,
+          });
         }
 
         return result;

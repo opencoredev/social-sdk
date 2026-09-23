@@ -1170,11 +1170,20 @@ export function youtube(
               operation: `captions.${action}`,
               message: "Caption metadata and media are required for insert.",
             });
-          const metadata = {
-            ...body,
-            ...(action === "update" ? { id: captionId ?? body["id"] } : {}),
-          };
-          if (action === "update" && typeof metadata.id !== "string")
+          const snippet = object(body["snippet"] ?? {});
+
+          if (action === "insert" && (!videoId || (snippet["videoId"] ?? videoId) !== videoId))
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "captions.insert",
+              message: "videoId is required and must match body.snippet.videoId.",
+            });
+
+          const metadata: JsonObject =
+            action === "update"
+              ? { ...body, id: captionId ?? body["id"] ?? null }
+              : { ...body, snippet: { ...snippet, videoId: videoId ?? null } };
+          if (action === "update" && typeof metadata["id"] !== "string")
             throw new SocialError({
               code: "invalid_input",
               operation: "captions.update",
@@ -1271,18 +1280,11 @@ export function youtube(
           await request(
             "/youtube/v3/playlists",
             context,
-            body,
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            {
-              part: "snippet,status,contentDetails",
-              ...(playlistId ? { id: playlistId } : {}),
-              ...(channelId ? { channelId } : {}),
-              ...(mine ? { mine: "true" } : {}),
-              ...(pageToken ? { pageToken } : {}),
-              ...(maxResults ? { maxResults: String(maxResults) } : {}),
-            },
+            undefined,
+            { id: playlistId ?? "" },
             method,
           );
+
           return {};
         }
         return object(
@@ -1317,18 +1319,21 @@ export function youtube(
                 ? "PUT"
                 : "POST";
         if (action === "delete") {
+          if (!playlistItemId)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "playlistItems.delete",
+              message: "playlistItemId is required.",
+            });
+
           await request(
             "/youtube/v3/playlistItems",
             context,
-            body,
-            {
-              part: "snippet,contentDetails",
-              ...(playlistId ? { playlistId } : {}),
-              ...(playlistItemId ? { id: playlistItemId } : {}),
-              ...(pageToken ? { pageToken } : {}),
-            },
+            undefined,
+            { id: playlistItemId },
             method,
           );
+
           return {};
         }
         return object(
@@ -1422,14 +1427,11 @@ export function youtube(
           await request(
             "/youtube/v3/subscriptions",
             context,
-            insertBody,
-            {
-              part: "snippet,contentDetails",
-              ...(subscriptionId ? { id: subscriptionId } : {}),
-              ...(pageToken ? { pageToken } : {}),
-            },
+            undefined,
+            { id: subscriptionId ?? "" },
             method,
           );
+
           return {};
         }
         return object(
@@ -1439,7 +1441,6 @@ export function youtube(
             insertBody,
             {
               part: "snippet,contentDetails",
-              ...(subscriptionId ? { id: subscriptionId } : {}),
               ...(subscriptionId
                 ? { id: subscriptionId }
                 : channelId
@@ -1513,14 +1514,19 @@ export function youtube(
           await request("/youtube/v3/comments", context, undefined, { id: commentId }, "DELETE");
           return;
         }
+        if (!body || (body["id"] ?? commentId) !== commentId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.update",
+            message: "Provide a comment body whose id, if present, matches commentId.",
+          });
+
         return object(
           await request(
             "/youtube/v3/comments",
             context,
-            action === "update" ? body : undefined,
-            {
-              part: "snippet",
-            },
+            { ...body, id: commentId },
+            { part: "snippet" },
             "PUT",
           ),
         ) as JsonObject;

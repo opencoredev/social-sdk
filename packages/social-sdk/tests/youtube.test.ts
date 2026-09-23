@@ -115,12 +115,14 @@ it("YouTube normalized search rejects unsupported scope and oversized limits", a
   );
 });
 
-it("YouTube native deletes accept 204 responses", async () => {
+it("YouTube native deletes accept 204 responses and send only the resource ID", async () => {
   const methods: string[] = [];
+  const queries: string[] = [];
   const adapter = youtube({
     auth: { accessToken: "test", channelId: "channel1" },
-    fetch: async (_input, init) => {
+    fetch: async (input, init) => {
       methods.push(init?.method ?? "GET");
+      queries.push(new URL(String(input)).search);
       return new Response(null, { status: 204 });
     },
   });
@@ -135,6 +137,43 @@ it("YouTube native deletes accept 204 responses", async () => {
   await adapter.native!.subscriptions({ action: "delete", subscriptionId: "s", context });
   await adapter.native!.commentsModeration({ action: "delete", commentId: "c", context });
   assert.deepEqual(methods, ["DELETE", "DELETE", "DELETE", "DELETE", "DELETE"]);
+  assert.deepEqual(queries, ["?id=c", "?id=p", "?id=i", "?id=s", "?id=c"]);
+  await assert.rejects(adapter.native!.playlistItems({ action: "delete", context }), {
+    code: "invalid_input",
+  });
+  assert.equal(methods.length, 5);
+});
+
+it("YouTube comment updates send the selected comment ID", async () => {
+  const bodies: unknown[] = [];
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({ id: "c1" });
+    },
+  });
+  const context = {
+    backendInstance: "default",
+    correlationId: "comment-update",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+  await adapter.native!.commentsModeration({
+    action: "update",
+    commentId: "c1",
+    body: { snippet: { textOriginal: "edited" } },
+    context,
+  });
+  assert.deepEqual(bodies, [{ snippet: { textOriginal: "edited" }, id: "c1" }]);
+  await assert.rejects(
+    adapter.native!.commentsModeration({
+      action: "update",
+      commentId: "c1",
+      body: { id: "c2" },
+      context,
+    }),
+    { code: "invalid_input" },
+  );
 });
 
 it("YouTube captions use resource download route and related multipart metadata", async () => {
@@ -167,6 +206,7 @@ it("YouTube captions use resource download route and related multipart metadata"
     context,
   });
   assert.equal(calls[0]?.url.pathname, "/youtube/v3/captions/c1");
+  assert.match(await new Response(calls[1]?.init?.body).text(), /"videoId":"v"/);
   assert.match(
     String(calls[1]?.init?.headers && new Headers(calls[1].init.headers).get("Content-Type")),
     /multipart\/related/,

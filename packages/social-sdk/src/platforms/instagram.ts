@@ -256,8 +256,11 @@ export function instagram(
     const items = array(result["data"]).map((entry) => publicFields(entry, fields));
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
+    // Graph API omits `paging.next` on the last page even when `cursors.after` is present.
     const nextCursor =
-      typeof cursors["after"] === "string" && cursors["after"].length > 0
+      typeof paging["next"] === "string" &&
+      typeof cursors["after"] === "string" &&
+      cursors["after"].length > 0
         ? cursors["after"]
         : undefined;
     return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };

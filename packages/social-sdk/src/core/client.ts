@@ -1385,7 +1385,49 @@ export function createSocial(
         };
 
         if (item.replyTo !== undefined) Object.assign(publishRequest, { replyTo: item.replyTo });
-        const plan = prepare(publishRequest);
+        const chained = request.replyToPrevious === true && index > 0;
+
+        if (chained) {
+          const account = item.targets[0]?.account;
+          const parent = request.items[index - 1]?.targets[0]?.account;
+
+          // A chain replies to the single post the previous item created, so every link
+          // must publish to one target on the same account.
+          if (
+            item.targets.length !== 1 ||
+            request.items[index - 1]?.targets.length !== 1 ||
+            item.replyTo !== undefined ||
+            item.targets[0]?.replyTo !== undefined ||
+            account === undefined ||
+            parent === undefined ||
+            account.backend !== parent.backend ||
+            account.platform !== parent.platform ||
+            account.accountId !== parent.accountId
+          )
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "posts.publishSequence",
+              message:
+                "replyToPrevious requires every item to publish to the same single account without its own replyTo",
+            });
+        }
+
+        const plan = prepare(
+          chained
+            ? {
+                ...publishRequest,
+                // Placeholder parent so adapters validate reply support before anything is sent.
+                replyTo: {
+                  kind: "platform-post",
+                  version: 1,
+                  backend: item.targets[0]!.account.backend,
+                  platform: item.targets[0]!.account.platform,
+                  accountId: item.targets[0]!.account.accountId,
+                  postId: "preflight",
+                },
+              }
+            : publishRequest,
+        );
         if (!plan.ok)
           throw new SocialError({
             code: "invalid_input",

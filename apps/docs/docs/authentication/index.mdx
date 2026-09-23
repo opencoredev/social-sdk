@@ -37,16 +37,16 @@ Connection attempts expire after ten minutes by default. Account selection must 
 
 ## Direct OAuth providers
 
-The server package includes direct OAuth factories for YouTube, X, TikTok, Threads, Instagram Login, and LinkedIn. Create them only in server code. Each factory accepts an injected `fetch` for deterministic tests, an optional `credentialSink`, and provider credentials. The `redirectUri` passed to the factory must match the exact callback URI registered with the provider and with `ConnectionManager.begin`.
+The server package includes direct OAuth factories for YouTube, X, TikTok, Threads, Instagram Login, and LinkedIn. Create them only in server code. Each factory accepts an injected `fetch` for deterministic tests, an optional `credentialSink`, and provider credentials. The `redirectUri` passed to the factory must match the exact callback URI registered with the provider and with `ConnectionManager.begin`. When one callback discovers several accounts, the sink's `save` runs once per selected account in order. If a later save fails, the earlier ones stay stored, so make `save` an idempotent upsert and let the user retry the connection.
 
 <PlatformTabs>
 <PlatformTab platform="youtube">
 
-**Default scopes:** `openid`, profile, and `youtube.readonly`. **PKCE:** the
-provider flow does not add PKCE.
+**Default scopes:** `openid`, profile, `youtube.readonly`, and
+`youtube.upload`. **PKCE:** the provider flow does not add PKCE.
 
-Google refresh tokens use `refreshOAuthToken("youtube", ...)`. Request
-`youtube.upload` when uploading videos.
+Google refresh tokens use `refreshOAuthToken("youtube", ...)`. Pass narrower
+`scopes` if your app only reads channel data.
 
 ```ts
 const provider = youtubeOAuth({ clientId, clientSecret, redirectUri, credentialSink });
@@ -56,7 +56,8 @@ const next = await refreshOAuthToken("youtube", { clientId, clientSecret }, curr
 </PlatformTab>
 <PlatformTab platform="x">
 
-**Default scopes:** `tweet.read`, `users.read`, and `offline.access`.
+**Default scopes:** `tweet.read`, `tweet.write`, `users.read`, `offline.access`,
+and `media.write`.
 **PKCE:** S256.
 
 Refresh tokens can rotate. Persist the returned replacement atomically.
@@ -139,7 +140,7 @@ const provider = linkedinOAuth({
 </PlatformTab>
 </PlatformTabs>
 
-The defaults are a starting point. Pass `scopes` for the operation you are connecting, such as Google's `https://www.googleapis.com/auth/youtube.upload` for uploads or LinkedIn's organization permission when your app has that product approval. Provider app review, account eligibility, callback registration, and quota remain application setup responsibilities.
+The defaults are a starting point. Pass `scopes` for the operation you are connecting, such as a read-only Google scope list for an analytics dashboard or LinkedIn's organization permission when your app has that product approval. Provider app review, account eligibility, callback registration, and quota remain application setup responsibilities.
 
 When a provider discovers more than one account, the default credential sink receives credentials for every validated account. Pass `selectAccounts` to an OAuth factory when credentials should be persisted for only a chosen subset. The selector receives the discovered accounts and attempt and must return distinct discovered account IDs. This selection controls credential persistence; `ConnectionManager.select` still controls which discovered accounts become tenant grants.
 

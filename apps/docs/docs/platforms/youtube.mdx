@@ -151,6 +151,7 @@ Unverified Google projects may be restricted to private uploads. The adapter doe
 - Quota, channel eligibility, scopes, and API audit status remain upstream conditions.
 - Data API quota costs are method-specific: list/search/get operations generally cost 1 unit; playlist and video mutations cost 50; `thumbnails.set` costs approximately 50; captions list/delete cost 50, insert 400, update 450, and download 200; subscriptions mutations cost 50; comment moderation mutations cost 50. `search.list` is also subject to Google's documented 100-calls-per-day Search Queries limit.
 - Playlist and video management generally uses `youtube` or `youtube.readonly`; ratings and captions use `youtube.force-ssl`; uploads use `youtube.upload`. Google OAuth verification, channel ownership, and project quota remain approval or account conditions.
+- Video uploads get at least 15 minutes, even when `retryBudget.maxElapsedMs` is shorter, because the default 30-second budget cannot fit a real upload. Pass a longer budget for very large files, and pass `signal` to cancel an upload early.
 - Current evidence is contract coverage, not a live channel verification.
 
 See YouTube's [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) documentation for current audit and quota rules.
