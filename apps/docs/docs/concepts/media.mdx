@@ -31,7 +31,7 @@ Uploads read streams with bounded buffering, so a large video does not sit fully
 
 ## Platforms differ, loudly
 
-Each adapter validates media against its platform's real rules during local preparation: which sources it accepts, size ceilings, item counts, required fields. TikTok accepts verified HTTPS origins only. The normalized X adapter uploads images up to 5 MiB each; its native module handles video and GIF uploads with provider processing states. Bluesky normalized posts enforce a four-image maximum, while native video upload is available separately. YouTube requires exactly one video with explicit visibility. Nothing is silently cropped, converted, or dropped; unsupported input fails preparation with a structured issue. The platform pages document each rule set.
+Each adapter validates media against its platform's real rules during local preparation: which sources it accepts, size ceilings, item counts, required fields. TikTok accepts verified HTTPS origins only. The X adapter uploads images up to 5 MiB each; video and GIF uploads are not supported yet. Bluesky posts enforce a four-image maximum, and video upload is not supported yet. YouTube requires exactly one video with explicit visibility. Nothing is silently cropped, converted, or dropped; unsupported input fails preparation with a structured issue. The platform pages document each rule set.
 
 ## Upload once, reference later
 

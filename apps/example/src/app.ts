@@ -45,6 +45,8 @@ export type ExampleOptions = {
     redirectUri: string;
     platforms: readonly string[];
   };
+  readonly allowedHosts?: readonly string[];
+  readonly allowedOrigins?: readonly string[];
 };
 
 export interface ExampleHandler {
@@ -133,6 +135,18 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
   const publications = new SqlitePublicationStore(db);
   const authorization = { tenantId: session.tenantId, principalId: session.principal };
 
+  const allowedHosts = new Set(
+    options.allowedHosts ?? ["localhost:3030", "127.0.0.1:3030", "[::1]:3030"],
+  );
+
+  const allowedOrigins = new Set(
+    options.allowedOrigins ?? [
+      "http://localhost:3030",
+      "http://127.0.0.1:3030",
+      "http://[::1]:3030",
+    ],
+  );
+
   const social = createSocial({
     backends: { [backendName]: backend },
     idempotencyStore: new SqliteIdempotencyStore(db),
@@ -213,11 +227,16 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     const path = new URL(request.url).pathname;
 
     try {
+      const host = request.headers.get("host") ?? new URL(request.url).host;
+
+      if (!host || !allowedHosts.has(host))
+        return new Response("Misdirected request", { status: 421 });
+
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
 
         if (
-          (origin && origin !== new URL(request.url).origin) ||
+          (origin && !allowedOrigins.has(origin)) ||
           request.headers.get("sec-fetch-site") === "cross-site"
         )
           return fail("Cross-origin mutations are not allowed", 403);
@@ -608,11 +627,25 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     } catch (error) {
       if (error instanceof Response) return error;
 
-      if (error instanceof SocialError)
+      if (error instanceof SocialError) {
+        const statusByCode: Partial<Record<SocialError["code"], number>> = {
+          rate_limited: 429,
+          upstream_failure: 502,
+          timeout: 504,
+          not_found: 404,
+          invalid_input: 400,
+        };
+
         return json(
           { error: error.code, message: error.message },
-          error.code === "unauthorized" ? 403 : error.code === "idempotency_conflict" ? 409 : 400,
+          statusByCode[error.code] ??
+            (error.code === "unauthorized"
+              ? 403
+              : error.code === "idempotency_conflict"
+                ? 409
+                : 400),
         );
+      }
 
       return json({ error: "Request failed" }, 500);
     }

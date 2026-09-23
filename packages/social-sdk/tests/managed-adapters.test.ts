@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
@@ -48,6 +48,164 @@ it("Post for Me strips returned account tokens and requests bounded account page
   const accounts = await adapter.accounts.list({}, context);
   assert.equal(accounts.items[0]?.ref.backend, "default");
   assert.ok(!JSON.stringify(accounts).includes("SECRET"));
+});
+
+it("managed account lists skip provider platforms outside SDK support", async () => {
+  for (const [make, body] of [
+    [
+      zernio,
+      {
+        accounts: [
+          { _id: "a1", platform: "twitter", username: "x" },
+          { _id: "p1", platform: "pinterest", username: "p" },
+        ],
+      },
+    ],
+    [
+      postForMe,
+      {
+        data: [
+          { id: "a1", platform: "x", user_id: "u1" },
+          { id: "p1", platform: "pinterest", user_id: "u2" },
+        ],
+        meta: { next: null },
+      },
+    ],
+  ] as const) {
+    const adapter = make({ apiKey: "test", fetch: async () => Response.json(body) });
+    const result = await adapter.accounts.list({}, context);
+    assert.deepEqual(
+      result.items.map((item) => item.ref.accountId),
+      ["a1"],
+    );
+    assert.equal(result.items[0]?.ref.platform, "x");
+  }
+});
+
+it("Zernio accounts.get lists accounts and reports an absent account as not_found", async () => {
+  const paths: string[] = [];
+
+  const adapter = zernio({
+    apiKey: "test",
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      paths.push(url.pathname);
+
+      return Response.json({ accounts: [{ _id: "a1", platform: "twitter", username: "demo" }] });
+    },
+  });
+
+  assert.equal((await adapter.accounts.get(x, context)).ref.accountId, "a1");
+  await assert.rejects(
+    () => adapter.accounts.get({ ...x, accountId: "missing" }, context),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- assertion predicate receives the thrown value.
+    (error: unknown) => {
+      return error instanceof Error && "code" in error && error.code === "not_found";
+    },
+  );
+  assert.deepEqual(paths, ["/api/v1/accounts", "/api/v1/accounts"]);
+});
+
+it("Post for Me normalizes platform-specific analytics DTOs", async () => {
+  for (const [platformName, metrics, expected] of [
+    [
+      "x",
+      { public_metrics: { like_count: 2, reply_count: 3, repost_count: 4, impression_count: 5 } },
+      ["likes", "comments", "reposts", "impressions"],
+    ],
+    [
+      "linkedin",
+      { likeCount: 2, commentCount: 3, impressionCount: 5 },
+      ["likes", "comments", "impressions"],
+    ],
+    ["bluesky", { likeCount: 2, replyCount: 3, repostCount: 4 }, ["likes", "comments", "reposts"]],
+  ] as const) {
+    const adapter = postForMe({
+      apiKey: "test",
+      fetch: async () =>
+        Response.json({ data: [{ platform_post_id: "p1", social_account_id: "a1", metrics }] }),
+    });
+
+    const ref = connectedAccountRef({
+      backend: "default",
+      platform: platformName,
+      accountId: "a1",
+    });
+
+    const values = await adapter.analytics!.getPostMetrics(
+      { ...ref, kind: "platform-post", version: 1, postId: "p1" },
+      context,
+    );
+
+    assert.deepEqual(
+      values.map((value) => value.name),
+      expected,
+    );
+  }
+});
+
+it("Zernio inbox adapters preserve comment and message request contracts", async () => {
+  const adapter = zernio({
+    apiKey: "test",
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/inbox/comments/p1") {
+        if (init?.method === "POST") {
+          assert.deepEqual(JSON.parse(String(init.body)), {
+            accountId: "a1",
+            message: "reply",
+            commentId: "c1",
+          });
+          return Response.json({ success: true, data: { commentId: "c2" } });
+        }
+        return Response.json({
+          comments: [{ id: "c1", message: "hello" }],
+          pagination: { hasMore: false, cursor: "next" },
+        });
+      }
+      if (url.pathname === "/api/v1/inbox/conversations")
+        return Response.json({
+          data: [{ id: "cv1", participantId: "u1" }],
+          pagination: { nextCursor: "next" },
+        });
+      assert.equal(url.pathname, "/api/v1/inbox/conversations/cv1/messages");
+      if (init?.method === "POST") {
+        assert.deepEqual(JSON.parse(String(init.body)), { accountId: "a1", message: "sent" });
+        return Response.json({ success: true, data: { messageId: "m2" } });
+      }
+      return Response.json({ messages: [{ id: "m1", message: "hi" }] });
+    },
+  });
+  const post = { kind: "platform-post" as const, version: 1 as const, ...x, postId: "p1" };
+  const comment = await adapter.comments!.list(post, {}, context);
+  assert.equal(comment.items[0]?.id, "c1");
+  assert.equal(comment.nextCursor, undefined);
+  assert.equal(
+    (
+      await adapter.comments!.reply(
+        { ...post, kind: "comment", commentId: "c1" },
+        { text: "reply" },
+        context,
+      )
+    ).commentId,
+    "c2",
+  );
+  const conversations = await adapter.messages!.listConversations(x, {}, context);
+  assert.equal(conversations.items[0]?.id, "cv1");
+  const messages = await adapter.messages!.listMessages(
+    { ...x, kind: "conversation", conversationId: "cv1" },
+    {},
+    context,
+  );
+  assert.equal(messages.items[0]?.id, "m1");
+  assert.deepEqual(
+    await adapter.messages!.send(
+      { ...x, kind: "conversation", conversationId: "cv1" },
+      { text: "sent" },
+      context,
+    ),
+    { state: "sent", messageId: "m2" },
+  );
 });
 
 it("Post for Me processed parent uses results rather than HTTP success", async () => {
@@ -138,12 +296,8 @@ for (const provider of ["zernio", "post-for-me"] as const) {
       if (url.hostname === "storage.example.test") {
         assert.equal(new Headers(init?.headers).get("authorization"), null);
         assert.equal(init?.redirect, "error");
-        assert.ok(init?.body instanceof ReadableStream);
-        const reader = init.body.getReader();
-
-        while (!(await reader.read()).done) {
-          /* drain */
-        }
+        assert.ok(init?.body instanceof Blob);
+        assert.equal(init.body.size, 100);
 
         return new Response(null, { status: 200 });
       }

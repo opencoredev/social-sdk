@@ -68,6 +68,23 @@ const result = await social.posts.publish({
 });
 ```
 
+### Schedule a video
+
+Pass `schedule` to upload now and let YouTube publish later. The adapter uploads the video as private with `status.publishAt` set to the scheduled time, and YouTube makes it public at that time. The time must be in the future.
+
+```ts
+const result = await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: { title: "A release", visibility: "private", madeForKids: false },
+    },
+  ],
+  content: { text: "Description", media: [media] },
+  schedule: { at: "2026-10-01T15:00:00Z" },
+});
+```
+
 ### Track upload and processing separately
 
 YouTube separates upload completion from processing. `uploaded` maps to `processing`, `processed` maps to `published`, and `failed`/`rejected` maps to a confirmed media failure. The returned watch URL is produced only with a verified video ID.

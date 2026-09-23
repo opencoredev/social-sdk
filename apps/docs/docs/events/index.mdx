@@ -5,14 +5,48 @@ description: Verify raw webhook requests, quarantine unmapped tenants, deduplica
 
 Verify before parsing. Zernio uses an `X-Zernio-Signature` HMAC-SHA256 digest over the untouched request bytes. Post for Me uses its `Post-For-Me-Webhook-Secret` shared-secret header; its verification does not authenticate the body. Both checks require the endpoint secret on the server and bound the body size.
 
+`@opencoredev/social-sdk/server` exports one verifier per provider:
+
+```ts
+verifyZernioWebhook(input: {
+  secret: string;
+  headers: Headers;
+  body: Uint8Array;
+  maxBytes?: number; // defaults to 1 MiB
+}): Promise<VerifiedWebhook>;
+```
+
+`verifyPostForMeWebhook` takes the same input. Pass a web `Headers` object and the raw body bytes. Fetch-based frameworks already have `request.headers`; in Node frameworks, use `new Headers(req.headers as Record<string, string>)`. On success the verifier resolves to a `VerifiedWebhook` with `valid: true`. On any failure, including a missing secret, a bad signature, or an oversized body, it throws a `SocialError` with code `unauthorized`. The Zernio and Post for Me adapters expose the same check as `adapter.webhooks.verify({ headers, body }, context)`, using the adapter's `webhookSecret`.
+
 After verification, decode the provider event, resolve every referenced account ID to application tenants, and atomically accept it into a durable inbox. Events with no common authorized tenant are quarantined. Use a provider event ID for Zernio; Post for Me falls back to an exact-body digest when the provider omits an event ID. Duplicate acceptance returns `duplicate`, while processing remains a separate recoverable worker step.
 
 ```ts
-const verification = await adapter.webhooks?.verify({ headers, body: rawBytes }, context);
-if (!verification?.valid) return new Response("unauthorized", { status: 401 });
-const event = await decodeWebhook({ provider, backend: backendName, body: rawBytes });
-const result = await acceptWebhook({ event, endpointId, inbox, resolveTenants });
+import { SocialError } from "@opencoredev/social-sdk";
+import { acceptWebhook, decodeWebhook, verifyZernioWebhook } from "@opencoredev/social-sdk/server";
+
+export async function receiveEvent(request: Request): Promise<Response> {
+  const body = new Uint8Array(await request.arrayBuffer());
+
+  try {
+    await verifyZernioWebhook({
+      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+      headers: request.headers,
+      body,
+    });
+  } catch (error) {
+    if (error instanceof SocialError && error.code === "unauthorized") {
+      return new Response("unauthorized", { status: 401 });
+    }
+    throw error;
+  }
+
+  const event = await decodeWebhook({ provider: "zernio", backend: backendName, body });
+  const result = await acceptWebhook({ event, endpointId, inbox, resolveTenants });
+  return new Response(result.state, { status: 202 });
+}
 ```
+
+Only the verify call sits inside the `try`, so a failure in decoding or in your inbox is not reported as an authentication error.
 
 Persist the inbox state and the application effect together where possible. A worker may crash after acceptance; replay pending events and make the effect idempotent. Never trust a payload tenant field, assign an unmapped account to a default tenant, or log credentials, signatures, message content, or private account data. See the [authentication guide](/authentication), [capability matrix](/reference/capabilities), and [integration checklist](/agents/integration-checklist).
 

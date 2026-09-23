@@ -52,36 +52,58 @@ it("uploads incrementally with bounded demand, no auth, no redirect, and no repl
   assert.ok(largestAhead <= 3, `buffered ${largestAhead} chunks`);
 });
 
-it("rejects oversized chunks and never reopens a failed stream", async () => {
+it("splits oversized chunks and never reopens a failed stream", async () => {
   let opened = 0;
-  await assert.rejects(
-    upload({
+  await upload({
+    url: "https://storage.example.test/video",
+    allowHost: () => true,
+    maxBytes: 100,
+    maxChunkBytes: 10,
+    source: {
+      mimeType: "video/mp4",
+      open: () => {
+        opened++;
+
+        return new ReadableStream({
+          start(c) {
+            c.enqueue(new Uint8Array(11));
+            c.close();
+          },
+        });
+      },
+    },
+    fetch: async (_url, init) => {
+      assert.ok(init?.body instanceof ReadableStream);
+      const reader = init.body.getReader();
+      assert.equal((await reader.read()).value?.byteLength, 10);
+      assert.equal((await reader.read()).value?.byteLength, 1);
+
+      return new Response(null);
+    },
+  });
+  assert.equal(opened, 1);
+});
+
+it("uploads large Blobs with Content-Length and without chunked streaming", async () => {
+  for (const size of [3 * 1024 * 1024, 20 * 1024 * 1024]) {
+    const blob = new Blob([new Uint8Array(size)], { type: "video/mp4" });
+
+    const result = await upload({
       url: "https://storage.example.test/video",
       allowHost: () => true,
-      maxBytes: 100,
-      maxChunkBytes: 10,
-      source: {
-        mimeType: "video/mp4",
-        open: () => {
-          opened++;
-
-          return new ReadableStream({
-            start(c) {
-              c.enqueue(new Uint8Array(11));
-              c.close();
-            },
-          });
-        },
-      },
+      maxBytes: size,
+      source: { mimeType: "video/mp4", size, body: blob, open: () => blob.stream() },
       fetch: async (_url, init) => {
-        assert.ok(init?.body instanceof ReadableStream);
-        await init.body.getReader().read();
+        assert.equal(new Headers(init?.headers).get("content-length"), String(size));
+        assert.equal(init?.duplex, undefined);
+        assert.equal(init?.body, blob);
 
         return new Response(null);
       },
-    }),
-  );
-  assert.equal(opened, 1);
+    });
+
+    assert.equal(result.bytes, size);
+  }
 });
 
 it("rejects unsafe upload URLs and untrusted storage origins", async () => {

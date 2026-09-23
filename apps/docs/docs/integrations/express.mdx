@@ -76,24 +76,38 @@ publishRouter.post("/reconcile", json(), async (req, res) => {
 
 ## Webhooks need the raw body
 
-`express.json()` consumes and reparses the body, which breaks signature verification. Use `express.raw()` on the events route only:
+`express.json()` consumes and reparses the body, which breaks signature verification. Use `express.raw()` on the events route only. It leaves `req.body` as a `Buffer`, which is a `Uint8Array`. The verifier expects a web `Headers` object, so convert Node's header record:
 
 ```ts src/routes/events.ts
 import { Router, raw } from "express";
+import { SocialError } from "@opencoredev/social-sdk";
+import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
 export const eventsRouter = Router();
 
-eventsRouter.post("/events", raw({ type: "*/*", limit: "1mb" }), async (req, res) => {
-  const body = new Uint8Array(req.body as Buffer);
-  const verification = await adapter.webhooks?.verify(
-    { headers: req.headers as Record<string, string>, body },
-    context,
-  );
-  if (!verification?.valid) return res.status(401).send("unauthorized");
+eventsRouter.post("/events", raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
+  const body: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+
+  try {
+    await verifyZernioWebhook({
+      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+      headers: new Headers(req.headers as Record<string, string>),
+      body,
+    });
+  } catch (error) {
+    if (error instanceof SocialError && error.code === "unauthorized") {
+      res.status(401).send("unauthorized");
+      return;
+    }
+    throw error;
+  }
+
   // decode, resolve tenants, accept into your durable inbox
   res.status(202).send("accepted");
 });
 ```
+
+Register `eventsRouter` before any app-wide `express.json()` middleware. Otherwise the JSON parser consumes the body first and `req.body` is no longer a `Buffer`. Express 5 forwards the rethrown error to your error handler; on Express 4, wrap the handler or call `next(error)`.
 
 Follow the [events guide](/events) for decoding, quarantine, and the inbox worker.
 

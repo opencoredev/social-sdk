@@ -219,7 +219,7 @@ function render(result: PublishResult) {
   output.replaceChildren(...result.outcomes.map(outcomeLine));
 
   const pending = result.outcomes.some((outcome) =>
-    ["accepted", "processing", "unknown"].includes(outcome.state),
+    ["scheduled", "accepted", "processing", "unknown"].includes(outcome.state),
   );
 
   element("reconcile").hidden = !pending;

@@ -8,9 +8,9 @@ import { openExampleDatabase } from "../src/storage.js";
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const request = (path: string, value: unknown, headers: Record<string, string> = {}) =>
-  new Request(`https://example.test${path}`, {
+  new Request(`http://localhost:3030${path}`, {
     method: "POST",
-    headers,
+    headers: { host: "localhost:3030", ...headers },
     body: JSON.stringify(value),
   });
 

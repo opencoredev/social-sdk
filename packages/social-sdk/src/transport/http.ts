@@ -64,6 +64,23 @@ export function retryDelay(value: string | null, now: number): number | undefine
   return Number.isFinite(timestamp) ? Math.max(0, timestamp - now) : undefined;
 }
 
+function requestId(headers: Headers): string | undefined {
+  for (const name of ["x-request-id", "x-fb-trace-id", "x-amzn-requestid", "x-amzn-trace-id"]) {
+    const value = headers.get(name);
+
+    if (value) return value;
+  }
+
+  return undefined;
+}
+
+function rateLimitResetDelay(value: string | null, now: number): number | undefined {
+  if (value === null) return undefined;
+  const seconds = Number(value);
+
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.max(0, seconds * 1000 - now) : undefined;
+}
+
 function sleep(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     signal.throwIfAborted();
@@ -236,6 +253,7 @@ export function createHttp(options: HttpOptions = {}) {
 
     const started = now();
     let dispatched = false;
+    let lastRequestId: string | undefined;
 
     try {
       for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -283,7 +301,11 @@ export function createHttp(options: HttpOptions = {}) {
             return { body, headers };
           }
 
-          delay = retryDelay(response.headers.get("retry-after"), now());
+          const currentTime = now();
+          delay = retryDelay(response.headers.get("retry-after"), currentTime);
+          delay ??= rateLimitResetDelay(response.headers.get("x-rate-limit-reset"), currentTime);
+          const responseRequestId = requestId(response.headers);
+          lastRequestId = responseRequestId ?? lastRequestId;
           void response.body?.cancel().catch(() => undefined);
           // Response bodies and URL query strings may contain credentials or user content.
           throw new HttpError(
@@ -292,6 +314,7 @@ export function createHttp(options: HttpOptions = {}) {
             true,
             response.status,
             delay,
+            responseRequestId,
           );
         } catch (error) {
           if (controller.signal.aborted) throw error;
@@ -304,7 +327,9 @@ export function createHttp(options: HttpOptions = {}) {
           if (!safe || !retryable || attempt >= attempts) {
             if (error instanceof HttpError) throw error;
             throw new HttpError(
-              "Network request failed; a dispatched mutation may have been accepted.",
+              safe
+                ? "Network request failed."
+                : "Network request failed; a dispatched mutation may have been accepted.",
               "network",
               true,
             );
@@ -333,14 +358,25 @@ export function createHttp(options: HttpOptions = {}) {
         }
 
         if (delay !== undefined) {
-          if (now() - started + delay >= deadlineMs)
+          if (now() - started + delay >= deadlineMs) {
+            if (status === 429)
+              throw new HttpError(
+                "Upstream request failed with HTTP 429.",
+                "http",
+                dispatched,
+                status,
+                delay,
+              );
             throw new HttpError(
               "Retry delay exceeds the request deadline.",
               "timeout",
               dispatched,
               status,
               delay,
+              lastRequestId,
             );
+          }
+          // oxlint-disable-next-line anti-slop/require-readable-spacing -- await is the guarded retry step.
           await abortable((options.sleep ?? sleep)(delay, controller.signal), controller.signal);
         }
       }

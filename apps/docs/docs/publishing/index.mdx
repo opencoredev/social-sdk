@@ -35,7 +35,9 @@ Use the operation that matches the resource you intend to change. These methods 
 | `posts.deleteBackendRecord(record)` | `BackendPostRef` with `recordId`                          | Deletes a draft provider record on Zernio or Post for Me. Scheduled and dispatched records are rejected.                      |
 | `posts.removeFromPlatform(post)`    | `PlatformPostRef` from publication                        | Zernio unpublishes a native post while retaining the backend record, on X, Threads, Bluesky, YouTube, LinkedIn, and Facebook. |
 
-Native removal needs the Zernio backend record ID preserved in `post.native.backendRecordId`. A native post ID alone cannot identify that provider record. Post for Me does not advertise native removal because its record deletion endpoint does not establish that it removes live platform content.
+Direct adapters also implement `posts.removeFromPlatform` for X, Bluesky, LinkedIn, and Instagram with Facebook Login. They delete the native post with the connected account credentials. The direct YouTube and TikTok adapters do not implement it.
+
+On Zernio, native removal needs the backend record ID preserved in `post.native.backendRecordId`. A native post ID alone cannot identify that provider record. Post for Me does not advertise native removal because its record deletion endpoint does not establish that it removes live platform content.
 
 A record shared by multiple destinations is rejected by these mutations. The client will not change another account's schedule or post as a side effect. Schedule cancellation requires a future schedule; once submission is due or underway, reconcile its delivery. The provider controls races between cancellation and dispatch. Cancellation never proves that an already dispatched native post was removed.
 

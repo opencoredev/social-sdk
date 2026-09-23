@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-conditional-empty-object-spread, anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion -- fixture payloads validate the transport boundary. */
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { connectedAccountRef, createSocial, profileRef } from "../src/index.js";
+import { connectedAccountRef, createSocial, platformPostRef, profileRef } from "../src/index.js";
 import { bluesky } from "../src/platforms/bluesky.js";
 
 const response = (value: unknown): Response => Response.json(value);
@@ -40,6 +40,11 @@ it("lists Bluesky relationships through the client facade without inventing a si
         ],
         cursor: "next",
       });
+    if (url.pathname.endsWith("getFollowers"))
+      return response({
+        followers: [{ did: "did:plc:bob", handle: "bob.test" }],
+        cursor: "followers-next",
+      });
     if (url.pathname.endsWith("getBlocks")) return response({ blocks: [], cursor: "blocks-next" });
     return response({ mutes: [] });
   });
@@ -52,8 +57,14 @@ it("lists Bluesky relationships through the client facade without inventing a si
   assert.equal(urls[0]?.searchParams.get("limit"), "10");
 
   const blocked = await social.graph.listRelationships(account, { kind: "blocked" });
+  const followers = await social.graph.listRelationships(account, { kind: "followers", limit: 7 });
   const muted = await social.graph.listRelationships(account, { kind: "muted" });
   assert.deepEqual(blocked.items, []);
+  assert.equal(followers.items[0]?.profile.profileId, "did:plc:bob");
+  assert.equal(
+    urls.find((url) => url.pathname.endsWith("getFollowers"))?.searchParams.get("limit"),
+    "7",
+  );
   assert.ok(blocked.nextCursor?.startsWith("social-v1."));
   assert.deepEqual(muted, { items: [] });
 });
@@ -174,9 +185,18 @@ it("creates, reads, changes, and deletes Bluesky lists", async () => {
     return response({});
   });
   const native = social.native("default", { acknowledgeUnsafe: true })!;
-  const list = await native.createList({ account, name: "Friends", purpose: "curatelist" });
-  await native.updateList({ account, listUri: list.uri, name: "Close friends" });
-  const item = await native.addListItem({ account, listUri: list.uri, did: "did:plc:alice" });
+  const list = await native.createList({
+    account,
+    name: "Friends",
+    purpose: "app.bsky.graph.defs#curatelist",
+  });
+  await native.updateList({
+    account,
+    listUri: list.uri,
+    name: "Close friends",
+    purpose: "app.bsky.graph.defs#curatelist",
+  });
+  const item = await native.addListItem({ account, listUri: list.uri, subject: "did:plc:alice" });
   assert.equal((await native.getList({ account, listUri: list.uri })).list instanceof Object, true);
   assert.equal((await native.getLists({ account })).cursor, "lists-next");
   await native.muteList({ account, listUri: list.uri });
@@ -246,4 +266,37 @@ it("rejects unsupported Bluesky all-search scope before network access", async (
     /scope 'all'/,
   );
   assert.equal(calls, 0);
+});
+
+it("deletes a platform post through posts.removeFromPlatform and accepts empty no-output bodies", async () => {
+  const requests: Array<{ url: URL; headers: Headers; body?: Record<string, unknown> }> = [];
+  const social = socialWith(async (input, init) => {
+    requests.push({
+      url: new URL(String(input)),
+      headers: new Headers(init?.headers),
+      ...(init?.body === undefined
+        ? {}
+        : { body: JSON.parse(String(init.body)) as Record<string, unknown> }),
+    });
+    return new Response(null, { status: 200 });
+  });
+  const post = platformPostRef({
+    backend: "default",
+    platform: "bluesky",
+    accountId: account.accountId,
+    postId: "at://did:plc:test/app.bsky.feed.post/r1",
+    native: { uri: "at://did:plc:test/app.bsky.feed.post/r1", cid: "cid" },
+  });
+  const native = social.native("default", { acknowledgeUnsafe: true })!;
+
+  await native.mute({ account, did: "did:plc:alice" });
+  await native.unmute({ account, did: "did:plc:alice" });
+  await native.muteList({ account, listUri: "at://did:plc:test/app.bsky.graph.list/l1" });
+  await native.unmuteList({ account, listUri: "at://did:plc:test/app.bsky.graph.list/l1" });
+  await native.markNotificationsSeen({ account, seenAt: "2026-09-22T00:00:00.000Z" });
+  await social.posts.removeFromPlatform(post);
+
+  assert.equal(requests.at(-1)?.url.pathname.endsWith("deleteRecord"), true);
+  assert.equal(requests.at(-1)?.headers.get("content-type"), "application/json");
+  assert.equal(requests.at(-1)?.body?.rkey, "r1");
 });

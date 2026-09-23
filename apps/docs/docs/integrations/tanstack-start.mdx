@@ -3,7 +3,7 @@ title: TanStack Start
 description: Publish to social platforms from TanStack Start server functions and API routes with Social SDK, keeping credentials in server-only code.
 ---
 
-TanStack Start runs its server functions and API routes on Node, so Social SDK slots in directly: construct the client in server-only code, call it from server functions, and keep webhook verification on the raw request.
+TanStack Start runs its server functions and server routes on Node, so Social SDK slots in directly: construct the client in server-only code, call it from server functions, and keep webhook verification on the raw request.
 
 ## Install
 
@@ -66,23 +66,38 @@ export const publishPost = createServerFn({ method: "POST" })
 
 Resolve the account from your own tenant data inside the handler. Client-supplied account IDs must never select the publishing account.
 
-## Webhooks through an API route
+## Webhooks through a server route
 
-API routes receive a web-standard `Request`, so verification reads the raw bytes directly:
+Server route handlers receive a web-standard `Request`, so verification reads the raw bytes and headers directly:
 
 ```ts src/routes/api/events.ts
-import { createAPIFileRoute } from "@tanstack/react-start/api";
+import { createFileRoute } from "@tanstack/react-router";
+import { SocialError } from "@opencoredev/social-sdk";
+import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
-export const APIRoute = createAPIFileRoute("/api/events")({
-  POST: async ({ request }) => {
-    const body = new Uint8Array(await request.arrayBuffer());
-    const verification = await adapter.webhooks?.verify(
-      { headers: Object.fromEntries(request.headers), body },
-      context,
-    );
-    if (!verification?.valid) return new Response("unauthorized", { status: 401 });
-    // decode, resolve tenants, accept into your durable inbox
-    return new Response("accepted", { status: 202 });
+export const Route = createFileRoute("/api/events")({
+  server: {
+    handlers: {
+      POST: async ({ request }) => {
+        const body = new Uint8Array(await request.arrayBuffer());
+
+        try {
+          await verifyZernioWebhook({
+            secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+            headers: request.headers,
+            body,
+          });
+        } catch (error) {
+          if (error instanceof SocialError && error.code === "unauthorized") {
+            return new Response("unauthorized", { status: 401 });
+          }
+          throw error;
+        }
+
+        // decode, resolve tenants, accept into your durable inbox
+        return new Response("accepted", { status: 202 });
+      },
+    },
   },
 });
 ```
@@ -92,5 +107,5 @@ Follow the [events guide](/events) for decoding, tenant quarantine, and the dura
 ## Notes
 
 - Deploy on a Node 22.12+ or Node 24 target; the SDK is ESM-only. Edge presets are not tested SDK runtimes.
-- Keep the client module out of route components; only server functions and API routes may import it.
+- Keep the client module out of route components; only server functions and server routes may import it.
 - Scheduled publishing belongs to a durable job runner such as [Trigger.dev](/integrations/trigger-dev) or [Inngest](/integrations/inngest).

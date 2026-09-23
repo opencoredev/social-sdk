@@ -88,6 +88,7 @@ export interface LinkedInNative {
     readonly account: ConnectedAccountRef;
     readonly text: string;
     readonly options: readonly string[];
+    readonly duration?: "ONE_DAY" | "THREE_DAYS" | "SEVEN_DAYS" | "FOURTEEN_DAYS";
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
   readonly react: (input: {
@@ -156,6 +157,7 @@ export function linkedin(
 
   const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
   const now = () => (options.clock?.() ?? new Date()).toISOString();
+  const escapeCommentary = (text: string) => text.replace(/[|{}@()[\]<>#\\*_~]/g, "\\$&");
 
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
@@ -178,7 +180,8 @@ export function linkedin(
     context: AdapterOperationContext,
     body?: JsonObject,
     selectedHeaders?: readonly string[],
-    method: "GET" | "POST" | "PUT" | "DELETE" = body === undefined ? "GET" : "POST",
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = body === undefined ? "GET" : "POST",
+    extraHeaders?: HeadersInit,
   ) {
     try {
       return await http({
@@ -189,6 +192,7 @@ export function linkedin(
           "Content-Type": "application/json",
           "Linkedin-Version": options.apiVersion,
           "X-Restli-Protocol-Version": "2.0.0",
+          ...extraHeaders,
         },
         method,
         // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
@@ -210,17 +214,27 @@ export function linkedin(
       throw new SocialError({
         code: ambiguous
           ? "ambiguous_outcome"
-          : error.status === 401
-            ? "reconnect_required"
-            : error.status === 403
-              ? "missing_permission"
-              : error.status === 429
-                ? "rate_limited"
-                : "upstream_failure",
+          : error.kind === "timeout"
+            ? "timeout"
+            : error.kind === "cancelled"
+              ? "cancelled"
+              : error.status === 401
+                ? "reconnect_required"
+                : error.status === 403
+                  ? "missing_permission"
+                  : error.status === 404
+                    ? "not_found"
+                    : error.status === 429
+                      ? "rate_limited"
+                      : "upstream_failure",
         operation: path,
         message: error.message,
         upstreamStatus: error.status,
-        retryDisposition: ambiguous ? { kind: "reconcile-first" } : { kind: "never" },
+        retryDisposition: ambiguous
+          ? { kind: "reconcile-first" }
+          : error.status === 429 && error.retryAfterMs !== undefined
+            ? { kind: "after-delay", delayMs: error.retryAfterMs }
+            : { kind: "never" },
       });
     }
   }
@@ -587,16 +601,20 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "posts.multi-image",
-          availability: "available" as const,
+          availability: "not-implemented-by-adapter" as const,
           formats: ["carousel" as const],
         },
         {
           platform: "linkedin",
           operation: "posts.video",
-          availability: "available" as const,
+          availability: "not-implemented-by-adapter" as const,
           formats: ["video" as const],
         },
-        { platform: "linkedin", operation: "posts.document", availability: "available" as const },
+        {
+          platform: "linkedin",
+          operation: "posts.document",
+          availability: "not-implemented-by-adapter" as const,
+        },
         { platform: "linkedin", operation: "polls.create", availability: "available" as const },
         { platform: "linkedin", operation: "reactions.write", availability: "available" as const },
         { platform: "linkedin", operation: "reshares.write", availability: "available" as const },
@@ -604,11 +622,16 @@ export function linkedin(
         { platform: "linkedin", operation: "posts.delete", availability: "available" as const },
         {
           platform: "linkedin",
+          operation: "posts.removeFromPlatform",
+          availability: "available" as const,
+        },
+        {
+          platform: "linkedin",
           operation: "analytics.organization.read",
           availability: options.auth.author.startsWith("urn:li:organization:")
             ? ("available" as const)
             : ("account-ineligible" as const),
-          requiredScopes: ["rw_organization_admin", "r_organization_admin"],
+          requiredScopes: ["rw_organization_admin"],
           notes:
             "Requires the Community Management API product and organization administrator access. Member accounts are not eligible.",
         },
@@ -639,7 +662,7 @@ export function linkedin(
             availability: options.auth.author.startsWith("urn:li:organization:")
               ? ("available" as const)
               : ("account-ineligible" as const),
-            requiredScopes: ["rw_organization_admin", "r_organization_admin"],
+            requiredScopes: ["rw_organization_admin"],
             notes:
               "Community Management API product and organization administrator access are required. Member accounts are not eligible.",
           }),
@@ -662,9 +685,12 @@ export function linkedin(
           formats: ["image" as const],
         },
         ...["comments.read", "comments.write", "analytics.read"].map((operation) => ({
-          platform: "linkedin",
+          platform: "linkedin" as const,
           operation,
           availability: "available" as const,
+          ...(operation === "analytics.read"
+            ? { requiredScopes: ["r_member_social"] }
+            : { requiredScopes: ["w_member_social", "r_member_social"] }),
           notes:
             "Community Management product permissions and author post read access required. Analytics contains returned social-action counts only.",
         })),
@@ -740,18 +766,32 @@ export function linkedin(
         if (media?.source.kind === "media-ref") {
           authorize(media.source.ref, context);
 
-          const image = object(
-            await request(`/rest/images/${encodeURIComponent(media.source.ref.mediaId)}`, context),
-          );
+          let image: JsonObject | undefined;
+          try {
+            // SAFETY: object() validates the upstream response as a JSON object.
+            image = object(
+              await request(
+                `/rest/images/${encodeURIComponent(media.source.ref.mediaId)}`,
+                context,
+              ),
+            ) as JsonObject;
+          } catch (error) {
+            if (
+              !(error instanceof SocialError) ||
+              error.code !== "missing_permission" ||
+              !options.auth.author.startsWith("urn:li:person:")
+            )
+              throw error;
+          }
 
-          if (image["owner"] !== target.account.accountId)
+          if (image?.["owner"] !== undefined && image["owner"] !== target.account.accountId)
             throw new SocialError({
               code: "unauthorized",
               operation: "posts.publish",
               message: "LinkedIn image belongs to a different author.",
             });
 
-          if (image["status"] !== "AVAILABLE")
+          if (image?.["status"] !== undefined && image["status"] !== "AVAILABLE")
             throw new SocialError({
               code: "media_error",
               operation: "posts.publish",
@@ -772,7 +812,7 @@ export function linkedin(
             context,
             {
               author: target.account.accountId,
-              commentary: target.content.text ?? "",
+              commentary: escapeCommentary(target.content.text ?? ""),
               visibility: "PUBLIC",
               distribution: {
                 feedDistribution: "MAIN_FEED",
@@ -892,6 +932,16 @@ export function linkedin(
             : {}),
         };
       },
+      async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
+        authorize(ref, context);
+        await request(
+          `/rest/posts/${encodeURIComponent(ref.postId)}`,
+          context,
+          undefined,
+          undefined,
+          "DELETE",
+        );
+      },
     },
     comments: {
       async list(
@@ -956,7 +1006,7 @@ export function linkedin(
             message: "Provide a comment of 1 to 1,250 characters.",
           });
         await readCommentablePost({ ...ref, kind: "platform-post" }, context);
-        const match = /^urn:li:comment:\(urn:li:activity:\d+,(\d+)\)$/.exec(ref.commentId);
+        const match = /^urn:li:comment:\(urn:li:activity:(\d+),(\d+)\)$/.exec(ref.commentId);
 
         if (!match)
           throw new SocialError({
@@ -967,7 +1017,7 @@ export function linkedin(
 
         const parent = object(
           await request(
-            `/rest/socialActions/${encodeURIComponent(ref.postId)}/comments/${match[1]}`,
+            `/rest/socialActions/${encodeURIComponent(ref.postId)}/comments/${match[2]}`,
             context,
           ),
         );
@@ -979,8 +1029,12 @@ export function linkedin(
             message: "Comment does not belong to the supplied post.",
           });
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        if (typeof parent["object"] === "string" && parent["object"] !== ref.postId)
+        const parentObject = optionalString(parent["object"]);
+        if (
+          parentObject !== undefined &&
+          parentObject !== ref.postId &&
+          parentObject !== `urn:li:activity:${match[1]}`
+        )
           throw new SocialError({
             code: "unauthorized",
             operation: "comments.write",
@@ -1109,42 +1163,78 @@ export function linkedin(
 
         return publicFields(image, ["id", "owner", "status"]);
       },
-      async registerVideo({ account, byteSize, context }) {
+      async registerVideo({ account, context }) {
         authorize(account, context);
-
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return (await request("/rest/videos?action=initializeUpload", context, {
-          initializeUploadRequest: { owner: account.accountId, fileSizeBytes: byteSize },
-        })) as JsonObject;
+        throw new SocialError({
+          code: "unsupported_capability",
+          operation: "posts.video",
+          message: "LinkedIn video publishing is not implemented by this adapter.",
+        });
       },
-      async createPoll({ account, text, options: pollOptions, context }) {
+      async createPoll({ account, text, options: pollOptions, duration = "THREE_DAYS", context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return (await request("/rest/posts", context, {
-          author: account.accountId,
-          commentary: text,
-          distribution: { feedDistribution: "MAIN_FEED" },
-          content: { poll: { question: text, options: [...pollOptions] } },
-        })) as JsonObject;
+        const result = object(
+          await request(
+            "/rest/posts",
+            context,
+            {
+              author: account.accountId,
+              commentary: escapeCommentary(text),
+              visibility: "PUBLIC",
+              distribution: {
+                feedDistribution: "MAIN_FEED",
+                targetEntities: [],
+                thirdPartyDistributionChannels: [],
+              },
+              lifecycleState: "PUBLISHED",
+              content: {
+                poll: {
+                  question: text,
+                  options: pollOptions.map((option) => ({ text: option })),
+                  settings: { duration },
+                },
+              },
+            },
+            ["x-restli-id"],
+          ),
+        );
+        const id = optionalString(object(result["headers"])["x-restli-id"]);
+        // SAFETY: result is validated as a JSON object and id is a JSON string.
+        return (id === undefined ? result : { ...result, id }) as JsonObject;
       },
       async react({ account, postId, reaction, context }) {
         authorize(account, context);
-        await request(`/rest/reactions`, context, {
+        await request(`/rest/reactions?actor=${encodeURIComponent(account.accountId)}`, context, {
           root: postId,
           reactionType: reaction,
-          actor: account.accountId,
         });
       },
       async reshare({ account, postId, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return (await request("/rest/posts", context, {
-          author: account.accountId,
-          resharedPost: postId,
-          commentary: "",
-        })) as JsonObject;
+        const result = object(
+          await request(
+            "/rest/posts",
+            context,
+            {
+              author: account.accountId,
+              commentary: "",
+              visibility: "PUBLIC",
+              distribution: {
+                feedDistribution: "MAIN_FEED",
+                targetEntities: [],
+                thirdPartyDistributionChannels: [],
+              },
+              lifecycleState: "PUBLISHED",
+              reshareContext: { parent: postId },
+            },
+            ["x-restli-id"],
+          ),
+        );
+        const id = optionalString(object(result["headers"])["x-restli-id"]);
+        // SAFETY: result is validated as a JSON object and id is a JSON string.
+        return (id === undefined ? result : { ...result, id }) as JsonObject;
       },
       async updatePost({ account, postId, body, context }) {
         authorize(account, context);
@@ -1153,9 +1243,10 @@ export function linkedin(
         return (await request(
           `/rest/posts/${encodeURIComponent(postId)}`,
           context,
-          body,
-          undefined,
-          "PUT",
+          { patch: { $set: body } },
+          ["x-restli-id"],
+          "POST",
+          { "X-RestLi-Method": "PARTIAL_UPDATE" },
         )) as JsonObject;
       },
       async deletePost({ account, postId, context }) {

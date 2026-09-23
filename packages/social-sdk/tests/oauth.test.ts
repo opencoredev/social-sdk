@@ -1,7 +1,15 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- provider fixtures are intentionally grouped. */
+/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion -- provider fixtures are intentionally grouped and request contracts are asserted after controlled fetch capture. */
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { xOAuth, youtubeOAuth, refreshOAuthToken } from "../src/server/oauth.js";
+import {
+  exchangeLongLivedOAuthToken,
+  instagramOAuth,
+  linkedinOAuth,
+  refreshOAuthToken,
+  tiktokOAuth,
+  xOAuth,
+  youtubeOAuth,
+} from "../src/server/oauth.js";
 import type { ConnectionAttempt } from "../src/server/connections.js";
 
 const attempt: ConnectionAttempt = {
@@ -19,6 +27,52 @@ const attempt: ConnectionAttempt = {
 };
 
 describe("direct OAuth providers", () => {
+  it("uses documented X authorization host, publish scopes, and Basic client authentication", async () => {
+    let request: RequestInit | undefined;
+    const provider = xOAuth({
+      clientId: "client",
+      clientSecret: "secret",
+      fetch: async (url, init) => {
+        if (init?.method === "POST") {
+          request = init;
+          return new Response(JSON.stringify({ access_token: "at", user_id: "42" }), {
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ data: { id: "42", name: "Ada" } }), {
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const started = await provider.start({
+      platforms: ["x"],
+      capabilities: [],
+      redirectUri: attempt.redirectUri,
+      state: attempt.state,
+      codeChallenge: "challenge",
+    });
+    const auth = new URL(started.authorizationUrl);
+    assert.equal(auth.origin + auth.pathname, "https://x.com/i/oauth2/authorize");
+    assert.match(auth.searchParams.get("scope") ?? "", /tweet\.write/);
+    await provider.complete({ callbackUrl: `${attempt.redirectUri}?code=c&state=state`, attempt });
+    const headers = new Headers(request?.headers);
+    assert.equal(headers.get("authorization"), `Basic ${btoa("client:secret")}`);
+    assert.equal(new URLSearchParams(request?.body as string).has("client_secret"), false);
+  });
+
+  it("does not add PKCE parameters to TikTok web authorization", async () => {
+    const started = await tiktokOAuth({ clientId: "client" }).start({
+      platforms: ["tiktok"],
+      capabilities: [],
+      redirectUri: attempt.redirectUri,
+      state: attempt.state,
+      codeChallenge: "challenge",
+    });
+    const url = new URL(started.authorizationUrl);
+    assert.equal(url.searchParams.has("code_challenge"), false);
+    assert.equal(url.searchParams.has("code_challenge_method"), false);
+  });
+
   it("creates PKCE authorization URL and persists discovered account", async () => {
     let saved = "";
 
@@ -74,14 +128,99 @@ describe("direct OAuth providers", () => {
       code: "reconnect_required",
     });
   });
-});
 
-import {
-  exchangeLongLivedOAuthToken,
-  instagramOAuth,
-  linkedinOAuth,
-  tiktokOAuth,
-} from "../src/server/oauth.js";
+  it("maps invalid_grant on token exchange and refresh to reconnect_required", async () => {
+    const provider = xOAuth({
+      clientId: "c",
+      clientSecret: "s",
+      fetch: async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await assert.rejects(
+      provider.complete({ callbackUrl: `${attempt.redirectUri}?code=c&state=state`, attempt }),
+      { code: "reconnect_required" },
+    );
+    await assert.rejects(
+      refreshOAuthToken(
+        "x",
+        {
+          clientId: "c",
+          clientSecret: "s",
+          fetch: async () =>
+            new Response("error=invalid_grant", {
+              status: 400,
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+            }),
+        },
+        { accessToken: "a", refreshToken: "r" },
+      ),
+      { code: "reconnect_required" },
+    );
+  });
+
+  it("accepts wrapped Instagram tokens and either /me identity", async () => {
+    const provider = instagramOAuth({
+      clientId: "client",
+      fetch: async (url) => {
+        if (String(url).includes("oauth/access_token"))
+          return new Response(
+            JSON.stringify({ data: [{ access_token: "at", user_id: "user-1" }] }),
+            { headers: { "content-type": "application/json" } },
+          );
+        return new Response(JSON.stringify({ id: "id-1", user_id: "user-1", username: "Ada" }), {
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    const accounts = await provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["instagram"] },
+    });
+    assert.equal(accounts[0]?.ref.accountId, "user-1");
+  });
+
+  it("uses the versioned LinkedIn organization ACL endpoint and accepts CONTENT_ADMINISTRATOR", async () => {
+    const seen: string[] = [];
+    const provider = linkedinOAuth({
+      clientId: "client",
+      linkedinApiVersion: "202609",
+      fetch: async (url, init) => {
+        seen.push(String(url));
+        if (init?.method === "POST")
+          return new Response(JSON.stringify({ access_token: "at" }), {
+            headers: { "content-type": "application/json" },
+          });
+        if (String(url).includes("userinfo"))
+          return new Response(JSON.stringify({ sub: "member", name: "Member" }), {
+            headers: { "content-type": "application/json" },
+          });
+        return new Response(
+          JSON.stringify({
+            elements: [
+              { organizationTarget: "urn:li:organization:123", role: "CONTENT_ADMINISTRATOR" },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+    const accounts = await provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["linkedin"] },
+    });
+    assert.equal(
+      accounts.some((item) => item.ref.accountId === "urn:li:organization:123"),
+      true,
+    );
+    assert.equal(
+      seen.some((url) => url.includes("/rest/organizationAcls?q=roleAssignee")),
+      true,
+    );
+  });
+});
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function response(value: unknown, status = 200, contentType = "application/json") {
@@ -93,7 +232,7 @@ function response(value: unknown, status = 200, contentType = "application/json"
 }
 
 describe("provider-specific OAuth contracts", () => {
-  it("uses comma-delimited TikTok scopes and sends PKCE", async () => {
+  it("uses comma-delimited TikTok scopes without web PKCE", async () => {
     const provider = tiktokOAuth({
       clientId: "client",
       fetch: async (url) =>
@@ -112,7 +251,7 @@ describe("provider-specific OAuth contracts", () => {
 
     const parsed = new URL(started.authorizationUrl);
     assert.match(parsed.searchParams.get("scope") ?? "", /,/);
-    assert.equal(parsed.searchParams.get("code_challenge_method"), "S256");
+    assert.equal(parsed.searchParams.has("code_challenge_method"), false);
   });
 
   it("returns only ACL-authorized LinkedIn URNs and uses configured version", async () => {
@@ -130,7 +269,7 @@ describe("provider-specific OAuth contracts", () => {
 
         if (String(url).includes("userinfo")) return response({ sub: "member", name: "Member" });
 
-        if (String(url).includes("organizationalEntityAcls"))
+        if (String(url).includes("organizationAcls"))
           return response({
             elements: [
               { organizationalTarget: "urn:li:organization:123", role: "ADMINISTRATOR" },

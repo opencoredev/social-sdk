@@ -6,10 +6,42 @@ import { openExampleDatabase } from "./storage.js";
 
 const handler = createExampleHandler({
   ...exampleBackendConfig(process.env),
+  allowedHosts: [
+    `localhost:${process.env["PORT"] ?? "3030"}`,
+    `127.0.0.1:${process.env["PORT"] ?? "3030"}`,
+    `[::1]:${process.env["PORT"] ?? "3030"}`,
+    ...(process.env["EXAMPLE_ALLOWED_HOSTS"]
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean) ?? []),
+  ],
+  allowedOrigins: [
+    `http://localhost:${process.env["PORT"] ?? "3030"}`,
+    `http://127.0.0.1:${process.env["PORT"] ?? "3030"}`,
+    `http://[::1]:${process.env["PORT"] ?? "3030"}`,
+    ...(process.env["EXAMPLE_PUBLIC_ORIGIN"] ? [process.env["EXAMPLE_PUBLIC_ORIGIN"]] : []),
+  ],
   database: openExampleDatabase(process.env["EXAMPLE_DB"] ?? "./social-example.sqlite"),
 });
 
+const allowedHosts = new Set([
+  `localhost:${process.env["PORT"] ?? "3030"}`,
+  `127.0.0.1:${process.env["PORT"] ?? "3030"}`,
+  `[::1]:${process.env["PORT"] ?? "3030"}`,
+  ...(process.env["EXAMPLE_ALLOWED_HOSTS"]
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean) ?? []),
+]);
+
 const server = createServer(async (request, response) => {
+  if (!request.headers.host || !allowedHosts.has(request.headers.host)) {
+    response.writeHead(421);
+    response.end("Misdirected request");
+
+    return;
+  }
+
   const origin = `http://${request.headers.host ?? "localhost"}`;
 
   const headers = new Headers();

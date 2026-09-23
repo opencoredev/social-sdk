@@ -2,6 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { linkedin } from "../src/platforms/linkedin.js";
+import type { JsonObject } from "../src/core/types.js";
 
 /* oxlint-disable anti-slop/require-readable-spacing -- Keep fixture branches compact. */
 
@@ -219,7 +220,7 @@ it("LinkedIn binds comment replies to their post before dispatching", async () =
           return Response.json({ commentUrn: "urn:li:comment:(urn:li:activity:456,790)" });
         }
 
-        return Response.json({ commentUrn: comment.commentId });
+        return Response.json({ commentUrn: comment.commentId, object: "urn:li:activity:456" });
       },
     }),
   });
@@ -227,6 +228,120 @@ it("LinkedIn binds comment replies to their post before dispatching", async () =
   const reply = await social.comments.reply(comment, { text: "Reply" });
   assert.equal(reply.commentId, "urn:li:comment:(urn:li:activity:456,790)");
   assert.deepEqual(methods, ["GET", "GET", "POST"]);
+});
+
+it("LinkedIn escapes Little Text Format commentary and continues after member image 403", async () => {
+  const bodies: JsonObject[] = [];
+  const social = createSocial({
+    backend: linkedin({
+      auth,
+      apiVersion: "202609",
+      fetch: async (input, init) => {
+        if (String(input).includes("/rest/images/")) return new Response(null, { status: 403 });
+        // SAFETY: the adapter sends a JSON object body for this test request.
+        bodies.push(JSON.parse(String(init?.body)) as JsonObject);
+        return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
+      },
+    }),
+  });
+  const result = await social.posts.publish({
+    targets: [{ account }],
+    content: {
+      text: "|{}@[]()<>#\\*_~",
+      media: [
+        {
+          kind: "image",
+          source: {
+            kind: "media-ref",
+            ref: {
+              kind: "media",
+              version: 1,
+              backend: "default",
+              platform: "linkedin",
+              accountId: auth.author,
+              mediaId: "urn:li:image:1",
+            },
+          },
+        },
+      ],
+    },
+  });
+  assert.equal(result.outcomes[0]?.state, "published");
+  assert.equal(bodies[0]?.commentary, "\\|\\{\\}\\@\\[\\]\\(\\)\\<\\>\\#\\\\\\*\\_\\~");
+});
+
+it("LinkedIn native writes use documented poll, reaction, reshare, update, and delete shapes", async () => {
+  const calls: { url: string; method: string; body?: JsonObject; headers: Headers }[] = [];
+  const adapter = linkedin({
+    auth,
+    apiVersion: "202609",
+    fetch: async (input, init) => {
+      calls.push({
+        url: String(input),
+        method: init?.method ?? "GET",
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        headers: new Headers(init?.headers),
+      });
+      return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:99" } });
+    },
+  });
+  const post = "urn:li:share:123";
+  const native = adapter.native!;
+  const poll = await native.createPoll({
+    account,
+    text: "Q",
+    options: ["A", "B"],
+    context: nativeContext,
+  });
+  await native.react({ account, postId: post, reaction: "LIKE", context: nativeContext });
+  const reshared = await native.reshare({ account, postId: post, context: nativeContext });
+  await native.updatePost({
+    account,
+    postId: post,
+    body: { commentary: "changed" },
+    context: nativeContext,
+  });
+  await native.deletePost({ account, postId: post, context: nativeContext });
+  assert.equal(poll.id, "urn:li:share:99");
+  assert.deepEqual(calls[0]?.body?.content, {
+    poll: {
+      question: "Q",
+      options: [{ text: "A" }, { text: "B" }],
+      settings: { duration: "THREE_DAYS" },
+    },
+  });
+  assert.equal(
+    calls[1]?.url,
+    "https://api.linkedin.com/rest/reactions?actor=urn%3Ali%3Aperson%3Amember1",
+  );
+  assert.deepEqual(calls[2]?.body?.reshareContext, { parent: post });
+  assert.equal(reshared.id, "urn:li:share:99");
+  assert.equal(calls[3]?.method, "POST");
+  assert.equal(calls[3]?.headers.get("X-RestLi-Method"), "PARTIAL_UPDATE");
+  assert.deepEqual(calls[3]?.body, { patch: { $set: { commentary: "changed" } } });
+  assert.equal(calls[4]?.method, "DELETE");
+});
+
+it("LinkedIn removes a platform post through the posts lifecycle", async () => {
+  let call: { url: string; method: string; headers: Headers } | undefined;
+  const adapter = linkedin({
+    auth,
+    apiVersion: "202609",
+    fetch: async (input, init) => {
+      call = {
+        url: String(input),
+        method: init?.method ?? "GET",
+        headers: new Headers(init?.headers),
+      };
+      return new Response(null, { status: 204 });
+    },
+  });
+  await adapter.posts!.removeFromPlatform!(
+    { ...account, kind: "platform-post", postId: "urn:li:share:1/2" },
+    nativeContext,
+  );
+  assert.equal(call?.url, "https://api.linkedin.com/rest/posts/urn%3Ali%3Ashare%3A1%2F2");
+  assert.equal(call?.method, "DELETE");
 });
 
 it("LinkedIn rejects a comment whose native parent object differs from the declared post", async () => {

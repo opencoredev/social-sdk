@@ -299,9 +299,65 @@ it("reconstructs a carousel workflow and resumes without recreating children", a
     workflowStore: store,
   });
 
-  const resumed = await second.native?.resumePublication(account, workflowId, context());
+  const resumed = await second.posts?.getDelivery(
+    {
+      backend: "instagram",
+      platform: "instagram",
+      accountId: "ig1",
+      deliveryId: workflowId,
+    },
+    context(),
+  );
   assert.equal(resumed?.state, "published");
   assert.equal(calls.filter((x) => x.includes("POST") && x.endsWith("/media")).length, 3);
+});
+
+it("polls a single video workflow through getDelivery and publishes after FINISHED", async () => {
+  const store = new TestWorkflowStore();
+  let statusCode = "IN_PROGRESS";
+  const calls: Array<{ method: string; body: string }> = [];
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1" },
+    workflowStore: store,
+    fetch: async (input, init) => {
+      calls.push({ method: init?.method ?? "GET", body: String(init?.body ?? "") });
+      if (init?.method === "POST" && String(input).endsWith("/media"))
+        return new Response(JSON.stringify({ id: "video-container" }));
+      if (init?.method === "POST") return new Response(JSON.stringify({ id: "published-media" }));
+      return new Response(JSON.stringify({ status_code: statusCode }));
+    },
+  });
+  const account = connectedAccountRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+  const pending = await adapter.posts?.publishTarget(
+    target(account, [
+      {
+        kind: "video",
+        source: { kind: "https-url", url: "https://cdn.example/video.mp4" },
+        mimeType: "video/mp4",
+        width: 1080,
+        height: 1920,
+      },
+    ]),
+    context(),
+  );
+  const deliveryId = pending?.delivery?.deliveryId;
+  assert.equal(pending?.state, "processing");
+  assert.ok(deliveryId);
+  assert.equal(deliveryId, [...store.rows.keys()][0]);
+  statusCode = "FINISHED";
+  const result = await adapter.posts?.getDelivery(
+    { backend: "instagram", platform: "instagram", accountId: "ig1", deliveryId },
+    context(),
+  );
+  assert.equal(result?.state, "published");
+  assert.equal(result?.post?.postId, "published-media");
+  assert.ok(
+    calls.some(({ method, body }) => method === "POST" && body.includes("video-container")),
+  );
 });
 
 it("serializes concurrent carousel resumes and rejects unauthorized handles", async () => {
@@ -619,12 +675,12 @@ it("uses ID-scoped field expansions for Facebook mention lookups", async () => {
   );
 });
 
-it("lists mentions with Instagram Login through the public native facade", async () => {
-  const urls: URL[] = [];
+it("rejects tags mentions with Instagram Login through the public native facade", async () => {
+  let requests = 0;
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
-    fetch: async (input) => {
-      urls.push(new URL(String(input)));
+    fetch: async (_input) => {
+      requests++;
       return new Response(JSON.stringify({ data: [{ id: "mention-1" }] }));
     },
   });
@@ -635,9 +691,11 @@ it("lists mentions with Instagram Login through the public native facade", async
     accountId: "ig1",
   });
   const native = social.native("default", { acknowledgeUnsafe: true });
-  const result = await native?.listMentions({ account, context: context("default") });
-  assert.deepEqual(result?.items, [{ id: "mention-1" }]);
-  assert.equal(urls[0]?.host, "graph.instagram.com");
+  await assert.rejects(
+    () => native?.listMentions({ account, context: context("default") }),
+    /Facebook Login/,
+  );
+  assert.equal(requests, 0);
 });
 
 it("uses user_id for an Instagram Login own-profile response", async () => {
@@ -686,7 +744,7 @@ it("searches hashtags, validates identifiers, and rejects empty names", async ()
 
 it("maps malformed Instagram responses to an upstream SocialError", async () => {
   const adapter = instagram({
-    auth: { accessToken: "token", accountId: "ig1" },
+    auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async () => new Response(JSON.stringify(null)),
   });
   const account = connectedAccountRef({

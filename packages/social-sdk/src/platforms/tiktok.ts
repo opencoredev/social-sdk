@@ -67,7 +67,33 @@ export function tiktok(
   const request = managedHttp("https://open.tiktokapis.com", {
     apiKey: options.auth.accessToken,
     // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.fetch
+      ? {
+          fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+            const response = await options.fetch!(input, init);
+
+            if (response.status < 400 || response.status >= 500) return response;
+
+            const body = await response.clone().text();
+
+            try {
+              const parsed: unknown = JSON.parse(body);
+              const parsedObject = object(parsed);
+              const errorObject = object(parsedObject["error"]);
+
+              if (errorObject["code"] !== undefined)
+                return new Response(body, {
+                  status: 200,
+                  headers: response.headers,
+                });
+            } catch {
+              // Preserve ordinary HTTP error handling for non-JSON responses.
+            }
+
+            return response;
+          },
+        }
+      : {}),
   });
 
   const origins = new Set(options.verifiedMediaOrigins.map((value) => httpsUrl(value).origin));
@@ -106,7 +132,8 @@ export function tiktok(
         code:
           error["code"] === "access_token_invalid"
             ? "reconnect_required"
-            : error["code"] === "scope_not_authorized"
+            : error["code"] === "scope_not_authorized" ||
+                error["code"] === "unaudited_client_can_only_post_to_private_accounts"
               ? "missing_permission"
               : "upstream_failure",
         operation: "tiktok",
@@ -148,6 +175,7 @@ export function tiktok(
     if (target.account.platform !== "tiktok" || target.account.accountId !== options.auth.openId)
       fail("tiktok.account", "Select the configured TikTok creator.");
     const config = target.options === undefined ? {} : object(target.options);
+    const draft = config["draft"] === true;
 
     if (config["consentGiven"] !== true)
       fail(
@@ -169,12 +197,12 @@ export function tiktok(
         fail(`tiktok.${key}`, `Explicit ${key} choice is required.`);
 
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-    if (!config["creatorInfo"] || typeof config["creatorInfo"] !== "object")
+    if (!draft && (!config["creatorInfo"] || typeof config["creatorInfo"] !== "object"))
       fail(
         "tiktok.creator_info",
         "Query creator information explicitly and render its choices before preparation.",
       );
-    else {
+    else if (!draft) {
       const creator = object(config["creatorInfo"]);
 
       if (
@@ -288,8 +316,18 @@ export function tiktok(
             "Verified URL source; explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload.",
         },
         { platform: "tiktok", operation: "posts.status", availability: "available" as const },
-        { platform: "tiktok", operation: "posts.read", availability: "available" as const },
-        { platform: "tiktok", operation: "posts.list", availability: "available" as const },
+        {
+          platform: "tiktok",
+          operation: "posts.read",
+          availability: "available" as const,
+          requiredScopes: ["video.list"],
+        },
+        {
+          platform: "tiktok",
+          operation: "posts.list",
+          availability: "available" as const,
+          requiredScopes: ["video.list"],
+        },
         {
           platform: "tiktok",
           operation: "posts.draft",
@@ -319,6 +357,12 @@ export function tiktok(
           operation: "analytics.account.read",
           availability: "available" as const,
           requiredScopes: ["user.info.stats"],
+        },
+        {
+          platform: "tiktok",
+          operation: "analytics.read",
+          availability: "available" as const,
+          requiredScopes: ["video.list"],
         },
       ],
     },
@@ -459,9 +503,12 @@ export function tiktok(
       ): Promise<DeliveryOutcome> {
         authorize(target.account, context);
         const config = object(target.options);
-        const latest = await creatorInfo(target.account, context);
+        const draft = config["draft"] === true;
+        const latest = draft ? undefined : await creatorInfo(target.account, context);
+        const media = target.content.media ?? [];
+        const first = media[0];
 
-        if (!array(latest["privacyLevels"]).includes(config["privacy"]))
+        if (latest && !array(latest["privacyLevels"]).includes(config["privacy"]))
           throw new SocialError({
             code: "invalid_input",
             operation: "posts.publish",
@@ -474,15 +521,20 @@ export function tiktok(
           ["duetDisabled", "disableDuet"],
           ["stitchDisabled", "disableStitch"],
         ])
-          if (remote && choice && latest[remote] === true && config[choice] !== true)
+          if (
+            first?.kind === "video" &&
+            latest &&
+            remote &&
+            choice &&
+            latest[remote] === true &&
+            config[choice] !== true
+          )
             throw new SocialError({
               code: "invalid_input",
               operation: "posts.publish",
               message:
                 "Creator interaction restrictions changed. Refresh the preview before publishing.",
             });
-        const media = target.content.media ?? [];
-        const first = media[0];
 
         if (!first || first.source.kind !== "https-url")
           throw new SocialError({
@@ -493,6 +545,8 @@ export function tiktok(
 
         if (
           first.kind === "video" &&
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
+          latest &&
           // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
           typeof latest["maxVideoDurationSeconds"] === "number" &&
           (first.durationSeconds ?? Infinity) > latest["maxVideoDurationSeconds"]
@@ -511,7 +565,6 @@ export function tiktok(
           brand_organic_toggle: config["ownBrand"] === true,
         };
 
-        const draft = config["draft"] === true;
         // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
         let result: Record<string, unknown>;
 
@@ -609,7 +662,11 @@ export function tiktok(
             state: "failed",
             code: optionalString(result["fail_reason"]) ?? "upstream_failure",
             message: "TikTok confirmed this publishing action failed.",
-            retryDisposition: { kind: "never" },
+            retryDisposition: ["internal", "video_pull_failed", "photo_pull_failed"].includes(
+              optionalString(result["fail_reason"]) ?? "",
+            )
+              ? { kind: "reconcile-first" }
+              : { kind: "never" },
           };
 
         if (state === "PROCESSING_UPLOAD" || state === "PROCESSING_DOWNLOAD")
@@ -643,6 +700,8 @@ export function tiktok(
                 postId: nativeId,
               },
             };
+
+          return { ...base, state: "accepted" };
         }
 
         return {
@@ -754,15 +813,19 @@ export function tiktok(
       async listVideos({ account, cursor, maxCount, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return data(
-          await request("/v2/video/list/", context, {
-            fields: [...videoFields],
-            max_count: maxCount ?? 20,
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            ...(cursor ? { cursor } : {}),
-          }),
-        ) as JsonObject;
+        const parsedCursor = cursor === undefined ? 0 : Number(cursor);
+
+        const result = data(
+          await request(
+            "/v2/video/list/",
+            context,
+            { cursor: parsedCursor, max_count: maxCount ?? 20 },
+            { fields: videoFields.join(",") },
+          ),
+        );
+
+        // SAFETY: data() validates the provider response as a JSON object.
+        return result as JsonObject;
       },
       async publishStatus({ account, publishId, context }) {
         authorize(account, context);

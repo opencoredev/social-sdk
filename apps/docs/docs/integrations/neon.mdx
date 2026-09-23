@@ -343,16 +343,28 @@ curl -X POST http://localhost:8787/reconcile \
 
 ## Webhooks
 
-Hono exposes the untouched request as `c.req.raw`, which verification needs:
+Hono exposes the untouched request as `c.req.raw`. Read its bytes before any JSON parsing and pass its `Headers` object as is:
 
 ```ts
+import { SocialError } from "@opencoredev/social-sdk";
+import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
+
 app.post("/events", async (c) => {
   const body = new Uint8Array(await c.req.raw.arrayBuffer());
-  const verification = await adapter.webhooks?.verify(
-    { headers: Object.fromEntries(c.req.raw.headers), body },
-    context,
-  );
-  if (!verification?.valid) return c.text("unauthorized", 401);
+
+  try {
+    await verifyZernioWebhook({
+      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+      headers: c.req.raw.headers,
+      body,
+    });
+  } catch (error) {
+    if (error instanceof SocialError && error.code === "unauthorized") {
+      return c.text("unauthorized", 401);
+    }
+    throw error;
+  }
+
   // decode, resolve tenants, insert into events_inbox with ON CONFLICT DO NOTHING
   return c.text("accepted", 202);
 });

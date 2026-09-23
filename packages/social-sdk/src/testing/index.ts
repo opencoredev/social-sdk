@@ -11,6 +11,8 @@ import {
   type CommentRef,
   type ConnectedAccountRef,
   type DeliveryOutcome,
+  type MediaRef,
+  type ScheduleCancellation,
   type IdempotencyClaim,
   type IdempotencyClaimInput,
   type IdempotencyStore,
@@ -103,6 +105,19 @@ function mockManifest(): CapabilityManifest {
       { operation: "profiles.read", platform: "*", availability: "available" },
       { operation: "graph.read", platform: "*", availability: "available" },
       { operation: "graph.follow", platform: "*", availability: "available" },
+      { operation: "graph.unfollow", platform: "*", availability: "available" },
+      { operation: "graph.block", platform: "*", availability: "available" },
+      { operation: "graph.unblock", platform: "*", availability: "available" },
+      { operation: "graph.mute", platform: "*", availability: "available" },
+      { operation: "graph.unmute", platform: "*", availability: "available" },
+      { operation: "posts.read", platform: "*", availability: "available" },
+      { operation: "posts.list", platform: "*", availability: "available" },
+      { operation: "posts.cancelScheduled", platform: "*", availability: "available" },
+      { operation: "posts.deleteBackendRecord", platform: "*", availability: "available" },
+      { operation: "posts.removeFromPlatform", platform: "*", availability: "available" },
+      { operation: "media.upload", platform: "*", availability: "available" },
+      { operation: "messages.read", platform: "*", availability: "available" },
+      { operation: "messages.write", platform: "*", availability: "available" },
       { operation: "notifications.read", platform: "*", availability: "available" },
       { operation: "notifications.seen", platform: "*", availability: "available" },
       { operation: "webhooks.verify", platform: "*", availability: "available" },
@@ -221,6 +236,24 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       },
     },
     posts: {
+      async list(account, _input, context) {
+        record("posts.list", context, account);
+        return { items: [{ id: "mock-post", text: "Mock post" }] };
+      },
+      async get(ref, context) {
+        record("posts.get", context, connectedAccountRef(ref));
+        return { id: ref.postId, text: "Mock post" };
+      },
+      async cancelScheduled(ref, context) {
+        record("posts.cancelScheduled", context, connectedAccountRef(ref));
+        return { state: "cancelled", backendRecord: "retained" } satisfies ScheduleCancellation;
+      },
+      async deleteBackendRecord(ref, context) {
+        record("posts.deleteBackendRecord", context, connectedAccountRef(ref));
+      },
+      async removeFromPlatform(ref, context) {
+        record("posts.removeFromPlatform", context, connectedAccountRef(ref));
+      },
       prepareTarget(target) {
         if (scenario === "unsupported-feature") {
           return [
@@ -479,6 +512,23 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
         record("graph.follow", context, connectedAccountRef(target));
         return { profile: target, relationship: "following" };
       },
+      async unfollow(target, context) {
+        record("graph.unfollow", context, connectedAccountRef(target));
+      },
+      async block(target, context) {
+        record("graph.block", context, connectedAccountRef(target));
+        return { profile: target, relationship: "blocked" };
+      },
+      async unblock(target, context) {
+        record("graph.unblock", context, connectedAccountRef(target));
+      },
+      async mute(target, context) {
+        record("graph.mute", context, connectedAccountRef(target));
+        return { profile: target, relationship: "muted" };
+      },
+      async unmute(target, context) {
+        record("graph.unmute", context, connectedAccountRef(target));
+      },
     },
     search: {
       async posts(account, input, context) {
@@ -518,6 +568,33 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       async getReport(account, query, context) {
         record("analytics.getReport", context, account);
         return { query, rows: [], fetchedAt: clock().toISOString(), source: "mock" };
+      },
+    },
+    media: {
+      async upload(_input, account, context) {
+        record("media.upload", context, account);
+        return {
+          kind: "media",
+          version: 1,
+          backend,
+          mediaId: `media-${sequence}`,
+          platform: account.platform,
+          accountId: account.accountId,
+        } satisfies MediaRef;
+      },
+    },
+    messages: {
+      async listConversations(account, _input, context) {
+        record("messages.listConversations", context, account);
+        return { items: [{ id: "conversation-1" }] };
+      },
+      async listMessages(ref, _input, context) {
+        record("messages.listMessages", context, connectedAccountRef(ref));
+        return { items: [{ id: "message-1", text: "Hello" }] };
+      },
+      async send(ref, content, context) {
+        record("messages.send", context, connectedAccountRef(ref));
+        return { id: "message-2", text: content.text };
       },
     },
     notifications: {

@@ -39,14 +39,105 @@ Connection attempts expire after ten minutes by default. Account selection must 
 
 The server package includes direct OAuth factories for YouTube, X, TikTok, Threads, Instagram Login, and LinkedIn. Create them only in server code. Each factory accepts an injected `fetch` for deterministic tests, an optional `credentialSink`, and provider credentials. The `redirectUri` passed to the factory must match the exact callback URI registered with the provider and with `ConnectionManager.begin`.
 
-| Provider        | Default authorization scopes                                     | PKCE                            | Token lifecycle                                                                                                                                             |
-| --------------- | ---------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| YouTube         | `openid`, profile, `youtube.readonly`                            | Provider flow does not add PKCE | Google refresh tokens use `refreshOAuthToken("youtube", ...)`; request `youtube.upload` when uploading videos.                                              |
-| X               | `tweet.read`, `users.read`, `offline.access`                     | S256                            | Refresh tokens can rotate; persist the returned replacement atomically.                                                                                     |
-| TikTok          | `user.info.basic`, `video.publish`                               | S256                            | Refresh tokens can rotate; scopes are sent comma-delimited.                                                                                                 |
-| Threads         | `threads_basic`, `threads_content_publish`                       | No fabricated PKCE              | Call `exchangeLongLivedOAuthToken("threads", ...)`, then `refreshOAuthToken("threads", ...)`.                                                               |
-| Instagram Login | `instagram_business_basic`, `instagram_business_content_publish` | No fabricated PKCE              | Call `exchangeLongLivedOAuthToken("instagram", ...)`, then `refreshOAuthToken("instagram", ...)`.                                                           |
-| LinkedIn        | `openid`, `profile`, `w_member_social`                           | No fabricated PKCE              | Refresh is not exposed by LinkedIn's authorization-code response; reconnect when the grant is unavailable. Set `linkedinApiVersion` explicitly as `YYYYMM`. |
+<PlatformTabs>
+<PlatformTab platform="youtube">
+
+**Default scopes:** `openid`, profile, and `youtube.readonly`. **PKCE:** the
+provider flow does not add PKCE.
+
+Google refresh tokens use `refreshOAuthToken("youtube", ...)`. Request
+`youtube.upload` when uploading videos.
+
+```ts
+const provider = youtubeOAuth({ clientId, clientSecret, redirectUri, credentialSink });
+const next = await refreshOAuthToken("youtube", { clientId, clientSecret }, current);
+```
+
+</PlatformTab>
+<PlatformTab platform="x">
+
+**Default scopes:** `tweet.read`, `users.read`, and `offline.access`.
+**PKCE:** S256.
+
+Refresh tokens can rotate. Persist the returned replacement atomically.
+
+```ts
+const provider = xOAuth({ clientId, clientSecret, redirectUri, credentialSink });
+const next = await refreshOAuthToken("x", { clientId, clientSecret }, current);
+// Save next.refreshToken in the same write that replaces current.
+```
+
+</PlatformTab>
+<PlatformTab platform="tiktok">
+
+**Default scopes:** `user.info.basic` and `video.publish`. **PKCE:** S256.
+
+Refresh tokens can rotate. Scopes are sent comma-delimited.
+
+```ts
+const provider = tiktokOAuth({ clientId, clientSecret, redirectUri, credentialSink });
+const next = await refreshOAuthToken("tiktok", { clientId, clientSecret }, current);
+```
+
+</PlatformTab>
+<PlatformTab platform="threads">
+
+**Default scopes:** `threads_basic` and `threads_content_publish`. **PKCE:**
+none is fabricated.
+
+Call `exchangeLongLivedOAuthToken("threads", ...)`, then
+`refreshOAuthToken("threads", ...)`.
+
+```ts
+const provider = threadsOAuth({ clientId, clientSecret, redirectUri, credentialSink });
+const longLived = await exchangeLongLivedOAuthToken(
+  "threads",
+  { clientId, clientSecret },
+  shortLived,
+);
+const next = await refreshOAuthToken("threads", { clientId, clientSecret }, longLived);
+```
+
+</PlatformTab>
+<PlatformTab platform="instagram" title="Instagram Login">
+
+**Default scopes:** `instagram_business_basic` and
+`instagram_business_content_publish`. **PKCE:** none is fabricated.
+
+Call `exchangeLongLivedOAuthToken("instagram", ...)`, then
+`refreshOAuthToken("instagram", ...)`.
+
+```ts
+const provider = instagramOAuth({ clientId, clientSecret, redirectUri, credentialSink });
+const longLived = await exchangeLongLivedOAuthToken(
+  "instagram",
+  { clientId, clientSecret },
+  shortLived,
+);
+const next = await refreshOAuthToken("instagram", { clientId, clientSecret }, longLived);
+```
+
+</PlatformTab>
+<PlatformTab platform="linkedin">
+
+**Default scopes:** `openid`, `profile`, and `w_member_social`. **PKCE:** none
+is fabricated.
+
+LinkedIn's authorization-code response does not expose refresh, so reconnect
+when the grant is unavailable. Set `linkedinApiVersion` explicitly as `YYYYMM`.
+
+```ts
+const provider = linkedinOAuth({
+  clientId,
+  clientSecret,
+  redirectUri,
+  credentialSink,
+  linkedinApiVersion: "202609",
+});
+```
+
+</PlatformTab>
+</PlatformTabs>
 
 The defaults are a starting point. Pass `scopes` for the operation you are connecting, such as Google's `https://www.googleapis.com/auth/youtube.upload` for uploads or LinkedIn's organization permission when your app has that product approval. Provider app review, account eligibility, callback registration, and quota remain application setup responsibilities.
 

@@ -1,114 +1,156 @@
 ---
-title: Search posts
-description: Search supported provider indexes with scoped pagination, bounded iteration, and custom adapters for third-party search APIs.
+title: Search posts and actors
+description: Search provider indexes with platform-specific scopes, limits, fields, and cursors.
 ---
 
-Use `social.search.posts(account, input, options)` to search the selected backend's post index.
-The shared client handles tenant authorization, concurrency, cancellation, and query-bound cursors.
-The adapter owns provider query syntax and result fields. Search does not imply a complete archive
-or a common ranking algorithm.
-
-## Request and response
-
-`SearchPostsInput` requires `query`. It accepts `cursor`, `limit`, `startTime`, `endTime`, and a
-provider search `scope` (`recent` or `all`) where the adapter supports both horizons.
-Time bounds use RFC 3339 timestamps and are passed to adapters that support them. A provider that
-cannot express an option rejects it rather than silently broadening the search. See the
-[X guide](/platforms/x) for recent-search limits and access requirements.
-
-Each result is a `Page<JsonObject>` with `items` and an optional `nextCursor`. Items preserve the
-provider's post fields; they are not normalized publication outcomes. Reuse a cursor only with
-the account, backend, authorization scope, query, time bounds, and page size that produced it.
-
-`social.search.iteratePosts(account, input, options)` fetches lazily. Put `maxPages`, `maxItems`,
-`signal`, and `authorization` in `options`. The same [pagination bounds](/reference/pagination)
-apply as for account and feed iteration. The SDK does not persist results, deduplicate an index,
-or schedule background searches for you.
-
-## Register a third-party search adapter
-
-A third-party API can participate through the public `SearchAdapter` and `SocialAdapter` contracts.
-It does not need to implement publishing. Register it under its own backend key so the same
-platform can use a direct publishing adapter and a separate search provider.
-
-This example connects an application-owned search function. That function must call the selected
-API, validate its response from `unknown`, and return only fields the application is allowed to read.
-There is no bundled Unipile integration; for a service such as Unipile, implement that function
-against the account's authorized API contract and its current search product.
-
-The smallest adapter shape is:
+Use `social.search.posts(account, input, options?)` for normalized post search.
+It returns `Page<JsonObject>`:
 
 ```ts
-const search: SearchAdapter = {
-  async posts(account, input, context) {
-    const response: unknown = await searchProvider({
-      accountId: account.accountId,
-      query: input.query,
-      cursor: input.cursor,
-      signal: context.signal,
-    });
-    return decodeProviderPage(response); // validate items and nextCursor here
-  },
-};
+const page = await social.search.posts(account, {
+  query: "open source",
+  scope: "recent",
+  limit: 25,
+});
 ```
 
-`searchProvider` and `decodeProviderPage` are application code. Keep provider credentials and
-response validation inside that boundary; do not cast an untrusted response to `Page<JsonObject>`.
+The input takes `query`, and optionally `scope` (`"recent"` or `"all"`),
+`cursor`, `limit`, `startTime`, and `endTime`. Items keep their provider fields.
+Reuse `nextCursor` only with the same account, query, scope, time bounds, and
+page size. Cursors are bound to the query, not to an authorization grant.
+`iteratePosts(account, input, options)` follows cursors lazily within
+`maxPages`, `maxItems`, and `signal` bounds.
+
+The examples assume one `social` client built with the platform's adapter and an
+`account` from `connectedAccountRef`. Native calls take a `native` handle from
+`social.native("default", { acknowledgeUnsafe: true })` and, where the method
+requires it, the operation `context` your application passes to adapter calls.
+
+## Platform support
+
+<PlatformTabs>
+<PlatformTab platform="x">
+
+**Normalized** `search.posts` with `recent` and `all` scopes, plus native
+`searchRecentPosts` and `searchAllPosts`. **Scopes:** `tweet.read` and
+`users.read`.
+
+Recent search uses `auth.accessToken`, covers the last 7 days, and accepts a
+limit of 10 to 100. Full-archive search (`scope: "all"`) uses `appBearerToken`,
+needs eligible pay-per-use or Enterprise access, and accepts 10 to 500.
 
 ```ts
-import {
-  connectedAccountRef,
-  createSocial,
-  type SearchAdapter,
-  type SocialAdapter,
-} from "@opencoredev/social-sdk";
-
-export function createResearchClient(search: SearchAdapter) {
-  const research: SocialAdapter = {
-    id: "research-api",
-    capabilities: {
-      schemaVersion: 1,
-      backend: "research-api",
-      apiRevision: "application-search-v1",
-      runtime: ["node22", "node24", "bun"],
-      capabilities: [
-        {
-          platform: "linkedin",
-          operation: "search.posts",
-          availability: "available",
-          notes: "Requires the application's authorized search provider account.",
-        },
-      ],
-    },
-    search,
-  };
-
-  return createSocial({ backends: { research } });
-}
-
-export async function searchResearchAccount(search: SearchAdapter, accountId: string) {
-  const social = createResearchClient(search);
-  const account = connectedAccountRef({
-    backend: "research",
-    platform: "linkedin",
-    accountId,
-  });
-
-  return social.search.posts(account, { query: "distributed systems", limit: 20 });
-}
+const page = await social.search.posts(account, {
+  query: "distributed systems -is:retweet",
+  limit: 25,
+});
 ```
 
-The `search.posts` adapter method receives the account, input, and `AdapterOperationContext`.
-Use `context.signal` for cancellation and `context.retryBudget` to bound reads. Return the raw
-provider continuation token as `nextCursor`; the shared client wraps it before returning it to
-the caller. Never pass the shared client's wrapped cursor directly to a provider endpoint.
+By default the adapter requests IDs, text, author, timestamps, metrics,
+language, entities, attachments, and referenced tweets. Recent queries are
+limited to 512 characters and full-archive queries to 4096. Invalid bounds or
+timestamps raise `invalid_input`; missing access raises `missing_permission`.
+The native methods expose X tweet fields, expansions, user fields, and media
+fields:
 
-In a multi-tenant server, also configure `authorization` on `createSocial` and supply each call's
-authenticated authorization context. Resolve `accountId` from the tenant's stored connection;
-the example's function parameter is not a browser trust boundary. Keep credentials in your
-adapter closure or server credential store, and exclude them from result objects and errors.
+```ts
+const page = await native.searchRecentPosts({
+  account,
+  search: { query: "open source", limit: 10 },
+  context,
+});
+```
 
-Declare only implemented routes. A third-party provider's ability to search LinkedIn does not
-make `search.posts` available on the bundled direct LinkedIn adapter. Native people, company,
-job, or other non-post searches need their own typed native methods; do not label those results
-as posts to fit this interface.
+</PlatformTab>
+<PlatformTab platform="bluesky">
+
+**Normalized** `search.posts`, plus native post and actor search. No declared
+scope; the adapter calls public `app.bsky` endpoints.
+
+The adapter takes `service`, `did`, and an optional `accessJwt`. Post results
+are provider records and may include `metadata.hitsTotal`. Native post search
+adds sort, author, mentions, language, domain, URL, and tags.
+
+```ts
+const page = await social.search.posts(account, { query: "distributed systems", limit: 25 });
+```
+
+Actor and profile search is native only and returns actor page records:
+
+```ts
+const actors = await native.searchActors({ account, query: "opencore", limit: 10 });
+```
+
+Invalid or missing sessions raise `unauthorized` or `missing_permission`.
+
+</PlatformTab>
+<PlatformTab platform="threads">
+
+**Normalized** `search.posts`, plus native keyword and tag search. **Scopes:**
+`threads_basic` and `threads_keyword_search`.
+
+Search uses the authorized user ID and access token. Without
+`threads_keyword_search` approval, results are limited to the authorized user's
+posts. The normalized page holds provider post objects and a continuation
+cursor.
+
+Use native search for TOP or RECENT ordering, tag mode, media type, author, or
+time bounds:
+
+```ts
+const result = await native.search({
+  account,
+  query: "open source",
+  searchType: "RECENT",
+  searchMode: "KEYWORD",
+  context,
+});
+```
+
+Provider permission failures raise `missing_permission`.
+
+</PlatformTab>
+<PlatformTab platform="youtube">
+
+**Normalized** `search.posts` with `recent` only, plus native search.
+**Scope:** `https://www.googleapis.com/auth/youtube.readonly`.
+
+YouTube uses an OAuth `accessToken` and a `channelId`. Results are public video
+search records with provider IDs and `snippet`.
+
+```ts
+const page = await social.search.posts(account, { query: "distributed systems", limit: 50 });
+```
+
+`scope: "all"` raises `invalid_input`. The default limit is 25 and the maximum
+is 50. Time bounds map to `publishedAfter` and `publishedBefore`. Each request
+costs 100 quota units. A missing scope raises `missing_permission`.
+
+</PlatformTab>
+<PlatformTab platform="instagram">
+
+**Native** hashtag lookup and hashtag media only. There is no normalized
+`search.posts`. Requires Facebook Login (`auth.flavor: "facebook-login"`).
+
+Look up the hashtag ID first, then read its media with `kind: "recent"` or
+`"top"`:
+
+```ts
+const found = await native.hashtagSearch({ account, hashtag: "opensource", context });
+const media = await native.hashtagMedia({ account, hashtagId, kind: "recent", limit: 25, context });
+```
+
+The media page uses `paging.cursors.after`. With Instagram Login,
+`instagram.hashtags.search` raises `missing_permission`.
+
+</PlatformTab>
+</PlatformTabs>
+
+## Unsupported platforms and errors
+
+TikTok, LinkedIn, and Facebook do not declare bundled normalized
+`search.posts`; the facade raises `unsupported_capability`. Handle
+`invalid_input` for query, scope, limit, timestamps, or cursors,
+`missing_permission` or `unauthorized` for credentials,
+`rate_limited` for provider throttling, and `upstream_failure` for provider
+errors. Do not log tokens or private result data.

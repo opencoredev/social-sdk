@@ -3,9 +3,9 @@ title: Social graph
 description: Read profiles and relationships, and apply supported relationship mutations.
 ---
 
-`social.graph` is a capability-checked facade. A provider can implement `profiles.read`,
-`graph.read`, or individual mutations without implementing the entire graph. The client reports
-an unavailable capability explicitly and never infers a relationship from a feed.
+Use `social.graph` when you need a provider-neutral profile or relationship operation. The facade
+is capability checked: it does not turn a provider's feed or native response into a relationship
+that the adapter did not declare.
 
 ```ts
 const profile = await social.graph.getProfile(account, { handle: "someone" });
@@ -13,10 +13,145 @@ const page = await social.graph.listRelationships(account, { kind: "followers", 
 await social.graph.follow(profile.ref);
 ```
 
-`listRelationships` returns `Page<RelationshipRecord>` with an opaque `nextCursor`. Pass it back
-with the same account, relationship kind, backend, and page size. Follow, block, mute, and their
-inverse methods are separate capabilities, so check the selected adapter before rendering an action.
+`getProfile` returns a `ProfileRecord` with a stable `ref` plus optional `displayName`, `handle`,
+`avatarUrl`, `bio`, and provider data in `native`. `listRelationships` returns
+`Page<RelationshipRecord>`: `items` contain a profile reference and `relationship` (`following`,
+`follower`, `blocked`, or `muted`), and `nextCursor` is an opaque provider cursor. Pass that
+cursor to another call with the same account and `kind`; the facade has no `graph.iterate()`.
+The mutation methods are `follow`, `unfollow`, `mute`, `unmute`, `block`, and `unblock`.
 
-The normalized graph is available where a direct or managed adapter declares the corresponding
-capability. Profile and relationship fields remain intentionally small; provider-specific fields
-belong in native adapter methods.
+## Setup
+
+Configure one adapter and one connected-account reference on your server. The platform tabs below
+reuse `social` and `account` and show only what differs.
+
+```ts
+const social = createSocial({
+  backend: x({ auth: { userId, accessToken }, appBearerToken: process.env.X_APP_BEARER_TOKEN }),
+});
+const account = connectedAccountRef({ backend: "default", platform: "x", accountId: userId });
+```
+
+Native calls also take an operation `context`, for example
+`{ backendInstance: "default", correlationId: "graph", retryBudget: { maxAttempts: 2, maxElapsedMs: 30_000 } }`.
+
+## Platform support
+
+Adapters without a tab here do not implement this facade. The client rejects an unavailable
+operation with `SocialError` code `unsupported_capability` before adapter I/O.
+
+<PlatformTabs>
+<PlatformTab platform="x">
+
+**Supported:** profile; followers, following, blocked, and muted lists; follow, unfollow, mute,
+unmute, block, and unblock. **Scopes:** `users.read`, `follows.read`/`follows.write`,
+`mute.read`/`mute.write`, `block.read`/`block.write`. Block and unblock are Enterprise-plan only.
+
+Configure `x()` with the connected user's ID and, for user-context operations, an access token.
+`appBearerToken` is a separate app-only credential, used for profile and relationship reads when
+`auth.accessToken` is absent. Every mutation needs a user token and fails with
+`missing_permission` without one.
+
+```ts
+const followers = await social.graph.listRelationships(account, { kind: "followers", limit: 100 });
+```
+
+Profile records normalize the user ID, name, username, and description, with the validated user
+object under `native`. Relationship pages keep X user IDs as profile refs and do not invent a
+`since` timestamp. User reads accept 1 to 1,000 items; relationship endpoints accept 1 to 100. An
+invalid size raises `invalid_input`. A revoked or expired user token raises `reconnect_required`.
+
+X lists are native only: owned lists, list members, list following, and pinned lists. Pinned reads
+use `lists.pinned.read` (`users.read`, `list.read`):
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const pinned = await native.pinnedLists({ account, limit: 25, context });
+```
+
+</PlatformTab>
+<PlatformTab platform="bluesky">
+
+**Supported:** profile; followers, following, blocked, and muted lists; all six mutations.
+**Access:** `repo`, through an access JWT or OAuth session.
+
+Configure `bluesky()` with the PDS service, the account DID, and either an `accessJwt` or an
+OAuth `session`, not both. Profile lookup accepts handles and DIDs; normalized profile refs use
+the DID.
+
+```ts
+const adapter = bluesky({ auth: { service: "https://bsky.social", did, accessJwt } });
+```
+
+Records normalize DID, handle, display name, avatar, and description. Relationship reads map
+`app.bsky.graph.getFollowers`, `getFollows`, `getMutes`, and `getBlocks`, and cursors pass through
+unchanged. `unfollow` first reads `viewer.following` and `unblock` reads `viewer.blocking`; if that
+URI is absent the call fails with `invalid_input`. Mute and unmute use actor DIDs.
+
+Bluesky lists are native only and need `repo`. The native surface covers list creation, member
+changes, list reads, and list mute and block:
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const lists = await native.getLists({ account, actor: did, limit: 50, context });
+```
+
+</PlatformTab>
+<PlatformTab platform="threads">
+
+**Supported:** profile only. **Scope:** `threads_basic` for `profiles.read`.
+
+Configure the adapter with the authorized Threads user ID and access token. Handle lookup also
+depends on Threads profile discovery; without it, lookup is limited to the authorized app-scoped
+user.
+
+```ts
+const adapter = threads({ auth: { userId, accessToken } });
+```
+
+The adapter returns profile ID, username, name, profile picture, biography, and verification data
+where present. Relationship reads and mutations raise `unsupported_capability`, and so can a
+profile lookup outside the authorized user.
+
+</PlatformTab>
+<PlatformTab platform="instagram">
+
+**Supported:** profile only. **Scopes:** `instagram_business_basic` and
+`instagram_business_manage_insights`, on a professional account.
+
+`instagram()` uses Instagram Login by default. Set `auth.flavor` to `"facebook-login"` and use a
+Facebook Login token when you need business-discovery lookup by handle.
+
+```ts
+const adapter = instagram({ auth: { accessToken, accountId } });
+const own = await social.graph.getProfile(account, {});
+```
+
+A profile record contains the normalized ID, username, name, biography, and profile image, with
+provider fields in `native`. Handle lookup validates the handle. Relationship reads and mutations
+raise `unsupported_capability`.
+
+</PlatformTab>
+<PlatformTab platform="youtube">
+
+**Supported:** no normalized graph. Subscriptions are native and need
+`https://www.googleapis.com/auth/youtube.readonly`.
+
+Read or change subscriptions through the native adapter. The response is provider JSON, including
+`nextPageToken` when more results are available.
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const subscriptions = await native.subscriptions({ action: "list", channelId, context });
+```
+
+</PlatformTab>
+</PlatformTabs>
+
+## Errors and authorization
+
+Catch `SocialError` at the application boundary and branch on `code`, not provider message text.
+Useful codes here are `unsupported_capability`, `missing_permission`, `reconnect_required`,
+`unauthorized`, `invalid_input`, `not_found`, `rate_limited`, and `upstream_failure`. Treat an
+`ambiguous_outcome` as uncertain rather than claiming that a follow, mute, or block succeeded.
+Native calls bypass tenant authorization and concurrency middleware.

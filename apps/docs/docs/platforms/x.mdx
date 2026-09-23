@@ -32,7 +32,7 @@ import { x } from "@opencoredev/social-sdk/x";
 const social = createSocial({
   backend: x({
     auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
-    // Required for full-archive search and filtered stream.
+    // Required for full-archive search.
     appBearerToken: process.env.X_APP_BEARER_TOKEN,
   }),
 });
@@ -229,9 +229,9 @@ still depends on the X API tier and Direct Messages access for the app.
 
 ## Native operations
 
-The typed native module also exposes user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, video and GIF uploads, polls, quotes, deletion, bookmarks, and filtered streams. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
+The typed native module also exposes user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, deletion, and bookmarks. Video and GIF uploads and filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
 
-Full-archive search (`searchAllPosts`) and filtered streams require an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
+Full-archive search (`searchAllPosts`) requires an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
 
 ## Limits and requirements
 

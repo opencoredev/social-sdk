@@ -80,6 +80,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmitOnError",
+    "prepack": "bun run build",
     "check-types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.type-tests.json",
     "lint": "oxlint src tests type-tests",
     "test": "bun test tests"

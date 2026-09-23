@@ -1,22 +1,177 @@
 ---
 title: Analytics reports
-description: Read bounded account reports without inventing provider history.
+description: Read account metrics and provider-native analytics reports.
 ---
 
-`social.analytics.getReport(account, query)` requests a bounded report from an adapter that
-declares `analytics.report.read`.
+Analytics has two normalized reads:
+
+```ts
+const metrics = await social.analytics.getAccountMetrics(account);
+const report = await social.analytics.getReport(account, {
+  from: "2026-01-01",
+  to: "2026-01-31",
+  metrics: ["views"],
+});
+```
+
+`getAccountMetrics` returns `MetricValue[]`. Items contain `name`, numeric `value`,
+`unit`, `period`, `fetchedAt`, `freshness`, and `source`.
+`getReport` returns `{ query, rows, fetchedAt, source }`; each row contains
+`dimensions` and numeric `metrics`. The query also accepts `dimensions`, such as
+`["day"]`. There is no cursor or `iterate` method. The client validates ordered
+`YYYY-MM-DD` dates, at least one metric, and nonempty names. Invalid input
+raises `invalid_input`.
+
+The examples assume one `social` client built with the platform's adapter and an
+`account` from `connectedAccountRef`, using the platform's own account ID.
+
+## Platform support
+
+Only YouTube implements the normalized `analytics.report.read`. Every tab below
+supports `getAccountMetrics`. An unavailable operation raises
+`unsupported_capability`.
+
+<PlatformTabs>
+<PlatformTab platform="youtube">
+
+**Account metrics and reports.** **Scope:**
+`https://www.googleapis.com/auth/yt-analytics.readonly`. Dates must be bounded
+and metric names provider-safe.
+
+Configure `youtube({ auth: { accessToken, channelId } })`. The adapter calls
+YouTube Analytics `reports.query`:
 
 ```ts
 const report = await social.analytics.getReport(account, {
   from: "2026-01-01",
   to: "2026-01-31",
-  metrics: ["views", "likes"],
+  metrics: ["views", "estimatedMinutesWatched"],
   dimensions: ["day"],
 });
 ```
 
-Dates use `YYYY-MM-DD` and the range is inclusive of the provider's interpretation. `metrics`
-must contain at least one nonempty name. Rows preserve provider metric names and dimensions, while
-`fetchedAt` and `source` identify the returned snapshot. An empty row set is a valid provider result,
-not proof that all historical values are zero. Unsupported reports fail with
-`unsupported_capability`; the client does not synthesize a report from post metrics.
+A row can look like `{ dimensions: { day: "2026-01-03" }, metrics: { views: 1842,
+estimatedMinutesWatched: 96.5 } }`. YouTube can omit `rows` for an empty period;
+the SDK returns `rows: []`. Account metrics are lifetime channel `viewCount`,
+`subscriberCount` when visible, and `videoCount`.
+
+</PlatformTab>
+<PlatformTab platform="x">
+
+**Account metrics only.** Needs a user OAuth token and current X API access and
+billing.
+
+Configure `x({ auth: { userId, accessToken } })`. `appBearerToken` is for other
+X operations, not this read.
+
+```ts
+const metrics = await social.analytics.getAccountMetrics(account);
+const followers = metrics.find((metric) => metric.name === "followers_count")?.value;
+```
+
+Items are lifetime profile public metrics: `followers_count`, `following_count`,
+`tweet_count`, and `listed_count` when returned. X has no normalized bounded
+report. Post metrics are lifetime likes, reposts, replies, and quotes.
+
+</PlatformTab>
+<PlatformTab platform="bluesky">
+
+**Account metrics only,** from a profile snapshot. Needs the account DID and a
+JWT or OAuth session.
+
+Configure `bluesky({ auth: { service, did, accessJwt } })`, or pass `session`
+instead of `accessJwt`. The snapshot contains lifetime followers, following,
+and posts. Bluesky has no date-range report.
+
+```ts
+const metrics = await social.analytics.getAccountMetrics(account);
+```
+
+</PlatformTab>
+<PlatformTab platform="threads">
+
+**Account metrics only.** Needs Threads authorization with `threads.analytics`.
+
+Configure `threads({ auth: { userId, accessToken } })`, with an optional
+`graphVersion`. Items keep the provider metric name and numeric value. For post
+insights, `getPostMetrics(post)` requests views, likes, replies, reposts,
+quotes, and shares. Threads has no normalized account report.
+
+```ts
+const metrics = await social.analytics.getAccountMetrics(account);
+const post = await social.analytics.getPostMetrics(platformPostRef({ ...account, postId }));
+```
+
+</PlatformTab>
+<PlatformTab platform="instagram">
+
+**Account metrics only.** Instagram Login needs `instagram_business_basic` and
+`instagram_business_manage_insights`. Facebook Login needs `instagram_basic`,
+`instagram_manage_insights`, and `pages_read_engagement`.
+
+Configure `instagram({ auth: { accessToken, accountId, flavor } })` with the
+`flavor` that matches your granted permissions. The lifetime account items are
+`followers_count` and `media_count`. Post metrics read likes, comments, saved,
+shares, and reach. Instagram has no normalized bounded report.
+
+```ts
+const metrics = await social.analytics.getAccountMetrics(account);
+const post = await social.analytics.getPostMetrics(
+  platformPostRef({ ...account, postId: mediaId }),
+);
+```
+
+</PlatformTab>
+<PlatformTab platform="linkedin">
+
+**Account metrics for organizations, plus native organization statistics.**
+Needs Community Management API access and `rw_organization_admin` or
+`r_organization_admin`. Member accounts are not eligible.
+
+Configure `linkedin()` with an organization author URN such as
+`urn:li:organization:123`. `getAccountMetrics` returns the organization's
+lifetime follower count. Follower, page, and share statistics are native:
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true })!;
+const interval = {
+  granularity: "DAY",
+  start: Date.parse("2026-01-01"),
+  end: Date.parse("2026-01-31"),
+};
+const rows = await native.getOrganizationFollowerStatistics({ account, interval, context });
+```
+
+Use `getOrganizationPageStatistics` and `getOrganizationShareStatistics` for the
+other reports. Intervals are `DAY`, `WEEK`, or `MONTH`, and a time-bound
+interval requires `start`. A follower row contains the organization, interval,
+gains, and breakdowns. Native calls bypass client authorization middleware.
+
+</PlatformTab>
+<PlatformTab platform="tiktok">
+
+**Account metrics, and post metrics through `analytics.read`.** Account metrics
+need `user.info.stats`; post metrics need `video.list`.
+
+Configure `tiktok()` with the creator `openId`, an access token, and verified
+media origins. The lifetime account items are `follower_count`,
+`following_count`, `likes_count`, and `video_count`.
+`getPostMetrics(post)` reads like, comment, share, and view counts for one
+video. TikTok has no normalized report method.
+
+```ts
+const metrics = await social.analytics.getAccountMetrics(account);
+const video = await social.analytics.getPostMetrics(
+  platformPostRef({ ...account, postId: videoId }),
+);
+```
+
+</PlatformTab>
+</PlatformTabs>
+
+## Errors
+
+Credential or account identity mismatches raise `unauthorized`. A missing
+capability raises `unsupported_capability`. Provider throttling and transport
+failures keep their `SocialError` codes. An empty successful result is
+valid and does not prove that historical values are zero.

@@ -1,81 +1,218 @@
 ---
 title: Read posts and analytics
-description: Fetch accounts and posts, traverse feeds, and interpret the metrics each backend returns with scoped references and pagination.
+description: Read provider feeds, posts, likes, and current metrics.
 ---
 
-Use account and post references from an authorized connection or publication result. The same references carry through reads, feeds and metrics, so each request stays with the selected account and backend.
+This page covers post and feed reads, post and account metrics, and
+provider-native likes lists. See [Search](/reads/search),
+[Social graph](/reads/graph), [Notifications](/reads/notifications), and
+[Analytics reports](/reads/reports) for those separate surfaces.
 
-## Accounts
+## Normalized API
 
-Reads are scoped to the selected account and backend. `accounts.list` returns `AccountRecord` pages with an optional opaque `nextCursor`; pass that cursor back unchanged with the same backend and authorization. The SDK does not merge accounts from different backends or infer tenant membership from a provider payload.
+The facade returns provider-shaped `JsonObject` items in a `Page`:
 
 ```ts
-import { createSocial } from "@opencoredev/social-sdk";
-import { mockBackend } from "@opencoredev/social-sdk/testing";
-
-const social = createSocial({ backend: mockBackend() });
-const page = await social.accounts.list({ backend: "default" });
-for (const account of page.items) console.log(account.ref.platform, account.ref.accountId);
+const page = await social.posts.list(account, { limit: 25 });
+const one = await social.posts.get(platformPostRef);
 ```
 
-## Posts and feeds
+Pass `nextCursor` back unchanged with the same account and options. Cursors
+are opaque. `posts.iterate(account, { maxPages, maxItems })` is lazy and
+bounded.
 
-Use `posts.get` only with a native `platform-post` reference returned by a delivery outcome or a trusted application mapping. `posts.getDelivery` is for a `delivery` reference and is the explicit reconciliation path for `processing` or `unknown` submissions. A processing response is not a public post.
+The examples assume one client and one connected account for the adapter you
+configure below:
 
-Feeds remain provider-specific; they are not cross-platform search results. An adapter can omit `posts.read` or `posts.status`; the client reports that capability as unavailable instead of returning an empty success. See the [pagination reference](/reference/pagination), [capability matrix](/reference/capabilities), and [platform guides](/platforms).
-
-`posts.list(account, { limit, cursor })` reads one page from a supported account feed. `posts.iterate` traverses lazily with explicit bounds. Feed entries can include native content created outside the SDK; feed access remains subject to the provider's history and permission limits. Check the separate `posts.list` declaration before showing a feed.
-
-## Search
-
-`search.posts(account, { query, cursor, limit })` runs a provider search for the selected account and returns a regular `Page<JsonObject>`. The query is required and is sent to the provider unchanged after local validation. A returned `nextCursor` is opaque: pass it back with the same backend, account, query, and page size. Use `search.iteratePosts(account, input, { maxPages, maxItems })` for lazy bounded traversal. Pass authorization, cancellation, and retry options as the third argument to either method.
-
-Search results are not a complete archive and are not equivalent to the selected account's feed. Providers choose which posts are indexed, how queries are interpreted, how far back results go, and which fields are returned. Missing search capability fails with `unsupported_capability`; it does not return an empty page. Preserve the provider payload and its timestamps when building an index, and treat repeated runs as changing views rather than a snapshot.
-
-See [Search posts](/reads/search) for time bounds, iteration, and registering a custom third-party search adapter.
-
-The shared transport preserves HTTP 404 as `not_found`, 410 as `gone`, and 403 as `missing_permission`. A 404 does not prove permanent deletion: some providers use it for inaccessible resources. Do not replace these errors with an empty feed or zero metrics.
+```ts
+const social = createSocial({ backend: adapter });
+const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "123" });
+```
 
 ## Post metrics
 
-`analytics.getPostMetrics` accepts a native `platform-post` reference and returns only metrics the selected backend and platform supplied. An empty array means no metric was available for that request; it does not mean every metric is zero.
-
 ```ts
-import { createSocial } from "@opencoredev/social-sdk";
-import { mockBackend } from "@opencoredev/social-sdk/testing";
-
-const social = createSocial({ backend: mockBackend() });
-const metrics = await social.analytics.getPostMetrics({
-  kind: "platform-post",
-  version: 1,
-  backend: "default",
-  platform: "x",
-  accountId: "mock-account-1",
-  postId: "post-1",
-});
-console.log(metrics.map((metric) => `${metric.name}: ${metric.value}`));
+const metrics = await social.analytics.getPostMetrics(platformPostRef);
+const accountMetrics = await social.analytics.getAccountMetrics(account);
 ```
 
-Metric names, freshness, period, and source remain provider-specific within the normalized fields. The normalized API does not promise account-wide totals, feed analytics, audience demographics, or historical backfills. Check the selected backend's capability declaration and preserve missing values in your UI. See the [capability matrix](/reference/capabilities) and [platform guides](/platforms).
+Both return `MetricValue[]`. An omitted metric means the provider did not
+return it, not zero. Bounded date-range reports are covered in
+[Analytics reports](/reads/reports).
 
-## Profiles and relationships
+## Platform support
 
-`social.graph` provides optional profile reads, relationship pages, and relationship mutations through a capability-checked adapter boundary. Providers may support only a subset such as follows, blocks, or mutes. A missing capability is reported explicitly; the SDK does not infer relationships from a feed.
+<PlatformTabs>
+<PlatformTab platform="x">
 
-## Notifications
+**Reads:** posts list, get, and iterate. **Metrics:** account and post, plus
+native likes lists. **Access:** user scopes and your X API tier.
 
-`social.notifications.list` and `social.notifications.markSeen` are available when the selected provider exposes them. Notification payloads remain provider-shaped so applications can preserve event details without implying that every platform reports the same event types.
+Use a user OAuth token. `appBearerToken` is for app-only operations such as
+full-archive search, not user timelines.
 
-## Reports
+```ts
+import { x } from "@opencoredev/social-sdk/x";
 
-`social.analytics.getReport` is an optional time-bounded report surface. It returns normalized rows and preserves the provider metric names and dimensions. It does not create historical data when the provider does not retain it. YouTube currently supplies the direct report implementation; other providers can add it through their own adapter capability.
+const adapter = x({ auth: { userId: "123", accessToken: process.env.X_ACCESS_TOKEN! } });
+```
 
-## Account counts
+Items may include `id`, `text`, `author_id`, timestamps, referenced tweets,
+and `public_metrics`. User timeline, home timeline, mentions, liked posts,
+and liking users are native operations: `userPosts`, `homeTimeline`,
+`mentions`, `likedPosts`, and `likingUsers`. They need the matching X read
+capability, user scopes, and an eligible API tier. Missing access raises
+`missing_permission`; throttling raises `rate_limited`.
 
-`social.analytics.getAccountMetrics(account, options)` reads current account-level counts when `analytics.account.read` is available. Policies that still allow the older `analytics.read` operation remain compatible. Direct Bluesky returns follower, following, and post counts; YouTube returns channel statistics and suppresses hidden subscriber counts; TikTok uses the `user.info.stats` permission for creator counts. LinkedIn returns organization total followers for administrators with `rw_organization_admin`; member-profile account metrics are not available. Missing values are omitted and reported zeroes remain zero. These snapshots have a fetch time, not an invented historical measurement timestamp.
+</PlatformTab>
+<PlatformTab platform="bluesky">
 
-TikTok post metrics use `video.list` access through `video/query`. A requested video's identity must match the returned video. This API does not provide follower-history collection; applications must explicitly persist their own samples if they need history.
+**Reads:** author feed, list, and get. **Metrics:** account and post, plus
+native likes lists. **Access:** `repo`. Feed page size is 1 to 100.
 
-X exposes the authorized user’s public follower/following/post/list counts. Instagram Login exposes current follower and media counts for the eligible professional account. Threads exposes selected numeric account insights; a daily series sample retains its interval, and an unspecified interval is `unknown`, never an invented lifetime total. Follower demographics are not included.
+Use a PDS service and DID with an access JWT, or an OAuth session.
 
-Zernio account metrics return the selected account’s follower snapshot when the analytics add-on supplies it, preserving `followersLastUpdated` when present. Post for Me’s documented metrics belong to feed posts; its current adapter does not advertise account-level metrics. Posting permission alone does not grant analytics access on either managed provider.
+```ts
+import { bluesky } from "@opencoredev/social-sdk/bluesky";
+
+const adapter = bluesky({
+  auth: {
+    service: "https://bsky.social",
+    did: "did:plc:example",
+    accessJwt: process.env.BSKY_JWT!,
+  },
+});
+```
+
+Author-feed items keep their AT Protocol records and embeds. The normalized
+post ref can carry the native `uri` and `cid`. Native `getLikes` lists users
+who liked a post; `getActorLikes` lists posts an actor liked. `getAuthorFeed`,
+`getPostThread`, and `getPosts` keep provider cursors. An invalid page size
+raises `invalid_input`.
+
+</PlatformTab>
+<PlatformTab platform="threads">
+
+**Reads:** list and get. **Metrics:** account and post. **Access:** user
+token. Feed page size is 1 to 100.
+
+Use the Threads user ID and a long-lived user access token.
+
+```ts
+import { threads } from "@opencoredev/social-sdk/threads";
+
+const adapter = threads({ auth: { userId: "th_123", accessToken: process.env.THREADS_TOKEN! } });
+```
+
+Items contain `id`, `text`, `username`, `media_type`, `permalink`, and
+`timestamp`. The `after` cursor is opaque. Threads has post and selected
+account insights but no normalized likes list. Mentions, search, and post
+details are native.
+
+</PlatformTab>
+<PlatformTab platform="instagram">
+
+**Reads:** media list and get. **Metrics:** account and post insights.
+**Access:** a professional account.
+
+Use a professional account ID and access token, and pick Instagram Login or
+Facebook Login. Business discovery and hashtag features need Facebook Login.
+
+```ts
+import { instagram } from "@opencoredev/social-sdk/instagram";
+
+const adapter = instagram({
+  auth: {
+    accountId: "17840000000000000",
+    accessToken: process.env.IG_TOKEN!,
+    flavor: "instagram-login",
+  },
+});
+```
+
+Media includes Graph API fields such as ID, caption, media type, permalink,
+timestamp, and URLs. Insights can include likes, comments, saves, shares,
+and reach. Mentions, tagged media, and business discovery are native.
+Missing permissions raise `missing_permission`.
+
+</PlatformTab>
+<PlatformTab platform="youtube">
+
+**Reads:** uploads and get. **Metrics:** channel and video statistics.
+**Access:** an OAuth token and the channel ID.
+
+Normalized posts are videos from the channel uploads feed.
+
+```ts
+import { youtube } from "@opencoredev/social-sdk/youtube";
+
+const adapter = youtube({
+  auth: { accessToken: process.env.YOUTUBE_TOKEN!, channelId: "UC_example" },
+});
+```
+
+`posts.get` returns `snippet`, `status`, `statistics`, and processing
+details. Statistics can include views, likes, and comments. Playlists and
+playlist items are native. Reports need the separate
+`https://www.googleapis.com/auth/yt-analytics.readonly` scope and a bounded
+query. An inaccessible video raises an error instead of returning an empty item.
+
+</PlatformTab>
+<PlatformTab platform="linkedin">
+
+**Reads:** author feed and get. **Metrics:** post, and account for
+organizations only. **Access:** `r_member_social` or `r_organization_social`.
+
+Use a person or organization author URN and a monthly API version.
+
+```ts
+import { linkedin } from "@opencoredev/social-sdk/linkedin";
+
+const adapter = linkedin({
+  auth: { accessToken: process.env.LINKEDIN_TOKEN!, author: "urn:li:person:abc" },
+  apiVersion: "202609",
+});
+```
+
+Person authors need `r_member_social`; organization authors need
+`r_organization_social`. The author feed uses an opaque offset cursor.
+Organization account metrics need an administrator grant such as
+`rw_organization_admin`. Member-profile account analytics are not supported.
+Invalid URNs or API versions raise `invalid_config`.
+
+</PlatformTab>
+<PlatformTab platform="tiktok">
+
+**Reads:** video list and get. **Metrics:** account stats and per-video
+counts. **Access:** Display API with `user.info.stats` and `video.list`.
+
+TikTok reads use an access token, the creator's Open ID, and verified media
+origins.
+
+```ts
+import { tiktok } from "@opencoredev/social-sdk/tiktok";
+
+const adapter = tiktok({
+  auth: { accessToken: process.env.TIKTOK_TOKEN!, openId: "open-id" },
+  verifiedMediaOrigins: ["https://media.example.com"],
+});
+```
+
+Video items include ID, creation time, title, description, dimensions, share
+URL, and like, comment, share, and view counts. `getPostMetrics` reads the
+same four counts through the video query endpoint and needs `video.list`.
+Account counts need `user.info.stats`. TikTok has no normalized likes list.
+
+</PlatformTab>
+</PlatformTabs>
+
+## Errors and unsupported platforms
+
+An unavailable capability raises `unsupported_capability`. Authentication
+failures use `reconnect_required` or `unauthorized`; denied scopes use
+`missing_permission`; bad cursors, references, or limits use `invalid_input`;
+throttling uses `rate_limited`; and inaccessible resources can be `not_found`
+or `gone`. Do not turn errors into empty pages or zero metrics.
+
+Facebook has no post-read or analytics implementation in this SDK. Inspect
+`social.capabilities()` before enabling a feature.

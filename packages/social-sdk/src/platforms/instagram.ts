@@ -101,6 +101,7 @@ export interface InstagramNative {
   readonly publishStory: (input: {
     readonly account: ConnectedAccountRef;
     readonly mediaUrl: string;
+    readonly videoUrl?: string;
     readonly context: AdapterOperationContext;
   }) => Promise<DeliveryOutcome>;
   readonly deletePost: (input: {
@@ -123,6 +124,23 @@ export interface InstagramNative {
     readonly limit?: number;
     readonly context: AdapterOperationContext;
   }) => Promise<Page<JsonObject>>;
+  readonly publishContainer: (
+    account: ConnectedAccountRef,
+    containerId: string,
+    context: AdapterOperationContext,
+    workflowId?: string,
+  ) => Promise<DeliveryOutcome>;
+  readonly publishCarousel: (
+    account: ConnectedAccountRef,
+    children: readonly string[],
+    caption: string,
+    context: AdapterOperationContext,
+  ) => Promise<DeliveryOutcome>;
+  readonly resumePublication: (
+    account: ConnectedAccountRef,
+    workflowId: string,
+    context: AdapterOperationContext,
+  ) => Promise<DeliveryOutcome>;
 }
 
 export interface InstagramWorkflow {
@@ -333,9 +351,17 @@ export function instagram(
     authorize(selected, context);
 
     const result = object(
-      await request("/me", context, undefined, {
-        fields: "user_id,followers_count,media_count",
-      }),
+      await request(
+        flavor === "facebook-login" ? `/${encodeURIComponent(selected.accountId)}` : "/me",
+        context,
+        undefined,
+        {
+          fields:
+            flavor === "facebook-login"
+              ? "id,followers_count,media_count"
+              : "user_id,followers_count,media_count",
+        },
+      ),
     );
 
     const id = optionalString(result["user_id"]) ?? optionalString(result["id"]);
@@ -360,7 +386,7 @@ export function instagram(
               period: "lifetime" as const,
               fetchedAt: now(),
               freshness: "unknown" as const,
-              source: "Instagram Login Graph v25.0",
+              source: `${flavor === "facebook-login" ? "Facebook Login" : "Instagram Login"} Graph v25.0`,
             },
           ];
     });
@@ -406,7 +432,7 @@ export function instagram(
         backend: account.backend,
         platform: "instagram",
         accountId: account.accountId,
-        deliveryId: containerId,
+        deliveryId: workflowId ?? containerId,
       },
     };
 
@@ -608,6 +634,7 @@ export function instagram(
     context,
   }) => {
     authorize(account, context);
+    requireFacebookLogin("instagram.mentions.read");
     const query: Record<string, string> = {
       fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
       limit: String(pageLimit(limit)),
@@ -653,7 +680,10 @@ export function instagram(
           operation: "posts.publish",
           availability: "available" as const,
           formats: ["image" as const, "video" as const, "carousel" as const],
-          requiredScopes: ["instagram_business_basic", "instagram_business_content_publish"],
+          requiredScopes:
+            flavor === "facebook-login"
+              ? ["instagram_basic", "instagram_content_publish", "pages_read_engagement"]
+              : ["instagram_business_basic", "instagram_business_content_publish"],
           notes:
             "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping.",
         },
@@ -716,16 +746,34 @@ export function instagram(
           formats: ["video" as const],
         },
         { platform: "instagram", operation: "stories.publish", availability: "available" as const },
-        { platform: "instagram", operation: "posts.delete", availability: "available" as const },
+        {
+          platform: "instagram",
+          operation: "posts.delete",
+          availability:
+            flavor === "facebook-login"
+              ? ("available" as const)
+              : ("not-implemented-by-adapter" as const),
+          ...(flavor === "facebook-login"
+            ? { requiredScopes: ["instagram_basic", "pages_read_engagement"] }
+            : {}),
+        },
+        {
+          platform: "instagram",
+          operation: "posts.removeFromPlatform",
+          availability:
+            flavor === "facebook-login"
+              ? ("available" as const)
+              : ("not-implemented-by-adapter" as const),
+        },
         ...(flavor === "facebook-login"
           ? [
               {
                 platform: "instagram",
                 operation: "hashtags.search",
                 availability: "available" as const,
-                requiredScopes: ["instagram_basic", "instagram_public_content_access"],
+                requiredScopes: ["instagram_basic"],
                 notes:
-                  "Requires Facebook Login, an Instagram Public Content Access app review approval, and a qualifying Instagram professional account.",
+                  "Requires Facebook Login, Instagram Public Content Access feature approval, and a qualifying Instagram professional account.",
               },
             ]
           : []),
@@ -734,17 +782,27 @@ export function instagram(
           operation: "publishing.limit.read",
           availability: "available" as const,
         },
-        {
-          platform: "instagram",
-          operation: "mentions.read",
-          availability: "available" as const,
-          requiredScopes:
-            flavor === "facebook-login"
-              ? ["instagram_basic", "instagram_manage_comments", "pages_read_engagement"]
-              : ["instagram_business_basic", "instagram_business_manage_comments"],
-          notes:
-            "native.listMentions, native.listTaggedMedia, and native.mentions read the paginated /{ig-user-id}/tags edge with paging.cursors.after. Specific mentionedMedia and mentionedComment lookups require Facebook Login.",
-        },
+        ...(flavor === "facebook-login"
+          ? [
+              {
+                platform: "instagram",
+                operation: "mentions.read",
+                availability: "available" as const,
+                requiredScopes: [
+                  "instagram_basic",
+                  "instagram_manage_comments",
+                  "pages_read_engagement",
+                ],
+                notes: "Reads the paginated /{ig-user-id}/tags edge.",
+              },
+            ]
+          : [
+              {
+                platform: "instagram",
+                operation: "mentions.read",
+                availability: "not-implemented-by-adapter" as const,
+              },
+            ]),
         {
           platform: "instagram",
           operation: "product.tagging",
@@ -981,15 +1039,7 @@ export function instagram(
               },
             };
 
-          if (workflow.stage === "unknown")
-            return {
-              ...processing(account, workflow.id, "AMBIGUOUS"),
-              state: "unknown",
-              reason: "ambiguous-submission",
-              diagnostic: "Explicit resumePublication is required.",
-            };
-
-          return processing(account, workflow.id, workflow.stage.toUpperCase());
+          return resumeWorkflow(workflow, account, context);
         }
 
         const result = await status(ref.deliveryId, context);
@@ -1009,7 +1059,11 @@ export function instagram(
           delivery: { kind: "delivery" as const, version: 1 as const, ...ref },
         };
 
-        if (code === "IN_PROGRESS" || code === "FINISHED") return { ...base, state: "processing" };
+        if (code === "FINISHED") {
+          const workflow = await workflows.get(ref.deliveryId);
+          if (workflow) return resumeWorkflow(workflow, base.account, context);
+        }
+        if (code === "IN_PROGRESS") return { ...base, state: "processing" };
 
         if (code === "ERROR" || code === "EXPIRED")
           return {
@@ -1028,6 +1082,14 @@ export function instagram(
             "Container status alone does not identify a published native post. Reconcile stored publish results.",
         };
       },
+      async removeFromPlatform(
+        ref: PlatformPostRef,
+        context: AdapterOperationContext,
+      ): Promise<void> {
+        authorize(ref, context);
+        requireFacebookLogin("instagram.posts.removeFromPlatform");
+        await request(`/${encodeURIComponent(ref.postId)}`, context, undefined, {}, "DELETE");
+      },
     },
     comments: {
       async list(
@@ -1042,8 +1104,9 @@ export function instagram(
           limit: String(pageLimit(input.limit)),
         };
         if (input.cursor !== undefined) query["after"] = input.cursor;
-        const result = object(
+        const result = validatedObject(
           await request(`/${encodeURIComponent(ref.postId)}/comments`, context, undefined, query),
+          "instagram.comments.read",
         );
 
         return page(result, ["id", "text", "timestamp", "username"]);
@@ -1072,10 +1135,20 @@ export function instagram(
       ): Promise<readonly MetricValue[]> {
         authorize(ref, context);
 
-        const result = object(
-          await request(`/${encodeURIComponent(ref.postId)}/insights`, context, undefined, {
-            metric: "likes,comments,saved,shares,reach",
+        const media = validatedObject(
+          await request(`/${encodeURIComponent(ref.postId)}`, context, undefined, {
+            fields: "media_product_type",
           }),
+          "instagram.analytics.read",
+        );
+        const result = validatedObject(
+          await request(`/${encodeURIComponent(ref.postId)}/insights`, context, undefined, {
+            metric:
+              media["media_product_type"] === "STORY"
+                ? "shares,reach"
+                : "likes,comments,saved,shares,reach",
+          }),
+          "instagram.analytics.read",
         );
 
         return array(result["data"]).flatMap((entry) => {
@@ -1212,8 +1285,9 @@ export function instagram(
         };
         if (cursor !== undefined) query["after"] = cursor;
         return page(
-          object(
+          validatedObject(
             await request(`/${encodeURIComponent(commentId)}/replies`, context, undefined, query),
+            "instagram.comments.replies.read",
           ),
           ["id", "text", "timestamp", "username"],
         );
@@ -1243,6 +1317,7 @@ export function instagram(
       },
       async listTaggedMedia({ account, cursor, limit, context }) {
         authorize(account, context);
+        requireFacebookLogin("instagram.mentions.read");
         const query: Record<string, string> = {
           fields: "id,caption,media_type,permalink,timestamp,username",
           limit: String(pageLimit(limit)),
@@ -1265,19 +1340,19 @@ export function instagram(
         authorize(account, context);
         requireFacebookLogin("instagram.hashtags.search");
         const query: Record<string, string> = {
-          user_id: account.accountId,
           fields: "id,caption,media_type,permalink,timestamp,username",
           limit: String(pageLimit(limit, 50)),
         };
         if (cursor !== undefined) query["after"] = cursor;
         return page(
-          object(
+          validatedObject(
             await request(
               `/${encodeURIComponent(hashtagId)}/${kind}_media`,
               context,
               undefined,
               query,
             ),
+            "instagram.hashtags.search",
           ),
           ["id", "caption", "media_type", "permalink", "timestamp", "username"],
         );
@@ -1356,13 +1431,13 @@ export function instagram(
 
         return publishContainer(account, string(created["id"]), context);
       },
-      async publishStory({ account, mediaUrl, context }) {
+      async publishStory({ account, mediaUrl, videoUrl, context }) {
         authorize(account, context);
 
         const created = object(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
             media_type: "STORIES",
-            image_url: mediaUrl,
+            ...(videoUrl === undefined ? { image_url: mediaUrl } : { video_url: videoUrl }),
           }),
         );
 
@@ -1370,6 +1445,7 @@ export function instagram(
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
+        requireFacebookLogin("instagram.posts.delete");
         await request(`/${encodeURIComponent(postId)}`, context, undefined, {}, "DELETE");
       },
       async hashtagSearch({ account, hashtag, context }) {

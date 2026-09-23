@@ -159,16 +159,6 @@ export interface XNative {
     readonly userId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
-  readonly uploadVideo: (input: {
-    readonly account: ConnectedAccountRef;
-    readonly media: Blob;
-    readonly context: AdapterOperationContext;
-  }) => Promise<JsonObject>;
-  readonly uploadGif: (input: {
-    readonly account: ConnectedAccountRef;
-    readonly media: Blob;
-    readonly context: AdapterOperationContext;
-  }) => Promise<JsonObject>;
   readonly listDirectMessages: (input: {
     readonly account: ConnectedAccountRef;
     readonly participantId?: string;
@@ -382,10 +372,6 @@ export interface XNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
-  readonly stream: (input: {
-    readonly account: ConnectedAccountRef;
-    readonly context: AdapterOperationContext;
-  }) => Promise<Response>;
 }
 
 export function x(options: XOptions): import("../core/adapter.js").SocialAdapter<XNative> {
@@ -416,8 +402,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       });
     return request;
   };
-  const readRequest = (_path: string) =>
-    options.auth.accessToken?.trim() ? request : appRequest();
+  const readRequest = (path: string) =>
+    ["/2/users/me", "/liked_tweets", "/mentions", "/timelines/reverse_chronological"].some(
+      (suffix) => path.includes(suffix),
+    )
+      ? requireUserToken("x.read")
+      : options.auth.accessToken?.trim()
+        ? request
+        : appRequest();
 
   const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
   const now = () => (options.clock?.() ?? new Date()).toISOString();
@@ -563,11 +555,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const scope = input.scope ?? "recent";
     const maxLimit = scope === "all" ? 500 : 100;
 
-    if (!query.trim() || query.length > (scope === "all" ? 4096 : 512))
+    if (!query.trim() || query.length > 4096)
       throw new SocialError({
         code: "invalid_input",
         operation: "search.posts",
-        message: `X ${scope} search queries must contain 1-${scope === "all" ? 4096 : 512} characters.`,
+        message: "X search queries must contain 1-4096 characters.",
       });
 
     if (
@@ -604,53 +596,50 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       });
 
     const result = object(
-      await (scope === "all" ? appRequest() : request)(
-        `/2/tweets/search/${scope}`,
-        context,
-        undefined,
-        {
-          query,
-          "tweet.fields": [
-            "id",
-            "text",
-            "edit_history_tweet_ids",
-            ...(nativeInput?.tweetFields ?? [
-              "author_id",
-              "created_at",
-              "conversation_id",
-              "public_metrics",
-              "lang",
-              "entities",
-              "attachments",
-              "referenced_tweets",
-            ]),
-          ]
-            .filter((field, index, fields) => fields.indexOf(field) === index)
-            .join(","),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.startTime === undefined ? {} : { start_time: input.startTime }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.endTime === undefined ? {} : { end_time: input.endTime }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(nativeInput?.sortOrder === undefined ? {} : { sort_order: nativeInput.sortOrder }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(nativeInput?.expansions === undefined
-            ? {}
-            : { expansions: nativeInput.expansions.join(",") }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(nativeInput?.userFields === undefined
-            ? {}
-            : { "user.fields": nativeInput.userFields.join(",") }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(nativeInput?.mediaFields === undefined
-            ? {}
-            : { "media.fields": nativeInput.mediaFields.join(",") }),
-        },
-      ),
+      await (
+        scope === "all" ? (options.auth.accessToken?.trim() ? request : appRequest()) : request
+      )(`/2/tweets/search/${scope}`, context, undefined, {
+        query,
+        "tweet.fields": [
+          "id",
+          "text",
+          "edit_history_tweet_ids",
+          ...(nativeInput?.tweetFields ?? [
+            "author_id",
+            "created_at",
+            "conversation_id",
+            "public_metrics",
+            "lang",
+            "entities",
+            "attachments",
+            "referenced_tweets",
+          ]),
+        ]
+          .filter((field, index, fields) => fields.indexOf(field) === index)
+          .join(","),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(input.startTime === undefined ? {} : { start_time: input.startTime }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(input.endTime === undefined ? {} : { end_time: input.endTime }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(nativeInput?.sortOrder === undefined ? {} : { sort_order: nativeInput.sortOrder }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(nativeInput?.expansions === undefined
+          ? {}
+          : { expansions: nativeInput.expansions.join(",") }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(nativeInput?.userFields === undefined
+          ? {}
+          : { "user.fields": nativeInput.userFields.join(",") }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(nativeInput?.mediaFields === undefined
+          ? {}
+          : { "media.fields": nativeInput.mediaFields.join(",") }),
+      }),
     );
 
     const requestedFields = nativeInput?.tweetFields ?? [
@@ -669,7 +658,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const items = (result["data"] === undefined ? [] : array(result["data"])).map((entry) => {
       const row = object(entry);
       return Object.fromEntries(
-        requestedFields.filter((field) => field in row).map((field) => [field, row[field]]),
+        ["id", "text", ...requestedFields].flatMap((field, index, fields) =>
+          fields.indexOf(field) === index && field in row ? [[field, row[field]]] : [],
+        ),
       ) as JsonObject;
     });
 
@@ -702,8 +693,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   ): Promise<Page<JsonObject>> {
     authorize(account, context);
     const isTweets = resource === "tweets";
-    const minLimit = isTweets ? 5 : 1;
-    const maxLimit = isTweets ? 100 : 1000;
+    const minLimit = 1;
+    const maxLimit = 100;
     if (
       input.limit !== undefined &&
       (!Number.isInteger(input.limit) || input.limit < minLimit || input.limit > maxLimit)
@@ -722,9 +713,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 "id,text,author_id,created_at,conversation_id,public_metrics,referenced_tweets",
               expansions: "author_id,referenced_tweets.id",
             }
-          : fields
-            ? { "user.fields": fields }
-            : {}),
+          : path.endsWith("/owned_lists") || path.endsWith("/pinned_lists")
+            ? { "list.fields": fields }
+            : fields
+              ? { "user.fields": fields }
+              : {}),
         ...(input.cursor === undefined ? {} : { pagination_token: input.cursor }),
         ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
       }),
@@ -828,6 +821,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     media: MediaAttachment,
     context: AdapterOperationContext,
   ): Promise<string> {
+    requireUserToken("media.upload");
     if (
       media.source.kind !== "blob" ||
       media.kind !== "image" ||
@@ -953,7 +947,26 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           operation,
           availability: "available" as const,
+          ...(["likes.read"].includes(operation)
+            ? { requiredScopes: ["like.read", "tweet.read", "users.read"] }
+            : ["likes.write"].includes(operation)
+              ? { requiredScopes: ["like.write", "tweet.read", "users.read"] }
+              : ["lists.read"].includes(operation)
+                ? { requiredScopes: ["list.read", "tweet.read", "users.read"] }
+                : ["lists.write"].includes(operation)
+                  ? { requiredScopes: ["list.write", "tweet.read", "users.read"] }
+                  : ["timelines.read", "mentions.read", "posts.list"].includes(operation)
+                    ? { requiredScopes: ["tweet.read", "users.read"] }
+                    : ["posts.quote", "posts.delete", "posts.publish"].includes(operation)
+                      ? { requiredScopes: ["tweet.read", "tweet.write", "users.read"] }
+                      : {}),
         })),
+        {
+          platform: "x",
+          operation: "posts.removeFromPlatform",
+          availability: "available" as const,
+          requiredScopes: ["tweet.read", "tweet.write", "users.read"],
+        },
         {
           platform: "x",
           operation: "graph.read",
@@ -1042,10 +1055,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         {
           platform: "x",
           operation: "media.video",
-          availability: "available" as const,
+          availability: "not-implemented-by-adapter" as const,
           formats: ["video" as const],
         },
-        { platform: "x", operation: "media.gif", availability: "available" as const },
+        {
+          platform: "x",
+          operation: "media.gif",
+          availability: "not-implemented-by-adapter" as const,
+        },
         {
           platform: "x",
           operation: "messages.read",
@@ -1063,8 +1080,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         {
           platform: "x",
           operation: "streams.read",
-          availability: "available" as const,
-          notes: "Filtered stream access depends on the X API tier.",
+          availability: "not-implemented-by-adapter" as const,
+          notes:
+            "Filtered stream rules and streaming transport are not implemented by this adapter.",
         },
       ],
     },
@@ -1311,6 +1329,18 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "conversation_id",
         ]);
       },
+      async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
+        authorize(ref, context);
+        await nativeAdapter.deletePost({
+          account: connectedAccountRef({
+            backend: ref.backend,
+            platform: "x",
+            accountId: ref.accountId,
+          }),
+          postId: ref.postId,
+          context,
+        });
+      },
     },
     comments: {
       async list() {
@@ -1361,6 +1391,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         // X has no conversation-list endpoint. This page is derived from /2/dm_events,
         // with one latest event for each distinct dm_conversation_id in the page.
         requireUserToken("messages.read");
+        if (
+          input.limit !== undefined &&
+          (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "messages.read",
+            message: "X DM limits must be integers from 1 through 100.",
+          });
         const page = await nativeAdapter.listDirectMessages({
           account,
           ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
@@ -1402,6 +1441,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         context: AdapterOperationContext,
       ): Promise<JsonObject> {
         requireUserToken("messages.write");
+        if (!content.text.trim())
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "messages.write",
+            message: "X direct messages require non-empty text.",
+          });
         return nativeAdapter.sendConversationMessage({
           account: connectedAccountRef({
             backend: conversation.backend,
@@ -1428,6 +1473,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ["reposts", "retweet_count"],
           ["replies", "reply_count"],
           ["quotes", "quote_count"],
+          ["impressions", "impression_count"],
+          ["bookmarks", "bookmark_count"],
         ].flatMap(([name, key]) => {
           const value = key ? optionalNumber(counts[key]) : undefined;
 
@@ -1544,60 +1591,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "DELETE",
         );
       },
-      async uploadVideo({ account, media, context }) {
-        authorize(account, context);
-
-        if (!media.type.startsWith("video/") || media.size > 512 * 1024 * 1024)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "x.media.video",
-            message: "Provide a video Blob no larger than 512 MiB.",
-          });
-        const body = new FormData();
-        body.set("media", media, "video");
-        body.set("media_category", "tweet_video");
-
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return object(
-          await http({
-            url: new URL("https://api.x.com/2/media/upload"),
-            method: "POST",
-            headers: { Authorization: `Bearer ${options.auth.accessToken}` },
-            body,
-            timeoutMs: remainingBudget(context),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            ...(context.signal ? { signal: context.signal } : {}),
-          }),
-        ) as JsonObject;
-      },
-      async uploadGif({ account, media, context }) {
-        authorize(account, context);
-
-        if (media.type !== "image/gif")
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "x.media.gif",
-            message: "GIF uploads require image/gif media.",
-          });
-        const body = new FormData();
-        body.set("media", media, "image.gif");
-        body.set("media_category", "tweet_gif");
-
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return object(
-          await http({
-            url: new URL("https://api.x.com/2/media/upload"),
-            method: "POST",
-            headers: { Authorization: `Bearer ${options.auth.accessToken}` },
-            body,
-            timeoutMs: remainingBudget(context),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            ...(context.signal ? { signal: context.signal } : {}),
-          }),
-        ) as JsonObject;
-      },
       async listDirectMessages({ account, participantId, conversationId, cursor, limit, context }) {
         authorize(account, context);
+        if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "messages.read",
+            message: "X DM limits must be integers from 1 through 100.",
+          });
         const path = conversationId
           ? `/2/dm_conversations/${encodeURIComponent(conversationId)}/dm_events`
           : participantId
@@ -1606,7 +1607,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         const result = object(
           await request(path, context, undefined, {
             "dm_event.fields":
-              "id,text,event_type,created_at,sender_id,dm_conversation_id,attachments,referenced_tweets",
+              "id,text,event_type,created_at,dm_conversation_id,attachments,entities",
+            expansions: "sender_id,participant_ids",
             ...(cursor === undefined ? {} : { pagination_token: cursor }),
             ...(limit === undefined ? {} : { max_results: String(limit) }),
           }),
@@ -1620,8 +1622,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async sendDirectMessage({ account, participantId, text, context }) {
         authorize(account, context);
+        const userRequest = requireUserToken("messages.write");
+        if (!text.trim())
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "messages.write",
+            message: "X direct messages require non-empty text.",
+          });
         return object(
-          await request(
+          await userRequest(
             `/2/dm_conversations/with/${encodeURIComponent(participantId)}/messages`,
             context,
             { text },
@@ -1630,6 +1639,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async sendConversationMessage({ account, conversationId, text, attachments, context }) {
         authorize(account, context);
+        if (!text.trim())
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "messages.conversation.write",
+            message: "X direct messages require non-empty text.",
+          });
         return object(
           await requireUserToken("messages.conversation.write")(
             `/2/dm_conversations/${encodeURIComponent(conversationId)}/messages`,
@@ -1640,6 +1655,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async createGroupConversation({ account, participantIds, message, context }) {
         authorize(account, context);
+        if (!message.trim())
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "messages.group.write",
+            message: "X direct messages require non-empty text.",
+          });
         return object(
           await requireUserToken("messages.group.write")("/2/dm_conversations", context, {
             conversation_type: "Group",
@@ -1695,7 +1716,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async getMe({ account, context }) {
         authorize(account, context);
         return object(
-          await readRequest("users")("/2/users/me", context, undefined, {
+          await readRequest("/2/users/me")("/2/users/me", context, undefined, {
             "user.fields":
               "id,name,username,description,created_at,public_metrics,profile_image_url,verified",
           }),
@@ -1717,8 +1738,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           context,
         );
       },
-      followUser: async ({ account, userId, context }) =>
-        object(
+      async followUser({ account, userId, context }) {
+        authorize(account, context);
+        return object(
           await requireUserToken("graph.follow")(
             `/2/users/${encodeURIComponent(account.accountId)}/following`,
             context,
@@ -1726,7 +1748,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               target_user_id: userId,
             },
           ),
-        ) as JsonObject,
+        ) as JsonObject;
+      },
       async unfollowUser({ account, userId, context }) {
         authorize(account, context);
         await requireUserToken("graph.unfollow")(
@@ -1799,13 +1822,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async like({ account, postId, context }) {
         authorize(account, context);
-        await request(`/2/users/${encodeURIComponent(account.accountId)}/likes`, context, {
-          tweet_id: postId,
-        });
+        await requireUserToken("likes.write")(
+          `/2/users/${encodeURIComponent(account.accountId)}/likes`,
+          context,
+          {
+            tweet_id: postId,
+          },
+        );
       },
       async unlike({ account, postId, context }) {
         authorize(account, context);
-        await request(
+        await requireUserToken("likes.write")(
           `/2/users/${encodeURIComponent(account.accountId)}/likes/${encodeURIComponent(postId)}`,
           context,
           undefined,
@@ -1820,7 +1847,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           { cursor, limit },
           context,
           {},
-          "id,name,username,description,created_at,public_metrics",
+          "id,name,description,created_at,public_metrics",
           "tweets",
         );
       },
@@ -1831,7 +1858,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           { cursor, limit },
           context,
           {},
-          "id,name,username,description,created_at,public_metrics",
+          "id,name,description,created_at,public_metrics",
           "users",
         );
       },
@@ -1875,6 +1902,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           account,
           { cursor, limit },
           context,
+          {},
+          "id,name,description,private,member_count,follower_count",
         );
       },
       async addListMember({ account, listId, userId, context }) {
@@ -1921,6 +1950,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           account,
           { cursor, limit },
           context,
+          {},
+          "id,name,description,private,member_count,follower_count",
         );
       },
       async pinList({ account, listId, context }) {
@@ -1945,13 +1976,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "DELETE",
         );
       },
-      async pinnedLists({ account, cursor, limit, context }) {
-        return pageRequest(
-          `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists`,
-          account,
-          { cursor, limit },
-          context,
+      async pinnedLists({ account, context }) {
+        authorize(account, context);
+        const result = object(
+          await readRequest("pinned_lists")(
+            `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists`,
+            context,
+            undefined,
+            { "list.fields": "id,name,description,private,member_count,follower_count" },
+          ),
         );
+        return { items: result["data"] === undefined ? [] : array(result["data"]).map(object) };
       },
       async listPosts({ account, listId, cursor, limit, context }) {
         return pageRequest(
@@ -2006,24 +2041,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           {},
           "DELETE",
         );
-      },
-      async stream({ account, context }) {
-        authorize(account, context);
-        if (!options.appBearerToken?.trim())
-          throw new SocialError({
-            code: "missing_permission",
-            operation: "streams.read",
-            message: "Filtered stream requires an app-only bearer token. Configure appBearerToken.",
-          });
-
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return (await http({
-          url: new URL("https://api.x.com/2/tweets/search/stream"),
-          headers: { Authorization: `Bearer ${options.appBearerToken}` },
-          timeoutMs: remainingBudget(context),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(context.signal ? { signal: context.signal } : {}),
-        })) as Response;
       },
     }),
   });

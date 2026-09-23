@@ -1,18 +1,120 @@
 ---
-title: Notifications
-description: Read provider notifications and mark them seen when the adapter supports those operations.
+title: Notifications and mentions
+description: Read Bluesky notifications and native mention timelines.
 ---
 
-Use `social.notifications.list(account, options)` for one page of provider-shaped notification
-objects. The page uses the same opaque cursor contract as feeds and search.
+The normalized notifications facade is implemented only by Bluesky. X, Instagram,
+and Threads expose native mention reads. YouTube has neither capability.
+
+## Normalized API
+
+```ts
+social.notifications.list(account, { cursor?, limit? }, options?)
+social.notifications.iterate(account, { limit?, maxPages?, maxItems? }, options?)
+social.notifications.markSeen(account, { seenAt? }, options?)
+```
+
+`list` returns `Page<JsonObject>` with `items` and optional opaque `nextCursor`.
+Pass that cursor unchanged to the next `list` call. `iterate` follows cursors
+lazily within its bounds. `markSeen` returns `void`; `notifications.read` and
+`notifications.seen` are separate capabilities. Objects stay provider-shaped.
+
+The examples assume one `social` client built with the platform's adapter and an
+`account` from `connectedAccountRef`. `accountId` is the Bluesky DID, the X or
+Threads user ID, or the Instagram account ID. Native calls also take the
+`context` your application passes to adapter operations.
+
+## Platform support
+
+<PlatformTabs>
+<PlatformTab platform="bluesky">
+
+**Normalized** `list`, `iterate`, and `markSeen`. Needs an access JWT or OAuth
+session with `repo`. Paging uses the AT Protocol cursor.
+
+Configure `bluesky({ auth: { service, did, accessJwt } })`, or pass an OAuth
+`session` instead of `accessJwt`. The adapter calls
+`app.bsky.notification.listNotifications` and the seen endpoint. Reasons include
+`like`, `repost`, `follow`, `mention`, and `reply`.
 
 ```ts
 const page = await social.notifications.list(account, { limit: 50 });
-for (const notification of page.items) console.log(notification);
 await social.notifications.markSeen(account, { seenAt: new Date().toISOString() });
 ```
 
-`social.notifications.iterate(account, options)` traverses pages lazily with `maxPages`,
-`maxItems`, and cancellation controls. Notification event types differ across providers, so the
-SDK preserves their payloads instead of presenting a cross-platform taxonomy. `notifications.read`
-and `notifications.seen` are separate capabilities.
+</PlatformTab>
+<PlatformTab platform="x">
+
+**Native** `mentions` only. Needs a user access token with `mentions.read`.
+Subject to X API paging and rate limits.
+
+Configure `x({ auth: { userId, accessToken } })` and use the X user ID as
+`accountId`. The method calls `GET /2/users/:id/mentions` and returns a
+`Page<JsonObject>` of X posts.
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const page = await native.mentions({ account, limit: 50, context });
+```
+
+Pass `page.nextCursor` back as `cursor`. A missing user token or scope raises
+`missing_permission` or `unauthorized`.
+
+</PlatformTab>
+<PlatformTab platform="instagram">
+
+**Native** `listMentions` (also exposed as `mentions`). Needs Instagram Login
+scopes `instagram_business_basic` and `instagram_business_manage_comments`.
+
+Configure `instagram({ auth: { accountId, accessToken, flavor: "instagram-login" } })`.
+The adapter reads the `/{ig-user-id}/tags` edge and returns tagged-media objects
+with a cursor.
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const page = await native.listMentions({ account, limit: 50, context });
+```
+
+`mentionedMedia` and `mentionedComment` need Facebook Login. With Instagram
+Login they raise `unsupported_capability`.
+
+</PlatformTab>
+<PlatformTab platform="threads">
+
+**Native** `mentions` only. Needs `threads_basic` and `threads_manage_mentions`.
+
+Configure `threads({ auth: { userId, accessToken } })`. The method calls the
+`/:threads-user-id/mentions` edge and returns the provider JSON unchanged.
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const page = await native.mentions({ account, context });
+```
+
+Store the provider cursor and pass it as `cursor` on the next call. The provider
+reports missing permissions as `unauthorized` or an upstream error.
+
+</PlatformTab>
+<PlatformTab platform="youtube">
+
+**Not supported.** The YouTube adapter declares no `notifications.read`,
+`notifications.seen`, or `mentions.read` capability and has no native mentions
+method. A normalized call raises `SocialError` with
+`code: "unsupported_capability"`.
+
+```ts
+const { capabilities } = social.capabilities().default;
+const canRead = capabilities.some(
+  (c) => c.operation === "notifications.read" && c.availability === "available",
+);
+```
+
+</PlatformTab>
+</PlatformTabs>
+
+## Errors
+
+Calling the normalized notifications facade for X, Instagram, Threads, or YouTube
+raises `unsupported_capability` before any request. Invalid page limits raise
+`invalid_input`. Native calls bypass tenant authorization and concurrency
+middleware, so apply your own policy around them.

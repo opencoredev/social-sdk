@@ -1,7 +1,7 @@
 import { SocialError } from "../core/errors.js";
 import type { JsonObject, MediaAttachment } from "../core/types.js";
 import { readJson } from "../transport/http.js";
-import { object, string } from "../transport/validation.js";
+import { array, object, optionalString, string } from "../transport/validation.js";
 
 export interface YouTubeUploadSession {
   /** Secret upload URI. Store server-side; never serialize into public references. */
@@ -163,13 +163,37 @@ async function uploadRequest(
     }
 
     if (!response.ok) {
+      let reason: string | undefined;
+
+      try {
+        const payload = object(await readJson(response.clone(), 64 * 1024));
+        const errors = array(payload["errors"]);
+        const first = errors[0];
+
+        if (first !== undefined) reason = optionalString(object(first)["reason"]);
+      } catch {
+        // Preserve the HTTP status when the provider omits a parseable error body.
+      }
+
       void response.body?.cancel().catch(() => undefined);
       throw new SocialError({
-        code: response.status >= 500 ? "ambiguous_outcome" : "media_error",
+        code:
+          response.status === 401
+            ? "reconnect_required"
+            : reason === "quotaExceeded"
+              ? "rate_limited"
+              : response.status >= 500
+                ? "ambiguous_outcome"
+                : "media_error",
         operation: "youtube.upload",
         message: `YouTube upload request failed with HTTP ${response.status}.`,
         upstreamStatus: response.status,
-        retryDisposition: response.status >= 500 ? { kind: "reconcile-first" } : { kind: "never" },
+        retryDisposition:
+          response.status >= 500
+            ? { kind: "reconcile-first" }
+            : response.status === 401
+              ? { kind: "after-reconnect" }
+              : { kind: "never" },
       });
     }
 
@@ -344,12 +368,6 @@ export async function sendYouTubeUpload(
             break;
           }
 
-          if (next.value.byteLength > chunkBytes)
-            throw new SocialError({
-              code: "media_error",
-              operation: "youtube.upload",
-              message: "Source chunks must be at most 8 MiB.",
-            });
           buffered = new Uint8Array(next.value);
           cursor = 0;
         }

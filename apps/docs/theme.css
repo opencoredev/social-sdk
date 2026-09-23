@@ -65,3 +65,75 @@ html {
   overscroll-behavior-y: none;
   background-color: var(--blume-background);
 }
+
+/* Platform tabs: logo + name triggers on top of Blume's Tabs. */
+.platform-tabs [role="tab"] {
+  font-size: 0.8125rem;
+}
+
+/* Logos are background-image spans, never <img>, so Blume's click-to-zoom
+   (bound to `.prose img`) cannot pick them up. */
+.platform-logo {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  background: center / contain no-repeat;
+}
+
+.platform-tabs [role="tab"]:not([aria-selected="true"]) .platform-logo {
+  opacity: 0.7;
+  transition: opacity 150ms ease-in-out;
+}
+
+.platform-tabs [role="tab"]:hover .platform-logo {
+  opacity: 1;
+}
+
+:root[data-theme="dark"] .platform-logo[data-platform="x"],
+:root[data-theme="dark"] .platform-logo[data-platform="threads"],
+:root[data-theme="dark"] .platform-logo[data-platform="tiktok"] {
+  filter: invert(1);
+}
+
+/* The fallback label only appears when JavaScript is off (PlatformTabs
+   ships a <noscript> style that reveals it and every panel). */
+.platform-tab-fallback {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Blume draws code flush inside boxed tabs. Platform tabs are inline, so give
+   code blocks back the same frame they have in the article body. */
+.platform-tabs blume-tabs [data-blume-tab-panel] > pre {
+  border: 1px solid var(--blume-border);
+  border-radius: 8px;
+  margin: 1.25rem 0;
+}
+
+/* A short fade and lift when a platform panel appears. */
+@keyframes platform-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.platform-tabs [data-blume-tab-panel]:not(.hidden) {
+  animation: platform-panel-in 150ms ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .platform-tabs [data-blume-tab-panel]:not(.hidden) {
+    animation: none;
+  }
+
+  .platform-tabs [role="tab"] .platform-logo {
+    transition: none;
+  }
+}

@@ -1,8 +1,14 @@
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
+
+try {
+  await stat(join(root, "packages/social-sdk/dist"));
+} catch {
+  throw new Error("packages/social-sdk/dist is missing; build the package before packing");
+}
 
 const temporary = await mkdtemp(join(tmpdir(), "social-sdk-consumer-"));
 

@@ -77,6 +77,16 @@ export function zernio(options: ManagedOptions) {
     };
   };
 
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated by account at this boundary.
+  const supportedAccount = (value: unknown, backend: string): AccountRecord | undefined => {
+    try {
+      return account(value, backend);
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unsupported_capability") return undefined;
+      throw error;
+    }
+  };
+
   const analytics = async (ref: PlatformPostRef, context: AdapterOperationContext) => {
     accountMatches(ref, context);
 
@@ -175,7 +185,11 @@ export function zernio(options: ManagedOptions) {
           optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
 
         return {
-          items: array(result["accounts"]).map((value) => account(value, context.backendInstance)),
+          items: array(result["accounts"]).flatMap((value) => {
+            const parsed = supportedAccount(value, context.backendInstance);
+
+            return parsed ? [parsed] : [];
+          }),
           // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
           ...(pages !== undefined && page < pages ? { nextCursor: String(page + 1) } : {}),
         };
@@ -184,10 +198,28 @@ export function zernio(options: ManagedOptions) {
         accountMatches(ref, context);
 
         const response = object(
-          await request(`/v1/accounts/${encodeURIComponent(ref.accountId)}`, context),
+          await request("/v1/accounts", context, undefined, {
+            platform: ref.platform === "x" ? "twitter" : ref.platform,
+          }),
         );
 
-        const result = account(response["account"] ?? response, context.backendInstance);
+        const raw = array(response["accounts"])
+          .map(object)
+          .find(
+            (item) =>
+              item["_id"] === ref.accountId &&
+              (item["platform"] === ref.platform ||
+                item["platform"] === (ref.platform === "x" ? "twitter" : ref.platform)),
+          );
+
+        if (!raw)
+          throw new SocialError({
+            code: "not_found",
+            operation: "accounts.read",
+            message: "Provider account was not found.",
+          });
+
+        const result = account(raw, context.backendInstance);
 
         if (result.ref.accountId !== ref.accountId || result.ref.platform !== ref.platform)
           throw new SocialError({
@@ -583,6 +615,7 @@ export function zernio(options: ManagedOptions) {
 
         const pagination = result["pagination"] ? object(result["pagination"]) : {};
         const cursor = optionalString(pagination["cursor"]);
+        const hasMore = pagination["hasMore"];
 
         return {
           items: array(result["comments"]).map((entry) =>
@@ -602,7 +635,7 @@ export function zernio(options: ManagedOptions) {
             ]),
           ),
           // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          ...(cursor ? { nextCursor: cursor } : {}),
+          ...(hasMore === false || !cursor ? {} : { nextCursor: cursor }),
         };
       },
       async reply(

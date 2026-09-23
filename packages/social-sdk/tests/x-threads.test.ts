@@ -78,15 +78,7 @@ it("creates and publishes a Threads text container", async () => {
     context(),
   );
 
-  assert.equal(result?.state, "processing");
-
-  const resumed = await adapter.native?.resumePublication(
-    account,
-    result?.delivery?.deliveryId ?? "",
-    context(),
-  );
-
-  assert.equal(resumed?.state, "published");
+  assert.equal(result?.state, "published");
   assert.ok(calls.some((call) => call.includes("threads_publish")));
 });
 
@@ -125,15 +117,7 @@ it("creates a Threads image container from an explicit public URL", async () => 
     context(),
   );
 
-  assert.equal(result?.state, "processing");
-
-  const resumed = await adapter.native?.resumePublication(
-    account,
-    result?.delivery?.deliveryId ?? "",
-    context(),
-  );
-
-  assert.equal(resumed?.state, "published");
+  assert.equal(result?.state, "published");
   assert.ok(calls.some((call) => call.includes("image_url=https%3A%2F%2Fcdn.example%2Fimage.jpg")));
 });
 

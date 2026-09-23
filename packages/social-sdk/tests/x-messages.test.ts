@@ -51,6 +51,11 @@ it("lists X conversations and messages and sends through social.messages", async
   );
   assert.ok(conversations.nextCursor !== undefined);
   assert.equal(requests[0]?.url.searchParams.get("max_results"), "20");
+  assert.equal(
+    requests[0]?.url.searchParams.get("dm_event.fields"),
+    "id,text,event_type,created_at,dm_conversation_id,attachments,entities",
+  );
+  assert.equal(requests[0]?.url.searchParams.get("expansions"), "sender_id,participant_ids");
 
   await social.messages.listConversations(account, {
     cursor: conversations.nextCursor,

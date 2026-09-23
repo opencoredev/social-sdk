@@ -1,5 +1,7 @@
 import { defineConfig } from "blume";
 
+import { platformTabsMarkdown } from "./components/platforms.ts";
+
 export default defineConfig({
   title: "Social SDK",
   description:
@@ -182,6 +184,7 @@ export default defineConfig({
   },
   ai: {
     llmsTxt: true,
+    markdownComponents: { PlatformTabs: platformTabsMarkdown },
     mcp: {
       enabled: false,
     },

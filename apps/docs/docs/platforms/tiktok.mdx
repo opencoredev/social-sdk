@@ -143,7 +143,7 @@ Draft/inbox and public posting have different upstream review and audit requirem
 
 ## Native operations
 
-The typed native module adds the inbox/draft upload path, own-video listing with display fields, and an explicit publish-status query. Polling is caller initiated and bounded; the SDK does not run background polling. Comments and direct messages remain platform limits for standard Content Posting and Display API apps.
+The typed native module adds the inbox/draft upload path, own-video listing with display fields, and an explicit publish-status query. Post metrics from `social.analytics.getPostMetrics` read like, comment, share, and view counts through the Display API video query and require `video.list`; account metrics require `user.info.stats`. Polling is caller initiated and bounded; the SDK does not run background polling. Comments and direct messages remain platform limits for standard Content Posting and Display API apps.
 
 ## Limits and requirements
 

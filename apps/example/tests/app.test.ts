@@ -3,16 +3,17 @@ import assert from "node:assert/strict";
 import { createExampleHandler } from "../src/app.js";
 import { mockBackend } from "@opencoredev/social-sdk/testing";
 import { openExampleDatabase } from "../src/storage.js";
+import { SocialError } from "@opencoredev/social-sdk";
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function request(path: string, value?: unknown, headers: Record<string, string> = {}) {
   return new Request(
-    `http://example.test${path}`,
+    `http://localhost:3030${path}`,
     value === undefined
-      ? {}
+      ? { headers: { host: "localhost:3030", ...headers } }
       : {
           method: "POST",
-          headers: { "content-type": "application/json", ...headers },
+          headers: { host: "localhost:3030", "content-type": "application/json", ...headers },
           body: JSON.stringify(value),
         },
   );
@@ -74,15 +75,16 @@ test("rejects arbitrary accounts, missing intentional keys, malformed and oversi
     400,
   );
   assert.equal(
-    (await handle(new Request("http://example.test/api/publish", { method: "POST", body: "{" })))
+    (await handle(new Request("http://localhost:3030/api/publish", { method: "POST", body: "{" })))
       .status,
     400,
   );
   assert.equal(
     (
       await handle(
-        new Request("http://example.test/api/publish", {
+        new Request("http://localhost:3030/api/publish", {
           method: "POST",
+          headers: { host: "localhost:3030" },
           body: "x".repeat(1_000_001),
         }),
       )
@@ -225,4 +227,58 @@ test("blocks cross-origin browser mutations before backend dispatch", async () =
 
   assert.equal(response.status, 403);
   assert.equal(backend.testing.history().length, 0);
+});
+
+test("rejects unallowlisted hosts and origins before backend dispatch", async () => {
+  const backend = mockBackend();
+  const { handle } = createExampleHandler({ backend });
+
+  assert.equal(
+    (await handle(new Request("http://attacker.test/api/publish", { method: "POST" }))).status,
+    421,
+  );
+  assert.equal(
+    (
+      await handle(
+        request("/api/publish", publication, {
+          origin: "http://attacker.test",
+        }),
+      )
+    ).status,
+    403,
+  );
+  assert.equal(backend.testing.history().length, 0);
+});
+
+test("maps SocialError codes to their HTTP status", async () => {
+  for (const [code, status] of [
+    ["rate_limited", 429],
+    ["upstream_failure", 502],
+    ["timeout", 504],
+    ["not_found", 404],
+    ["invalid_input", 400],
+  ] as const) {
+    const base = mockBackend();
+
+    const backend = {
+      ...base,
+      accounts: {
+        ...base.accounts,
+        async list() {
+          throw new SocialError({ code, operation: "accounts.list", message: code });
+        },
+      },
+      posts: {
+        ...base.posts,
+        async publishTarget() {
+          throw new SocialError({ code, operation: "posts.publishTarget", message: code });
+        },
+      },
+    };
+
+    const response = await createExampleHandler({ backend }).handle(request("/api/accounts"));
+
+    assert.equal(response.status, status, code);
+    assert.equal((await response.json()).error, code);
+  }
 });

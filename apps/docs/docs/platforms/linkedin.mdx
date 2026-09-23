@@ -3,7 +3,7 @@ title: LinkedIn
 description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image processing states, comments, and metrics.
 ---
 
-The direct LinkedIn adapter supports normalized text and registered-image publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds video registration, polls, reactions, reshares, updates, deletion, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
+The direct LinkedIn adapter supports normalized text and registered-image publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds polls, reactions, reshares, updates, deletion, and organization analytics operations. Video posts are not supported yet. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
 
 ## Setup
 
@@ -162,7 +162,7 @@ Page statistics preserve nested click metrics such as `careersPageClicks` and
 
 ## Native operations
 
-The native module covers multi-image posts, video and document uploads, polls, reactions, reshares, updates, deletion, and organization analytics. Articles remain approval dependent.
+The native module covers polls, reactions, reshares, updates, deletion, and organization analytics. Multi-image, video, and document posts are not supported yet. Articles remain approval dependent.
 
 ## Limits and requirements
 

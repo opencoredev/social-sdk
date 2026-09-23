@@ -95,7 +95,7 @@ describe("Bluesky adapter", () => {
   });
 
   it("performs typed like and unlike mutations with ownership checks", async () => {
-    const requests: Array<{ url: string; body?: string }> = [];
+    const requests: Array<{ url: string; body?: string; headers?: Headers }> = [];
 
     const adapter = bluesky({
       backend: "direct",
@@ -105,6 +105,7 @@ describe("Bluesky adapter", () => {
           url: String(input),
           // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(init?.body === undefined ? {} : { body: String(init.body) }),
+          headers: new Headers(init?.headers),
         });
 
         return response({ uri: "at://did:plc:test/app.bsky.feed.like/r1", cid: "bafy" });
@@ -126,6 +127,7 @@ describe("Bluesky adapter", () => {
     assert.equal(like?.uri, "at://did:plc:test/app.bsky.feed.like/r1");
     assert.match(requests[0]?.url ?? "", /com\.atproto\.repo\.createRecord/);
     assert.match(requests[0]?.body ?? "", /app\.bsky\.feed\.like/);
+    assert.equal(requests[0]?.headers?.get("content-type"), "application/json");
     await adapter.native?.unlikePost({ account, likeUri: like?.uri ?? "", context: context() });
     assert.match(requests[1]?.url ?? "", /com\.atproto\.repo\.deleteRecord/);
     await assert.rejects(() =>
@@ -172,6 +174,7 @@ describe("Bluesky adapter", () => {
     assert.equal(requests.length, 1);
     const headers = new Headers(requests[0]?.headers);
     assert.equal(headers.has("authorization"), false);
+    assert.equal(headers.get("content-type"), "application/json");
   });
 
   it("lists only the configured credential-ready account", async () => {

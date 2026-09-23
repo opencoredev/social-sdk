@@ -105,23 +105,25 @@ export function managedHttp(origin: string, options: ManagedOptions) {
       throw new SocialError({
         code: ambiguous
           ? "ambiguous_outcome"
-          : error.kind === "cancelled"
-            ? "cancelled"
-            : error.kind === "timeout"
-              ? "timeout"
-              : error.status === 401
-                ? "reconnect_required"
-                : error.status === 403
-                  ? "missing_permission"
-                  : error.status === 402
-                    ? "billing_required"
-                    : error.status === 404
-                      ? "not_found"
-                      : error.status === 410
-                        ? "gone"
-                        : error.status === 429
-                          ? "rate_limited"
-                          : "upstream_failure",
+          : error.status === 429
+            ? "rate_limited"
+            : error.kind === "cancelled"
+              ? "cancelled"
+              : error.kind === "timeout"
+                ? "timeout"
+                : error.status === 401
+                  ? "reconnect_required"
+                  : error.status === 403
+                    ? "missing_permission"
+                    : error.status === 402
+                      ? "billing_required"
+                      : error.status === 404
+                        ? "not_found"
+                        : error.status === 410
+                          ? "gone"
+                          : error.kind === "invalid-input"
+                            ? "invalid_input"
+                            : "upstream_failure",
         operation: path,
         backend: context.backendInstance,
         correlationId: context.correlationId,
@@ -424,6 +426,8 @@ export async function uploadManagedMedia(
       mimeType,
       // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
       ...(size === undefined ? {} : { size }),
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- Blob bodies preserve known-size uploads for presigned storage.
+      ...(source.kind === "blob" ? { body: source.blob } : {}),
       open: source.kind === "blob" ? () => source.blob.stream() : source.open,
     },
     allowHost,

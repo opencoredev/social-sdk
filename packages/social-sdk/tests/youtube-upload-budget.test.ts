@@ -25,7 +25,7 @@ it("bounds an uncooperative fetch without waiting for abort", async () => {
 
 it("uses one deadline across source reads and upload chunks", async () => {
   const session: YouTubeUploadSession = {
-    url: "https://www.googleapis.com/upload/youtube/v3/videos/session",
+    url: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=session",
     size: 1,
     mimeType: "video/mp4",
     channelId: "c",
@@ -135,11 +135,60 @@ it("shares timeout budget across multiple chunks", async () => {
             calls++;
             await new Promise((resolve) => setTimeout(resolve, 700));
 
-            return new Response(null, { status: 308 });
+            const uploaded = lengths.reduce((total, length) => total + length, 0);
+
+            return new Response(null, {
+              status: 308,
+              headers: { range: `bytes=0-${uploaded - 1}` },
+            });
           },
         },
       ),
     (error: { code?: string }) => error.code === "timeout" || error.code === "ambiguous_outcome",
   );
   assert.equal(calls, 1);
+});
+
+it("splits a single oversized stream chunk into resumable requests", async () => {
+  const size = 20 * 1024 * 1024;
+
+  const session: YouTubeUploadSession = {
+    url: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=session",
+    size,
+    mimeType: "video/mp4",
+    channelId: "c",
+  };
+
+  const bytes = new Uint8Array(size);
+  const lengths: number[] = [];
+
+  // SAFETY: the uploader only reads `kind` and `source` from the media descriptor.
+  const result = await sendYouTubeUpload(
+    session,
+    {
+      kind: "video",
+      source: {
+        kind: "stream",
+        open: () =>
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(bytes);
+              controller.close();
+            },
+          }),
+      },
+    } as never,
+    {
+      accessToken: "token",
+      fetch: async (_url, init) => {
+        lengths.push(Number(new Headers(init?.headers).get("Content-Length")));
+        const uploaded = lengths.reduce((total, length) => total + length, 0);
+
+        return new Response(null, { status: 308, headers: { range: `bytes=0-${uploaded - 1}` } });
+      },
+    },
+  );
+
+  assert.deepEqual(lengths, [8 * 1024 * 1024, 8 * 1024 * 1024, 4 * 1024 * 1024]);
+  assert.deepEqual(result, { state: "incomplete", nextByte: size });
 });

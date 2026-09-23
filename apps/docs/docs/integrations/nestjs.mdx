@@ -81,31 +81,44 @@ Guards and your tenant lookup own authorization. The SDK checks capabilities and
 
 ## Webhooks with a raw body
 
-Enable Nest's raw-body support and read `req.rawBody` in the events controller:
+Enable Nest's raw-body support and read `req.rawBody` in the events controller. `req.rawBody` is a `Buffer`, which the verifier accepts as a `Uint8Array`. Convert Node's header record to a web `Headers` object:
 
 ```ts src/main.ts
 const app = await NestFactory.create(AppModule, { rawBody: true });
 ```
 
 ```ts src/events/events.controller.ts
-import { Controller, Post, Req, Res } from "@nestjs/common";
+import { Controller, HttpCode, Post, Req, UnauthorizedException } from "@nestjs/common";
 import type { RawBodyRequest } from "@nestjs/common";
+import type { Request } from "express";
+import { SocialError } from "@opencoredev/social-sdk";
+import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
 @Controller("events")
 export class EventsController {
   @Post()
-  async receive(@Req() req: RawBodyRequest<Request>, @Res() res: Response) {
-    const body = new Uint8Array(req.rawBody!);
-    const verification = await adapter.webhooks?.verify(
-      { headers: req.headers as Record<string, string>, body },
-      context,
-    );
-    if (!verification?.valid) return res.status(401).send("unauthorized");
+  @HttpCode(202)
+  async receive(@Req() req: RawBodyRequest<Request>) {
+    try {
+      await verifyZernioWebhook({
+        secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+        headers: new Headers(req.headers as Record<string, string>),
+        body: req.rawBody ?? new Uint8Array(),
+      });
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized") {
+        throw new UnauthorizedException();
+      }
+      throw error;
+    }
+
     // decode, resolve tenants, accept into your durable inbox
-    return res.status(202).send("accepted");
+    return "accepted";
   }
 }
 ```
+
+Nest fills `req.rawBody` only for bodies its built-in JSON and URL-encoded parsers handle, so providers must send `Content-Type: application/json`.
 
 The [events guide](/events) covers decoding, tenant quarantine, and the durable inbox worker.
 

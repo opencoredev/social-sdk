@@ -1,0 +1,37 @@
+---
+// One platform panel inside <PlatformTabs>. The platform key picks the display
+// name and the logo served from /integrations/<key>.svg, so pages cannot drift
+// from the sidebar artwork.
+import Tab from "blume/components/content/Tab.astro";
+
+import { PLATFORM_NAMES, type PlatformKey } from "./platforms.ts";
+
+interface Props {
+  platform: PlatformKey;
+  title?: string;
+}
+
+const { platform, title } = Astro.props;
+
+const label = title ?? PLATFORM_NAMES[platform];
+
+const logo = `url("/integrations/${platform}.svg")`;
+---
+
+{/*
+  Logos are background-image spans, not <img>: Blume binds click-to-zoom to
+  every `.prose img`, and a tab icon must only switch tabs. Passing our own
+  <template data-blume-tab-icon> instead of Tab's `icon` prop keeps Blume's
+  tabs script cloning it into the trigger.
+*/}
+<Tab title={label}>
+  {/* Shown only before the tabs script runs, so stacked panels stay labeled. */}
+  <p class="platform-tab-fallback">
+    <span aria-hidden="true" class="platform-logo" data-platform={platform} style={`background-image: ${logo}`}></span>
+    <strong>{label}</strong>
+  </p>
+  <slot />
+  <template data-blume-tab-icon>
+    <span aria-hidden="true" class="platform-logo" data-platform={platform} style={`background-image: ${logo}`}></span>
+  </template>
+</Tab>

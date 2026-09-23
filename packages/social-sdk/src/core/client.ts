@@ -485,7 +485,16 @@ export function createSocial(
       });
     }
 
-    return limiter(signal, operation, work);
+    return limiter(signal, operation, work).catch((error: unknown) => {
+      if (error instanceof SocialError) throw error;
+      throw new SocialError({
+        code: "upstream_failure",
+        operation,
+        backend,
+        message: "The adapter failed while processing the request",
+        cause: error,
+      });
+    });
   }
 
   const clock = config.clock ?? (() => new Date());
@@ -1360,8 +1369,14 @@ export function createSocial(
           operation: "posts.publishSequence",
           message: "A sequence requires at least one item",
         });
-      const results: PublishResult[] = [];
+      if (typeof request.idempotencyKey !== "string" || request.idempotencyKey.trim() === "")
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "posts.publishSequence",
+          message: "A nonempty idempotencyKey is required",
+        });
 
+      const prepared: PublishRequest[] = [];
       for (const [index, item] of request.items.entries()) {
         const publishRequest: PublishRequest = {
           targets: item.targets,
@@ -1370,9 +1385,47 @@ export function createSocial(
         };
 
         if (item.replyTo !== undefined) Object.assign(publishRequest, { replyTo: item.replyTo });
-        const result = await publish(publishRequest, callOptions);
+        const plan = prepare(publishRequest);
+        if (!plan.ok)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.publishSequence",
+            message: "Publication preparation failed; no targets were dispatched",
+            issues: plan.issues,
+          });
+        for (const target of plan.targets)
+          await authorizeRef(
+            "posts.publish",
+            target.account,
+            callOptions,
+            `social-${++correlationSequence}`,
+          );
+        prepared.push(publishRequest);
+      }
+
+      const results: PublishResult[] = [];
+      let previous: PlatformPostRef | undefined;
+
+      for (const [index, publishRequest] of prepared.entries()) {
+        const nextRequest =
+          request.replyToPrevious && index > 0 && previous !== undefined
+            ? { ...publishRequest, replyTo: previous }
+            : publishRequest;
+        let result: PublishResult;
+        try {
+          result = await publish(nextRequest, callOptions);
+        } catch (error) {
+          if (error instanceof SocialError) {
+            if (request.stopOnFailure !== false) break;
+            continue;
+          }
+          throw error;
+        }
 
         results.push(result);
+
+        const published = result.outcomes.find((outcome) => outcome.state === "published");
+        if (published?.post !== undefined) previous = published.post;
 
         if (request.stopOnFailure !== false && result.status === "partial") break;
       }
@@ -1427,7 +1480,7 @@ export function createSocial(
       const adapter = selected(ref, "posts.getDelivery");
       requireCapability(adapter, "posts.status", ref.platform, ref.backend);
 
-      if (adapter.posts?.getDelivery === undefined) unsupported("posts.read", ref.backend);
+      if (adapter.posts?.getDelivery === undefined) unsupported("posts.status", ref.backend);
 
       return dispatch(ref.backend, callOptions?.signal, "posts.status", () =>
         adapter.posts!.getDelivery!(ref, makeContext(ref.backend, correlationId, callOptions)),
@@ -1443,6 +1496,7 @@ export function createSocial(
     ): Promise<Page<JsonObject>> {
       validateAccountRef(account, "search.posts");
       if (
+        input === null ||
         input === undefined ||
         typeof input.query !== "string" ||
         !input.query.trim() ||
@@ -1647,6 +1701,15 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+      if (
+        callOptions?.limit !== undefined &&
+        (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "comments.read",
+          message: "Comment page limit must be a positive integer",
+        });
 
       const account = {
         kind: "connected-account" as const,
@@ -1724,6 +1787,15 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+      if (
+        callOptions?.limit !== undefined &&
+        (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "messages.read",
+          message: "Message page limit must be a positive integer",
+        });
       await authorizeRef("messages.read", account, callOptions, correlationId);
       const adapter = selected(account, "messages.listConversations");
       requireCapability(adapter, "messages.read", account.platform, account.backend);
@@ -1765,6 +1837,15 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+      if (
+        callOptions?.limit !== undefined &&
+        (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "messages.read",
+          message: "Message page limit must be a positive integer",
+        });
 
       const account = {
         kind: "connected-account" as const,
@@ -1944,16 +2025,30 @@ export function createSocial(
         });
       const selected = registry[String(backend)];
 
-      if (selected === undefined) throw new Error(`Unknown backend: ${String(backend)}`);
+      if (selected === undefined)
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "adapter",
+          message: `Unknown backend: ${String(backend)}`,
+        });
 
       return selected;
     },
     native: (backend, acknowledgement) => {
       if (acknowledgement?.acknowledgeUnsafe !== true)
-        throw new Error("Native access requires acknowledgeUnsafe: true");
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "native",
+          message: "Native access requires acknowledgeUnsafe: true",
+        });
       const selected = registry[String(backend)];
 
-      if (selected === undefined) throw new Error(`Unknown backend: ${String(backend)}`);
+      if (selected === undefined)
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "native",
+          message: `Unknown backend: ${String(backend)}`,
+        });
 
       return selected.native;
     },

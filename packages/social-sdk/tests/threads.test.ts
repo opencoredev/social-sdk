@@ -224,14 +224,12 @@ for (const kind of ["image", "video"] as const)
       context,
     );
 
-    assert.equal(writes.length, 0);
+    assert.equal(writes.length, 2);
     const id = outcome.delivery!.deliveryId;
-    const resumed = await threads(options).native!.resumePublication(account, id, context);
-    assert.equal(resumed.state, "published");
+    assert.equal(outcome.state, "published");
     assert.equal(writes[0]?.searchParams.get("media_type"), kind.toUpperCase());
     assert.equal(writes[0]?.searchParams.get(`${kind}_url`), `https://cdn.example.test/${kind}`);
-    assert.equal(writes[0]?.searchParams.get("reply_control"), "mentionedOnly");
-    assert.equal(writes.length, 2);
+    assert.equal(writes[0]?.searchParams.get("reply_control"), "mentioned_only");
     await first.native!.resumePublication(account, id, context);
     assert.equal(writes.length, 2);
   });
@@ -358,7 +356,7 @@ test("Threads persists each carousel child before waiting and serializes concurr
   );
 
   const id = outcome.delivery!.deliveryId;
-  assert.equal(children, 0);
+  assert.equal(children, 2);
   assert.equal((await first.native!.resumePublication(account, id, context)).state, "processing");
   assert.equal(children, 2);
   assert.equal(parents, 0);

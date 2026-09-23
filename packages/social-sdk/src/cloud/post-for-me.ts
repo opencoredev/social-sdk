@@ -75,6 +75,16 @@ export function postForMe(options: ManagedOptions) {
     };
   };
 
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated by account at this boundary.
+  const supportedAccount = (value: unknown, backend: string): AccountRecord | undefined => {
+    try {
+      return account(value, backend);
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unsupported_capability") return undefined;
+      throw error;
+    }
+  };
+
   const feed = async (
     ref: PlatformPostRef,
     context: AdapterOperationContext,
@@ -155,7 +165,11 @@ export function postForMe(options: ManagedOptions) {
         const next = meta["next"] ? String(offset + limit) : undefined;
 
         return {
-          items: rows.map((value) => account(value, context.backendInstance)),
+          items: rows.flatMap((value) => {
+            const parsed = supportedAccount(value, context.backendInstance);
+
+            return parsed ? [parsed] : [];
+          }),
           // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
           ...(next ? { nextCursor: next } : {}),
         };
@@ -415,28 +429,42 @@ export function postForMe(options: ManagedOptions) {
 
         if (row["metrics"] === undefined || row["metrics"] === null) return [];
         const metrics = object(row["metrics"]);
+
+        const values =
+          ref.platform === "x" && metrics["public_metrics"] !== undefined
+            ? object(metrics["public_metrics"])
+            : metrics;
+
         const result: MetricValue[] = [];
 
-        // Count fields retain provider names; absent metrics are not invented zeros.
-        for (const key of [
-          "likes",
-          "like_count",
-          "comments",
-          "comment_count",
-          "shares",
-          "share_count",
-          "views",
-          "view_count",
-          "impressions",
-          "reach",
-          "reposts",
-          "repost_count",
-        ]) {
-          const value = optionalNumber(metrics[key]);
+        const fields: readonly (readonly [string, string])[] =
+          ref.platform === "x"
+            ? [
+                ["likes", "like_count"],
+                ["comments", "reply_count"],
+                ["reposts", "repost_count"],
+                ["impressions", "impression_count"],
+              ]
+            : ref.platform === "linkedin"
+              ? [
+                  ["likes", "likeCount"],
+                  ["comments", "commentCount"],
+                  ["impressions", "impressionCount"],
+                ]
+              : ref.platform === "bluesky"
+                ? [
+                    ["likes", "likeCount"],
+                    ["comments", "replyCount"],
+                    ["reposts", "repostCount"],
+                  ]
+                : [];
+
+        for (const [name, key] of fields) {
+          const value = optionalNumber(values[key]);
 
           if (value !== undefined)
             result.push({
-              name: key,
+              name,
               value,
               unit: "count",
               period: "lifetime",

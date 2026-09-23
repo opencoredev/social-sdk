@@ -1,0 +1,36 @@
+---
+// Platform tabs built on Blume's inline Tabs. Every group on a page shares the
+// "platform" sync key, so choosing Bluesky in one group switches the others,
+// and the choice is kept in the ?platform= query param for deep links.
+import Tabs from "blume/components/content/Tabs.astro";
+
+interface Props {
+  defaultTabIndex?: number;
+}
+
+const { defaultTabIndex = 0 } = Astro.props;
+---
+
+<div class="platform-tabs">
+  <Tabs defaultTabIndex={defaultTabIndex} inline param="platform" syncKey="platform">
+    <slot />
+  </Tabs>
+  {/*
+    Without JavaScript the tab strip is never built and Blume shows only the
+    first panel. Show every panel, each with its own logo and name, instead.
+  */}
+  <noscript>
+    <style>
+      .platform-tabs [data-blume-tablist] {
+        display: none;
+      }
+      .platform-tabs [data-blume-tab-content] > * {
+        display: block !important;
+      }
+      .platform-tabs .platform-tab-fallback {
+        display: flex;
+        margin-top: 2rem;
+      }
+    </style>
+  </noscript>
+</div>

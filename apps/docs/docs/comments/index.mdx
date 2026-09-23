@@ -1,57 +1,161 @@
 ---
 title: Handle comments and messages
-description: Read and reply to comments, use native reactions, and work with supported private conversations across authorized social accounts.
+description: List, reply to, and moderate supported comments and messages.
 ---
 
-Public replies and private conversations share an account connection, but use different references and permissions. Start with the section for the interaction you need:
+The normalized facades use platform references and opaque cursors. The examples
+assume one `social` client built with the platform's adapter, an `account` from
+`connectedAccountRef`, and a `post` from `platformPostRef`.
 
-- [Comments and replies](#comments-and-replies) attach to a native post.
-- [Reactions](#reactions) use platform-specific like/unlike helpers.
-- [Messages](#messages) belong to an authorized conversation.
-
-## Comments and replies
-
-Comments use a native `platform-post` reference for reads and a `comment` reference for replies. A reply is an engagement mutation with its own authorization and uncertain-outcome handling; it is not a publish request with special text.
+## Comments
 
 ```ts
-// social is configured; postRef came from an authorized native post read.
-const comments = await social.comments.list(postRef);
-const commentId = comments.items[0]?.id;
-if (typeof commentId !== "string") throw new Error("No comment selected");
-
-const reply = await social.comments.reply(
-  { ...postRef, kind: "comment", commentId },
-  { text: "Thanks for sharing." },
-);
+const comments = await social.comments.list(post, { limit: 20 });
+const commentId = String(comments.items[0]?.["id"]);
+await social.comments.reply({ ...post, kind: "comment", commentId }, { text: "Thanks." });
 ```
 
-This fragment uses Zernio’s returned comment ID and retains the post’s account and backend reference. Do not fabricate a `commentId`, account reference, or tenant grant. If `comments.read` or `comments.write` is absent, the client returns an unavailable-capability error; the application should expose that as unsupported rather than an empty inbox. The deterministic mock backend advertises comments for local contract tests; managed adapters still depend on provider permissions. Zernio currently advertises comments for X, Threads, Bluesky, YouTube, LinkedIn, Instagram, and Facebook. The direct Threads adapter also advertises normalized comment reads and replies; TikTok, Threads messaging, and LinkedIn messaging remain governed by their platform declarations. See [capabilities](/reference/capabilities).
-
-## Reactions
-
-Selected reactions are available as typed native helpers: [X like/unlike and engagement operations](/platforms/x), [Bluesky like/repost/quote operations](/platforms/bluesky), and platform-specific reaction operations documented in the LinkedIn guide. They do not delete or hide comments. Their application authorization requirements and uncertain-write handling are documented on each platform page. No generic moderation API is claimed.
+`comments.list(post, { cursor, limit })` returns `{ items, nextCursor? }`. Pass
+`nextCursor` back unchanged. `comments.iterate` follows pages. `comments.reply`
+takes a comment reference: the post reference fields plus `kind: "comment"` and
+the provider `commentId`.
 
 ## Messages
 
-Messaging is available only on adapters that advertise `messages.read` or `messages.write`. The current Zernio manifest advertises conversation listing, message listing, and sending for X, Bluesky, Instagram, and Facebook. On X, the conversation list is derived from the latest event for each conversation in the current `/2/dm_events` page. The local mock and Post for Me adapters do not advertise normalized messaging.
-
 ```ts
-// social and accountRef belong to your authorized Zernio connection.
-const conversations = await social.messages.listConversations(accountRef);
-const conversationId = conversations.items[0]?.id;
-if (typeof conversationId !== "string") throw new Error("No conversation selected");
-
-const conversation = {
-  kind: "conversation" as const,
-  version: 1 as const,
-  backend: accountRef.backend,
-  platform: accountRef.platform,
-  accountId: accountRef.accountId,
-  conversationId,
-};
-
-const messages = await social.messages.listMessages(conversation);
-const sent = await social.messages.send(conversation, { text: "Hello" });
+const conversations = await social.messages.listConversations(account, { limit: 20 });
 ```
 
-Treat this as a configured-application fragment: conversation and recipient IDs must come from an authorized provider read, and provider reply-window or recipient rules still apply. A missing capability is an explicit unsupported result. The SDK does not emulate an inbox, scrape messages, or promise delivery receipts. See [tenant authorization](/concepts/tenant-authorization) and [capabilities](/reference/capabilities).
+`messages.listConversations(account, { cursor, limit })` returns
+`{ items, nextCursor? }`. `listMessages` takes a conversation reference, and
+`messages.send(ref, { text })` writes to it. `messages.iterateConversations` and
+`messages.iterateMessages` follow pages. Only X and Bluesky implement normalized
+messages.
+
+## Platform support
+
+<PlatformTabs>
+<PlatformTab platform="x">
+
+**Comments** list and reply. **Messages:** conversations, messages, and send.
+**Access:** user token. DM reads need `dm.read`, `users.read`, and `tweet.read`;
+writes also need `dm.write`.
+
+Configure `x({ auth: { userId, accessToken } })`. Normalized DMs need a user
+token; an app bearer token is rejected with `missing_permission`.
+`listConversations` derives one latest event per conversation from the current
+`/2/dm_events` page, so it is not a complete historical inbox.
+
+Native `sendDirectMessage`, `sendConversationMessage`, and
+`createGroupConversation` are available from the acknowledged X native adapter.
+
+```ts
+const conversations = await social.messages.listConversations(account, { limit: 20 });
+await native.sendDirectMessage({ account, participantId, text: "Hello.", context });
+```
+
+</PlatformTab>
+<PlatformTab platform="bluesky">
+
+**Comments** list and reply. **Messages:** chat conversations, messages, and
+send. **Access:** an authenticated session with `chat.read` and `chat.write`.
+
+Configure `bluesky({ auth: { service, did, accessJwt } })`. Comment items keep
+their AT Protocol identifiers. Chat is normalized when the authenticated session
+has the declared chat capabilities.
+
+```ts
+const conversation = { ...account, kind: "conversation", conversationId } as const;
+const messages = await social.messages.listMessages(conversation, { limit: 50 });
+await social.messages.send(conversation, { text: "Thanks for reaching out." });
+```
+
+Bluesky has no normalized hide or delete comment operation. Use native AT
+Protocol operations behind your own authorization policy.
+
+</PlatformTab>
+<PlatformTab platform="threads">
+
+**Comments** list and reply. **Messages:** not supported. **Scopes:**
+`threads_basic`, `threads_read_replies`, and `threads_manage_replies`.
+
+Configure `threads({ auth: { userId, accessToken } })`. Messaging is
+`unsupported-by-platform`, so message calls raise `unsupported_capability`.
+
+Moderation is native. `hideReply` hides or unhides a reply, and
+`listConversation`, `listPendingReplies`, and `managePendingReply` cover the
+rest:
+
+```ts
+await native.hideReply({ account, replyId, hide: true, context });
+```
+
+</PlatformTab>
+<PlatformTab platform="youtube">
+
+**Comments** list and reply. **Messages:** not supported. **Access:** an OAuth
+token for the channel; moderation needs `youtube.force-ssl`.
+
+Configure `youtube({ auth: { accessToken, channelId } })` for the authorized
+channel. Native `heldComments` lists comments held for review. Native
+`commentsModeration` supports `setModerationStatus`, `update`, and `delete`.
+`setModerationStatus` requires a `moderationStatus` such as `published`,
+`heldForReview`, or `rejected`; omitting it raises `invalid_input`.
+
+```ts
+const held = await native.heldComments({ maxResults: 20, context });
+await native.commentsModeration({
+  action: "setModerationStatus",
+  commentId,
+  moderationStatus: "published",
+  context,
+});
+```
+
+</PlatformTab>
+<PlatformTab platform="instagram">
+
+**Comments** list and reply. **Messages:** not supported. **Access:** a
+professional account with comment-management permission.
+
+Configure `instagram({ auth: { accessToken, accountId, flavor } })`. `flavor`
+defaults to `instagram-login`; use `facebook-login` where the adapter requires
+Facebook Login. Instagram DMs raise `unsupported_capability`.
+
+```ts
+await native.moderateComment({ account, commentId, hidden: true, context });
+await native.deleteComment({ account, commentId, context });
+```
+
+</PlatformTab>
+<PlatformTab platform="linkedin">
+
+**Comments** list and reply. **Messages:** not supported. **Scopes:**
+`r_member_social` and `w_member_social`, with an author URN.
+
+Configure `linkedin({ auth: { accessToken, author }, apiVersion })`. `author` is
+a `urn:li:person:<id>` or `urn:li:organization:<id>`; organization actions need
+administrator access.
+
+LinkedIn comments use Social Actions and may return composite URNs. If a write
+is accepted without a returned URN, the SDK can raise `ambiguous_outcome`.
+LinkedIn messages raise `unsupported_capability`.
+
+```ts
+const comments = await social.comments.list(post, { limit: 20 });
+await social.comments.reply({ ...post, kind: "comment", commentId }, { text: "Thanks." });
+```
+
+</PlatformTab>
+</PlatformTabs>
+
+## Errors and native access
+
+An unavailable operation raises `unsupported_capability`, not an empty page.
+Provider permission or token failures use `missing_permission`; malformed
+references and missing YouTube moderation status use `invalid_input`.
+`ambiguous_outcome` means a write may have succeeded and must be reconciled.
+
+`social.native(backend, { acknowledgeUnsafe: true })` returns the `native`
+handle used above. It bypasses tenant authorization and concurrency middleware,
+so wrap native calls in your own policy.

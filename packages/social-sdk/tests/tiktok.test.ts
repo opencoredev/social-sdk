@@ -188,6 +188,88 @@ it("TikTok draft inbox remains accepted and large native IDs retain their exact 
   if (result.state === "published") assert.equal(result.post.postId, "9007199254740993");
 });
 
+it("TikTok SELF_ONLY completion is published even without a public post id", async () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async () => response({ status: "PUBLISH_COMPLETE", publicaly_available_post_id: [] }),
+  });
+
+  const result = await adapter.posts.getDelivery(
+    {
+      kind: "delivery",
+      version: 1,
+      backend: "default",
+      platform: "tiktok",
+      accountId: "creator1",
+      deliveryId: "private1",
+    },
+    context,
+  );
+
+  assert.equal(result.state, "accepted");
+});
+
+it("TikTok draft initialization skips creator info and uses the inbox endpoint", async () => {
+  const calls: string[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: ["https://media.example.test"],
+    fetch: async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      calls.push(path);
+      assert.equal(path, "/v2/post/publish/inbox/video/init/");
+      const body = JSON.parse(String(init?.body));
+      assert.equal(body.source_info.source, "PULL_FROM_URL");
+      assert.equal("post_info" in body, false);
+
+      return response({ publish_id: "draft1" });
+    },
+  });
+
+  const draftRequest = {
+    ...request,
+    targets: [
+      {
+        account,
+        options: {
+          ...request.targets[0]!.options,
+          draft: true,
+          creatorInfo: undefined,
+        },
+      },
+    ],
+  };
+
+  const result = await createSocial({ backend: adapter }).posts.publish(draftRequest);
+  assert.equal(result.outcomes[0]?.state, "accepted");
+  assert.deepEqual(calls, ["/v2/post/publish/inbox/video/init/"]);
+});
+
+it("TikTok post metrics are available through the social facade", async () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async () =>
+      response({
+        videos: [{ id: "post1", like_count: 4, comment_count: 2, share_count: 1, view_count: 20 }],
+      }),
+  });
+
+  const metrics = await createSocial({ backend: adapter }).analytics.getPostMetrics({
+    kind: "platform-post",
+    version: 1,
+    backend: "default",
+    platform: "tiktok",
+    accountId: "creator1",
+    postId: "post1",
+  });
+
+  assert.equal(metrics.length, 4);
+  assert.equal(metrics.find((metric) => metric.name === "view_count")?.value, 20);
+});
+
 it("TikTok photo publishing keeps cover order and disables unrequested added music", async () => {
   const adapter = tiktok({
     auth: { accessToken: "test", openId: "creator1" },

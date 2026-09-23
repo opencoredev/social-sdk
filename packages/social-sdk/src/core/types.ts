@@ -269,6 +269,7 @@ export interface PublishSequenceRequest {
   }[];
   readonly idempotencyKey: string;
   readonly stopOnFailure?: boolean;
+  readonly replyToPrevious?: boolean;
 }
 
 export interface PublishSequenceResult {

@@ -30,6 +30,8 @@ jobs:
       # Trusted publishing (OIDC) needs npm 11.5.1+; no npm token anywhere.
       - run: npm install -g npm@11
       - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun scripts/check-package.ts
       - name: Create version PR or publish to npm
         uses: changesets/action@v1
         with:

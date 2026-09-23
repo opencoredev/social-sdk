@@ -1,8 +1,11 @@
 import { abortable, HttpError } from "./http.js";
 
+/* oxlint-disable anti-slop/require-readable-spacing -- stream pull branches stay compact. */
+
 export interface UploadSource {
   mimeType: string;
   size?: number;
+  body?: Blob;
   /** Called exactly once per explicit upload. Return a fresh stream each time. */
   open: () => ReadableStream<Uint8Array>;
 }
@@ -118,6 +121,8 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
   options.signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(new Error("Upload deadline exceeded")), timeout);
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let buffered: Uint8Array | undefined;
+  let bufferedOffset = 0;
   let bytes = 0;
   let dispatched = false;
 
@@ -125,38 +130,47 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
     reader = source.open().getReader();
     const sourceReader = reader;
 
-    const body = new ReadableStream<Uint8Array>(
+    const bodyStream = new ReadableStream<Uint8Array>(
       {
         async pull(output) {
           try {
             controller.signal.throwIfAborted();
-            const next = await abortable(sourceReader.read(), controller.signal);
 
-            if (next.done) {
-              if (source.size !== undefined && bytes !== source.size)
+            if (buffered === undefined || bufferedOffset >= buffered.byteLength) {
+              const next = await abortable(sourceReader.read(), controller.signal);
+
+              if (next.done) {
+                if (source.size !== undefined && bytes !== source.size)
+                  throw new HttpError(
+                    "Upload stream length does not match declared size.",
+                    "invalid-input",
+                    dispatched,
+                  );
+                output.close();
+
+                return;
+              }
+              if (bytes + next.value.byteLength > options.maxBytes) {
+                // oxlint-disable-next-line anti-slop/require-readable-spacing -- compact guarded error construction.
                 throw new HttpError(
-                  "Upload stream length does not match declared size.",
+                  "Upload stream exceeds its total byte limit.",
                   "invalid-input",
                   dispatched,
                 );
-              output.close();
+              }
 
-              return;
+              buffered = next.value;
+              bufferedOffset = 0;
             }
 
-            if (
-              next.value.byteLength > maxChunkBytes ||
-              bytes + next.value.byteLength > options.maxBytes
-            ) {
-              throw new HttpError(
-                "Upload stream exceeds its chunk or total byte limit.",
-                "invalid-input",
-                dispatched,
-              );
-            }
+            const chunk = buffered!.subarray(
+              bufferedOffset,
+              Math.min(buffered!.byteLength, bufferedOffset + maxChunkBytes),
+            );
 
-            bytes += next.value.byteLength;
-            output.enqueue(next.value);
+            bufferedOffset += chunk.byteLength;
+            bytes += chunk.byteLength;
+            output.enqueue(chunk);
 
             try {
               options.onProgress?.(bytes);
@@ -175,14 +189,22 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
       { highWaterMark: 1 },
     );
 
-    const init: RequestInit & { duplex: "half" } = {
+    const requestBody = source.body ?? bodyStream;
+
+    if (source.body !== undefined) bytes = source.body.size;
+    const headers = new Headers({ "Content-Type": source.mimeType });
+
+    if (source.size !== undefined) headers.set("Content-Length", String(source.size));
+
+    const init: RequestInit & Partial<{ duplex: "half" }> = {
       method: "PUT",
-      headers: { "Content-Type": source.mimeType },
-      body,
-      duplex: "half",
+      headers,
+      body: requestBody,
       redirect: "error",
       signal: controller.signal,
     };
+
+    if (source.body === undefined) init.duplex = "half";
 
     dispatched = true;
     const pending = (options.fetch ?? globalThis.fetch)(url, init);

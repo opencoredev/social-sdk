@@ -97,16 +97,28 @@ See [framework recipes](/getting-started/framework-recipes) for the handler's be
 
 ## Webhooks
 
-Verify provider events against the raw request bytes before parsing. Next.js route handlers give you the untouched body through `request.arrayBuffer()`:
+Verify provider events against the raw request bytes before parsing. Next.js route handlers give you the untouched body through `request.arrayBuffer()` and the headers as a `Headers` object:
 
 ```ts app/api/events/route.ts
+import { SocialError } from "@opencoredev/social-sdk";
+import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
+
 export async function POST(request: Request) {
   const body = new Uint8Array(await request.arrayBuffer());
-  const verification = await adapter.webhooks?.verify(
-    { headers: Object.fromEntries(request.headers), body },
-    context,
-  );
-  if (!verification?.valid) return new Response("unauthorized", { status: 401 });
+
+  try {
+    await verifyZernioWebhook({
+      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+      headers: request.headers,
+      body,
+    });
+  } catch (error) {
+    if (error instanceof SocialError && error.code === "unauthorized") {
+      return new Response("unauthorized", { status: 401 });
+    }
+    throw error;
+  }
+
   // decode, resolve tenants, and accept into your durable inbox
   return new Response("accepted", { status: 202 });
 }
