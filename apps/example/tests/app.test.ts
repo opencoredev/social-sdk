@@ -251,6 +251,9 @@ test("rejects unallowlisted hosts and origins before backend dispatch", async ()
 });
 
 test("maps SocialError codes to their HTTP status", async () => {
+  // Each PGlite open runs the migrations and takes over a second on CI, so the cases share one.
+  const db = await openExampleDatabase();
+
   for (const [code, status] of [
     ["rate_limited", 429],
     ["upstream_failure", 502],
@@ -276,9 +279,13 @@ test("maps SocialError codes to their HTTP status", async () => {
       },
     };
 
-    const response = await createExampleHandler({ backend }).handle(request("/api/accounts"));
+    const response = await createExampleHandler({ backend, database: db }).handle(
+      request("/api/accounts"),
+    );
 
     assert.equal(response.status, status, code);
     assert.equal((await response.json()).error, code);
   }
+
+  await db.close();
 });
