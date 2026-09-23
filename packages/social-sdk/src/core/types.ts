@@ -272,9 +272,18 @@ export interface PublishSequenceRequest {
   readonly replyToPrevious?: boolean;
 }
 
+export interface PublishSequenceFailure {
+  /** Position of the failed item in the request's `items`. */
+  readonly index: number;
+  readonly code: string;
+  readonly message: string;
+}
+
 export interface PublishSequenceResult {
   readonly status: PublicationStatus;
+  /** Results for items that were dispatched, in request order. Failed items are in `failures`. */
   readonly items: readonly PublishResult[];
+  readonly failures: readonly PublishSequenceFailure[];
 }
 
 export interface PreparedPublishTarget {

@@ -110,6 +110,17 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
     );
   }
 
+  if (
+    source.body !== undefined &&
+    (source.body.size > options.maxBytes ||
+      (source.size !== undefined && source.body.size !== source.size))
+  )
+    throw new HttpError(
+      "Media body exceeds the upload limit or does not match its declared size.",
+      "invalid-input",
+      false,
+    );
+
   if (options.signal?.aborted)
     throw new HttpError("Upload cancelled before opening the stream.", "cancelled", false);
   const timeout = options.timeoutMs ?? 120_000;

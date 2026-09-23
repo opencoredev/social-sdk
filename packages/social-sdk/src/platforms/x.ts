@@ -596,50 +596,53 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       });
 
     const result = object(
-      await (
-        scope === "all" ? (options.auth.accessToken?.trim() ? request : appRequest()) : request
-      )(`/2/tweets/search/${scope}`, context, undefined, {
-        query,
-        "tweet.fields": [
-          "id",
-          "text",
-          "edit_history_tweet_ids",
-          ...(nativeInput?.tweetFields ?? [
-            "author_id",
-            "created_at",
-            "conversation_id",
-            "public_metrics",
-            "lang",
-            "entities",
-            "attachments",
-            "referenced_tweets",
-          ]),
-        ]
-          .filter((field, index, fields) => fields.indexOf(field) === index)
-          .join(","),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.startTime === undefined ? {} : { start_time: input.startTime }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.endTime === undefined ? {} : { end_time: input.endTime }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(nativeInput?.sortOrder === undefined ? {} : { sort_order: nativeInput.sortOrder }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(nativeInput?.expansions === undefined
-          ? {}
-          : { expansions: nativeInput.expansions.join(",") }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(nativeInput?.userFields === undefined
-          ? {}
-          : { "user.fields": nativeInput.userFields.join(",") }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(nativeInput?.mediaFields === undefined
-          ? {}
-          : { "media.fields": nativeInput.mediaFields.join(",") }),
-      }),
+      await (options.auth.accessToken?.trim() ? request : appRequest())(
+        `/2/tweets/search/${scope}`,
+        context,
+        undefined,
+        {
+          query,
+          "tweet.fields": [
+            "id",
+            "text",
+            "edit_history_tweet_ids",
+            ...(nativeInput?.tweetFields ?? [
+              "author_id",
+              "created_at",
+              "conversation_id",
+              "public_metrics",
+              "lang",
+              "entities",
+              "attachments",
+              "referenced_tweets",
+            ]),
+          ]
+            .filter((field, index, fields) => fields.indexOf(field) === index)
+            .join(","),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.startTime === undefined ? {} : { start_time: input.startTime }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.endTime === undefined ? {} : { end_time: input.endTime }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(nativeInput?.sortOrder === undefined ? {} : { sort_order: nativeInput.sortOrder }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(nativeInput?.expansions === undefined
+            ? {}
+            : { expansions: nativeInput.expansions.join(",") }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(nativeInput?.userFields === undefined
+            ? {}
+            : { "user.fields": nativeInput.userFields.join(",") }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(nativeInput?.mediaFields === undefined
+            ? {}
+            : { "media.fields": nativeInput.mediaFields.join(",") }),
+        },
+      ),
     );
 
     const requestedFields = nativeInput?.tweetFields ?? [

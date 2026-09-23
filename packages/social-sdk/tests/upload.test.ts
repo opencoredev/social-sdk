@@ -106,6 +106,32 @@ it("uploads large Blobs with Content-Length and without chunked streaming", asyn
   }
 });
 
+it("rejects Blob bodies that exceed the limit or their declared size", async () => {
+  const blob = new Blob([new Uint8Array(10)], { type: "video/mp4" });
+  let calls = 0;
+
+  for (const [size, maxBytes] of [
+    [10, 5],
+    [8, 20],
+  ] as const) {
+    await assert.rejects(
+      upload({
+        url: "https://storage.example.test/video",
+        allowHost: () => true,
+        maxBytes,
+        source: { mimeType: "video/mp4", size, body: blob, open: () => blob.stream() },
+        fetch: async () => {
+          calls++;
+
+          return new Response(null);
+        },
+      }),
+    );
+  }
+
+  assert.equal(calls, 0);
+});
+
 it("rejects unsafe upload URLs and untrusted storage origins", async () => {
   for (const url of [
     "http://cdn.example.test/a",

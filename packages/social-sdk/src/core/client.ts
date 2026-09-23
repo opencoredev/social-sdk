@@ -1446,18 +1446,28 @@ export function createSocial(
       }
 
       const results: PublishResult[] = [];
+      const failures: { index: number; code: string; message: string }[] = [];
       let previous: PlatformPostRef | undefined;
 
       for (const [index, publishRequest] of prepared.entries()) {
+        const chained = request.replyToPrevious === true && index > 0;
+
+        // Without a published parent the item would post as an unrelated root post.
+        if (chained && previous === undefined) break;
+
         const nextRequest =
-          request.replyToPrevious && index > 0 && previous !== undefined
+          chained && previous !== undefined
             ? { ...publishRequest, replyTo: previous }
             : publishRequest;
         let result: PublishResult;
+        previous = undefined;
+
         try {
           result = await publish(nextRequest, callOptions);
         } catch (error) {
           if (error instanceof SocialError) {
+            failures.push({ index, code: error.code, message: error.message });
+
             if (request.stopOnFailure !== false) break;
             continue;
           }
@@ -1479,7 +1489,7 @@ export function createSocial(
             ? "complete"
             : "pending";
 
-      return { status, items: results };
+      return { status, items: results, failures };
     },
     async get(ref: PlatformPostRef, callOptions?: PublishCallOptions): Promise<JsonObject> {
       const correlationId = `social-${++correlationSequence}`;

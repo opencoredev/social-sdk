@@ -425,6 +425,85 @@ describe("core publication contract", () => {
     assert.equal(result.items.length, 2);
   });
 
+  test("replyToPrevious stops when the parent was not published", async () => {
+    const pendingAdapter = defineAdapter({
+      id: "pending",
+      capabilities: { ...manifest, backend: "pending" },
+      posts: {
+        prepareTarget: () => [],
+        async publishTarget(target) {
+          return {
+            state: "scheduled",
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: new Date().toISOString(),
+            job: {
+              kind: "scheduled-job",
+              version: 1,
+              backend: target.account.backend,
+              platform: target.account.platform,
+              accountId: target.account.accountId,
+              jobId: "job",
+            },
+          };
+        },
+      },
+    });
+    const social = createSocial({ backend: pendingAdapter });
+    const result = await social.posts.publishSequence({
+      idempotencyKey: "chain-pending",
+      replyToPrevious: true,
+      stopOnFailure: false,
+      items: [
+        { targets: [{ account: account("default", "one") }], content: { text: "one" } },
+        { targets: [{ account: account("default", "one") }], content: { text: "two" } },
+      ],
+    });
+
+    assert.equal(result.status, "partial");
+    assert.equal(result.items.length, 1);
+  });
+
+  test("sequence failures keep their item index", async () => {
+    let authorizeCalls = 0;
+
+    const social = createSocial({
+      backend: mockBackend(),
+      // Preflight authorizes both items, then the first dispatch is denied.
+      authorization: {
+        async authorizeTargets({ accounts }) {
+          authorizeCalls += 1;
+
+          return accounts.map((candidate) => ({
+            account: candidate,
+            allowed: authorizeCalls !== 3,
+          }));
+        },
+      },
+    });
+
+    const result = await social.posts.publishSequence({
+      idempotencyKey: "aligned",
+      stopOnFailure: false,
+      items: [
+        {
+          targets: [{ account: account("default", "mock-account-1") }],
+          content: { text: "one" },
+        },
+        {
+          targets: [{ account: account("default", "mock-account-1") }],
+          content: { text: "two" },
+        },
+      ],
+    });
+
+    assert.equal(result.items.length, 1);
+    assert.deepEqual(
+      result.failures.map((failure) => [failure.index, failure.code]),
+      [[0, "unauthorized"]],
+    );
+  });
+
   test("new read facades validate input before dispatch", async () => {
     const mock = mockBackend();
     const social = createSocial({ backend: mock });
