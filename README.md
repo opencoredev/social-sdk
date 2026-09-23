@@ -1,4 +1,6 @@
-# Social SDK
+<p align="center">
+  <a href="https://social-sdk.dev"><img alt="Social SDK: one typed call, every platform. Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube wired to one client." src=".github/assets/readme-banner.png" width="100%" /></a>
+</p>
 
 <p align="center">
   <a href="https://github.com/opencoredev/social-sdk/stargazers"><img alt="GitHub stars" src="https://shieldcn.dev/github/opencoredev/social-sdk/stars.svg?variant=branded&mode=dark" /></a>

@@ -1,0 +1,318 @@
+<!doctype html>
+<!--
+  Source for readme-banner.png. Render from the repository root with:
+  chrome-headless-shell --screenshot=.github/assets/readme-banner.png \
+    --no-sandbox --window-size=1280,720 --force-device-scale-factor=2 \
+    --default-background-color=00000000 --virtual-time-budget=3000 \
+    file://$PWD/.github/assets/readme-banner.html
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face {
+        font-family: "Fraunces";
+        font-weight: 100 900;
+        src: url(../../apps/docs/pages/_home/fonts/fraunces-latin.woff2) format("woff2");
+      }
+      @font-face {
+        font-family: "Caveat";
+        font-weight: 400 700;
+        src: url(../../apps/docs/pages/_home/fonts/caveat-latin.woff2) format("woff2");
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1280px;
+        height: 720px;
+        background: transparent;
+        overflow: hidden;
+      }
+      svg {
+        display: block;
+      }
+      .hand {
+        font-family: "Caveat", cursive;
+      }
+      .serif {
+        font-family: "Fraunces", serif;
+      }
+      .wire {
+        fill: none;
+        stroke: #8a857c;
+        stroke-width: 2;
+        stroke-dasharray: 6 9;
+        stroke-linecap: round;
+      }
+    </style>
+  </head>
+  <body>
+    <svg id="board" width="1280" height="720" viewBox="0 0 1280 720" fill="none">
+      <defs>
+        <filter id="roughen" x="-5%" y="-5%" width="110%" height="110%">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.035"
+            numOctaves="2"
+            seed="11"
+            result="n"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="n"
+            scale="2.6"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+        <filter id="roughen2" x="-8%" y="-8%" width="116%" height="116%">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.022"
+            numOctaves="2"
+            seed="4"
+            result="n"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="n"
+            scale="4"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+        <clipPath id="frame"><rect width="1280" height="720" rx="28" /></clipPath>
+      </defs>
+
+      <g clip-path="url(#frame)">
+        <rect width="1280" height="720" fill="#faf7f2" />
+        <g id="wires" filter="url(#roughen)"></g>
+        <g id="planes"></g>
+        <g id="nodes"></g>
+
+        <!-- center card -->
+        <g>
+          <rect
+            x="360"
+            y="226"
+            width="560"
+            height="220"
+            rx="10"
+            fill="#fff"
+            stroke="#1c1a17"
+            stroke-width="2.8"
+            filter="url(#roughen2)"
+          />
+          <g transform="translate(408,262) scale(3.1)" filter="url(#roughen)">
+            <path
+              d="M5 15 L19 8 L19 25 L5 19 Z"
+              stroke="#1c1a17"
+              stroke-width="2.2"
+              stroke-linejoin="round"
+            />
+            <path d="M5 15 L5 19" stroke="#1c1a17" stroke-width="2.2" />
+            <path
+              d="M8 20.5 L9.5 27 L13 26"
+              stroke="#1c1a17"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            />
+            <path
+              d="M23 12 Q26 16.5 23 21"
+              stroke="#e8542f"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            />
+            <path
+              d="M26.5 9.5 Q31 16.5 26.5 23.5"
+              stroke="#e8542f"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            />
+          </g>
+          <text
+            class="serif"
+            x="528"
+            y="346"
+            font-size="76"
+            font-weight="480"
+            letter-spacing="-1.5"
+            word-spacing="10"
+            fill="#1c1a17"
+          >
+            Social SDK
+          </text>
+          <text
+            class="hand"
+            x="640"
+            y="410"
+            font-size="34"
+            fill="#c9441f"
+            text-anchor="middle"
+            transform="rotate(-1.4 640 410)"
+          >
+            one typed call, every platform
+          </text>
+        </g>
+
+        <text
+          x="640"
+          y="628"
+          font-family="ui-monospace, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+          font-size="21"
+          fill="#57534c"
+          text-anchor="middle"
+        >
+          bun add @opencoredev/social-sdk
+        </text>
+      </g>
+    </svg>
+
+    <script>
+      const NS = "http://www.w3.org/2000/svg";
+      const el = (tag, attrs, parent) => {
+        const node = document.createElementNS(NS, tag);
+        for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+        parent.append(node);
+        return node;
+      };
+
+      // Icon paths are copied from apps/docs/public/integrations.
+      const platforms = [
+        {
+          name: "Bluesky",
+          x: 172,
+          y: 172,
+          from: [360, 274],
+          status: "posted ✓",
+          icon: '<path fill="#1185fe" d="M5.202 2.857C7.954 4.922 10.913 9.11 12 11.358c1.087-2.247 4.046-6.436 6.798-8.501C20.783 1.366 24 .213 24 3.883c0 .732-.42 6.156-.667 7.037-.856 3.061-3.978 3.842-6.755 3.37 4.854.826 6.089 3.562 3.422 6.299-5.065 5.196-7.28-1.304-7.847-2.97-.104-.305-.152-.448-.153-.327 0-.121-.05.022-.153.327-.568 1.666-2.782 8.166-7.847 2.97-2.667-2.737-1.432-5.473 3.422-6.3-2.777.473-5.899-.308-6.755-3.369C.42 10.04 0 4.615 0 3.883c0-3.67 3.217-2.517 5.202-1.026"/>',
+        },
+        {
+          name: "X",
+          x: 118,
+          y: 402,
+          from: [360, 354],
+          icon: '<path fill="#111" d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/>',
+        },
+        {
+          name: "YouTube",
+          x: 268,
+          y: 612,
+          from: [420, 446],
+          status: "processing…",
+          statusColor: "#c9441f",
+          icon: '<path fill="#ff0033" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>',
+        },
+        {
+          name: "Threads",
+          x: 640,
+          y: 96,
+          from: [640, 226],
+          icon: '<path fill="#111" d="M18.263 11.097c-.03-3.486-1.92-5.586-5.111-5.586-2.13 0-3.922.963-4.863 2.499l2.062 1.438c.535-.843 1.272-1.543 2.628-1.543 1.528 0 2.318.85 2.544 2.431a15 15 0 0 0-2.236-.173c-4.125 0-6.068 1.867-6.068 4.336s1.943 3.99 4.804 3.99c3.139 0 5.013-2.115 5.781-4.735.798.361 1.348 1.204 1.348 2.47 0 3.387-3.907 5.232-7.22 5.232-4.885 0-8.077-3.207-8.077-8.424 0-6.392 4.223-10.487 9.9-10.487 3.808 0 5.69 1.671 6.97 3.914l2.108-1.475C21.44 2.078 18.331 0 13.663 0 6.227 0 1.168 5.277 1.168 12.934c0 7 4.953 11.066 10.856 11.066 4.878 0 9.809-2.846 9.809-7.716 0-2.545-1.46-4.231-3.569-5.187m-6.33 4.855c-1.077 0-2.026-.512-2.026-1.453 0-1.483 1.822-1.934 3.606-1.934.678 0 1.34.045 1.927.173-.422 1.927-1.671 3.215-3.508 3.214Z"/>',
+        },
+        {
+          name: "Instagram",
+          x: 1108,
+          y: 172,
+          from: [920, 274],
+          status: "posted ✓",
+          icon: '<defs><radialGradient id="ig" cx="30%" cy="107%" r="150%"><stop offset="0" stop-color="#fdf497"/><stop offset=".05" stop-color="#fdf497"/><stop offset=".45" stop-color="#fd5949"/><stop offset=".6" stop-color="#d6249f"/><stop offset=".9" stop-color="#285AEB"/></radialGradient></defs><rect x="1" y="1" width="22" height="22" rx="6.5" fill="none" stroke="url(#ig)" stroke-width="2.4"/><circle cx="12" cy="12" r="5" fill="none" stroke="url(#ig)" stroke-width="2.4"/><circle cx="18" cy="6" r="1.5" fill="#d6249f"/>',
+        },
+        {
+          name: "TikTok",
+          x: 1162,
+          y: 402,
+          from: [920, 354],
+          icon: '<path fill="#111" d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>',
+        },
+        {
+          name: "LinkedIn",
+          x: 1012,
+          y: 612,
+          from: [860, 446],
+          status: "posted ✓",
+          icon: '<rect width="24" height="24" rx="4" fill="#0A66C2"/><path fill="#fff" d="M6.2 8.1H3.5V20h2.7V8.1ZM4.85 4A1.65 1.65 0 1 0 4.85 7.3 1.65 1.65 0 0 0 4.85 4ZM20.5 13.17c0-3.58-1.91-5.25-4.46-5.25-2.06 0-2.98 1.13-3.49 1.92V8.1H9.84V20h2.71v-5.89c0-1.55.29-3.05 2.21-3.05 1.9 0 1.92 1.78 1.92 3.15V20h2.72l1.1-6.83Z"/>',
+        },
+      ];
+
+      const R = 54;
+      const wires = document.getElementById("wires");
+      const nodes = document.getElementById("nodes");
+      const planes = document.getElementById("planes");
+      const paths = [];
+
+      for (const p of platforms) {
+        const [sx, sy] = p.from;
+        // Bend each wire out of the card horizontally (or vertically for the top node).
+        const vertical = sx === 640;
+        const c1 = vertical ? [sx, sy - 50] : [sx + (p.x < 640 ? -110 : 110), sy];
+        const c2 = [p.x + (c1[0] - p.x) * 0.25, p.y + (c1[1] - p.y) * 0.55];
+        const dx = c2[0] - p.x;
+        const dy = c2[1] - p.y;
+        const len = Math.hypot(dx, dy);
+        const ex = p.x + (dx / len) * (R + 8);
+        const ey = p.y + (dy / len) * (R + 8);
+        paths.push(
+          el("path", { class: "wire", d: `M${sx} ${sy} C${c1} ${c2} ${ex} ${ey}` }, wires),
+        );
+
+        const g = el("g", {}, nodes);
+        el(
+          "circle",
+          {
+            cx: p.x,
+            cy: p.y,
+            r: R,
+            fill: "#fff",
+            stroke: "#1c1a17",
+            "stroke-width": 2.6,
+            filter: "url(#roughen2)",
+          },
+          g,
+        );
+        const icon = el("g", { transform: `translate(${p.x - 21},${p.y - 21}) scale(1.75)` }, g);
+        icon.innerHTML = p.icon;
+        if (p.status) {
+          const above = p.y < 360;
+          el(
+            "text",
+            {
+              class: "hand",
+              x: p.x,
+              y: above ? p.y - R - 16 : p.y + R + 34,
+              "font-size": 26,
+              "text-anchor": "middle",
+              fill: p.statusColor ?? "#2f6f4f",
+            },
+            g,
+          ).textContent = p.status;
+        }
+      }
+
+      // Paper planes in flight along a few wires.
+      for (const [i, t] of [
+        [1, 0.55],
+        [4, 0.5],
+        [6, 0.45],
+      ]) {
+        const path = paths[i];
+        const len = path.getTotalLength();
+        const a = path.getPointAtLength(len * t);
+        const b = path.getPointAtLength(len * t + 2);
+        const angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+        el(
+          "path",
+          {
+            d: "M-13 -4 L13 0 L-9 8 L-5 0 Z M-9 8 L-8 13 L-4 5",
+            stroke: "#1c1a17",
+            "stroke-width": 1.8,
+            fill: "#fff",
+            "stroke-linejoin": "round",
+            transform: `translate(${a.x},${a.y}) rotate(${angle}) scale(1.4)`,
+          },
+          planes,
+        );
+      }
+    </script>
+  </body>
+</html>
