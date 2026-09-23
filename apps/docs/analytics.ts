@@ -43,9 +43,11 @@ export const posthogScript = `(() => {
     if (relativePath === "/getting-started/mock-quickstart") return ["sdk_quickstart_interest", {}];
     return null;
   };
-  const track = (path) => {
+  const track = (path, url) => {
     const event = classify(path);
-    if (event) window.posthog.capture(event[0], event[1]);
+    if (!event) return;
+    // A queued visit keeps its own URL instead of the page PostHog started on.
+    window.posthog.capture(event[0], url ? { ...event[1], $current_url: url } : event[1]);
   };
   // Routes visited before PostHog starts wait here, so a quick hop through the
   // docs still records each page.
@@ -54,7 +56,7 @@ export const posthogScript = `(() => {
   const visit = () => {
     const path = window.location.pathname;
     if (started) track(path);
-    else if (pending.at(-1) !== path) pending.push(path);
+    else if (pending.at(-1)?.[0] !== path) pending.push([path, window.location.origin + path]);
   };
   const start = () => {
     ${POSTHOG_LOADER}
@@ -76,7 +78,7 @@ export const posthogScript = `(() => {
       },
     });
     started = true;
-    pending.forEach(track);
+    pending.forEach(([path, url]) => track(path, url));
   };
   // astro:page-load fires on the first load and after every client-router swap.
   visit();
