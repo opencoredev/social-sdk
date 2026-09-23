@@ -2,6 +2,7 @@
 // Brand and brand-assets page in the hand-drawn landing style.
 // Kept as a raw HTML asset for the same reason as the landing page.
 import brand from "./_brand/brand.html?raw";
+import { withAnalytics } from "../analytics";
 ---
 
-<Fragment set:html={brand} />
+<Fragment set:html={withAnalytics(brand)} />

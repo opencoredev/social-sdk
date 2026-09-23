@@ -87,17 +87,13 @@ for (const path of paths) {
   for (const [label, term] of bannedTerms) {
     let checkedContent = content;
     if (label === "legacy analytics service") {
-      if (path === "apps/docs/blume.config.ts") continue;
+      if (path === "apps/docs/blume.config.ts" || path === "apps/docs/analytics.ts") continue;
+      // The analytics snippet is the only script allowed to name the service,
+      // and it always points at the first-party proxy.
       if (path.startsWith("apps/docs/dist/") && path.endsWith(".html")) {
-        checkedContent = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, (script) => {
-          const allowedOccurrences = script.includes("https://y.social-sdk.dev")
-            ? 9
-            : script.includes("sdk_platform_interest")
-              ? 4
-              : 0;
-          let remaining = allowedOccurrences;
-          return script.replace(new RegExp(term, "g"), (match) => (remaining-- > 0 ? "" : match));
-        });
+        checkedContent = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, (script) =>
+          script.includes("https://y.social-sdk.dev") ? "" : script,
+        );
       }
     }
     if (checkedContent.includes(term)) findings.push(`${path}: ${label}`);

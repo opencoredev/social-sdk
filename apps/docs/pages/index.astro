@@ -2,6 +2,7 @@
 // Hand-drawn landing page, prototyped in planning/design/hand-drawn-landing/.
 // Kept as a raw HTML asset so Astro doesn't parse the {braces} in code samples.
 import landing from "./_home/landing.html?raw";
+import { withAnalytics } from "../analytics";
 ---
 
-<Fragment set:html={landing} />
+<Fragment set:html={withAnalytics(landing)} />
