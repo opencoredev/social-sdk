@@ -3,6 +3,7 @@
 // Kept as a raw HTML asset so Astro doesn't parse the {braces} in code samples.
 import landing from "./_home/landing.html?raw";
 import { withAnalytics } from "../analytics";
+import { withFonts } from "./_home/fonts";
 ---
 
-<Fragment set:html={withAnalytics(landing)} />
+<Fragment set:html={withAnalytics(withFonts(landing))} />

@@ -1,0 +1,387 @@
+---
+title: SurrealDB
+description: Keep connected accounts, deliveries, and publish state in SurrealDB, and stream delivery updates to your app with live queries.
+---
+
+This guide stores everything the SDK needs to survive a restart in SurrealDB: connected accounts, publication records, the idempotency store, the Threads workflow store, and the webhook inbox. The SDK runs in your Node.js or Bun server and talks to SurrealDB Cloud or a self-hosted SurrealDB 3 instance over a WebSocket. SurrealDB has no job scheduler, so reconciliation runs from whatever scheduler you already use.
+
+## Install
+
+```package-install
+@opencoredev/social-sdk surrealdb
+```
+
+The examples use version 2 of the `surrealdb` JavaScript SDK.
+
+## Connect
+
+Create the namespace, the database, and a user for the server once, as the root user. `EDITOR` can read and write records and define tables in this database, but can't manage users:
+
+```surql
+DEFINE NAMESPACE app;
+USE NS app;
+DEFINE DATABASE social;
+USE DB social;
+DEFINE USER social ON DATABASE PASSWORD "change-me" ROLES EDITOR;
+```
+
+```ts src/db.ts
+import { Surreal } from "surrealdb";
+
+export const db = new Surreal();
+
+await db.connect(process.env.SURREAL_URL!, {
+  namespace: "app",
+  database: "social",
+  // Passed here rather than through signin() so the SDK signs in again after a reconnect.
+  authentication: {
+    namespace: "app",
+    database: "social",
+    username: process.env.SURREAL_USER!,
+    password: process.env.SURREAL_PASS!,
+  },
+});
+```
+
+`SURREAL_URL` is a `wss://` address for SurrealDB Cloud, or `ws://127.0.0.1:8000` for a local server. Table `PERMISSIONS` only apply to record users, not to a database user like `social`, so every query must filter by the tenant you verified.
+
+## Schema
+
+Define the tables in `schema.surql`:
+
+```surql schema.surql
+DEFINE TABLE connected_account SCHEMAFULL;
+DEFINE FIELD tenant ON connected_account TYPE string;
+DEFINE FIELD platform ON connected_account TYPE string;
+DEFINE FIELD account_id ON connected_account TYPE string;
+DEFINE FIELD backend ON connected_account TYPE string DEFAULT "default";
+DEFINE FIELD created_at ON connected_account TYPE datetime DEFAULT time::now();
+DEFINE INDEX account_unique ON connected_account FIELDS tenant, backend, platform, account_id UNIQUE;
+
+DEFINE TABLE delivery SCHEMAFULL;
+DEFINE FIELD tenant ON delivery TYPE string;
+DEFINE FIELD idempotency_key ON delivery TYPE string;
+DEFINE FIELD account ON delivery TYPE record<connected_account>;
+DEFINE FIELD state ON delivery TYPE string;
+DEFINE FIELD delivery_ref ON delivery TYPE option<object> FLEXIBLE;
+DEFINE FIELD updated_at ON delivery TYPE datetime VALUE time::now();
+DEFINE INDEX delivery_state ON delivery FIELDS state;
+
+DEFINE TABLE idempotency_claim SCHEMAFULL;
+DEFINE FIELD scope ON idempotency_claim TYPE string;
+DEFINE FIELD key ON idempotency_claim TYPE string;
+DEFINE FIELD fingerprint ON idempotency_claim TYPE string;
+DEFINE FIELD target_keys ON idempotency_claim TYPE array<string>;
+DEFINE FIELD outcomes ON idempotency_claim TYPE object FLEXIBLE DEFAULT {};
+DEFINE INDEX claim_unique ON idempotency_claim FIELDS scope, key UNIQUE;
+
+DEFINE TABLE threads_workflow SCHEMAFULL;
+DEFINE FIELD workflow ON threads_workflow TYPE object FLEXIBLE;
+DEFINE FIELD claimed_until ON threads_workflow TYPE option<datetime>;
+DEFINE FIELD claimed_by ON threads_workflow TYPE option<string>;
+
+DEFINE TABLE social_event SCHEMAFULL;
+DEFINE FIELD platform ON social_event TYPE string;
+DEFINE FIELD payload ON social_event TYPE object FLEXIBLE;
+DEFINE FIELD processed_at ON social_event TYPE option<datetime>;
+```
+
+Apply it with the `surreal` CLI:
+
+```bash
+surreal sql --endpoint "$SURREAL_URL" --user root --pass "$SURREAL_ROOT_PASS" \
+  --namespace app --database social < schema.surql
+```
+
+A `SCHEMAFULL` table rejects any field it doesn't define, including keys nested inside an `object` field. The SDK's delivery references, outcomes, and workflows are JSON whose keys can change between SDK versions, so those fields are `FLEXIBLE`. Tokens do not belong in these tables.
+
+Each delivery record will get an array ID, `delivery:[tenant, draftId]`. The ID is unique per tenant and draft, so the delivery table needs no separate unique index.
+
+## Durable stores
+
+Nothing the SDK needs later can live in process memory, because a restart or a second server instance would lose it. Two stores need SurrealDB:
+
+- The client's `idempotencyStore` stops a retried request from posting twice. `MemoryIdempotencyStore` only covers one process.
+- The Threads adapter's `workflowStore` holds each post between the publish call and the Threads API writes. The default `MemoryThreadsWorkflowStore` loses the post when the process exits.
+
+```ts src/stores.ts
+import { RecordId, Surreal, surql } from "surrealdb";
+import type { DeliveryOutcome, IdempotencyStore } from "@opencoredev/social-sdk";
+import type { ThreadsWorkflow, ThreadsWorkflowStore } from "@opencoredev/social-sdk/threads";
+
+interface ClaimRow {
+  id: RecordId<"idempotency_claim", string>;
+  fingerprint: string;
+  target_keys: string[];
+  outcomes: Record<string, DeliveryOutcome>;
+}
+
+export function surrealIdempotencyStore(db: Surreal): IdempotencyStore {
+  return {
+    async claim({ scope, key, fingerprint, targetKeys }) {
+      // The unique index on (scope, key) makes INSERT IGNORE return nothing for a duplicate.
+      const [inserted] = await db
+        .query<[ClaimRow[]]>(
+          surql`INSERT IGNORE INTO idempotency_claim
+            { scope: ${scope}, key: ${key}, fingerprint: ${fingerprint}, target_keys: ${targetKeys} }`,
+        )
+        .collect();
+      if (inserted[0]) return { kind: "new", claimId: inserted[0].id.id, outcomes: {} };
+
+      const [rows] = await db
+        .query<
+          [ClaimRow[]]
+        >(surql`SELECT * FROM idempotency_claim WHERE scope = ${scope} AND key = ${key}`)
+        .collect();
+      const row = rows[0]!;
+      if (
+        row.fingerprint !== fingerprint ||
+        JSON.stringify(row.target_keys) !== JSON.stringify(targetKeys)
+      )
+        return { kind: "conflict" };
+
+      return { kind: "existing", claimId: row.id.id, outcomes: row.outcomes };
+    },
+    async saveOutcome({ claimId, targetKey, outcome }) {
+      // MERGE is a deep merge, so outcomes saved for other targets stay put.
+      await db
+        .update(new RecordId("idempotency_claim", claimId))
+        .merge({ outcomes: { [targetKey]: outcome } });
+    },
+  };
+}
+
+export function surrealThreadsWorkflowStore(db: Surreal): ThreadsWorkflowStore {
+  const record = (id: string) => new RecordId("threads_workflow", id);
+  const leases = new Map<string, string>();
+
+  return {
+    async create(input) {
+      const workflow: ThreadsWorkflow = { ...input, id: crypto.randomUUID() };
+      await db.create(record(workflow.id)).content({ workflow });
+      return workflow;
+    },
+    async get(id) {
+      const row = await db.select<{ workflow: ThreadsWorkflow }>(record(id));
+      return row?.workflow;
+    },
+    async update(id, update) {
+      const [rows] = await db
+        .query<
+          [{ workflow: ThreadsWorkflow }[]]
+        >(surql`UPDATE ${record(id)} MERGE { workflow: ${update} }`)
+        .collect();
+      if (!rows[0]) throw new Error("Threads workflow not found");
+      return rows[0].workflow;
+    },
+    // A lease, not a lock, so a claim held by a crashed process expires on its own.
+    // The token lets release clear only this process's lease, never a newer one.
+    async claim(id) {
+      if (leases.has(id)) return false;
+      const token = crypto.randomUUID();
+      const [rows] = await db
+        .query<[unknown[]]>(
+          surql`UPDATE ${record(id)} SET claimed_until = time::now() + 5m, claimed_by = ${token}
+            WHERE claimed_until = NONE OR claimed_until < time::now()`,
+        )
+        .collect();
+      if (rows.length !== 1) return false;
+      leases.set(id, token);
+      return true;
+    },
+    async release(id) {
+      const token = leases.get(id);
+      if (!token) return;
+      leases.delete(id);
+      await db
+        .query(
+          surql`UPDATE ${record(id)} SET claimed_until = NONE, claimed_by = NONE
+            WHERE claimed_by = ${token}`,
+        )
+        .collect();
+    },
+  };
+}
+```
+
+In SurrealDB 3, `UPDATE` on a missing record returns an empty result instead of creating it, which is how `update` detects a missing workflow and how `claim` detects a lease someone else holds. Keep the lease longer than the retry budget you pass to `resumePublication` below, so a claim can't expire while its process is still writing to Threads.
+
+## Publish
+
+Threads publishing takes two steps. `posts.publish` records the post in the workflow store and returns `processing`; the adapter's native `resumePublication` makes the Threads API calls. `publishDraft` runs both, so a post normally goes out before it returns. Call it from your route handler after you have verified the tenant.
+
+```ts src/social.ts
+import { RecordId, surql } from "surrealdb";
+import { createSocial, connectedAccountRef, type DeliveryRef } from "@opencoredev/social-sdk";
+import { threads } from "@opencoredev/social-sdk/threads";
+import { db } from "./db";
+import { surrealIdempotencyStore, surrealThreadsWorkflowStore } from "./stores";
+
+export const social = createSocial({
+  backend: threads({
+    auth: {
+      userId: process.env.THREADS_USER_ID!,
+      accessToken: process.env.THREADS_ACCESS_TOKEN!,
+    },
+    workflowStore: surrealThreadsWorkflowStore(db),
+  }),
+  idempotencyStore: surrealIdempotencyStore(db),
+});
+
+// Native calls skip the client's tenant checks, so callers authorize the account first.
+const native = social.native("default", { acknowledgeUnsafe: true })!;
+
+interface DeliveryRow {
+  id: RecordId<"delivery">;
+  state: string;
+  delivery_ref?: DeliveryRef;
+}
+
+export async function advance(delivery: RecordId<"delivery">, ref: DeliveryRef) {
+  const account = connectedAccountRef({
+    backend: ref.backend,
+    platform: "threads",
+    accountId: ref.accountId,
+  });
+  const outcome = await native.resumePublication(account, ref.deliveryId, {
+    backendInstance: ref.backend,
+    correlationId: String(delivery),
+    retryBudget: { maxAttempts: 3, maxElapsedMs: 60_000 },
+  });
+  await db
+    .query(
+      surql`UPDATE ${delivery} SET state = ${outcome.state}
+        WHERE state NOTINSIDE ["published", "failed"]`,
+    )
+    .collect();
+  return outcome;
+}
+
+export async function publishDraft(tenantId: string, draftId: string, text: string) {
+  const [accounts] = await db
+    .query<[{ id: RecordId<"connected_account">; account_id: string; backend: string }[]]>(
+      surql`SELECT id, account_id, backend FROM connected_account
+        WHERE tenant = ${tenantId} AND platform = "threads" LIMIT 1`,
+    )
+    .collect();
+  const acct = accounts[0];
+  if (!acct) throw new Error("No authorized Threads account");
+
+  const result = await social.posts.publish(
+    {
+      targets: [
+        {
+          account: connectedAccountRef({
+            backend: acct.backend,
+            platform: "threads",
+            accountId: acct.account_id,
+          }),
+        },
+      ],
+      content: { text },
+      idempotencyKey: draftId,
+    },
+    // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+    { authorization: { tenantId } },
+  );
+
+  const outcome = result.outcomes[0];
+  // One record per tenant and draft. A concurrent duplicate can report unknown with no
+  // delivery reference; it must not replace a resumable row or undo a final state.
+  const [saved] = await db
+    .query<[DeliveryRow[]]>(
+      surql`UPSERT ${new RecordId("delivery", [tenantId, draftId])} SET
+        tenant = ${tenantId},
+        idempotency_key = ${draftId},
+        account = ${acct.id},
+        state = IF state INSIDE ["published", "failed"] { state }
+          ELSE IF ${outcome?.delivery} = NONE AND delivery_ref != NONE { state }
+          ELSE { ${outcome?.state ?? "unknown"} },
+        delivery_ref = ${outcome?.delivery} ?? delivery_ref`,
+    )
+    .collect();
+  const row = saved[0]!;
+
+  const state =
+    row.state === "processing" && row.delivery_ref
+      ? (await advance(row.id, row.delivery_ref)).state
+      : row.state;
+
+  return { status: result.status, state };
+}
+```
+
+Validate `draftId` and `text` before calling `publishDraft`. Threads caps a post at 500 characters. A second call with the same draft ID and text returns the saved result without posting again; the same draft ID with different text is rejected as an idempotency conflict.
+
+## Reconcile
+
+A delivery can still be `processing` when `publishDraft` returns: Threads may not have finished processing the media, or the server may have restarted partway through. `reconcile` resumes those workflows.
+
+```ts
+export async function reconcile() {
+  // account.id is NONE once the tenant deletes the connected account, so those rows are skipped.
+  const [rows] = await db
+    .query<[DeliveryRow[]]>(
+      surql`SELECT id, state, delivery_ref FROM delivery
+        WHERE state = "processing" AND account.id != NONE LIMIT 20`,
+    )
+    .collect();
+
+  for (const row of rows) if (row.delivery_ref) await advance(row.id, row.delivery_ref);
+
+  return rows.length;
+}
+```
+
+Run it every few minutes from a scheduler such as [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), [Restate](/integrations/restate), or a cron job. The workflow store's claim stops two processes from resuming the same post at once, so an overlapping run does no harm. A workflow whose publish outcome is `unknown` is never replayed: `resumePublication` reports `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes.
+
+## Webhooks
+
+Verify the raw request body before parsing it, then store the event in `social_event` with a dedupe key as its record ID. `INSERT IGNORE` returns an empty result when that ID already exists, so a redelivered event is stored once:
+
+```ts
+const [inserted] = await db
+  .query<[unknown[]]>(
+    surql`INSERT IGNORE INTO social_event
+      { id: ${dedupeKey}, platform: "threads", payload: ${payload} }`,
+  )
+  .collect();
+const isNew = inserted.length === 1;
+```
+
+Build `dedupeKey` from the platform and the event's own ID, following the [events guide](/events), and process rows where `processed_at = NONE` from the same scheduler that runs `reconcile`.
+
+## Live delivery updates
+
+A live query pushes each change to a delivery record to your server as it happens, so a dashboard can show `processing` turning into `published` without polling. Filter by tenant so one tenant never receives another's records:
+
+```ts src/live.ts
+import { Table, eq } from "surrealdb";
+import { db } from "./db";
+
+export async function watchDeliveries(
+  tenantId: string,
+  onChange: (delivery: { idempotency_key: string; state: string }) => void,
+) {
+  const live = await db
+    .live(new Table("delivery"))
+    .fields("idempotency_key", "state")
+    .where(eq("tenant", tenantId));
+
+  live.subscribe((message) => {
+    if (message.action === "CREATE" || message.action === "UPDATE")
+      onChange(message.value as { idempotency_key: string; state: string });
+  });
+
+  return () => live.kill();
+}
+```
+
+Forward `onChange` to the browser over your own server-sent events or WebSocket route. Call the returned function when the client disconnects.
+
+## Notes
+
+- Some SurrealDB examples pass the `subscribe` callback three arguments. In `surrealdb` 2.0.8 it receives one message with `action`, `value`, and `recordId`, as shown above.
+- The connection option `retry` doesn't retry ordinary queries. It only sets the defaults for queries you mark with `.retry()`. Without it, a write conflict under heavy load surfaces as an error; `publishDraft` is safe to call again with the same draft ID.
+- The SurrealDB details on this page come from SurrealDB's documentation as of September 22, 2026: [connecting](https://surrealdb.com/docs/sdk/javascript/concepts/connecting-to-surrealdb), [authentication](https://surrealdb.com/docs/sdk/javascript/concepts/authentication), [executing queries](https://surrealdb.com/docs/sdk/javascript/concepts/executing-queries), [live queries](https://surrealdb.com/docs/sdk/javascript/concepts/live-queries), [`DEFINE USER`](https://surrealdb.com/docs/surrealql/statements/define/user), [`DEFINE FIELD`](https://surrealdb.com/docs/surrealql/statements/define/field), [`INSERT`](https://surrealdb.com/docs/surrealql/statements/insert), [`UPSERT`](https://surrealdb.com/docs/surrealql/statements/upsert), [`UPDATE`](https://surrealdb.com/docs/surrealql/statements/update), and [record IDs](https://surrealdb.com/docs/surrealql/datamodel/ids).
+- The samples ran against SurrealDB 3.2.4 with `surrealdb` 2.0.8, connected as an `EDITOR` database user, with a stubbed Threads API. They have not been run against a live Threads account.

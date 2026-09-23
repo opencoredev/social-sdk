@@ -1,0 +1,288 @@
+---
+title: Restate
+description: Run each social post as a Restate Virtual Object that journals Social SDK calls, schedules its own reconciliation, and serializes duplicate requests.
+---
+
+Restate runs your handlers durably: it journals every step, retries failures, and resumes an interrupted handler from its last completed step. With Social SDK, each draft becomes a Restate Virtual Object. Restate runs one handler at a time per draft, so a double-clicked publish button can't race itself. The object keeps the delivery outcome in its own state, and it schedules its own reconciliation with delayed messages, so you don't need a cron job.
+
+The SDK still makes every platform call. Restate decides when those calls run and remembers their results.
+
+## Install
+
+```package-install
+@opencoredev/social-sdk @restatedev/restate-sdk @restatedev/restate-sdk-clients
+```
+
+The examples also use `pg`, and they need a running Restate server. Follow the [Restate quickstart](https://docs.restate.dev/quickstart) to start one locally.
+
+## Durable stores still matter
+
+The Restate journal records a step's result only after the step returns. If the service crashes during `ctx.run`, Restate runs that step again, and the SDK sees a fresh call. Two SDK stores make that repeat harmless, so both must be durable and shared by every service instance:
+
+- The client's `idempotencyStore` turns a repeated `posts.publish` into a read of the first result.
+- The Threads adapter's `workflowStore` holds each post between `posts.publish` and the Threads API writes, and its claim lease stops two instances from resuming the same post.
+
+The [Neon guide](/integrations/neon#durable-stores) has Postgres implementations of both stores, with their schema. They work with any Postgres database. Keep them in `src/stores.ts`.
+
+Keep the SDK calls in their own `ctx.run` steps and away from Restate state. The stores do their own I/O, so they can't use `ctx.get` or `ctx.set`, which aren't allowed inside `ctx.run`.
+
+## Define the draft object
+
+The object key is `tenantId:draftId`. Every handler for that key runs in order, one at a time, and sees the state the previous one left.
+
+```ts src/draft.ts
+import * as restate from "@restatedev/restate-sdk";
+import { Pool } from "pg";
+import {
+  createSocial,
+  connectedAccountRef,
+  type DeliveryOutcome,
+  type DeliveryRef,
+} from "@opencoredev/social-sdk";
+import { threads } from "@opencoredev/social-sdk/threads";
+import { postgresIdempotencyStore, postgresThreadsWorkflowStore } from "./stores";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+
+const social = createSocial({
+  backend: threads({
+    auth: {
+      userId: process.env.THREADS_USER_ID!,
+      accessToken: process.env.THREADS_ACCESS_TOKEN!,
+    },
+    workflowStore: postgresThreadsWorkflowStore(pool),
+  }),
+  idempotencyStore: postgresIdempotencyStore(pool),
+});
+
+// Native calls skip the client's tenant checks, so the API authorizes the account first.
+const native = social.native("default", { acknowledgeUnsafe: true })!;
+
+export interface PublishRequest {
+  readonly tenantId: string;
+  readonly draftId: string;
+  readonly accountId: string;
+  readonly text: string;
+}
+
+type DraftState = {
+  request: PublishRequest;
+  outcome: DeliveryOutcome;
+  cancelled: boolean;
+  reconcileRuns: number;
+};
+
+type DraftContext = restate.ObjectContext<DraftState>;
+
+export type DraftObject = typeof draft;
+
+// Keep each resume well under Restate's abort timeout and the workflow store's 5-minute lease.
+const resumeBudget = { maxAttempts: 3, maxElapsedMs: 30_000 };
+const stepRetry = { maxRetryAttempts: 5, initialRetryInterval: { seconds: 2 } };
+const maxReconcileRuns = 30;
+
+async function resume(ctx: DraftContext, ref: DeliveryRef): Promise<DeliveryOutcome["state"]> {
+  const account = connectedAccountRef({
+    backend: ref.backend,
+    platform: "threads",
+    accountId: ref.accountId,
+  });
+  let state: DeliveryOutcome["state"] = "processing";
+  try {
+    const outcome = await ctx.run(
+      "resume",
+      () =>
+        native.resumePublication(account, ref.deliveryId, {
+          backendInstance: ref.backend,
+          correlationId: ctx.key,
+          retryBudget: resumeBudget,
+        }),
+      stepRetry,
+    );
+    ctx.set("outcome", outcome);
+    state = outcome.state;
+  } catch (error) {
+    // Threads or Postgres failed every attempt. The draft stays processing for the next run.
+    if (!(error instanceof restate.TerminalError)) throw error;
+  }
+
+  // Media still processing, another instance holds the workflow claim, or the step failed.
+  if (state === "processing") {
+    const runs = (await ctx.get("reconcileRuns")) ?? 0;
+    if (runs < maxReconcileRuns) {
+      ctx.set("reconcileRuns", runs + 1);
+      ctx
+        .objectSendClient<DraftObject>({ name: "Draft" }, ctx.key)
+        .reconcile(restate.rpc.sendOpts({ delay: { minutes: 2 } }));
+    }
+  }
+  return state;
+}
+
+export const draft = restate.object({
+  name: "Draft",
+  handlers: {
+    publish: async (ctx: DraftContext, request: PublishRequest) => {
+      if (ctx.key !== `${request.tenantId}:${request.draftId}`)
+        throw new restate.TerminalError("Object key does not match the request");
+      const previous = await ctx.get("request");
+      if (previous && (previous.accountId !== request.accountId || previous.text !== request.text))
+        throw new restate.TerminalError("Draft was already submitted with different content");
+      if (await ctx.get("cancelled")) return { state: "cancelled" };
+
+      // Any stored outcome is final: a second publish for the same draft reports it.
+      const existing = await ctx.get("outcome");
+      if (existing) return { state: existing.state };
+
+      ctx.set("request", request);
+      const result = await ctx.run(
+        "publish",
+        () =>
+          social.posts.publish(
+            {
+              targets: [
+                {
+                  account: connectedAccountRef({
+                    backend: "default",
+                    platform: "threads",
+                    accountId: request.accountId,
+                  }),
+                },
+              ],
+              content: { text: request.text },
+              idempotencyKey: request.draftId,
+            },
+            // Scopes the idempotency key to this tenant.
+            { authorization: { tenantId: request.tenantId } },
+          ),
+        stepRetry,
+      );
+
+      const outcome = result.outcomes[0];
+      if (!outcome) throw new restate.TerminalError("Publish returned no outcome");
+      ctx.set("outcome", outcome);
+
+      if (outcome.state !== "processing" || !outcome.delivery) return { state: outcome.state };
+      return { state: await resume(ctx, outcome.delivery) };
+    },
+
+    reconcile: async (ctx: DraftContext) => {
+      const outcome = await ctx.get("outcome");
+      if (outcome?.state !== "processing" || !outcome.delivery) return;
+      await resume(ctx, outcome.delivery);
+    },
+
+    cancel: async (ctx: DraftContext) => {
+      if (await ctx.get("outcome")) return { cancelled: false };
+      ctx.set("cancelled", true);
+      return { cancelled: true };
+    },
+
+    status: restate.handlers.object.shared(async (ctx: restate.ObjectSharedContext<DraftState>) => {
+      if (await ctx.get("cancelled")) return { state: "cancelled" };
+      return { state: (await ctx.get("outcome"))?.state ?? "not-started" };
+    }),
+  },
+});
+```
+
+Serve the object from a Node or Bun process:
+
+```ts src/index.ts
+import * as restate from "@restatedev/restate-sdk";
+import { draft } from "./draft";
+
+restate.serve({ services: [draft], port: 9080 });
+```
+
+Then register the service with the Restate server, so it knows where to send invocations:
+
+```bash
+restate deployments register http://localhost:9080
+```
+
+### How the handlers behave
+
+`publish` records the post and resumes it right away, so most posts go out during the first invocation. Threads publishing takes two steps: `posts.publish` stores a workflow and returns `processing`, and the adapter's native `resumePublication` makes the Threads API calls.
+
+When media is still processing, or the resume step fails all five attempts, `resume` sends a delayed `reconcile` message to the same draft instead of sleeping. The draft doesn't block other calls while it waits, and a running invocation never keeps an old deployment alive. After 30 runs, about an hour, the draft stops rescheduling and stays `processing` for you to review.
+
+`unknown` is final here. The Threads workflow reports `unknown` when a write may or may not have reached Threads, and `resumePublication` won't replay it. Leave those drafts for review, as the [idempotency guide](/concepts/idempotency) describes.
+
+A draft accepts one request. Publishing the same draft ID again with a different account or text fails with a `TerminalError` instead of returning the first outcome, so an edited draft is never reported as published when it wasn't.
+
+The draft treats every stored outcome as final, including `failed` and `not-submitted`. `not-submitted` means nothing reached Threads, for example because the client's rate limiter refused the call. To try again, publish under a new draft ID, since the old ID is already the idempotency key for the first attempt.
+
+`status` is a shared handler, so it answers even while `publish` or `reconcile` holds the draft.
+
+## Publish from your API
+
+Your web app authenticates the user, checks that the tenant owns the account, and then sends the request to Restate. A send returns as soon as Restate has durably accepted it.
+
+```ts src/api/publish.ts
+import { createHash } from "node:crypto";
+import * as clients from "@restatedev/restate-sdk-clients";
+import type { DraftObject, PublishRequest } from "../draft";
+
+const restate = clients.connect({ url: process.env.RESTATE_INGRESS_URL! });
+
+export async function queuePublish(request: PublishRequest, publishAt?: Date) {
+  const key = `${request.tenantId}:${request.draftId}`;
+  // Same request, same key. An edited draft gets a new key and reaches the handler's check.
+  const digest = createHash("sha256")
+    .update(JSON.stringify([request.accountId, request.text]))
+    .digest("hex");
+  const publishTime = publishAt?.getTime();
+  if (Number.isNaN(publishTime)) throw new TypeError("publishAt must be a valid date");
+  const delayMs = publishTime === undefined ? 0 : Math.max(0, publishTime - Date.now());
+
+  await restate.objectSendClient<DraftObject>({ name: "Draft" }, key).publish(
+    request,
+    clients.rpc.sendOpts({
+      idempotencyKey: `${key}:${digest}`,
+      ...(delayMs > 0 && { delay: { milliseconds: delayMs } }),
+    }),
+  );
+}
+```
+
+Pass a `publishAt` date to schedule the post. Restate holds the delayed message, and nothing needs to poll. To cancel a scheduled post, call `cancel` on the same key before it fires. The `publish` handler checks that flag first. Once `publish` has stored an outcome, `cancel` returns `{ cancelled: false }`.
+
+The `idempotencyKey` stops a retried send from queuing the publish twice. It includes a digest of the account and text rather than the text itself, so a send with edited content isn't dropped as a duplicate. It reaches `publish`, which rejects it. Restate keeps idempotency results for 24 hours by default, and the draft's own state rejects duplicates after that.
+
+A send returns before the handler runs, so that rejection shows up as a failed invocation in Restate, not as an error from `queuePublish`. Lock the draft in your own database once it's queued, and have your API refuse edits after that.
+
+:::warning
+Anyone who can reach the Restate ingress can call `Draft/publish` with any tenant and account. The handler trusts its input, because your API already checked it. Keep the ingress on a private network or behind authentication, and never expose it to browsers.
+:::
+
+To read a draft's state from your API:
+
+```ts
+const { state } = await restate
+  .objectClient<DraftObject>({ name: "Draft" }, `${tenantId}:${draftId}`)
+  .status();
+```
+
+Restate state is durable, but it isn't a query layer for your product. If you list deliveries across drafts, write the outcome to your own table from a `ctx.run` step as well.
+
+## Retries
+
+Restate retries a failed `ctx.run` step with the policy you pass. `stepRetry` allows five attempts, then throws a `TerminalError` that ends the invocation. Without a policy, Restate retries the whole invocation with backoff and pauses it after 70 attempts.
+
+A retry can't double-post. A retried `publish` step hits the idempotency store. If the first attempt saved its outcome, the retry gets that outcome back. If the crash came after the claim but before the outcome was saved, the retry gets `unknown` with no delivery reference. For Threads, that outcome means no Threads request was made, because `posts.publish` only writes the workflow row. The crash may leave a workflow row behind, but no delivery reference points at it and nothing resumes it, so publishing again under a new draft ID can't post twice.
+
+A retried `resume` step hits the workflow store, which knows how far the post got and reports `unknown` rather than replay a write it can't confirm.
+
+## Webhooks
+
+Verify provider webhooks in your web app, following the [events guide](/events), and store them in an inbox table. To process an event durably, send it to a Restate handler with the inbox row's dedupe key as the `idempotencyKey`.
+
+## Notes
+
+- The Restate TypeScript SDK supports Node.js 22 and later and Bun, which covers the SDK's tested runtimes. Keep the Social SDK client at module scope so every invocation reuses it.
+- Keep platform tokens in the service's environment. They never pass through Restate, and neither the journal nor object state should hold them.
+- The journal stores each step's result. For `publish` that is a `PublishResult`, and for `resume` a `DeliveryOutcome`. Both hold references and states but no post text. The request itself, including the post text, is stored as the `request` state and in the invocation journal.
+- Handler changes follow Restate's [versioning rules](https://docs.restate.dev/services/versioning). Register each new deployment, and keep the old one running until its invocations finish.
+- The Restate details on this page come from Restate's documentation as of September 22, 2026: [durable steps](https://docs.restate.dev/develop/ts/durable-steps), [state](https://docs.restate.dev/develop/ts/state), [service communication](https://docs.restate.dev/develop/ts/service-communication) (delayed messages, idempotency keys), [clients](https://docs.restate.dev/invoke/clients), [HTTP invocation](https://docs.restate.dev/invoke/http) (24-hour idempotency retention), and [service configuration](https://docs.restate.dev/services/configuration) (timeouts, default retry policy).
+- The samples typecheck against `@restatedev/restate-sdk` 1.17. They ran against Restate server 1.7 and Postgres with a stubbed Threads API, including a crash after `posts.publish` that Restate retried without a second post. They have not run against a live Threads account.

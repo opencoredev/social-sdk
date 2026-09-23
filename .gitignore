@@ -52,6 +52,7 @@ temp
 .vercel
 
 # Local example storage
+apps/example/.data/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

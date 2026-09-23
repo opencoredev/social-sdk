@@ -2,6 +2,7 @@
   "ignorePatterns": [
     "planning/**",
     "apps/docs/docs/reference/capabilities.mdx",
+    "apps/example/drizzle/meta/**",
     "tools/oxlint/anti-slop/**"
   ]
 }

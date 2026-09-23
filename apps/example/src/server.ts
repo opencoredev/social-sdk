@@ -2,7 +2,10 @@ import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { createExampleHandler } from "./app.js";
 import { exampleBackendConfig } from "./config.js";
-import { openExampleDatabase } from "./storage.js";
+import { openDatabaseFromEnv } from "./storage.js";
+
+// Applies pending migrations before the server accepts requests.
+const database = await openDatabaseFromEnv(process.env);
 
 const handler = createExampleHandler({
   ...exampleBackendConfig(process.env),
@@ -21,7 +24,7 @@ const handler = createExampleHandler({
     `http://[::1]:${process.env["PORT"] ?? "3030"}`,
     ...(process.env["EXAMPLE_PUBLIC_ORIGIN"] ? [process.env["EXAMPLE_PUBLIC_ORIGIN"]] : []),
   ],
-  database: openExampleDatabase(process.env["EXAMPLE_DB"] ?? "./social-example.sqlite"),
+  database,
 });
 
 const allowedHosts = new Set([
@@ -69,6 +72,15 @@ const server = createServer(async (request, response) => {
 
 server.listen(Number(process.env["PORT"] ?? 3030), process.env["EXAMPLE_BIND"] ?? "127.0.0.1", () =>
   console.log(
-    `Example listening on port ${process.env["PORT"] ?? 3030}; backend ${process.env["EXAMPLE_BACKEND"] ?? "mock"}`,
+    `Example listening on port ${process.env["PORT"] ?? 3030}; backend ${process.env["EXAMPLE_BACKEND"] ?? "mock"}; database ${database.driver}`,
   ),
 );
+
+// Let active requests finish, then close the database so a local PGlite
+// directory is left consistent. Force the exit if draining stalls.
+for (const signal of ["SIGINT", "SIGTERM"] as const)
+  process.once(signal, () => {
+    setTimeout(() => process.exit(1), 10_000).unref();
+    server.close(() => void database.close().finally(() => process.exit(0)));
+    server.closeIdleConnections();
+  });

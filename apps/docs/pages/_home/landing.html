@@ -38,12 +38,20 @@
       content="Social SDK is a typed TypeScript toolkit for building social features into your app, with a real answer from every platform."
     />
     <meta name="twitter:image" content="/og-home.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,380;9..144,430;9..144,560;9..144,640&family=Caveat:wght@500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "Social SDK",
+        "description": "A typed TypeScript toolkit for building social features into your app, with a real answer from every platform.",
+        "url": "https://social-sdk.dev/",
+        "codeRepository": "https://github.com/opencoredev/social-sdk",
+        "programmingLanguage": "TypeScript",
+        "runtimePlatform": "Node.js",
+        "license": "https://opensource.org/license/mit"
+      }
+    </script>
+    <!-- @fonts -->
     <style>
       :root {
         --ink: #1c1a17;
@@ -51,8 +59,10 @@
         --paper: #ffffff;
         --marker: #e8542f;
         --wire: #8a857c;
-        --hand: "Caveat", cursive;
-        --serif: "Fraunces", Georgia, serif;
+        /* the marker is too light for small text on white paper */
+        --marker-text: #c9441f;
+        --hand: var(--font-hand);
+        --serif: var(--font-serif);
         --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
       }
       * {
@@ -261,14 +271,13 @@
         stroke-dasharray: 5 8;
         stroke-linecap: round;
       }
-      .inview .wire {
-        stroke-dashoffset: 0;
-        animation: march 40s linear infinite;
+      /* A marching dash would repaint the filtered drawing on every frame. */
+      .stage .wire {
+        opacity: 0;
+        transition: opacity 1.2s ease;
       }
-      @keyframes march {
-        to {
-          stroke-dashoffset: -1300;
-        }
+      .inview .wire {
+        opacity: 1;
       }
 
       .node {
@@ -412,7 +421,7 @@
       .note-scribble {
         font-family: var(--hand);
         font-size: 22px;
-        color: var(--marker);
+        color: var(--marker-text);
         margin-top: 14px;
         padding: 0 24px 16px;
         text-align: right;
@@ -455,7 +464,7 @@
       }
       .feat .tag {
         font-family: var(--hand);
-        color: var(--marker);
+        color: var(--marker-text);
         font-size: 20px;
       }
 
@@ -561,14 +570,13 @@
       .foot-links a:hover {
         color: var(--ink);
       }
-      .github-stars {
-        display: inline-flex;
-        align-items: center;
-      }
-      .github-stars img {
-        display: block;
-        height: 20px;
-        width: auto;
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
       }
 
       .stage svg.board-tall {
@@ -658,9 +666,6 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        .inview .wire {
-          animation: none;
-        }
         .bob {
           animation: none;
         }
@@ -671,6 +676,7 @@
       }
       /* ---------- dark mode: the same hand-drawn page on warm ink paper ---------- */
       html.dark {
+        --marker-text: var(--marker);
         --ink: #f2efe9;
         --ink-soft: #beb7aa;
         --paper: #131110;
@@ -840,811 +846,820 @@
         </div>
       </nav>
 
-      <header>
-        <h1><span class="scribbled">social</span> SDK</h1>
-        <p class="phon">/ˈsoʊ·ʃəl ˌɛs·diː·ˈkeɪ/ · <em>noun</em></p>
-        <ol class="senses">
-          <li>
-            <span class="num">1.</span>
-            a typed toolkit for building social features into your app.
-          </li>
-          <li>
-            <span class="num">2.</span>
-            the route from your code to every platform, with a real answer from each.
-          </li>
-        </ol>
-        <div class="cta-row">
-          <a class="brush-btn" href="/docs/getting-started/mock-quickstart">
-            <svg viewBox="0 0 300 72" preserveAspectRatio="none" aria-hidden="true">
+      <main>
+        <header>
+          <h1><span class="scribbled">social</span> SDK</h1>
+          <p class="phon">/ˈsoʊ·ʃəl ˌɛs·diː·ˈkeɪ/ · <em>noun</em></p>
+          <ol class="senses">
+            <li>
+              <span class="num">1.</span>
+              a typed toolkit for building social features into your app.
+            </li>
+            <li>
+              <span class="num">2.</span>
+              the route from your code to every platform, with a real answer from each.
+            </li>
+          </ol>
+          <div class="cta-row">
+            <a class="brush-btn" href="/docs/getting-started/mock-quickstart">
+              <svg viewBox="0 0 300 72" preserveAspectRatio="none" aria-hidden="true">
+                <path
+                  d="M14 22 C60 8, 240 4, 288 18 C298 34, 292 52, 270 60 C200 72, 60 70, 16 58 C4 46, 6 32, 14 22 Z"
+                  fill="#1c1a17"
+                  filter="url(#roughen2)"
+                />
+              </svg>
+              Read the quickstart
+            </a>
+            <span class="cta-note">
+              <svg width="46" height="30" viewBox="0 0 46 30" fill="none" aria-hidden="true">
+                <path
+                  d="M42 24 C30 26, 12 24, 6 8"
+                  stroke="#57534c"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M3 14 L6 7 L13 9"
+                  stroke="#57534c"
+                  stroke-width="2"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              or just <code>bun add @opencoredev/social-sdk</code>
+            </span>
+          </div>
+        </header>
+
+        <!-- ================= the big drawing ================= -->
+        <section
+          class="stage"
+          id="how"
+          aria-label="Diagram: one publish call fanning out to seven platforms"
+        >
+          <svg class="board board-wide" viewBox="0 0 1200 680" fill="none">
+            <!-- wires from app to platforms -->
+            <g filter="url(#roughen)">
+              <path class="wire" d="M310 330 C440 250, 500 160, 596 108" />
+              <path class="wire" d="M310 335 C480 280, 640 200, 812 158" />
+              <path class="wire" d="M310 340 C520 300, 780 190, 1006 128" />
+              <path class="wire" d="M312 350 C440 340, 540 320, 652 306" />
+              <path class="wire" d="M312 355 C520 380, 720 350, 900 326" />
+              <path class="wire" d="M310 368 C420 440, 500 490, 592 520" />
+              <path class="wire" d="M310 372 C480 480, 660 540, 830 552" />
+            </g>
+
+            <!-- paper plane: JS flies it one-way along a wire, it lands, a new one spawns -->
+            <g class="plane" opacity="0">
               <path
-                d="M14 22 C60 8, 240 4, 288 18 C298 34, 292 52, 270 60 C200 72, 60 70, 16 58 C4 46, 6 32, 14 22 Z"
-                fill="#1c1a17"
-                filter="url(#roughen2)"
-              />
-            </svg>
-            Read the quickstart
-          </a>
-          <span class="cta-note">
-            <svg width="46" height="30" viewBox="0 0 46 30" fill="none" aria-hidden="true">
-              <path
-                d="M42 24 C30 26, 12 24, 6 8"
-                stroke="#57534c"
-                stroke-width="2"
-                fill="none"
-                stroke-linecap="round"
-              />
-              <path
-                d="M3 14 L6 7 L13 9"
-                stroke="#57534c"
-                stroke-width="2"
-                fill="none"
-                stroke-linecap="round"
+                d="M-13 -4 L13 0 L-9 8 L-5 0 Z M-9 8 L-8 13 L-4 5"
+                stroke="#1c1a17"
+                stroke-width="1.8"
+                fill="#fff"
                 stroke-linejoin="round"
               />
-            </svg>
-            or just <code>bun add @opencoredev/social-sdk</code>
-          </span>
-        </div>
-      </header>
-
-      <!-- ================= the big drawing ================= -->
-      <section
-        class="stage"
-        id="how"
-        aria-label="Diagram: one publish call fanning out to seven platforms"
-      >
-        <svg class="board board-wide" viewBox="0 0 1200 680" fill="none">
-          <!-- wires from app to platforms -->
-          <g filter="url(#roughen)">
-            <path class="wire" d="M310 330 C440 250, 500 160, 596 108" />
-            <path class="wire" d="M310 335 C480 280, 640 200, 812 158" />
-            <path class="wire" d="M310 340 C520 300, 780 190, 1006 128" />
-            <path class="wire" d="M312 350 C440 340, 540 320, 652 306" />
-            <path class="wire" d="M312 355 C520 380, 720 350, 900 326" />
-            <path class="wire" d="M310 368 C420 440, 500 490, 592 520" />
-            <path class="wire" d="M310 372 C480 480, 660 540, 830 552" />
-          </g>
-
-          <!-- paper plane: JS flies it one-way along a wire, it lands, a new one spawns -->
-          <g class="plane" opacity="0">
-            <path
-              d="M-13 -4 L13 0 L-9 8 L-5 0 Z M-9 8 L-8 13 L-4 5"
-              stroke="#1c1a17"
-              stroke-width="1.8"
-              fill="#fff"
-              stroke-linejoin="round"
-            />
-          </g>
-
-          <!-- your app -->
-          <g>
-            <rect
-              x="66"
-              y="252"
-              width="246"
-              height="180"
-              rx="6"
-              stroke="#1c1a17"
-              stroke-width="2.6"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <text class="hand" x="86" y="240" font-size="27" fill="#1c1a17">your app</text>
-            <text class="mono" x="92" y="298" font-size="14" fill="#1c1a17">
-              social.posts.publish({
-            </text>
-            <text class="mono" x="106" y="324" font-size="14" fill="#1c1a17">content,</text>
-            <text class="mono" x="106" y="350" font-size="14" fill="#1c1a17">
-              targets:
-              <tspan fill="#2f6f4f">everywhere</tspan>
-              ,
-            </text>
-            <text class="mono" x="92" y="376" font-size="14" fill="#1c1a17">})</text>
-          </g>
-
-          <!-- ============ platform nodes ============ -->
-          <!-- Bluesky -->
-          <g class="node bob">
-            <circle
-              cx="640"
-              cy="92"
-              r="46"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(622,74) scale(1.5)">
-              <path
-                fill="#1185fe"
-                d="M5.202 2.857C7.954 4.922 10.913 9.11 12 11.358c1.087-2.247 4.046-6.436 6.798-8.501C20.783 1.366 24 .213 24 3.883c0 .732-.42 6.156-.667 7.037-.856 3.061-3.978 3.842-6.755 3.37 4.854.826 6.089 3.562 3.422 6.299-5.065 5.196-7.28-1.304-7.847-2.97-.104-.305-.152-.448-.153-.327 0-.121-.05.022-.153.327-.568 1.666-2.782 8.166-7.847 2.97-2.667-2.737-1.432-5.473 3.422-6.3-2.777.473-5.899-.308-6.755-3.369C.42 10.04 0 4.615 0 3.883c0-3.67 3.217-2.517 5.202-1.026"
-              />
             </g>
-            <text
-              class="hand status"
-              x="640"
-              y="166"
-              font-size="22"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
 
-          <!-- X -->
-          <g class="node bob b2">
-            <circle
-              cx="856"
-              cy="152"
-              r="46"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(838,134) scale(1.5)">
-              <path
-                fill="#111111"
-                d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="856"
-              y="226"
-              font-size="22"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
-
-          <!-- YouTube -->
-          <g class="node bob b3">
-            <circle
-              cx="1052"
-              cy="112"
-              r="46"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(1034,94) scale(1.5)">
-              <path
-                fill="#ff0033"
-                d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="1052"
-              y="186"
-              font-size="22"
-              fill="#57534c"
-              text-anchor="middle"
-            >
-              upload processing…
-            </text>
-          </g>
-
-          <!-- Threads -->
-          <g class="node bob b2">
-            <circle
-              cx="700"
-              cy="306"
-              r="46"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(682,288) scale(1.5)">
-              <path
-                fill="#111111"
-                d="M18.263 11.097c-.03-3.486-1.92-5.586-5.111-5.586-2.13 0-3.922.963-4.863 2.499l2.062 1.438c.535-.843 1.272-1.543 2.628-1.543 1.528 0 2.318.85 2.544 2.431a15 15 0 0 0-2.236-.173c-4.125 0-6.068 1.867-6.068 4.336s1.943 3.99 4.804 3.99c3.139 0 5.013-2.115 5.781-4.735.798.361 1.348 1.204 1.348 2.47 0 3.387-3.907 5.232-7.22 5.232-4.885 0-8.077-3.207-8.077-8.424 0-6.392 4.223-10.487 9.9-10.487 3.808 0 5.69 1.671 6.97 3.914l2.108-1.475C21.44 2.078 18.331 0 13.663 0 6.227 0 1.168 5.277 1.168 12.934c0 7 4.953 11.066 10.856 11.066 4.878 0 9.809-2.846 9.809-7.716 0-2.545-1.46-4.231-3.569-5.187m-6.33 4.855c-1.077 0-2.026-.512-2.026-1.453 0-1.483 1.822-1.934 3.606-1.934.678 0 1.34.045 1.927.173-.422 1.927-1.671 3.215-3.508 3.214Z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="700"
-              y="380"
-              font-size="22"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
-
-          <!-- Instagram -->
-          <g class="node bob">
-            <circle
-              cx="944"
-              cy="322"
-              r="46"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(926,304) scale(1.5)">
-              <path
-                fill="#e4405f"
-                d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="944"
-              y="396"
-              font-size="22"
-              fill="#e8542f"
-              text-anchor="middle"
-            >
-              needs a photo!
-            </text>
-          </g>
-
-          <!-- TikTok -->
-          <g class="node bob b3">
-            <circle
-              cx="596"
-              cy="524"
-              r="46"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(578,506) scale(1.5)">
-              <path
-                fill="#111111"
-                d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="596"
-              y="598"
-              font-size="22"
-              fill="#57534c"
-              text-anchor="middle"
-            >
-              queued
-            </text>
-          </g>
-
-          <!-- LinkedIn -->
-          <g class="node bob b2">
-            <circle
-              cx="836"
-              cy="548"
-              r="46"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(818,530) scale(1.5)">
-              <rect width="24" height="24" rx="4" fill="#0A66C2" />
-              <path
+            <!-- your app -->
+            <g>
+              <rect
+                x="66"
+                y="252"
+                width="246"
+                height="180"
+                rx="6"
+                stroke="#1c1a17"
+                stroke-width="2.6"
                 fill="#fff"
-                d="M6.2 8.1H3.5V20h2.7V8.1ZM4.85 4A1.65 1.65 0 1 0 4.85 7.3 1.65 1.65 0 0 0 4.85 4ZM20.5 13.17c0-3.58-1.91-5.25-4.46-5.25-2.06 0-2.98 1.13-3.49 1.92V8.1H9.84V20h2.71v-5.89c0-1.55.29-3.05 2.21-3.05 1.9 0 1.92 1.78 1.92 3.15V20h2.72l1.1-6.83Z"
+                filter="url(#roughen2)"
               />
+              <text class="hand" x="86" y="240" font-size="27" fill="#1c1a17">your app</text>
+              <text class="mono" x="92" y="298" font-size="14" fill="#1c1a17">
+                social.posts.publish({
+              </text>
+              <text class="mono" x="106" y="324" font-size="14" fill="#1c1a17">content,</text>
+              <text class="mono" x="106" y="350" font-size="14" fill="#1c1a17">
+                targets:
+                <tspan fill="#2f6f4f">everywhere</tspan>
+                ,
+              </text>
+              <text class="mono" x="92" y="376" font-size="14" fill="#1c1a17">})</text>
             </g>
-            <text
-              class="hand status"
-              x="836"
-              y="622"
-              font-size="22"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
 
-          <!-- outcome legend, bottom-left -->
-          <g>
-            <text
-              class="hand"
-              x="90"
-              y="540"
-              font-size="25"
-              fill="#1c1a17"
-              transform="rotate(-2 90 540)"
-            >
-              each destination reports back on its own.
-            </text>
-            <text
-              class="hand"
-              x="90"
-              y="574"
-              font-size="25"
-              fill="#1c1a17"
-              transform="rotate(-2 90 574)"
-            >
-              no rolled-up "all good."
-            </text>
-            <path
-              d="M96 588 Q210 602 330 586"
-              stroke="#e8542f"
-              stroke-width="2.6"
-              fill="none"
-              stroke-linecap="round"
-              filter="url(#roughen)"
-            />
-          </g>
-        </svg>
-        <svg class="board board-tall" viewBox="0 0 400 740" fill="none">
-          <g filter="url(#roughen)">
-            <path class="wire" d="M176 186 C176 226, 139 207, 139 257" />
-            <path class="wire" d="M224 186 C224 226, 261 207, 261 257" />
-            <path class="wire" d="M200 186 C200 226, 200 331, 200 381" />
-            <path class="wire" d="M186 186 C186 226, 91 336, 91 386" />
-            <path class="wire" d="M214 186 C214 226, 309 336, 309 386" />
-            <path class="wire" d="M190 186 C190 226, 120 477, 120 527" />
-            <path class="wire" d="M210 186 C210 226, 280 477, 280 527" />
-          </g>
-          <g class="plane" opacity="0">
-            <path
-              d="M-13 -4 L13 0 L-9 8 L-5 0 Z M-9 8 L-8 13 L-4 5"
-              stroke="#1c1a17"
-              stroke-width="1.8"
-              fill="#fff"
-              stroke-linejoin="round"
-            />
-          </g>
-          <g>
-            <rect
-              x="40"
-              y="54"
-              width="320"
-              height="132"
-              rx="6"
-              stroke="#1c1a17"
-              stroke-width="2.6"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <text class="hand" x="52" y="42" font-size="26" fill="#1c1a17">your app</text>
-            <text class="mono" x="62" y="92" font-size="15" fill="#1c1a17">
-              social.posts.publish({
-            </text>
-            <text class="mono" x="80" y="118" font-size="15" fill="#1c1a17">content,</text>
-            <text class="mono" x="80" y="144" font-size="15" fill="#1c1a17">
-              targets:
-              <tspan fill="#2f6f4f">everywhere</tspan>
-              ,
-            </text>
-            <text class="mono" x="62" y="170" font-size="15" fill="#1c1a17">})</text>
-          </g>
-          <g class="node bob">
-            <circle
-              cx="110"
-              cy="290"
-              r="38"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(95,275) scale(1.25)">
-              <path
-                fill="#1185fe"
-                d="M5.202 2.857C7.954 4.922 10.913 9.11 12 11.358c1.087-2.247 4.046-6.436 6.798-8.501C20.783 1.366 24 .213 24 3.883c0 .732-.42 6.156-.667 7.037-.856 3.061-3.978 3.842-6.755 3.37 4.854.826 6.089 3.562 3.422 6.299-5.065 5.196-7.28-1.304-7.847-2.97-.104-.305-.152-.448-.153-.327 0-.121-.05.022-.153.327-.568 1.666-2.782 8.166-7.847 2.97-2.667-2.737-1.432-5.473 3.422-6.3-2.777.473-5.899-.308-6.755-3.369C.42 10.04 0 4.615 0 3.883c0-3.67 3.217-2.517 5.202-1.026"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="110"
-              y="354"
-              font-size="20"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
-          <g class="node bob b2">
-            <circle
-              cx="290"
-              cy="290"
-              r="38"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(275,275) scale(1.25)">
-              <path
-                fill="#111111"
-                d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="290"
-              y="354"
-              font-size="20"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
-          <g class="node bob b3">
-            <circle
-              cx="200"
-              cy="425"
-              r="38"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(185,410) scale(1.25)">
-              <path
-                fill="#ff0033"
-                d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="200"
-              y="489"
-              font-size="18"
-              fill="#57534c"
-              text-anchor="middle"
-            >
-              upload processing…
-            </text>
-          </g>
-          <g class="node bob b2">
-            <circle
-              cx="70"
-              cy="425"
-              r="38"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(55,410) scale(1.25)">
-              <path
-                fill="#111111"
-                d="M18.263 11.097c-.03-3.486-1.92-5.586-5.111-5.586-2.13 0-3.922.963-4.863 2.499l2.062 1.438c.535-.843 1.272-1.543 2.628-1.543 1.528 0 2.318.85 2.544 2.431a15 15 0 0 0-2.236-.173c-4.125 0-6.068 1.867-6.068 4.336s1.943 3.99 4.804 3.99c3.139 0 5.013-2.115 5.781-4.735.798.361 1.348 1.204 1.348 2.47 0 3.387-3.907 5.232-7.22 5.232-4.885 0-8.077-3.207-8.077-8.424 0-6.392 4.223-10.487 9.9-10.487 3.808 0 5.69 1.671 6.97 3.914l2.108-1.475C21.44 2.078 18.331 0 13.663 0 6.227 0 1.168 5.277 1.168 12.934c0 7 4.953 11.066 10.856 11.066 4.878 0 9.809-2.846 9.809-7.716 0-2.545-1.46-4.231-3.569-5.187m-6.33 4.855c-1.077 0-2.026-.512-2.026-1.453 0-1.483 1.822-1.934 3.606-1.934.678 0 1.34.045 1.927.173-.422 1.927-1.671 3.215-3.508 3.214Z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="70"
-              y="489"
-              font-size="20"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
-          <g class="node bob">
-            <circle
-              cx="330"
-              cy="425"
-              r="38"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(315,410) scale(1.25)">
-              <path
-                fill="#e4405f"
-                d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="330"
-              y="489"
-              font-size="18"
-              fill="#e8542f"
-              text-anchor="middle"
-            >
-              needs a photo!
-            </text>
-          </g>
-          <g class="node bob b3">
-            <circle
-              cx="110"
-              cy="570"
-              r="38"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(95,555) scale(1.25)">
-              <path
-                fill="#111111"
-                d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"
-              />
-            </g>
-            <text
-              class="hand status"
-              x="110"
-              y="634"
-              font-size="20"
-              fill="#57534c"
-              text-anchor="middle"
-            >
-              queued
-            </text>
-          </g>
-          <g class="node bob b2">
-            <circle
-              cx="290"
-              cy="570"
-              r="38"
-              stroke="#1c1a17"
-              stroke-width="2.4"
-              fill="#fff"
-              filter="url(#roughen2)"
-            />
-            <g transform="translate(275,555) scale(1.25)">
-              <rect width="24" height="24" rx="4" fill="#0A66C2" />
-              <path
+            <!-- ============ platform nodes ============ -->
+            <!-- Bluesky -->
+            <g class="node bob">
+              <circle
+                cx="640"
+                cy="92"
+                r="46"
+                stroke="#1c1a17"
+                stroke-width="2.4"
                 fill="#fff"
-                d="M6.2 8.1H3.5V20h2.7V8.1ZM4.85 4A1.65 1.65 0 1 0 4.85 7.3 1.65 1.65 0 0 0 4.85 4ZM20.5 13.17c0-3.58-1.91-5.25-4.46-5.25-2.06 0-2.98 1.13-3.49 1.92V8.1H9.84V20h2.71v-5.89c0-1.55.29-3.05 2.21-3.05 1.9 0 1.92 1.78 1.92 3.15V20h2.72l1.1-6.83Z"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(622,74) scale(1.5)">
+                <path
+                  fill="#1185fe"
+                  d="M5.202 2.857C7.954 4.922 10.913 9.11 12 11.358c1.087-2.247 4.046-6.436 6.798-8.501C20.783 1.366 24 .213 24 3.883c0 .732-.42 6.156-.667 7.037-.856 3.061-3.978 3.842-6.755 3.37 4.854.826 6.089 3.562 3.422 6.299-5.065 5.196-7.28-1.304-7.847-2.97-.104-.305-.152-.448-.153-.327 0-.121-.05.022-.153.327-.568 1.666-2.782 8.166-7.847 2.97-2.667-2.737-1.432-5.473 3.422-6.3-2.777.473-5.899-.308-6.755-3.369C.42 10.04 0 4.615 0 3.883c0-3.67 3.217-2.517 5.202-1.026"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="640"
+                y="166"
+                font-size="22"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+
+            <!-- X -->
+            <g class="node bob b2">
+              <circle
+                cx="856"
+                cy="152"
+                r="46"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(838,134) scale(1.5)">
+                <path
+                  fill="#111111"
+                  d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="856"
+                y="226"
+                font-size="22"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+
+            <!-- YouTube -->
+            <g class="node bob b3">
+              <circle
+                cx="1052"
+                cy="112"
+                r="46"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(1034,94) scale(1.5)">
+                <path
+                  fill="#ff0033"
+                  d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="1052"
+                y="186"
+                font-size="22"
+                fill="#57534c"
+                text-anchor="middle"
+              >
+                upload processing…
+              </text>
+            </g>
+
+            <!-- Threads -->
+            <g class="node bob b2">
+              <circle
+                cx="700"
+                cy="306"
+                r="46"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(682,288) scale(1.5)">
+                <path
+                  fill="#111111"
+                  d="M18.263 11.097c-.03-3.486-1.92-5.586-5.111-5.586-2.13 0-3.922.963-4.863 2.499l2.062 1.438c.535-.843 1.272-1.543 2.628-1.543 1.528 0 2.318.85 2.544 2.431a15 15 0 0 0-2.236-.173c-4.125 0-6.068 1.867-6.068 4.336s1.943 3.99 4.804 3.99c3.139 0 5.013-2.115 5.781-4.735.798.361 1.348 1.204 1.348 2.47 0 3.387-3.907 5.232-7.22 5.232-4.885 0-8.077-3.207-8.077-8.424 0-6.392 4.223-10.487 9.9-10.487 3.808 0 5.69 1.671 6.97 3.914l2.108-1.475C21.44 2.078 18.331 0 13.663 0 6.227 0 1.168 5.277 1.168 12.934c0 7 4.953 11.066 10.856 11.066 4.878 0 9.809-2.846 9.809-7.716 0-2.545-1.46-4.231-3.569-5.187m-6.33 4.855c-1.077 0-2.026-.512-2.026-1.453 0-1.483 1.822-1.934 3.606-1.934.678 0 1.34.045 1.927.173-.422 1.927-1.671 3.215-3.508 3.214Z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="700"
+                y="380"
+                font-size="22"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+
+            <!-- Instagram -->
+            <g class="node bob">
+              <circle
+                cx="944"
+                cy="322"
+                r="46"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(926,304) scale(1.5)">
+                <path
+                  fill="#e4405f"
+                  d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="944"
+                y="396"
+                font-size="22"
+                fill="#e8542f"
+                text-anchor="middle"
+              >
+                needs a photo!
+              </text>
+            </g>
+
+            <!-- TikTok -->
+            <g class="node bob b3">
+              <circle
+                cx="596"
+                cy="524"
+                r="46"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(578,506) scale(1.5)">
+                <path
+                  fill="#111111"
+                  d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="596"
+                y="598"
+                font-size="22"
+                fill="#57534c"
+                text-anchor="middle"
+              >
+                queued
+              </text>
+            </g>
+
+            <!-- LinkedIn -->
+            <g class="node bob b2">
+              <circle
+                cx="836"
+                cy="548"
+                r="46"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(818,530) scale(1.5)">
+                <rect width="24" height="24" rx="4" fill="#0A66C2" />
+                <path
+                  fill="#fff"
+                  d="M6.2 8.1H3.5V20h2.7V8.1ZM4.85 4A1.65 1.65 0 1 0 4.85 7.3 1.65 1.65 0 0 0 4.85 4ZM20.5 13.17c0-3.58-1.91-5.25-4.46-5.25-2.06 0-2.98 1.13-3.49 1.92V8.1H9.84V20h2.71v-5.89c0-1.55.29-3.05 2.21-3.05 1.9 0 1.92 1.78 1.92 3.15V20h2.72l1.1-6.83Z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="836"
+                y="622"
+                font-size="22"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+
+            <!-- outcome legend, bottom-left -->
+            <g>
+              <text
+                class="hand"
+                x="90"
+                y="540"
+                font-size="25"
+                fill="#1c1a17"
+                transform="rotate(-2 90 540)"
+              >
+                each destination reports back on its own.
+              </text>
+              <text
+                class="hand"
+                x="90"
+                y="574"
+                font-size="25"
+                fill="#1c1a17"
+                transform="rotate(-2 90 574)"
+              >
+                no rolled-up "all good."
+              </text>
+              <path
+                d="M96 588 Q210 602 330 586"
+                stroke="#e8542f"
+                stroke-width="2.6"
+                fill="none"
+                stroke-linecap="round"
+                filter="url(#roughen)"
               />
             </g>
-            <text
-              class="hand status"
-              x="290"
-              y="634"
-              font-size="20"
-              fill="#2f6f4f"
-              text-anchor="middle"
-            >
-              posted ✓
-            </text>
-          </g>
-          <g>
-            <text
-              class="hand"
-              x="24"
-              y="690"
-              font-size="22"
-              fill="#1c1a17"
-              transform="rotate(-2 24 690)"
-            >
-              each destination reports back on its own.
-            </text>
-            <text
-              class="hand"
-              x="24"
-              y="720"
-              font-size="22"
-              fill="#1c1a17"
-              transform="rotate(-2 24 720)"
-            >
-              no rolled-up "all good."
-            </text>
-            <path
-              d="M30 732 Q130 744 236 730"
-              stroke="#e8542f"
-              stroke-width="2.6"
-              fill="none"
-              stroke-linecap="round"
-              filter="url(#roughen)"
-            />
-          </g>
-        </svg>
-      </section>
+          </svg>
+          <svg class="board board-tall" viewBox="0 0 400 740" fill="none">
+            <g filter="url(#roughen)">
+              <path class="wire" d="M176 186 C176 226, 139 207, 139 257" />
+              <path class="wire" d="M224 186 C224 226, 261 207, 261 257" />
+              <path class="wire" d="M200 186 C200 226, 200 331, 200 381" />
+              <path class="wire" d="M186 186 C186 226, 91 336, 91 386" />
+              <path class="wire" d="M214 186 C214 226, 309 336, 309 386" />
+              <path class="wire" d="M190 186 C190 226, 120 477, 120 527" />
+              <path class="wire" d="M210 186 C210 226, 280 477, 280 527" />
+            </g>
+            <g class="plane" opacity="0">
+              <path
+                d="M-13 -4 L13 0 L-9 8 L-5 0 Z M-9 8 L-8 13 L-4 5"
+                stroke="#1c1a17"
+                stroke-width="1.8"
+                fill="#fff"
+                stroke-linejoin="round"
+              />
+            </g>
+            <g>
+              <rect
+                x="40"
+                y="54"
+                width="320"
+                height="132"
+                rx="6"
+                stroke="#1c1a17"
+                stroke-width="2.6"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <text class="hand" x="52" y="42" font-size="26" fill="#1c1a17">your app</text>
+              <text class="mono" x="62" y="92" font-size="15" fill="#1c1a17">
+                social.posts.publish({
+              </text>
+              <text class="mono" x="80" y="118" font-size="15" fill="#1c1a17">content,</text>
+              <text class="mono" x="80" y="144" font-size="15" fill="#1c1a17">
+                targets:
+                <tspan fill="#2f6f4f">everywhere</tspan>
+                ,
+              </text>
+              <text class="mono" x="62" y="170" font-size="15" fill="#1c1a17">})</text>
+            </g>
+            <g class="node bob">
+              <circle
+                cx="110"
+                cy="290"
+                r="38"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(95,275) scale(1.25)">
+                <path
+                  fill="#1185fe"
+                  d="M5.202 2.857C7.954 4.922 10.913 9.11 12 11.358c1.087-2.247 4.046-6.436 6.798-8.501C20.783 1.366 24 .213 24 3.883c0 .732-.42 6.156-.667 7.037-.856 3.061-3.978 3.842-6.755 3.37 4.854.826 6.089 3.562 3.422 6.299-5.065 5.196-7.28-1.304-7.847-2.97-.104-.305-.152-.448-.153-.327 0-.121-.05.022-.153.327-.568 1.666-2.782 8.166-7.847 2.97-2.667-2.737-1.432-5.473 3.422-6.3-2.777.473-5.899-.308-6.755-3.369C.42 10.04 0 4.615 0 3.883c0-3.67 3.217-2.517 5.202-1.026"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="110"
+                y="354"
+                font-size="20"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+            <g class="node bob b2">
+              <circle
+                cx="290"
+                cy="290"
+                r="38"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(275,275) scale(1.25)">
+                <path
+                  fill="#111111"
+                  d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="290"
+                y="354"
+                font-size="20"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+            <g class="node bob b3">
+              <circle
+                cx="200"
+                cy="425"
+                r="38"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(185,410) scale(1.25)">
+                <path
+                  fill="#ff0033"
+                  d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="200"
+                y="489"
+                font-size="18"
+                fill="#57534c"
+                text-anchor="middle"
+              >
+                upload processing…
+              </text>
+            </g>
+            <g class="node bob b2">
+              <circle
+                cx="70"
+                cy="425"
+                r="38"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(55,410) scale(1.25)">
+                <path
+                  fill="#111111"
+                  d="M18.263 11.097c-.03-3.486-1.92-5.586-5.111-5.586-2.13 0-3.922.963-4.863 2.499l2.062 1.438c.535-.843 1.272-1.543 2.628-1.543 1.528 0 2.318.85 2.544 2.431a15 15 0 0 0-2.236-.173c-4.125 0-6.068 1.867-6.068 4.336s1.943 3.99 4.804 3.99c3.139 0 5.013-2.115 5.781-4.735.798.361 1.348 1.204 1.348 2.47 0 3.387-3.907 5.232-7.22 5.232-4.885 0-8.077-3.207-8.077-8.424 0-6.392 4.223-10.487 9.9-10.487 3.808 0 5.69 1.671 6.97 3.914l2.108-1.475C21.44 2.078 18.331 0 13.663 0 6.227 0 1.168 5.277 1.168 12.934c0 7 4.953 11.066 10.856 11.066 4.878 0 9.809-2.846 9.809-7.716 0-2.545-1.46-4.231-3.569-5.187m-6.33 4.855c-1.077 0-2.026-.512-2.026-1.453 0-1.483 1.822-1.934 3.606-1.934.678 0 1.34.045 1.927.173-.422 1.927-1.671 3.215-3.508 3.214Z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="70"
+                y="489"
+                font-size="20"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+            <g class="node bob">
+              <circle
+                cx="330"
+                cy="425"
+                r="38"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(315,410) scale(1.25)">
+                <path
+                  fill="#e4405f"
+                  d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="330"
+                y="489"
+                font-size="18"
+                fill="#e8542f"
+                text-anchor="middle"
+              >
+                needs a photo!
+              </text>
+            </g>
+            <g class="node bob b3">
+              <circle
+                cx="110"
+                cy="570"
+                r="38"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(95,555) scale(1.25)">
+                <path
+                  fill="#111111"
+                  d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="110"
+                y="634"
+                font-size="20"
+                fill="#57534c"
+                text-anchor="middle"
+              >
+                queued
+              </text>
+            </g>
+            <g class="node bob b2">
+              <circle
+                cx="290"
+                cy="570"
+                r="38"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                fill="#fff"
+                filter="url(#roughen2)"
+              />
+              <g transform="translate(275,555) scale(1.25)">
+                <rect width="24" height="24" rx="4" fill="#0A66C2" />
+                <path
+                  fill="#fff"
+                  d="M6.2 8.1H3.5V20h2.7V8.1ZM4.85 4A1.65 1.65 0 1 0 4.85 7.3 1.65 1.65 0 0 0 4.85 4ZM20.5 13.17c0-3.58-1.91-5.25-4.46-5.25-2.06 0-2.98 1.13-3.49 1.92V8.1H9.84V20h2.71v-5.89c0-1.55.29-3.05 2.21-3.05 1.9 0 1.92 1.78 1.92 3.15V20h2.72l1.1-6.83Z"
+                />
+              </g>
+              <text
+                class="hand status"
+                x="290"
+                y="634"
+                font-size="20"
+                fill="#2f6f4f"
+                text-anchor="middle"
+              >
+                posted ✓
+              </text>
+            </g>
+            <g>
+              <text
+                class="hand"
+                x="24"
+                y="690"
+                font-size="22"
+                fill="#1c1a17"
+                transform="rotate(-2 24 690)"
+              >
+                each destination reports back on its own.
+              </text>
+              <text
+                class="hand"
+                x="24"
+                y="720"
+                font-size="22"
+                fill="#1c1a17"
+                transform="rotate(-2 24 720)"
+              >
+                no rolled-up "all good."
+              </text>
+              <path
+                d="M30 732 Q130 744 236 730"
+                stroke="#e8542f"
+                stroke-width="2.6"
+                fill="none"
+                stroke-linecap="round"
+                filter="url(#roughen)"
+              />
+            </g>
+          </svg>
+        </section>
 
-      <!-- ================= code note ================= -->
-      <section class="note-section" id="note">
-        <div class="note-copy">
-          <h2>What you get back</h2>
-          <p>
-            One result per platform. Not a boolean. The actual state: "published", "processing",
-            "failed", and more, with the reason when there is one.
-          </p>
-          <p>
-            The types know what each account can do. A text-only post aimed at Instagram fails in
-            your editor, not in production.
-          </p>
-        </div>
-        <div class="paper-note">
-          <span class="tape"></span>
-          <svg class="note-border" aria-hidden="true"><rect /></svg>
-          <pre
-            class="code-wide"
-          ><span class="c-kw">import</span> { createSocial } <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
+        <!-- ================= code note ================= -->
+        <section class="note-section" id="note">
+          <div class="note-copy">
+            <h2>What you get back</h2>
+            <p>
+              One result per platform. Not a boolean. The actual state: "published", "processing",
+              "failed", and more, with the reason when there is one.
+            </p>
+            <p>
+              The types know what each account can do. A text-only post aimed at Instagram fails in
+              your editor, not in production.
+            </p>
+          </div>
+          <div class="paper-note">
+            <span class="tape"></span>
+            <svg class="note-border" aria-hidden="true"><rect /></svg>
+            <pre
+              class="code-wide"
+            ><span class="c-kw">import</span> { createSocial } <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
 
-<span class="c-kw">const</span> social = createSocial({ backend });
+  <span class="c-kw">const</span> social = createSocial({ backend });
 
-<span class="c-kw">const</span> result = <span class="c-kw">await</span> social.posts.publish({
-  content: { text: <span class="c-str">"we drew our landing page"</span> },
-  targets: accounts.map((account) => ({ account })),
-});
-
-<span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
-  <span class="c-dim">// "published" | "processing" | "failed" | ...</span>
-  console.log(o.account.platform, o.state);
-}</pre>
-          <!-- same snippet, reflowed to fit a phone without clipping -->
-          <pre class="code-narrow"><span class="c-kw">import</span> { createSocial }
-  <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
-
-<span class="c-kw">const</span> social =
-  createSocial({ backend });
-
-<span class="c-kw">const</span> result =
-  <span class="c-kw">await</span> social.posts.publish({
-    content: { text: <span class="c-str">"we drew this"</span> },
-    targets: accounts.map(
-      (account) => ({ account }),
-    ),
+  <span class="c-kw">const</span> result = <span class="c-kw">await</span> social.posts.publish({
+    content: { text: <span class="c-str">"we drew our landing page"</span> },
+    targets: accounts.map((account) => ({ account })),
   });
 
-<span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
-  <span class="c-dim">// published | processing | failed</span>
-  console.log(
-    o.account.platform, o.state);
-}</pre>
-          <div class="note-scribble">← typed end to end, mocks included</div>
-        </div>
-      </section>
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
+    <span class="c-dim">// "published" | "processing" | "failed" | ...</span>
+    console.log(o.account.platform, o.state);
+  }</pre>
+            <!-- same snippet, reflowed to fit a phone without clipping -->
+            <pre class="code-narrow"><span class="c-kw">import</span> { createSocial }
+    <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
 
-      <!-- ================= features ================= -->
-      <section class="features">
-        <h2>Everything it does.</h2>
-        <div class="feat-grid">
-          <div class="feat">
-            <div class="doodle">
-              <svg width="60" height="56" viewBox="0 0 60 56" fill="none" filter="url(#roughen)">
-                <path
-                  d="M10 26 L34 14 L34 42 L10 32 Z"
-                  stroke="#1c1a17"
-                  stroke-width="2.4"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M14 34 L17 46 L23 44.5"
-                  stroke="#1c1a17"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M40 20 Q44 27 40 34"
-                  stroke="#e8542f"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M46 15 Q52 27 46 39"
-                  stroke="#e8542f"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </div>
-            <h3>Publishing</h3>
-            <p>Explicit targets, explicit accounts, one outcome per destination.</p>
-            <span class="tag">no double posts</span>
-          </div>
-          <div class="feat">
-            <div class="doodle">
-              <svg width="62" height="56" viewBox="0 0 62 56" fill="none" filter="url(#roughen)">
-                <path
-                  d="M6 28 C18 12, 44 12, 56 28 C44 44, 18 44, 6 28 Z"
-                  stroke="#1c1a17"
-                  stroke-width="2.4"
-                  stroke-linejoin="round"
-                />
-                <circle cx="31" cy="28" r="8" stroke="#1c1a17" stroke-width="2.4" />
-                <circle cx="34" cy="25" r="2" fill="#1c1a17" />
-                <path d="M48 10 L53 4" stroke="#e8542f" stroke-width="2.4" stroke-linecap="round" />
-              </svg>
-            </div>
-            <h3>Reads &amp; analytics</h3>
-            <p>
-              Typed references to native content, plus platform analytics products where available.
-              Metrics say "unavailable" when they are.
-            </p>
-            <span class="tag">no wrong data</span>
-          </div>
-          <div class="feat">
-            <div class="doodle">
-              <svg width="60" height="56" viewBox="0 0 60 56" fill="none" filter="url(#roughen)">
-                <path
-                  d="M8 10 H48 V36 H24 L12 46 L15 36 H8 Z"
-                  stroke="#1c1a17"
-                  stroke-width="2.4"
-                  stroke-linejoin="round"
-                />
-                <path
-                  d="M17 20 H39 M17 27 H33"
-                  stroke="#e8542f"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </div>
-            <h3>Comments &amp; messages</h3>
-            <p>
-              Replies, reactions, conversations, and native platform operations, with capability
-              declarations for normalized routes and explicit authorization for native access.
-            </p>
-            <span class="tag">where platforms allow</span>
-          </div>
-          <div class="feat">
-            <div class="doodle">
-              <svg width="52" height="56" viewBox="0 0 52 56" fill="none" filter="url(#roughen)">
-                <path
-                  d="M21 8 H31 M23 8 V22 L10 44 C8 48, 10 50, 14 50 H38 C42 50, 44 48, 42 44 L29 22 V8"
-                  stroke="#1c1a17"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <path d="M17 38 H35" stroke="#e8542f" stroke-width="2.4" stroke-linecap="round" />
-                <circle cx="22" cy="43" r="1.8" fill="#e8542f" />
-                <circle cx="30" cy="45" r="1.8" fill="#e8542f" />
-              </svg>
-            </div>
-            <h3>Deterministic testing</h3>
-            <p>
-              A mock backend that behaves like the real ones, so CI never touches a live network.
-            </p>
-            <span class="tag">runs offline</span>
-          </div>
-        </div>
+  <span class="c-kw">const</span> social =
+    createSocial({ backend });
 
-        <div class="managed">
-          <span class="hand-line">don't want to manage tokens yourself? take a managed route:</span>
-          <span class="chip"
-            ><img width="18" height="18" src="/integrations/zernio.svg" alt="" /> Zernio</span
+  <span class="c-kw">const</span> result =
+    <span class="c-kw">await</span> social.posts.publish({
+      content: { text: <span class="c-str">"we drew this"</span> },
+      targets: accounts.map(
+        (account) => ({ account }),
+      ),
+    });
+
+  <span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
+    <span class="c-dim">// published | processing | failed</span>
+    console.log(
+      o.account.platform, o.state);
+  }</pre>
+            <div class="note-scribble">← typed end to end, mocks included</div>
+          </div>
+        </section>
+
+        <!-- ================= features ================= -->
+        <section class="features">
+          <h2>Everything it does.</h2>
+          <div class="feat-grid">
+            <div class="feat">
+              <div class="doodle">
+                <svg width="60" height="56" viewBox="0 0 60 56" fill="none" filter="url(#roughen)">
+                  <path
+                    d="M10 26 L34 14 L34 42 L10 32 Z"
+                    stroke="#1c1a17"
+                    stroke-width="2.4"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M14 34 L17 46 L23 44.5"
+                    stroke="#1c1a17"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M40 20 Q44 27 40 34"
+                    stroke="#e8542f"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M46 15 Q52 27 46 39"
+                    stroke="#e8542f"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <h3>Publishing</h3>
+              <p>Explicit targets, explicit accounts, one outcome per destination.</p>
+              <span class="tag">no double posts</span>
+            </div>
+            <div class="feat">
+              <div class="doodle">
+                <svg width="62" height="56" viewBox="0 0 62 56" fill="none" filter="url(#roughen)">
+                  <path
+                    d="M6 28 C18 12, 44 12, 56 28 C44 44, 18 44, 6 28 Z"
+                    stroke="#1c1a17"
+                    stroke-width="2.4"
+                    stroke-linejoin="round"
+                  />
+                  <circle cx="31" cy="28" r="8" stroke="#1c1a17" stroke-width="2.4" />
+                  <circle cx="34" cy="25" r="2" fill="#1c1a17" />
+                  <path
+                    d="M48 10 L53 4"
+                    stroke="#e8542f"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <h3>Reads &amp; analytics</h3>
+              <p>
+                Typed references to native content, plus platform analytics products where
+                available. Metrics say "unavailable" when they are.
+              </p>
+              <span class="tag">no wrong data</span>
+            </div>
+            <div class="feat">
+              <div class="doodle">
+                <svg width="60" height="56" viewBox="0 0 60 56" fill="none" filter="url(#roughen)">
+                  <path
+                    d="M8 10 H48 V36 H24 L12 46 L15 36 H8 Z"
+                    stroke="#1c1a17"
+                    stroke-width="2.4"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M17 20 H39 M17 27 H33"
+                    stroke="#e8542f"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <h3>Comments &amp; messages</h3>
+              <p>
+                Replies, reactions, conversations, and native platform operations, with capability
+                declarations for normalized routes and explicit authorization for native access.
+              </p>
+              <span class="tag">where platforms allow</span>
+            </div>
+            <div class="feat">
+              <div class="doodle">
+                <svg width="52" height="56" viewBox="0 0 52 56" fill="none" filter="url(#roughen)">
+                  <path
+                    d="M21 8 H31 M23 8 V22 L10 44 C8 48, 10 50, 14 50 H38 C42 50, 44 48, 42 44 L29 22 V8"
+                    stroke="#1c1a17"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path d="M17 38 H35" stroke="#e8542f" stroke-width="2.4" stroke-linecap="round" />
+                  <circle cx="22" cy="43" r="1.8" fill="#e8542f" />
+                  <circle cx="30" cy="45" r="1.8" fill="#e8542f" />
+                </svg>
+              </div>
+              <h3>Deterministic testing</h3>
+              <p>
+                A mock backend that behaves like the real ones, so CI never touches a live network.
+              </p>
+              <span class="tag">runs offline</span>
+            </div>
+          </div>
+
+          <div class="managed">
+            <span class="hand-line"
+              >don't want to manage tokens yourself? take a managed route:</span
+            >
+            <span class="chip"
+              ><img width="18" height="18" src="/integrations/zernio.svg" alt="" /> Zernio</span
+            >
+            <span class="chip"
+              ><img width="18" height="18" src="/integrations/post-for-me.webp" alt="" /> Post for
+              Me</span
+            >
+          </div>
+        </section>
+
+        <!-- ================= construction ================= -->
+        <section class="construction">
+          <p>
+            open source, MIT licensed, and on npm today. if it saves you a weekend,
+            <a
+              href="https://github.com/opencoredev/social-sdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              >star it on GitHub</a
+            >. logos and colors live on the <a href="/brand">brand page</a>.
+          </p>
+          <svg
+            width="200"
+            height="14"
+            viewBox="0 0 200 14"
+            aria-hidden="true"
+            style="margin-top: 6px"
           >
-          <span class="chip"
-            ><img width="18" height="18" src="/integrations/post-for-me.png" alt="" /> Post for
-            Me</span
-          >
-        </div>
-      </section>
-
-      <!-- ================= construction ================= -->
-      <section class="construction">
-        <p>
-          open source, MIT licensed, and on npm today. if it saves you a weekend,
-          <a
-            href="https://github.com/opencoredev/social-sdk"
-            target="_blank"
-            rel="noopener noreferrer"
-            >star it on GitHub</a
-          >. logos and colors live on the <a href="/brand">brand page</a>.
-        </p>
-        <svg
-          width="200"
-          height="14"
-          viewBox="0 0 200 14"
-          aria-hidden="true"
-          style="margin-top: 6px"
-        >
-          <path
-            d="M6 8 Q60 3 100 8 T194 7"
-            stroke="#e8542f"
-            stroke-width="2.6"
-            fill="none"
-            stroke-linecap="round"
-            filter="url(#roughen)"
-          />
-        </svg>
-      </section>
+            <path
+              d="M6 8 Q60 3 100 8 T194 7"
+              stroke="#e8542f"
+              stroke-width="2.6"
+              fill="none"
+              stroke-linecap="round"
+              filter="url(#roughen)"
+            />
+          </svg>
+        </section>
+      </main>
 
       <footer>
         <svg class="rule" viewBox="0 0 1080 14" preserveAspectRatio="none">
@@ -1676,44 +1691,21 @@
               href="https://github.com/opencoredev/social-sdk"
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="Social SDK on GitHub (opens in a new tab)"
-              >GitHub</a
+              >GitHub <span class="sr-only"> (opens in a new tab)</span></a
             >
-            <a
-              class="github-stars"
-              href="https://github.com/opencoredev/social-sdk"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Social SDK GitHub stars (opens in a new tab)"
-            >
-              <img
-                src="https://img.shields.io/github/stars/opencoredev/social-sdk?style=flat&label=stars"
-                alt="GitHub stars"
-                width="54"
-                height="20"
-                loading="lazy"
-              />
-            </a>
           </div>
         </div>
       </footer>
     </div>
 
     <script>
-      // draw-in for the wires when the diagram scrolls into view
+      // the wires fade in when the diagram scrolls into view
       const stage = document.querySelector(".stage");
-      const wires = document.querySelectorAll(".wire");
-      wires.forEach((w) => {
-        const len = w.getTotalLength();
-        w.style.strokeDashoffset = len;
-        w.style.transition = "stroke-dashoffset 1.6s ease";
-      });
       const io = new IntersectionObserver(
         (entries) => {
           entries.forEach((e) => {
             if (e.isIntersecting) {
               stage.classList.add("inview");
-              wires.forEach((w) => (w.style.strokeDashoffset = 0));
               io.disconnect();
               startDeliveries();
             }
