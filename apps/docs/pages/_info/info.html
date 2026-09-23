@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>@title</title>
+    <meta name="description" content="@description" />
+    <link rel="canonical" href="https://social-sdk.dev@path" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://social-sdk.dev@path" />
+    <meta property="og:site_name" content="Social SDK" />
+    <meta property="og:title" content="@title" />
+    <meta property="og:description" content="@description" />
+    <meta property="og:image" content="https://social-sdk.dev/og-home.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@leodev" />
+    <script>
+      (() => {
+        const stored = localStorage.getItem("blume-theme");
+        const dark = stored
+          ? stored === "dark"
+          : matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.classList.toggle("dark", dark);
+        if (!stored) {
+          matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+            document.documentElement.classList.toggle("dark", e.matches);
+          });
+        }
+      })();
+    </script>
+    <!-- @fonts -->
+    <style>
+      :root {
+        --ink: #1c1a17;
+        --ink-soft: #57534c;
+        --paper: #ffffff;
+        --marker: #e8542f;
+        --hand: var(--font-hand);
+        --serif: var(--font-serif);
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--serif);
+        font-weight: 380;
+        font-size: 18px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+      nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 28px 0 0;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        color: var(--ink);
+      }
+      .logo svg {
+        display: block;
+      }
+      .logo b {
+        font-weight: 560;
+        font-size: 21px;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+      }
+      .nav-links {
+        display: flex;
+        gap: 28px;
+        align-items: baseline;
+      }
+      .nav-links a {
+        color: var(--ink);
+        text-decoration: none;
+        font-size: 17px;
+      }
+      .nav-links a:hover {
+        color: var(--marker);
+      }
+      header {
+        padding: 72px 0 8px;
+      }
+      .kicker {
+        font-family: var(--hand);
+        font-size: 24px;
+        color: var(--marker);
+        transform: rotate(-1.2deg);
+        display: inline-block;
+      }
+      h1 {
+        font-weight: 640;
+        font-size: clamp(44px, 7vw, 68px);
+        letter-spacing: -0.02em;
+        line-height: 1.04;
+        margin-top: 6px;
+      }
+      .lede {
+        margin-top: 18px;
+        color: var(--ink-soft);
+        font-size: 19px;
+      }
+      section {
+        padding: 44px 0 0;
+      }
+      h2 {
+        font-weight: 560;
+        font-size: 28px;
+        letter-spacing: -0.015em;
+        line-height: 1.2;
+      }
+      section p,
+      section ul {
+        margin-top: 14px;
+        color: var(--ink-soft);
+      }
+      section ul {
+        padding-left: 22px;
+      }
+      section li + li {
+        margin-top: 6px;
+      }
+      section b {
+        color: var(--ink);
+        font-weight: 560;
+      }
+      main a {
+        color: var(--ink);
+        text-decoration-color: var(--marker);
+        text-decoration-thickness: 2px;
+        text-underline-offset: 3px;
+      }
+      main a:hover {
+        color: var(--marker);
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.85em;
+      }
+      footer {
+        padding: 64px 0 46px;
+      }
+      .rule {
+        width: 100%;
+        height: 14px;
+        overflow: visible;
+      }
+      .foot-row {
+        margin-top: 18px;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 14px;
+      }
+      .foot-row small {
+        color: var(--ink-soft);
+        font-size: 15px;
+      }
+      .foot-links {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+      }
+      .foot-links a {
+        color: var(--ink-soft);
+        text-decoration: none;
+        font-size: 15px;
+      }
+      .foot-links a:hover {
+        color: var(--ink);
+      }
+      html.dark {
+        --ink: #f2efe9;
+        --ink-soft: #beb7aa;
+        --paper: #131110;
+        color-scheme: dark;
+      }
+      html.dark [stroke="#1c1a17"] {
+        stroke: var(--ink);
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <filter id="roughen" x="-5%" y="-5%" width="110%" height="110%">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.035"
+            numOctaves="2"
+            seed="11"
+            result="n"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="n"
+            scale="2.6"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </defs>
+    </svg>
+
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">
+          <svg
+            width="34"
+            height="34"
+            viewBox="0 0 34 34"
+            fill="none"
+            filter="url(#roughen)"
+            aria-hidden="true"
+          >
+            <path
+              d="M5 15 L19 8 L19 25 L5 19 Z"
+              stroke="#1c1a17"
+              stroke-width="2.2"
+              stroke-linejoin="round"
+            />
+            <path d="M5 15 L5 19" stroke="#1c1a17" stroke-width="2.2" />
+            <path
+              d="M8 20.5 L9.5 27 L13 26"
+              stroke="#1c1a17"
+              stroke-width="2.2"
+              stroke-linecap="round"
+            />
+            <path
+              d="M23 12 Q26 16.5 23 21"
+              stroke="#e8542f"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              fill="none"
+            />
+            <path
+              d="M26.5 9.5 Q31 16.5 26.5 23.5"
+              stroke="#e8542f"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              fill="none"
+            />
+          </svg>
+          <b>Social SDK</b>
+        </a>
+        <div class="nav-links">
+          <a href="/">Home</a>
+          <a href="/docs">Docs</a>
+        </div>
+      </nav>
+
+      <main>
+        <header>
+          <span class="kicker">@kicker</span>
+          <h1>@heading</h1>
+          <p class="lede">@lede</p>
+        </header>
+        <!-- @content -->
+      </main>
+
+      <footer>
+        <svg class="rule" viewBox="0 0 760 14" preserveAspectRatio="none" aria-hidden="true">
+          <path
+            d="M4 8 Q100 3 200 8 T390 7 T590 9 T756 6"
+            stroke="#1c1a17"
+            stroke-width="2"
+            fill="none"
+            stroke-linecap="round"
+            filter="url(#roughen)"
+          />
+        </svg>
+        <div class="foot-row">
+          <small>© 2026 Social SDK. Open source under the MIT license.</small>
+          <div class="foot-links">
+            <a href="/about">About</a>
+            <a href="/contact">Contact</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/docs">Docs</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

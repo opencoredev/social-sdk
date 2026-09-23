@@ -45,18 +45,63 @@ for (const candidate of candidates) {
 
 console.log(`Removed ${candidates.length} unreachable disabled-feedback chunk(s).`);
 
-// The root landing page is a custom Astro route, so Blume's generated llms.txt
-// does not include it. Append it so the index matches the site's indexable routes.
-const llmsPath = `${directory}/llms.txt`;
+// Blume writes the same index to llms.txt and to index.md, which is what the
+// homepage serves to agents that ask for Markdown. Both get when-to-use guidance
+// under the summary, and the custom Astro routes (landing, about, contact,
+// privacy) that Blume's generated index leaves out.
+const guidance = `
+## When to use Social SDK
 
-const llms = await readFile(llmsPath, "utf8");
+Use Social SDK when server-side TypeScript or JavaScript code (Node.js 22.12+ or Bun) needs to:
 
-if (!/\]\(\/\)/.test(llms)) {
-  const entry =
-    "\n## Site\n\n- [Social SDK home](/): The landing page for the typed social platform toolkit.\n";
+- Publish text, images, or video to Bluesky, Instagram, LinkedIn, Threads, TikTok, X, or YouTube through one typed client.
+- Read posts, post metrics, search results, the social graph, notifications, or analytics reports from those platforms.
+- Handle comments, direct messages, and verified platform webhooks.
+- Send the same calls through the Zernio or Post for Me managed backends instead of each platform's API.
+- Build and test a social feature offline with a deterministic mock backend, without credentials or billable calls.
 
-  await writeFile(llmsPath, llms + entry);
-  console.log("Appended the landing page to llms.txt.");
+It is not the right tool for browser-only code (credentials must stay on a server), for a hosted scheduler or dashboard (Social SDK is a library with no hosted service), or for accounts your application is not authorized to act for.
+
+## How an agent should use it
+
+1. Install the package: \`npm install @opencoredev/social-sdk\` or \`bun add @opencoredev/social-sdk\`.
+2. Start with \`mockBackend\` from \`@opencoredev/social-sdk/testing\`, following the [Quickstart](https://social-sdk.dev/docs/getting-started/mock-quickstart).
+3. Import only the adapters you need from their subpaths, such as \`@opencoredev/social-sdk/x\` or \`@opencoredev/social-sdk/cloud/zernio\`. Check an operation against the [capability matrix](https://social-sdk.dev/docs/reference/capabilities) before calling it.
+4. Treat each target's outcome separately. A processing or uncertain outcome is not a published post.
+5. Use the offline CLI to discover adapters and validate requests without network calls: \`npx @opencoredev/social-sdk adapters --json\` or \`npx @opencoredev/social-sdk validate --adapter mock --file request.json --json\`. See the [CLI reference](https://social-sdk.dev/docs/reference/cli).
+6. Follow [Integrate with an agent](https://social-sdk.dev/docs/agents/integrate-social-sdk) and the [integration checklist](https://social-sdk.dev/docs/agents/integration-checklist) for connections, tenant authorization, and webhooks.
+
+## Packages and source
+
+- [npm package](https://www.npmjs.com/package/@opencoredev/social-sdk): \`@opencoredev/social-sdk\`, including the \`social-sdk\` CLI.
+- [Source on GitHub](https://github.com/opencoredev/social-sdk): MIT-licensed source, issues, and changelog.
+`;
+
+const site = `
+## Site
+
+- [Social SDK home](https://social-sdk.dev/): The landing page for the typed social platform toolkit.
+- [About](https://social-sdk.dev/about): What Social SDK is, what it is not, and who maintains it.
+- [Contact](https://social-sdk.dev/contact): Where to report bugs, ask questions, and raise security issues.
+- [Privacy](https://social-sdk.dev/privacy): What the website records and what the SDK never collects.
+`;
+
+for (const name of ["llms.txt", "index.md"]) {
+  const path = `${directory}/${name}`;
+  const index = await readFile(path, "utf8");
+
+  if (index.includes("## When to use Social SDK")) continue;
+
+  // Insert after the "> summary" line that follows the title.
+  const summary = index.match(/^> .*\n/m);
+
+  if (!summary || summary.index === undefined)
+    throw new Error(`${name} is missing the summary line the guidance follows.`);
+
+  const end = summary.index + summary[0].length;
+
+  await writeFile(path, `${index.slice(0, end)}${guidance}${index.slice(end).trimEnd()}\n${site}`);
+  console.log(`Added agent guidance and site pages to ${name}.`);
 }
 
 // Blume preloads Geist and uses it from the first paint, so on a slow phone the

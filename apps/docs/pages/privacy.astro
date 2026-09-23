@@ -1,0 +1,8 @@
+---
+// Trust page in the hand-drawn landing style; the copy lives in _info/pages.ts.
+import { withAnalytics } from "../analytics";
+import { withFonts } from "./_home/fonts";
+import { privacy, renderInfoPage } from "./_info/pages";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderInfoPage(privacy)))} />

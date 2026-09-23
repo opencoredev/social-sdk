@@ -1,0 +1,50 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "routes": [
+    {
+      "src": "/|/docs(?:/.*)?",
+      "headers": { "Vary": "Accept" },
+      "continue": true
+    },
+    {
+      "src": "/",
+      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
+      "headers": { "Content-Type": "text/markdown; charset=utf-8" },
+      "dest": "/index.md"
+    },
+    {
+      "src": "/docs/?",
+      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
+      "headers": { "Content-Type": "text/markdown; charset=utf-8" },
+      "dest": "/docs.md"
+    },
+    {
+      "src": "/docs/([^.]+?)/?",
+      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
+      "headers": { "Content-Type": "text/markdown; charset=utf-8" },
+      "dest": "/docs/$1.md",
+      "check": true
+    },
+    { "handle": "filesystem" },
+    {
+      "src": "/api/.*",
+      "status": 404,
+      "headers": { "Content-Type": "application/json; charset=utf-8" },
+      "dest": "/404.json"
+    },
+    {
+      "src": "/.*",
+      "has": [{ "type": "header", "key": "accept", "value": ".*text/markdown.*" }],
+      "status": 404,
+      "headers": { "Content-Type": "text/markdown; charset=utf-8", "Vary": "Accept" },
+      "dest": "/404.md"
+    },
+    {
+      "src": "/.*",
+      "has": [{ "type": "header", "key": "accept", "value": ".*application/json.*" }],
+      "status": 404,
+      "headers": { "Content-Type": "application/json; charset=utf-8", "Vary": "Accept" },
+      "dest": "/404.json"
+    }
+  ]
+}
