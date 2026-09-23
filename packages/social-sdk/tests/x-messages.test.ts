@@ -26,6 +26,14 @@ it("lists X conversations and messages and sends through social.messages", async
           method: init?.method ?? "GET",
           body: init?.body?.toString(),
         });
+        if (url.pathname === "/2/dm_events" && url.searchParams.has("pagination_token"))
+          return Response.json({
+            data: [
+              { id: "e1b", text: "older other", dm_conversation_id: "c2" },
+              { id: "e0", text: "third", dm_conversation_id: "c3" },
+            ],
+            meta: {},
+          });
         if (url.pathname === "/2/dm_events")
           return Response.json({
             data: [
@@ -44,24 +52,30 @@ it("lists X conversations and messages and sends through social.messages", async
     }),
   });
 
-  const conversations = await social.messages.listConversations(account, { limit: 20 });
+  const conversations = await social.messages.listConversations(account, { limit: 2 });
   assert.deepEqual(
     conversations.items.map((item) => item["id"]),
     ["e3", "e1"],
   );
   assert.ok(conversations.nextCursor !== undefined);
-  assert.equal(requests[0]?.url.searchParams.get("max_results"), "20");
+  assert.equal(requests[0]?.url.searchParams.get("max_results"), "2");
   assert.equal(
     requests[0]?.url.searchParams.get("dm_event.fields"),
     "id,text,event_type,created_at,dm_conversation_id,attachments,entities",
   );
   assert.equal(requests[0]?.url.searchParams.get("expansions"), "sender_id,participant_ids");
 
-  await social.messages.listConversations(account, {
+  const more = await social.messages.listConversations(account, {
     cursor: conversations.nextCursor,
-    limit: 20,
+    limit: 2,
   });
   assert.equal(requests[1]?.url.searchParams.get("pagination_token"), "next");
+  // c2 was already returned, so the second page only yields the new conversation.
+  assert.deepEqual(
+    more.items.map((item) => item["id"]),
+    ["e0"],
+  );
+  assert.equal(more.nextCursor, undefined);
 
   const messages = await social.messages.listMessages(conversation);
   assert.equal(messages.items[0]?.["text"], "latest");

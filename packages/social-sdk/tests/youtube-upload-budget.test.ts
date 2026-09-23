@@ -192,3 +192,21 @@ it("splits a single oversized stream chunk into resumable requests", async () =>
   assert.deepEqual(lengths, [8 * 1024 * 1024, 8 * 1024 * 1024, 4 * 1024 * 1024]);
   assert.deepEqual(result, { state: "incomplete", nextByte: size });
 });
+
+it("maps Google's nested quotaExceeded reason to rate_limited", async () => {
+  await assert.rejects(
+    () =>
+      beginYouTubeUpload(
+        { channelId: "c", size: 1, mimeType: "video/mp4", metadata: {} },
+        {
+          accessToken: "token",
+          fetch: async () =>
+            Response.json(
+              { error: { code: 403, errors: [{ reason: "quotaExceeded" }] } },
+              { status: 403 },
+            ),
+        },
+      ),
+    (error: { code?: string }) => error.code === "rate_limited",
+  );
+});

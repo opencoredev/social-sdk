@@ -167,7 +167,12 @@ async function uploadRequest(
 
       try {
         const payload = object(await readJson(response.clone(), 64 * 1024));
-        const errors = array(payload["errors"]);
+
+        // Google nests reasons under error.errors; accept a top-level list too.
+        const errors = array(
+          payload["error"] === undefined ? payload["errors"] : object(payload["error"])["errors"],
+        );
+
         const first = errors[0];
 
         if (first !== undefined) reason = optionalString(object(first)["reason"]);

@@ -676,7 +676,7 @@ export function youtube(
         if (
           target.schedule &&
           (!Number.isFinite(Date.parse(target.schedule.at)) ||
-            Date.parse(target.schedule.at) <= Date.now())
+            Date.parse(target.schedule.at) <= (options.clock?.() ?? new Date()).getTime())
         )
           fail("youtube.schedule", "Schedule time must be a valid timestamp in the future.");
 

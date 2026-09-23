@@ -238,7 +238,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     });
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
-    const nextCursor = optionalString(cursors["after"]);
+    // Graph omits paging.next on the last page even when cursors.after is present.
+    const nextCursor =
+      typeof paging["next"] === "string" && paging["next"].length > 0
+        ? optionalString(cursors["after"])
+        : undefined;
 
     return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
   }

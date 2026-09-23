@@ -1392,7 +1392,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         context: AdapterOperationContext,
       ): Promise<Page<JsonObject>> {
         // X has no conversation-list endpoint. This page is derived from /2/dm_events,
-        // with one latest event for each distinct dm_conversation_id in the page.
+        // with the latest event for each distinct dm_conversation_id.
         requireUserToken("messages.read");
         if (
           input.limit !== undefined &&
@@ -1403,22 +1403,55 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             operation: "messages.read",
             message: "X DM limits must be integers from 1 through 100.",
           });
-        const page = await nativeAdapter.listDirectMessages({
-          account,
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
-          context,
-        });
-        const latest = new Map<string, JsonObject>();
-        for (const event of page.items) {
-          const conversationId = optionalString(event["dm_conversation_id"]);
-          if (conversationId !== undefined && !latest.has(conversationId))
-            latest.set(conversationId, event);
+        // The cursor carries the event cursor plus every conversation already returned,
+        // so later event pages cannot repeat a conversation.
+        let eventCursor: string | undefined;
+        const seen = new Set<string>();
+
+        if (input.cursor !== undefined) {
+          try {
+            const state = parseObject(JSON.parse(input.cursor));
+            eventCursor = optionalString(state["c"]);
+            for (const id of array(state["s"])) seen.add(string(id));
+          } catch {
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "messages.read",
+              message: "Use a cursor returned by listConversations.",
+            });
+          }
         }
-        return {
-          items: [...latest.values()],
-          ...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
-        };
+
+        const target = input.limit ?? 100;
+        const items: JsonObject[] = [];
+        const cursorFor = (c: string | undefined) => JSON.stringify({ c, s: [...seen] });
+
+        for (let fetches = 0; fetches < 10; fetches++) {
+          const page = await nativeAdapter.listDirectMessages({
+            account,
+            ...(eventCursor === undefined ? {} : { cursor: eventCursor }),
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+            context,
+          });
+
+          for (const event of page.items) {
+            const conversationId = optionalString(event["dm_conversation_id"]);
+
+            if (conversationId === undefined || seen.has(conversationId)) continue;
+
+            // Stop mid-page and reread this event page next time; seen IDs skip the rest.
+            if (items.length === target) return { items, nextCursor: cursorFor(eventCursor) };
+            seen.add(conversationId);
+            items.push(event);
+          }
+
+          if (page.nextCursor === undefined) return { items };
+          eventCursor = page.nextCursor;
+
+          if (items.length === target) break;
+        }
+
+        return { items, nextCursor: cursorFor(eventCursor) };
       },
       async listMessages(
         conversation: ConversationRef,

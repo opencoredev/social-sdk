@@ -19,7 +19,10 @@ test("Threads keyword search sends the documented q and filter parameters", asyn
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
-      return Response.json({ data: [{ id: "post-1" }], paging: { cursors: { after: "next" } } });
+      return Response.json({
+        data: [{ id: "post-1" }],
+        paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
+      });
     },
   });
 
@@ -121,7 +124,10 @@ test("Threads native reply management routes preserve fields and cursors", async
     fetch: async (input) => {
       const url = new URL(String(input));
       requests.push(url);
-      return Response.json({ data: [], paging: { cursors: { after: "next" } } });
+      return Response.json({
+        data: [],
+        paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
+      });
     },
   });
 
@@ -159,7 +165,10 @@ test("Threads exposes normalized search, app-scoped profiles, and reply moderati
       const url = new URL(String(input));
       requests.push({ url, method: init?.method ?? "GET" });
       if (url.pathname.endsWith("/keyword_search"))
-        return Response.json({ data: [], paging: { cursors: { after: "next" } } });
+        return Response.json({
+          data: [],
+          paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
+        });
       if (url.pathname.endsWith("/manage_reply") || url.pathname.endsWith("/manage_pending_reply"))
         return Response.json({ success: true });
       return Response.json({ id: "u1", username: "alice", name: "Alice" });
@@ -372,4 +381,15 @@ test("Threads persists each carousel child before waiting and serializes concurr
   assert.equal(children, 2);
   assert.equal(parents, 1);
   assert.equal(publications, 1);
+});
+
+test("stops Threads search paging when Graph omits paging.next", async () => {
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async () =>
+      Response.json({ data: [{ id: "post-1" }], paging: { cursors: { after: "stale" } } }),
+  });
+
+  const page = await adapter.search!.posts(account, { query: "hello" }, context);
+  assert.equal(page.nextCursor, undefined);
 });
