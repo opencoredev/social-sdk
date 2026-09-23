@@ -6,15 +6,19 @@
 // A requestAnimationFrame callback can run before that paint on a small page, so
 // it isn't enough. Browsers without paint timing wait for the load event. All
 // fonts are awaited together so the page swaps once. Returning visitors already
-// have the fonts cached, so they get the class straight away. Astro's client
-// router resets <html> attributes on each navigation, so the class is re-added
-// after every swap.
+// have the fonts cached, so they get the class straight away. A failed load
+// still swaps for this visit but isn't remembered, so the next visit waits
+// again. Astro's client router resets <html> attributes on each navigation, so
+// the class is re-added after every swap.
 export const fontLoader = (className: string, fonts: string[]) => `(() => {
   const root = document.documentElement;
   let loaded = false;
-  const ready = () => {
+  const apply = () => {
     loaded = true;
     root.classList.add(${JSON.stringify(className)});
+  };
+  const ready = () => {
+    apply();
     try { localStorage.setItem(${JSON.stringify(className)}, "1"); } catch {}
   };
   document.addEventListener("astro:after-swap", () => loaded && root.classList.add(${JSON.stringify(className)}));
@@ -25,7 +29,7 @@ export const fontLoader = (className: string, fonts: string[]) => `(() => {
     started = true;
     setTimeout(() => {
       const faces = ${JSON.stringify(fonts)}.map((font) => document.fonts.load(font));
-      Promise.all(faces).then(ready, ready);
+      Promise.all(faces).then(ready, apply);
     });
   };
   setTimeout(start, 3000);

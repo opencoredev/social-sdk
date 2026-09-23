@@ -43,11 +43,18 @@ export const posthogScript = `(() => {
     if (relativePath === "/getting-started/mock-quickstart") return ["sdk_quickstart_interest", {}];
     return null;
   };
+  const track = (path) => {
+    const event = classify(path);
+    if (event) window.posthog.capture(event[0], event[1]);
+  };
+  // Routes visited before PostHog starts wait here, so a quick hop through the
+  // docs still records each page.
+  const pending = [];
   let started = false;
   const visit = () => {
-    if (!started) return;
-    const event = classify(window.location.pathname);
-    if (event) window.posthog.capture(event[0], event[1]);
+    const path = window.location.pathname;
+    if (started) track(path);
+    else if (pending.at(-1) !== path) pending.push(path);
   };
   const start = () => {
     ${POSTHOG_LOADER}
@@ -69,10 +76,10 @@ export const posthogScript = `(() => {
       },
     });
     started = true;
-    visit();
+    pending.forEach(track);
   };
   // astro:page-load fires on the first load and after every client-router swap.
-  // The first one comes before PostHog starts, so start() records that visit.
+  visit();
   document.addEventListener("astro:page-load", visit);
   const idle = () =>
     self.requestIdleCallback ? requestIdleCallback(start, { timeout: 4000 }) : setTimeout(start);
