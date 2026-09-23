@@ -173,7 +173,7 @@ const nextReplies = replies.nextCursor
 
 Replies can use either login flavor when the token has the permissions required for the selected Graph host. Instagram Login uses `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`.
 
-`listMentions`, `listTaggedMedia`, and `mentions` read `GET /{ig-user-id}/tags` and return the same cursor-paginated page shape. `mentions` is an alias for `listMentions`. Instagram Login uses `instagram_business_basic` and `instagram_business_manage_comments`; Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`. `mentionedMedia` and `mentionedComment` query the `mentioned_media` and `mentioned_comment` field expansions for a known media or comment ID and require Facebook Login.
+`listMentions`, `listTaggedMedia`, and `mentions` read `GET /{ig-user-id}/tags` and return the same cursor-paginated page shape. `mentions` is an alias for `listMentions`. They need Facebook Login with `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`, and raise `unsupported_capability` on Instagram Login. `mentionedMedia` and `mentionedComment` query the `mentioned_media` and `mentioned_comment` field expansions for a known media or comment ID and also require Facebook Login.
 
 ```ts
 const tagged = await instagramNative.listTaggedMedia({ account, limit: 25, context });
