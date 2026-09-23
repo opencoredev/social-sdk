@@ -220,6 +220,7 @@ The draft treats every stored outcome as final, including `failed` and `not-subm
 Your web app authenticates the user, checks that the tenant owns the account, and then sends the request to Restate. A send returns as soon as Restate has durably accepted it.
 
 ```ts src/api/publish.ts
+import { createHash } from "node:crypto";
 import * as clients from "@restatedev/restate-sdk-clients";
 import type { DraftObject, PublishRequest } from "../draft";
 
@@ -227,6 +228,10 @@ const restate = clients.connect({ url: process.env.RESTATE_INGRESS_URL! });
 
 export async function queuePublish(request: PublishRequest, publishAt?: Date) {
   const key = `${request.tenantId}:${request.draftId}`;
+  // Same request, same key. An edited draft gets a new key and reaches the handler's check.
+  const digest = createHash("sha256")
+    .update(JSON.stringify([request.accountId, request.text]))
+    .digest("hex");
   const publishTime = publishAt?.getTime();
   if (Number.isNaN(publishTime)) throw new TypeError("publishAt must be a valid date");
   const delayMs = publishTime === undefined ? 0 : Math.max(0, publishTime - Date.now());
@@ -234,7 +239,7 @@ export async function queuePublish(request: PublishRequest, publishAt?: Date) {
   await restate.objectSendClient<DraftObject>({ name: "Draft" }, key).publish(
     request,
     clients.rpc.sendOpts({
-      idempotencyKey: key,
+      idempotencyKey: `${key}:${digest}`,
       ...(delayMs > 0 && { delay: { milliseconds: delayMs } }),
     }),
   );
@@ -243,7 +248,9 @@ export async function queuePublish(request: PublishRequest, publishAt?: Date) {
 
 Pass a `publishAt` date to schedule the post. Restate holds the delayed message, and nothing needs to poll. To cancel a scheduled post, call `cancel` on the same key before it fires. The `publish` handler checks that flag first. Once `publish` has stored an outcome, `cancel` returns `{ cancelled: false }`.
 
-The `idempotencyKey` stops a retried send from queuing the publish twice. Restate keeps idempotency results for 24 hours by default, and the draft's own state rejects duplicates after that.
+The `idempotencyKey` stops a retried send from queuing the publish twice. It includes a digest of the account and text rather than the text itself, so a send with edited content isn't dropped as a duplicate. It reaches `publish`, which rejects it. Restate keeps idempotency results for 24 hours by default, and the draft's own state rejects duplicates after that.
+
+A send returns before the handler runs, so that rejection shows up as a failed invocation in Restate, not as an error from `queuePublish`. Lock the draft in your own database once it's queued, and have your API refuse edits after that.
 
 :::warning
 Anyone who can reach the Restate ingress can call `Draft/publish` with any tenant and account. The handler trusts its input, because your API already checked it. Keep the ingress on a private network or behind authentication, and never expose it to browsers.
