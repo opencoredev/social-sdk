@@ -66,17 +66,24 @@ Elysia rejects a body that fails the schema with a 422 before your handler runs.
 
 ## Webhooks from the raw request
 
-Elysia parses JSON bodies by default, and a `Request` body can only be read once. Set `parse: "none"` on the webhook route so verification reads the exact bytes the provider signed:
+Elysia parses JSON bodies by default, and a `Request` body can only be read once. Set `parse: "none"` on the webhook route so verification reads the exact bytes the provider signed. Pass `request.headers` as is, because verifiers read signatures with `headers.get()`. Built-in verifiers throw a `SocialError` with code `unauthorized` for a missing or invalid signature, so map that error to a 401:
 
 ```ts
+import { SocialError } from "@opencoredev/social-sdk";
+
 app.post(
   "/events",
   async ({ request, status }) => {
     const body = new Uint8Array(await request.arrayBuffer());
-    const verification = await adapter.webhooks?.verify(
-      { headers: Object.fromEntries(request.headers), body },
-      context,
-    );
+    let verification;
+    try {
+      verification = await adapter.webhooks?.verify({ headers: request.headers, body }, context);
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized") {
+        return status(401, "unauthorized");
+      }
+      throw error;
+    }
     if (!verification?.valid) return status(401, "unauthorized");
     // decode, resolve tenants, accept into your durable inbox
     return status(202, "accepted");
