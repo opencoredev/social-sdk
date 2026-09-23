@@ -9,23 +9,27 @@ Every integration keeps the same rules. Credentials and connected-account refere
 
 ## Frameworks
 
-<CardGroup cols={2}>
-  <Card title="Next.js" href="/integrations/nextjs">
+<CardGroup cols={3}>
+  <Card title="Next.js" href="/integrations/nextjs" icon="/integrations/nextjs.svg">
     Publish from App Router route handlers and server actions.
   </Card>
-  <Card title="TanStack Start" href="/integrations/tanstack-start">
+  <Card
+    title="TanStack Start"
+    href="/integrations/tanstack-start"
+    icon="/integrations/tanstack.svg"
+  >
     Publish from server functions and verify webhooks in API routes.
   </Card>
-  <Card title="Express" href="/integrations/express">
+  <Card title="Express" href="/integrations/express" icon="/integrations/express.svg">
     Wire routes and raw-body webhook verification in the standard Node server.
   </Card>
-  <Card title="Hono" href="/integrations/hono">
+  <Card title="Hono" href="/integrations/hono" icon="/integrations/hono.svg">
     Use the fetch-native handler pattern on Node or Bun.
   </Card>
-  <Card title="Elysia" href="/integrations/elysia">
+  <Card title="Elysia" href="/integrations/elysia" icon="/integrations/elysia.svg">
     Validate publish bodies with schemas and verify webhooks from unparsed requests.
   </Card>
-  <Card title="NestJS" href="/integrations/nestjs">
+  <Card title="NestJS" href="/integrations/nestjs" icon="/integrations/nestjs.svg">
     Provide the client through dependency injection with a webhook controller.
   </Card>
 </CardGroup>
@@ -33,16 +37,16 @@ Every integration keeps the same rules. Credentials and connected-account refere
 ## Databases
 
 <CardGroup cols={2}>
-  <Card title="Convex" href="/integrations/convex">
+  <Card title="Convex" href="/integrations/convex" icon="/integrations/convex.svg">
     Call the SDK from Node actions and keep deliveries in Convex tables.
   </Card>
-  <Card title="Supabase" href="/integrations/supabase">
+  <Card title="Supabase" href="/integrations/supabase" icon="/integrations/supabase.svg">
     Store connections and delivery outcomes in Postgres with row-level security.
   </Card>
-  <Card title="Neon" href="/integrations/neon">
+  <Card title="Neon" href="/integrations/neon" icon="/integrations/neon.svg">
     Run the SDK next to Neon Postgres and reconcile on a scheduled trigger.
   </Card>
-  <Card title="SurrealDB" href="/integrations/surrealdb">
+  <Card title="SurrealDB" href="/integrations/surrealdb" icon="/integrations/surrealdb.svg">
     Keep publish state in SurrealDB and stream delivery changes with live queries.
   </Card>
 </CardGroup>
@@ -51,14 +55,14 @@ Every integration keeps the same rules. Credentials and connected-account refere
 
 The SDK never starts background work: no polling, no timers, no queues. Scheduled publishing and reconciliation belong to a durable job runner you own.
 
-<CardGroup cols={2}>
-  <Card title="Trigger.dev" href="/integrations/trigger-dev">
+<CardGroup cols={3}>
+  <Card title="Trigger.dev" href="/integrations/trigger-dev" icon="/integrations/trigger-dev.png">
     Run scheduled publishes and reconciliation tasks with retries you control.
   </Card>
-  <Card title="Inngest" href="/integrations/inngest">
+  <Card title="Inngest" href="/integrations/inngest" icon="/integrations/inngest.svg">
     Drive event-based publishing flows with durable steps and idempotency.
   </Card>
-  <Card title="Restate" href="/integrations/restate">
+  <Card title="Restate" href="/integrations/restate" icon="/integrations/restate.svg">
     Keep each draft in a durable object that schedules its own reconciliation.
   </Card>
 </CardGroup>

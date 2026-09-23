@@ -67,3 +67,35 @@ html {
   overscroll-behavior-y: none;
   background-color: var(--blume-background);
 }
+
+/* Integration cards lead with the brand mark on a small tile. */
+[data-blume-card] div:has(> img[src^="/integrations/"]) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--blume-border);
+  border-radius: calc(var(--blume-radius, 0.5rem) + 2px);
+  background-color: var(--blume-muted);
+  transition: background-color 150ms ease-out;
+}
+
+[data-blume-card]:hover div:has(> img[src^="/integrations/"]) {
+  background-color: var(--blume-background);
+}
+
+article [data-blume-card] img[src^="/integrations/"] {
+  display: block;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0;
+}
+
+:root[data-theme="dark"] [data-blume-card] img[src$="/nextjs.svg"],
+:root[data-theme="dark"] [data-blume-card] img[src$="/express.svg"],
+:root[data-theme="dark"] [data-blume-card] img[src$="/inngest.svg"],
+:root[data-theme="dark"] [data-blume-card] img[src$="/restate.svg"] {
+  filter: invert(1);
+}
