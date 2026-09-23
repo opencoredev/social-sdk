@@ -12,6 +12,7 @@ export default defineMeta({
     "neon",
     "express",
     "hono",
+    "elysia",
     "tanstack-start",
     "nestjs",
     "trigger-dev",

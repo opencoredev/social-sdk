@@ -1,0 +1,127 @@
+---
+title: Elysia
+description: Publish to social platforms from Elysia routes on Bun or Node using web-standard Request and Response with Social SDK.
+---
+
+Elysia handles web-standard `Request` and `Response` objects, so Social SDK needs no adapter. Routes validate input with Elysia's schema builder, webhook routes can skip body parsing to keep the raw bytes, and the same app runs on Bun or on Node 22.12+ through the Node adapter.
+
+## Install
+
+```package-install
+@opencoredev/social-sdk elysia
+```
+
+## Publish from a route
+
+Create the client once at module scope and validate the request body with `t` before it reaches the SDK:
+
+```ts src/app.ts
+import { Elysia, t } from "elysia";
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { bluesky } from "@opencoredev/social-sdk/bluesky";
+
+const social = createSocial({
+  backend: bluesky({
+    auth: {
+      service: process.env.BLUESKY_SERVICE!,
+      did: process.env.BLUESKY_DID!,
+      accessJwt: process.env.BLUESKY_ACCESS_JWT!,
+    },
+  }),
+});
+
+export const app = new Elysia().post(
+  "/publish",
+  async ({ request, body }) => {
+    const tenant = await requireTenant(request); // your auth
+    const result = await social.posts.publish({
+      targets: [
+        {
+          account: connectedAccountRef({
+            backend: "default",
+            platform: "bluesky",
+            accountId: await resolveAuthorizedAccount(tenant),
+          }),
+        },
+      ],
+      content: { text: body.text },
+      idempotencyKey: body.draftId,
+    });
+
+    return {
+      status: result.status,
+      outcomes: result.outcomes.map((o) => ({ state: o.state })),
+    };
+  },
+  {
+    body: t.Object({
+      text: t.String({ minLength: 1 }),
+      draftId: t.String({ minLength: 1 }),
+    }),
+  },
+);
+```
+
+Elysia rejects a body that fails the schema with a 422 before your handler runs.
+
+## Webhooks from the raw request
+
+Elysia parses JSON bodies by default, and a `Request` body can only be read once. Set `parse: "none"` on the webhook route so verification reads the exact bytes the provider signed:
+
+```ts
+app.post(
+  "/events",
+  async ({ request, status }) => {
+    const body = new Uint8Array(await request.arrayBuffer());
+    const verification = await adapter.webhooks?.verify(
+      { headers: Object.fromEntries(request.headers), body },
+      context,
+    );
+    if (!verification?.valid) return status(401, "unauthorized");
+    // decode, resolve tenants, accept into your durable inbox
+    return status(202, "accepted");
+  },
+  { parse: "none" },
+);
+```
+
+See the [events guide](/events) for the decode, quarantine, and worker steps.
+
+## Mount the example handler
+
+Elysia's `mount` forwards the untouched request to any fetch handler and strips the mount prefix from the path. The repository's example Hono adapter already accepts prefix-free paths, so it works here unchanged. Import it from the example app in the Social SDK repository:
+
+```ts
+import { Elysia } from "elysia";
+import { createExampleHandler } from "../../apps/example/src/app.js";
+import { createHonoFetch } from "../../apps/example/src/frameworks/hono.js";
+
+const app = new Elysia().mount("/social", createHonoFetch(createExampleHandler()));
+```
+
+Requests to `/social/accounts` and `/social/publish` reach the example API. [Framework recipes](/getting-started/framework-recipes) documents what the example handler provides.
+
+## Run on Bun or Node
+
+```ts src/server.ts
+// Bun
+import { app } from "./app.js";
+app.listen(3030);
+```
+
+On Node, install `@elysia/node` and pass its adapter when you create the app:
+
+```ts src/app.ts
+import { Elysia } from "elysia";
+import { node } from "@elysia/node";
+
+export const app = new Elysia({ adapter: node() });
+```
+
+Then call `app.listen(3030)` as on Bun.
+
+## Notes
+
+- Both runtimes are tested SDK targets; the SDK is ESM-only.
+- Cloudflare Workers is not a tested SDK runtime. For Workers-fronted apps, run the SDK in a Node or Bun service behind the Worker.
+- Keep one client instance per process so per-backend concurrency limits apply.

@@ -1,6 +1,6 @@
 ---
 title: Integrations
-description: Use Social SDK with Next.js, Convex, Supabase, Neon, Express, Hono, NestJS, TanStack Start, Trigger.dev, Inngest, and other TypeScript stacks.
+description: Use Social SDK with Next.js, Convex, Supabase, Neon, Express, Hono, Elysia, NestJS, TanStack Start, Trigger.dev, Inngest, and other TypeScript stacks.
 ---
 
 Social SDK is a server-side TypeScript library with no framework dependency. It runs anywhere its tested runtimes run: Node 22.12+, Node 24, and Bun. These guides show the recommended wiring for popular stacks: where the client lives, where credentials stay, how webhooks reach the verifier, and where durable state belongs.
@@ -18,6 +18,9 @@ Every integration keeps the same rules. Credentials and connected-account refere
   </Card>
   <Card title="Hono" href="/integrations/hono">
     Use the fetch-native handler pattern on Node or Bun.
+  </Card>
+  <Card title="Elysia" href="/integrations/elysia">
+    Validate publish bodies with schemas and verify webhooks from unparsed requests.
   </Card>
   <Card title="NestJS" href="/integrations/nestjs">
     Provide the client through dependency injection with a webhook controller.
