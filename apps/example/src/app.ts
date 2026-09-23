@@ -141,25 +141,42 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
   let owned: Promise<ExampleDatabase> | undefined;
   let opened: Promise<Stores> | undefined;
 
-  const stores = () =>
-    (opened ??= Promise.resolve(options.database ?? (owned = openExampleDatabase())).then(
+  function stores(): Promise<Stores> {
+    if (opened) return opened;
+    const database = options.database ? Promise.resolve(options.database) : openExampleDatabase();
+
+    if (!options.database) owned = database;
+
+    const opening = database.then(
       ({ db }) => ({
         idempotency: new PostgresIdempotencyStore(db),
         inbox: new DrizzleEventInbox(db),
         publications: new DrizzlePublicationStore(db),
       }),
       (error: unknown) => {
-        // Let the next request retry a failed open.
-        opened = owned = undefined;
+        // Let the next request retry a failed open, unless a newer attempt already replaced this one.
+        if (opened === opening) opened = undefined;
+
+        if (owned === database) owned = undefined;
+
         throw error;
       },
-    ));
+    );
+
+    opened = opening;
+
+    return opening;
+  }
 
   async function close(): Promise<void> {
     const database = owned;
     opened = owned = undefined;
 
-    if (database) await (await database).close();
+    if (database)
+      await database.then(
+        (open) => open.close(),
+        () => {},
+      );
   }
 
   const authorization = { tenantId: session.tenantId, principalId: session.principal };

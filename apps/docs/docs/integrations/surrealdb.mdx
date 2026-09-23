@@ -177,6 +177,7 @@ export function surrealThreadsWorkflowStore(db: Surreal): ThreadsWorkflowStore {
     // A lease, not a lock, so a claim held by a crashed process expires on its own.
     // The token lets release clear only this process's lease, never a newer one.
     async claim(id) {
+      if (leases.has(id)) return false;
       const token = crypto.randomUUID();
       const [rows] = await db
         .query<[unknown[]]>(
