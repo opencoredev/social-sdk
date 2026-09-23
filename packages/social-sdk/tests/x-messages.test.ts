@@ -124,3 +124,33 @@ it("rejects X DMs with only an app bearer token", async () => {
     code: "missing_permission",
   });
 });
+
+it("keeps X conversation cursors bounded on long DM histories", async () => {
+  const social = createSocial({
+    backend: x({
+      auth: { userId: "u1", accessToken: "token" },
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        const page = Number(url.searchParams.get("pagination_token") ?? "0");
+        const data = Array.from({ length: 100 }, (_, index) => ({
+          id: `e${page}-${index}`,
+          dm_conversation_id: `conversation-${page * 100 + index}`,
+        }));
+        return Response.json({ data, meta: page < 29 ? { next_token: String(page + 1) } : {} });
+      },
+    }),
+  });
+
+  let cursor: string | undefined;
+  let total = 0;
+  do {
+    const result =
+      cursor === undefined
+        ? await social.messages.listConversations(account, { limit: 100 })
+        : await social.messages.listConversations(account, { limit: 100, cursor });
+    total += result.items.length;
+    cursor = result.nextCursor;
+    assert.ok(cursor === undefined || cursor.length < 20_000);
+  } while (cursor !== undefined);
+  assert.equal(total, 3000);
+});

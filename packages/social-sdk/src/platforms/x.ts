@@ -34,6 +34,27 @@ import {
 // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- transport parser validates the provider boundary.
 const object = (value: unknown): JsonObject => parseObject(value) as JsonObject;
 
+// 53-bit conversation ID hashes, 11 base36 characters each. 1,200 of them keep the
+// listConversations cursor well under the client's 16,384 character cursor limit.
+const conversationHashWidth = 11;
+const maxConversationHashes = 1200;
+
+function conversationHash(id: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+
+  for (let index = 0; index < id.length; index++) {
+    const code = id.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const value = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  return value.toString(36).padStart(conversationHashWidth, "0");
+}
+
 export interface XAuthorization {
   readonly userId: string;
   readonly accessToken?: string;
@@ -1403,16 +1424,22 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             operation: "messages.read",
             message: "X DM limits must be integers from 1 through 100.",
           });
-        // The cursor carries the event cursor plus every conversation already returned,
-        // so later event pages cannot repeat a conversation.
+        // The cursor carries the event cursor plus fixed-width hashes of the conversations
+        // already returned, so later event pages skip them. Only the newest hashes are kept
+        // to stay under the client cursor size limit; a conversation older than that window
+        // can appear again on a very long walk.
         let eventCursor: string | undefined;
-        const seen = new Set<string>();
+        let seen: string[] = [];
 
         if (input.cursor !== undefined) {
           try {
             const state = parseObject(JSON.parse(input.cursor));
             eventCursor = optionalString(state["c"]);
-            for (const id of array(state["s"])) seen.add(string(id));
+            const hashes = string(state["s"]);
+
+            if (hashes.length % conversationHashWidth !== 0) throw new Error("bad cursor");
+            for (let at = 0; at < hashes.length; at += conversationHashWidth)
+              seen.push(hashes.slice(at, at + conversationHashWidth));
           } catch {
             throw new SocialError({
               code: "invalid_input",
@@ -1422,9 +1449,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }
         }
 
+        const seenSet = new Set(seen);
         const target = input.limit ?? 100;
         const items: JsonObject[] = [];
-        const cursorFor = (c: string | undefined) => JSON.stringify({ c, s: [...seen] });
+        const cursorFor = (c: string | undefined) => {
+          seen = seen.slice(-maxConversationHashes);
+          return JSON.stringify({ c, s: seen.join("") });
+        };
 
         for (let fetches = 0; fetches < 10; fetches++) {
           const page = await nativeAdapter.listDirectMessages({
@@ -1437,11 +1468,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           for (const event of page.items) {
             const conversationId = optionalString(event["dm_conversation_id"]);
 
-            if (conversationId === undefined || seen.has(conversationId)) continue;
+            if (conversationId === undefined) continue;
+
+            const hash = conversationHash(conversationId);
+
+            if (seenSet.has(hash)) continue;
 
             // Stop mid-page and reread this event page next time; seen IDs skip the rest.
             if (items.length === target) return { items, nextCursor: cursorFor(eventCursor) };
-            seen.add(conversationId);
+            seenSet.add(hash);
+            seen.push(hash);
             items.push(event);
           }
 
