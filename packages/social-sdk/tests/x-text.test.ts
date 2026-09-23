@@ -9,9 +9,9 @@ it("counts X text by weighted length", () => {
   assert.equal(isValidXText("a".repeat(281)), false);
   assert.equal(isValidXText("界".repeat(140)), true);
   assert.equal(isValidXText("界".repeat(141)), false);
-  assert.equal(isValidXText("’".repeat(280)), true);
+  assert.equal(isValidXText("\u2019".repeat(280)), true);
   assert.equal(isValidXText("©".repeat(280)), true);
-  assert.equal(isValidXText("é".repeat(280)), true);
+  assert.equal(isValidXText("e\u0301".repeat(280)), true);
 });
 
 it("counts each X emoji as two characters", () => {
@@ -35,6 +35,28 @@ it("counts each X link as 23 characters", () => {
   }
 });
 
+it("counts internationalized X links and leaves overlong ones as text", () => {
+  for (const link of ["https://example.com/путь", "https://пример.рф", "http://müller.de/x"]) {
+    assert.equal(fits(" " + link, 256), true, link);
+    assert.equal(fits(" " + link, 257), false, link);
+  }
+
+  // Twitter-text counts the protocol twice, so this link is 4,096 characters long by its rules.
+  const longest = "https://example.com/" + "a".repeat(4068);
+
+  assert.equal(fits(" " + longest, 256), true);
+  assert.equal(isValidXText(longest + "a"), false);
+});
+
+it("checks long X text without backtracking", () => {
+  const started = performance.now();
+
+  for (const text of ["a.".repeat(12_000), "界".repeat(25_000), "https://" + "a.".repeat(12_000)])
+    assert.equal(isValidXText(text), false);
+
+  assert.ok(performance.now() - started < 2_000);
+});
+
 it("leaves trailing punctuation and non-links as text", () => {
   assert.equal(fits(" example.com.", 255), true);
   assert.equal(fits(" example.com.", 256), false);
@@ -53,6 +75,6 @@ it("rejects empty X text and invalid characters", () => {
   assert.equal(isValidXText(""), false);
   assert.equal(isValidXText(" "), true);
 
-  for (const character of ["￾", "﻿", "￿", "‪", "‮"])
+  for (const character of ["\uFFFE", "\uFEFF", "\uFFFF", "\u202A", "\u202E"])
     assert.equal(isValidXText(`hello${character}`), false);
 });

@@ -19,10 +19,10 @@ const lightRanges: readonly (readonly [number, number])[] = [
   [8242, 8247],
 ];
 
-const invalidCharacters = /[\uFFFE\uFEFF\uFFFF\u202A-\u202E]/u;
+const invalidCharacters = /[￾﻿￿‪-‮]/u;
 
 const emoji =
-  /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|\p{Emoji_Modifier}|\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3/u;
+  /\p{Emoji_Presentation}|\p{Extended_Pictographic}️|\p{Emoji_Modifier}|\p{Regional_Indicator}{2}|[#*0-9]️?⃣/u;
 
 const latinAccents =
   "\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u00FF\\u0100-\\u024F\\u0253\\u0254\\u0256\\u0257\\u0259\\u025B\\u0263\\u0268\\u026F\\u0272\\u0289\\u028B\\u02BB\\u0300-\\u036F\\u1E00-\\u1EFF";
@@ -37,8 +37,8 @@ const domainCharacter =
 const pathCharacter = `[a-z0-9!*';:=+,.$/%#\\[\\]\\-\\u2013_~@|&${latinAccents}${cyrillic}]`;
 
 const url = new RegExp(
-  // A link without a protocol starts at the beginning of a host, which also keeps matching linear.
-  `(?:(?<![a-z0-9@\\uFF20$#\\uFF03])(https?://)|(?<![a-z0-9@\\uFF20$#\\uFF03._/-]|${domainCharacter}))` +
+  "(?<![a-z0-9@\\uFF20$#\\uFF03])" +
+    "(https?://)?" +
     `((?:${domainCharacter}(?:[_-]|${domainCharacter})*\\.)*` +
     `(?:${domainCharacter}(?:-|${domainCharacter})*)?${domainCharacter}\\.` +
     `(?:${xTopLevelDomains.replaceAll(" ", "|")}|xn--[a-z0-9-]+)(?![a-z0-9@+-]))` +
@@ -112,7 +112,7 @@ function asciiHost(host: string): string | undefined {
   }
 }
 
-function weightedLength(text: string): number {
+export function weightedLength(text: string): number {
   let weight = 0;
   let offset = 0;
 
