@@ -14,15 +14,15 @@ The SDK supports direct social-platform integrations and optional managed backen
 
 ## Safety and release controls
 
-Publishing and deployment are disabled until the owner explicitly authorizes a release and supplies verified npm, repository, hosting, and domain settings. Do not add a publish workflow, deployment hook, trusted-publisher identity, package token, or production project ID during ordinary implementation.
+`@opencoredev/social-sdk` is published on npm. Releases go through Changesets: each user-visible change adds a changeset, the release workflow (`.github/workflows/release.yml`) opens a "chore: version package" PR on `main`, and merging that PR makes the workflow publish to npm with trusted publishing through `bun run release`. The workflow runs only when the repository variable `SOCIAL_SDK_RELEASE_ENABLED` is `true`, and `scripts/publish.ts` refuses to publish without `SOCIAL_SDK_RELEASE_AUTHORIZED=true`.
 
-The public package remains `private: true` while this lock is active. `bun run release` must fail closed. A green build does not authorize publication, deployment, DNS changes, paid API use, or live social mutations.
+Agents may prepare release work, such as changesets, version bumps, changelog fixes, and workflow changes. Do not publish, merge a version PR, deploy, change DNS, use paid APIs, or perform live social mutations without the owner's explicit authorization for that task. Do not add package tokens or production project IDs. A green build does not grant that authorization.
 
 Default checks must be offline and deterministic. Live provider checks require dedicated credentials and explicit per-run authorization. Missing credentials are a blocked live-verification result, never a pass.
 
 ## Changes and checks
 
-User-visible SDK or CLI changes require a Changeset after publishing is unlocked. Use an honest patch, minor, or major bump and include migration notes for breaking changes.
+User-visible SDK or CLI changes require a Changeset. Use an honest patch, minor, or major bump and include migration notes for breaking changes.
 
 Run the narrow checks for touched files while working. Before handoff, run:
 
