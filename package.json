@@ -18,6 +18,7 @@
     "format:fix": "oxfmt --write .",
     "check": "bun run lint && bun run format:check && bun run check-types && bun run test && bun run rebrand:check",
     "changeset": "changeset",
+    "version-packages": "changeset version && bun install --lockfile-only",
     "rebrand:check": "bun scripts/check-rebrand.ts",
     "anti-slop:bundle": "bun scripts/build-anti-slop-bundle.ts",
     "release:gate": "bun scripts/release-gate.ts",
