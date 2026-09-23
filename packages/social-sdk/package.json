@@ -1,6 +1,6 @@
 {
   "name": "@opencoredev/social-sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Social platform integrations for TypeScript applications.",
   "homepage": "https://github.com/opencoredev/social-sdk#readme",
   "bugs": {
