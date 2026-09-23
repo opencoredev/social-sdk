@@ -158,6 +158,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
   async function close(): Promise<void> {
     const database = owned;
     opened = owned = undefined;
+
     if (database) await (await database).close();
   }
 
