@@ -1,6 +1,6 @@
 /* oxlint-disable anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { remainingBudget } from "../transport/budget.js";
-import twitterText from "twitter-text";
+import { isValidXText } from "./x-text.js";
 import { defineAdapter } from "../core/adapter.js";
 import { connectedAccountRef, profileRef } from "../core/types.js";
 import { SocialError } from "../core/errors.js";
@@ -1265,7 +1265,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           fail("x.account", "Select the configured X user.");
         const text = target.content.text ?? "";
 
-        if (text && !twitterText.parseTweet(text).valid)
+        if (text && !isValidXText(text))
           fail(
             "x.text",
             "Text exceeds X's weighted 280-character limit or contains invalid characters.",
@@ -1382,7 +1382,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       ): Promise<CommentRef> {
         await validateReplyParent(ref, context);
 
-        if (!twitterText.parseTweet(content.text).valid)
+        if (!isValidXText(content.text))
           throw new SocialError({
             code: "invalid_input",
             operation: "comments.write",

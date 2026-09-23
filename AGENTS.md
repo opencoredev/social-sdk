@@ -14,15 +14,15 @@ The SDK supports direct social-platform integrations and optional managed backen
 
 ## Safety and release controls
 
-Publishing and deployment are disabled until the owner explicitly authorizes a release and supplies verified npm, repository, hosting, and domain settings. Do not add a publish workflow, deployment hook, trusted-publisher identity, package token, or production project ID during ordinary implementation.
+Releases go through Changesets. Merging a change with a changeset to `main` opens or updates the "chore: version package" pull request, and merging that pull request makes `.github/workflows/release.yml` publish to npm with trusted publishing and provenance. The workflow only runs while the `SOCIAL_SDK_RELEASE_ENABLED` repository variable is `true`. Do not add package tokens, deployment hooks, or production project IDs.
 
-The public package remains `private: true` while this lock is active. `bun run release` must fail closed. A green build does not authorize publication, deployment, DNS changes, paid API use, or live social mutations.
+Merge a version pull request only when the owner asks for a release. A green build does not authorize publication, deployment, DNS changes, paid API use, or live social mutations.
 
 Default checks must be offline and deterministic. Live provider checks require dedicated credentials and explicit per-run authorization. Missing credentials are a blocked live-verification result, never a pass.
 
 ## Changes and checks
 
-User-visible SDK or CLI changes require a Changeset after publishing is unlocked. Use an honest patch, minor, or major bump and include migration notes for breaking changes.
+User-visible SDK or CLI changes require a Changeset. Use an honest patch, minor, or major bump and include migration notes for breaking changes.
 
 Run the narrow checks for touched files while working. Before handoff, run:
 
