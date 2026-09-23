@@ -12,6 +12,8 @@ const urlWeight = 23 * 100;
 // X leaves links longer than this, counting the protocol twice as twitter-text does, as plain text.
 const maxUrlLength = 4096;
 
+const maxShortLinkSlug = 40;
+
 const lightRanges: readonly (readonly [number, number])[] = [
   [0, 4351],
   [8192, 8205],
@@ -19,7 +21,7 @@ const lightRanges: readonly (readonly [number, number])[] = [
   [8242, 8247],
 ];
 
-const invalidCharacters = /[\uFFFE\uFEFF\uFFFF\u202A-\u202E]/u;
+const invalidCharacters = /[\uFFFE\uFEFF\uFFFF]/u;
 
 const emoji =
   /\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|\p{Emoji_Modifier}|\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3/u;
@@ -29,9 +31,9 @@ const latinAccents =
 
 const cyrillic = "\\u0400-\\u04FF";
 
-// Hosts may use any character except ASCII punctuation, spaces, and invalid or directional marks.
+// Hosts may use any character except ASCII punctuation, spaces, invalid characters, and directional markers.
 const domainCharacter =
-  "[^\\s!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~\\uFFFE\\uFEFF\\uFFFF\\u202A-\\u202E\\u061C\\u200E\\u200F]";
+  "[^\\s!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~\\uFFFE\\uFEFF\\uFFFF\\u202A-\\u202E\\u061C\\u200E\\u200F\\u2066-\\u2069]";
 
 // Path characters, with up to two levels of balanced parentheses as in Wikipedia links.
 const pathCharacter = `[a-z0-9!*';:=+,.$/%#\\[\\]\\-\\u2013_~@|&${latinAccents}${cyrillic}]`;
@@ -92,7 +94,10 @@ function trimTail(tail: string, ending: RegExp): string {
 function linkLength(match: RegExpMatchArray): number {
   const [whole, , , path, query] = match;
   // X shortens t.co links to their slug, so a longer path is ordinary text.
-  const shortLink = /^https?:\/\/t\.co\/[a-z0-9]+/iu.exec(whole);
+  const shortLink = /^https?:\/\/t\.co\/([a-z0-9]+)/iu.exec(whole);
+
+  // X leaves t.co links with slugs longer than 40 characters as plain text.
+  if (shortLink !== null && (shortLink[1] ?? "").length > maxShortLinkSlug) return 0;
 
   if (shortLink !== null && query === undefined) return shortLink[0].length;
 
@@ -122,7 +127,7 @@ function weightedLength(text: string): number {
     const length = linkLength(match);
     const ascii = asciiHost(host);
 
-    if (ascii === undefined) continue;
+    if (length === 0 || ascii === undefined) continue;
 
     if ((protocol ?? "https://").length + length + ascii.length - host.length > maxUrlLength)
       continue;

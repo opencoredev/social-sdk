@@ -75,6 +75,19 @@ it("rejects empty X text and invalid characters", () => {
   assert.equal(isValidXText(""), false);
   assert.equal(isValidXText(" "), true);
 
-  for (const character of ["\uFFFE", "\uFEFF", "\uFFFF", "\u202A", "\u202E"])
+  for (const character of ["\uFFFE", "\uFEFF", "\uFFFF"])
     assert.equal(isValidXText(`hello${character}`), false);
+
+  // Directional markers are allowed and end a link host.
+  for (const character of ["\u202A", "\u202E", "\u2066", "\u2069"]) {
+    assert.equal(isValidXText(`hello${character}`), true);
+    assert.equal(fits(` https://example.com${character}`, 254), true);
+    assert.equal(fits(` https://example.com${character}`, 255), false);
+  }
+});
+
+it("counts long t.co slugs as text", () => {
+  assert.equal(fits(" https://t.co/" + "a".repeat(40), 256), true);
+  assert.equal(fits(" https://t.co/" + "a".repeat(41), 225), true);
+  assert.equal(fits(" https://t.co/" + "a".repeat(41), 226), false);
 });
