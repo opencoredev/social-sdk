@@ -56,7 +56,7 @@ DEFINE FIELD platform ON connected_account TYPE string;
 DEFINE FIELD account_id ON connected_account TYPE string;
 DEFINE FIELD backend ON connected_account TYPE string DEFAULT "default";
 DEFINE FIELD created_at ON connected_account TYPE datetime DEFAULT time::now();
-DEFINE INDEX account_unique ON connected_account FIELDS tenant, platform, account_id UNIQUE;
+DEFINE INDEX account_unique ON connected_account FIELDS tenant, backend, platform, account_id UNIQUE;
 
 DEFINE TABLE delivery SCHEMAFULL;
 DEFINE FIELD tenant ON delivery TYPE string;
@@ -78,6 +78,7 @@ DEFINE INDEX claim_unique ON idempotency_claim FIELDS scope, key UNIQUE;
 DEFINE TABLE threads_workflow SCHEMAFULL;
 DEFINE FIELD workflow ON threads_workflow TYPE object FLEXIBLE;
 DEFINE FIELD claimed_until ON threads_workflow TYPE option<datetime>;
+DEFINE FIELD claimed_by ON threads_workflow TYPE option<string>;
 
 DEFINE TABLE social_event SCHEMAFULL;
 DEFINE FIELD platform ON social_event TYPE string;
@@ -152,6 +153,7 @@ export function surrealIdempotencyStore(db: Surreal): IdempotencyStore {
 
 export function surrealThreadsWorkflowStore(db: Surreal): ThreadsWorkflowStore {
   const record = (id: string) => new RecordId("threads_workflow", id);
+  const leases = new Map<string, string>();
 
   return {
     async create(input) {
@@ -173,17 +175,29 @@ export function surrealThreadsWorkflowStore(db: Surreal): ThreadsWorkflowStore {
       return rows[0].workflow;
     },
     // A lease, not a lock, so a claim held by a crashed process expires on its own.
+    // The token lets release clear only this process's lease, never a newer one.
     async claim(id) {
+      const token = crypto.randomUUID();
       const [rows] = await db
         .query<[unknown[]]>(
-          surql`UPDATE ${record(id)} SET claimed_until = time::now() + 5m
+          surql`UPDATE ${record(id)} SET claimed_until = time::now() + 5m, claimed_by = ${token}
             WHERE claimed_until = NONE OR claimed_until < time::now()`,
         )
         .collect();
-      return rows.length === 1;
+      if (rows.length !== 1) return false;
+      leases.set(id, token);
+      return true;
     },
     async release(id) {
-      await db.query(surql`UPDATE ${record(id)} SET claimed_until = NONE`).collect();
+      const token = leases.get(id);
+      if (!token) return;
+      leases.delete(id);
+      await db
+        .query(
+          surql`UPDATE ${record(id)} SET claimed_until = NONE, claimed_by = NONE
+            WHERE claimed_by = ${token}`,
+        )
+        .collect();
     },
   };
 }

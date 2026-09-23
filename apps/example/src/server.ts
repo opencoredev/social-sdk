@@ -41,9 +41,11 @@ server.listen(Number(process.env["PORT"] ?? 3030), process.env["EXAMPLE_BIND"] ?
   ),
 );
 
-// Close the database cleanly so a local PGlite directory is left consistent.
+// Let active requests finish, then close the database so a local PGlite
+// directory is left consistent. Force the exit if draining stalls.
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => {
-    server.close();
-    void database.close().finally(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000).unref();
+    server.close(() => void database.close().finally(() => process.exit(0)));
+    server.closeIdleConnections();
   });

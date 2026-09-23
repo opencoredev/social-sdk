@@ -29,6 +29,9 @@ const migrationsFolder = fileURLToPath(new URL("../../drizzle", import.meta.url)
 
 export const defaultPgliteDir = fileURLToPath(new URL("../../.data/pglite", import.meta.url));
 
+// Arbitrary advisory lock key reserved for example migrations.
+const migrationLock = 7_424_031;
+
 /** Opens the example database and applies pending migrations before returning it. */
 export async function openExampleDatabase(
   options: ExampleDatabaseOptions = {},
@@ -40,7 +43,16 @@ export async function openExampleDatabase(
     const db = drizzleNeon({ client: pool, schema });
 
     try {
-      await migrateNeon(db, { migrationsFolder });
+      // Instances sharing a database take turns so each migration runs once.
+      const lock = await pool.connect();
+
+      try {
+        await lock.query("select pg_advisory_lock($1)", [migrationLock]);
+        await migrateNeon(db, { migrationsFolder });
+      } finally {
+        await lock.query("select pg_advisory_unlock($1)", [migrationLock]).catch(() => {});
+        lock.release();
+      }
     } catch (error) {
       await pool.end();
       throw error;

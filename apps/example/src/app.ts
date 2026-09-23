@@ -58,6 +58,8 @@ export type ExampleOptions = {
 export interface ExampleHandler {
   handle(request: Request): Promise<Response>;
   client: SocialClient;
+  /** Closes the in-memory database the handler opened itself. A database passed in `options` stays open. */
+  close(): Promise<void>;
 }
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -136,14 +138,28 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     options.membership ??
     ((s, id) => s.tenantId === "demo-tenant" && ["mock-account-1", "mock-account-2"].includes(id));
 
+  let owned: Promise<ExampleDatabase> | undefined;
   let opened: Promise<Stores> | undefined;
 
   const stores = () =>
-    (opened ??= Promise.resolve(options.database ?? openExampleDatabase()).then(({ db }) => ({
-      idempotency: new PostgresIdempotencyStore(db),
-      inbox: new DrizzleEventInbox(db),
-      publications: new DrizzlePublicationStore(db),
-    })));
+    (opened ??= Promise.resolve(options.database ?? (owned = openExampleDatabase())).then(
+      ({ db }) => ({
+        idempotency: new PostgresIdempotencyStore(db),
+        inbox: new DrizzleEventInbox(db),
+        publications: new DrizzlePublicationStore(db),
+      }),
+      (error: unknown) => {
+        // Let the next request retry a failed open.
+        opened = owned = undefined;
+        throw error;
+      },
+    ));
+
+  async function close(): Promise<void> {
+    const database = owned;
+    opened = owned = undefined;
+    if (database) await (await database).close();
+  }
 
   const authorization = { tenantId: session.tenantId, principalId: session.principal };
 
@@ -230,8 +246,6 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     const path = new URL(request.url).pathname;
 
     try {
-      const { inbox, publications } = await stores();
-
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
 
@@ -289,6 +303,9 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
 
         return json({ simulated: true });
       }
+
+      // Static assets and mock controls work without the database.
+      const { inbox, publications } = await stores();
 
       if (request.method === "GET" && path === "/api/accounts")
         return json({
@@ -638,7 +655,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     }
   }
 
-  return { handle, client: social };
+  return { handle, client: social, close };
 }
 
 export const defaultExampleHandler = createExampleHandler();
