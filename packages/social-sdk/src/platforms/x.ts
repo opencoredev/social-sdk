@@ -1453,7 +1453,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         const seenSet = new Set(seen);
         const target = input.limit ?? 100;
         const items: JsonObject[] = [];
-        const cursorFor = (c: string | undefined) => JSON.stringify({ c, s: seen.join("") });
+        // A walk that has reached the conversation cap has no next page.
+        const pageFrom = (c: string | undefined): Page<JsonObject> =>
+          seen.length >= maxConversationHashes
+            ? { items }
+            : { items, nextCursor: JSON.stringify({ c, s: seen.join("") }) };
 
         for (let fetches = 0; fetches < 10; fetches++) {
           const page = await nativeAdapter.listDirectMessages({
@@ -1475,7 +1479,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             if (seen.length >= maxConversationHashes) return { items };
 
             // Stop mid-page and reread this event page next time; seen IDs skip the rest.
-            if (items.length === target) return { items, nextCursor: cursorFor(eventCursor) };
+            if (items.length === target) return pageFrom(eventCursor);
             seenSet.add(hash);
             seen.push(hash);
             items.push(event);
@@ -1487,7 +1491,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           if (items.length === target) break;
         }
 
-        return { items, nextCursor: cursorFor(eventCursor) };
+        return pageFrom(eventCursor);
       },
       async listMessages(
         conversation: ConversationRef,

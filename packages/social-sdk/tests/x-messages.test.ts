@@ -144,15 +144,19 @@ it("ends long X conversation walks without repeating conversations", async () =>
 
   let cursor: string | undefined;
   const returned: unknown[] = [];
+  let calls = 0;
   do {
     const result =
       cursor === undefined
         ? await social.messages.listConversations(account, { limit: 100 })
         : await social.messages.listConversations(account, { limit: 100, cursor });
+    calls += 1;
     returned.push(...result.items.map((item) => item["dm_conversation_id"]));
     cursor = result.nextCursor;
     assert.ok(cursor === undefined || cursor.length < 20_000);
   } while (cursor !== undefined);
+  // The page that reaches the cap is the last one, with no empty follow-up page.
+  assert.equal(calls, 12);
   assert.equal(returned.length, 1200);
   assert.equal(new Set(returned).size, 1200);
 });
