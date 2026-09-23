@@ -98,6 +98,7 @@ export default defineConfig({
               icon: "/integrations/trigger-dev.png",
             },
             { label: "Inngest", root: "/integrations/inngest", icon: "/integrations/inngest.svg" },
+            { label: "Restate", root: "/integrations/restate", icon: "/integrations/restate.svg" },
           ],
         },
         {

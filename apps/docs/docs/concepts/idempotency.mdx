@@ -45,4 +45,4 @@ if (outcome?.state === "unknown" && outcome.delivery) {
 
 Each target gets an independent outcome. A retry must select only the failed or uncertain targets, keeping successful deliveries untouched. The request-level key plus per-target fingerprints make that selection safe.
 
-Job runners with at-least-once semantics pair well with this model: the runner may re-execute, and the key makes re-execution harmless. See the [Trigger.dev](/integrations/trigger-dev) and [Inngest](/integrations/inngest) patterns.
+Job runners with at-least-once semantics pair well with this model: the runner may re-execute, and the key makes re-execution harmless. See the [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), and [Restate](/integrations/restate) patterns.

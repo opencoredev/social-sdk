@@ -37,7 +37,8 @@
 :root[data-theme="dark"] .blume-nav-link img[src$="/tiktok.svg"],
 :root[data-theme="dark"] .blume-nav-link img[src$="/nextjs.svg"],
 :root[data-theme="dark"] .blume-nav-link img[src$="/express.svg"],
-:root[data-theme="dark"] .blume-nav-link img[src$="/inngest.svg"] {
+:root[data-theme="dark"] .blume-nav-link img[src$="/inngest.svg"],
+:root[data-theme="dark"] .blume-nav-link img[src$="/restate.svg"] {
   filter: invert(1);
 }
 
@@ -56,7 +57,8 @@ article img[src^="/integrations/"] {
 :root[data-theme="dark"] article img[src$="/tiktok.svg"],
 :root[data-theme="dark"] article img[src$="/nextjs.svg"],
 :root[data-theme="dark"] article img[src$="/express.svg"],
-:root[data-theme="dark"] article img[src$="/inngest.svg"] {
+:root[data-theme="dark"] article img[src$="/inngest.svg"],
+:root[data-theme="dark"] article img[src$="/restate.svg"] {
   filter: invert(1);
 }
 
