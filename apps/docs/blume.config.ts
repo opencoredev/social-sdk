@@ -18,6 +18,7 @@ export default defineConfig({
   },
   basePath: "/docs",
   feedback: false,
+  lastModified: true,
   redirects: [
     { from: "/analytics", to: "/reads#post-metrics", status: 301 },
     { from: "/messaging", to: "/comments#messages", status: 301 },
@@ -241,5 +242,6 @@ export default defineConfig({
   },
   deployment: {
     output: "static",
+    site: "https://social-sdk.dev",
   },
 });
