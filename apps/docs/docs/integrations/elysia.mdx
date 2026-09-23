@@ -13,12 +13,13 @@ Elysia handles web-standard `Request` and `Response` objects, so Social SDK need
 
 ## Publish from a route
 
-Create the client once at module scope and validate the request body with `t` before it reaches the SDK:
+Create the client once at module scope and validate the request body with `t` before it reaches the SDK. The `idempotencyKey` only stops a retried request from posting twice when the client has an `idempotencyStore`, so give it a durable store that every process shares. The [Neon guide](/integrations/neon) includes a Postgres implementation.
 
 ```ts src/app.ts
 import { Elysia, t } from "elysia";
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
 import { bluesky } from "@opencoredev/social-sdk/bluesky";
+import { idempotencyStore } from "./stores"; // your durable IdempotencyStore
 
 const social = createSocial({
   backend: bluesky({
@@ -28,25 +29,30 @@ const social = createSocial({
       accessJwt: process.env.BLUESKY_ACCESS_JWT!,
     },
   }),
+  idempotencyStore,
 });
 
 export const app = new Elysia().post(
   "/publish",
   async ({ request, body }) => {
     const tenant = await requireTenant(request); // your auth
-    const result = await social.posts.publish({
-      targets: [
-        {
-          account: connectedAccountRef({
-            backend: "default",
-            platform: "bluesky",
-            accountId: await resolveAuthorizedAccount(tenant),
-          }),
-        },
-      ],
-      content: { text: body.text },
-      idempotencyKey: body.draftId,
-    });
+    const result = await social.posts.publish(
+      {
+        targets: [
+          {
+            account: connectedAccountRef({
+              backend: "default",
+              platform: "bluesky",
+              accountId: await resolveAuthorizedAccount(tenant),
+            }),
+          },
+        ],
+        content: { text: body.text },
+        idempotencyKey: body.draftId,
+      },
+      // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+      { authorization: { tenantId: tenant.id } },
+    );
 
     return {
       status: result.status,
@@ -62,19 +68,42 @@ export const app = new Elysia().post(
 );
 ```
 
-Elysia rejects a body that fails the schema with a 422 before your handler runs.
+Elysia rejects a body that fails the schema with a 422 before your handler runs. See [idempotency](/concepts/idempotency) for how keys, fingerprints, and `unknown` outcomes fit together.
 
 ## Webhooks from the raw request
 
-Elysia parses JSON bodies by default, and a `Request` body can only be read once. Set `parse: "none"` on the webhook route so verification reads the exact bytes the provider signed. Pass `request.headers` as is, because verifiers read signatures with `headers.get()`. Built-in verifiers throw a `SocialError` with code `unauthorized` for a missing or invalid signature, so map that error to a 401:
+Elysia parses JSON bodies by default, and a `Request` body can only be read once. Set `parse: "none"` on the webhook route so verification reads the exact bytes the provider signed. Pass `request.headers` as is, because verifiers read signatures with `headers.get()`. Built-in verifiers throw a `SocialError` with code `unauthorized` for a missing or invalid signature, so map that error to a 401.
+
+The route reads the body before anything is authenticated, so it stops at 1 MiB, the built-in verifiers' default limit. A `Content-Length` check alone is not enough, because chunked requests omit it:
 
 ```ts
 import { SocialError } from "@opencoredev/social-sdk";
 
+const MAX_WEBHOOK_BYTES = 1024 * 1024;
+
+async function readLimited(request: Request, limit: number): Promise<Uint8Array | null> {
+  if (Number(request.headers.get("content-length") ?? 0) > limit) return null;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of request.body ?? []) {
+    size += chunk.byteLength;
+    if (size > limit) return null;
+    chunks.push(chunk);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
 app.post(
   "/events",
   async ({ request, status }) => {
-    const body = new Uint8Array(await request.arrayBuffer());
+    const body = await readLimited(request, MAX_WEBHOOK_BYTES);
+    if (!body) return status(413, "payload too large");
     let verification;
     try {
       verification = await adapter.webhooks?.verify({ headers: request.headers, body }, context);
