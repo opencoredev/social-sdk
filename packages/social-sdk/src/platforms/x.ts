@@ -34,8 +34,9 @@ import {
 // oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- transport parser validates the provider boundary.
 const object = (value: unknown): JsonObject => parseObject(value) as JsonObject;
 
-// 53-bit conversation ID hashes, 11 base36 characters each. 1,200 of them keep the
-// listConversations cursor well under the client's 16,384 character cursor limit.
+// 53-bit conversation ID hashes, 11 base36 characters each. listConversations returns at
+// most 1,200 distinct conversations, which keeps its cursor well under the client's 16,384
+// character cursor limit.
 const conversationHashWidth = 11;
 const maxConversationHashes = 1200;
 
@@ -1425,11 +1426,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             message: "X DM limits must be integers from 1 through 100.",
           });
         // The cursor carries the event cursor plus fixed-width hashes of the conversations
-        // already returned, so later event pages skip them. Only the newest hashes are kept
-        // to stay under the client cursor size limit; a conversation older than that window
-        // can appear again on a very long walk.
+        // already returned, so later event pages skip them. To stay under the client cursor
+        // size limit, the walk ends after maxConversationHashes distinct conversations
+        // rather than forgetting earlier ones and returning them again.
         let eventCursor: string | undefined;
-        let seen: string[] = [];
+        const seen: string[] = [];
 
         if (input.cursor !== undefined) {
           try {
@@ -1452,10 +1453,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         const seenSet = new Set(seen);
         const target = input.limit ?? 100;
         const items: JsonObject[] = [];
-        const cursorFor = (c: string | undefined) => {
-          seen = seen.slice(-maxConversationHashes);
-          return JSON.stringify({ c, s: seen.join("") });
-        };
+        const cursorFor = (c: string | undefined) => JSON.stringify({ c, s: seen.join("") });
 
         for (let fetches = 0; fetches < 10; fetches++) {
           const page = await nativeAdapter.listDirectMessages({
@@ -1473,6 +1471,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             const hash = conversationHash(conversationId);
 
             if (seenSet.has(hash)) continue;
+
+            if (seen.length >= maxConversationHashes) return { items };
 
             // Stop mid-page and reread this event page next time; seen IDs skip the rest.
             if (items.length === target) return { items, nextCursor: cursorFor(eventCursor) };

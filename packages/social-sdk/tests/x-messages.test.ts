@@ -125,7 +125,7 @@ it("rejects X DMs with only an app bearer token", async () => {
   });
 });
 
-it("keeps X conversation cursors bounded on long DM histories", async () => {
+it("ends long X conversation walks without repeating conversations", async () => {
   const social = createSocial({
     backend: x({
       auth: { userId: "u1", accessToken: "token" },
@@ -134,7 +134,8 @@ it("keeps X conversation cursors bounded on long DM histories", async () => {
         const page = Number(url.searchParams.get("pagination_token") ?? "0");
         const data = Array.from({ length: 100 }, (_, index) => ({
           id: `e${page}-${index}`,
-          dm_conversation_id: `conversation-${page * 100 + index}`,
+          // Older events cycle back to the first conversations after 1,250 of them.
+          dm_conversation_id: `conversation-${(page * 100 + index) % 1250}`,
         }));
         return Response.json({ data, meta: page < 29 ? { next_token: String(page + 1) } : {} });
       },
@@ -142,15 +143,16 @@ it("keeps X conversation cursors bounded on long DM histories", async () => {
   });
 
   let cursor: string | undefined;
-  let total = 0;
+  const returned: unknown[] = [];
   do {
     const result =
       cursor === undefined
         ? await social.messages.listConversations(account, { limit: 100 })
         : await social.messages.listConversations(account, { limit: 100, cursor });
-    total += result.items.length;
+    returned.push(...result.items.map((item) => item["dm_conversation_id"]));
     cursor = result.nextCursor;
     assert.ok(cursor === undefined || cursor.length < 20_000);
   } while (cursor !== undefined);
-  assert.equal(total, 3000);
+  assert.equal(returned.length, 1200);
+  assert.equal(new Set(returned).size, 1200);
 });

@@ -221,8 +221,9 @@ await social.messages.send(conversation, { text: "Hello" });
 ```
 
 X has no conversation-list endpoint. `listConversations` reads `GET /2/dm_events`, keeps the
-latest event for each distinct `dm_conversation_id` in that page, and preserves X's pagination
-cursor. `listMessages` reads `GET /2/dm_conversations/{dm_conversation_id}/dm_events`, and `send`
+latest event for each distinct `dm_conversation_id`, and skips conversations that earlier pages
+already returned. A walk ends after 1,200 distinct conversations, and X only serves DM events
+from the last 30 days. `listMessages` reads `GET /2/dm_conversations/{dm_conversation_id}/dm_events`, and `send`
 uses `POST /2/dm_conversations/{dm_conversation_id}/messages`. These methods require a user-context
 token with `dm.read`, `users.read`, and `tweet.read`; sending also requires `dm.write`. Availability
 still depends on the X API tier and Direct Messages access for the app.

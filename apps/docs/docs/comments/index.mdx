@@ -43,8 +43,9 @@ writes also need `dm.write`.
 
 Configure `x({ auth: { userId, accessToken } })`. Normalized DMs need a user
 token; an app bearer token is rejected with `missing_permission`.
-`listConversations` derives one latest event per conversation from the current
-`/2/dm_events` page, so it is not a complete historical inbox.
+`listConversations` derives one latest event per conversation from `/2/dm_events`,
+never repeats a conversation across pages, and stops after 1,200 conversations. X
+keeps only 30 days of DM events, so it is not a complete historical inbox.
 
 Native `sendDirectMessage`, `sendConversationMessage`, and
 `createGroupConversation` are available from the acknowledged X native adapter.
