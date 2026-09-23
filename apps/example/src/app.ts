@@ -23,11 +23,18 @@ import {
   type MockScenario,
 } from "@opencoredev/social-sdk/testing";
 import {
+  DrizzleEventInbox,
+  DrizzlePublicationStore,
   openExampleDatabase,
-  SqliteEventInbox,
-  SqliteIdempotencyStore,
-  SqlitePublicationStore,
+  PostgresIdempotencyStore,
+  type ExampleDatabase,
 } from "./storage.js";
+
+type Stores = {
+  readonly idempotency: PostgresIdempotencyStore;
+  readonly inbox: DrizzleEventInbox;
+  readonly publications: DrizzlePublicationStore;
+};
 
 type Session = { readonly principal: string; readonly tenantId: string };
 
@@ -38,7 +45,8 @@ export type ExampleOptions = {
   readonly backendName?: string;
   readonly session?: Session;
   readonly membership?: MembershipSource;
-  readonly database?: ReturnType<typeof openExampleDatabase>;
+  /** Defaults to a fresh in-memory PGlite database, opened on the first request. */
+  readonly database?: ExampleDatabase | Promise<ExampleDatabase>;
   readonly connection?: {
     manager: ConnectionManager;
     provider: ConnectionProvider;
@@ -128,14 +136,23 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     options.membership ??
     ((s, id) => s.tenantId === "demo-tenant" && ["mock-account-1", "mock-account-2"].includes(id));
 
-  const db = options.database ?? openExampleDatabase();
-  const inbox = new SqliteEventInbox(db);
-  const publications = new SqlitePublicationStore(db);
+  let opened: Promise<Stores> | undefined;
+
+  const stores = () =>
+    (opened ??= Promise.resolve(options.database ?? openExampleDatabase()).then(({ db }) => ({
+      idempotency: new PostgresIdempotencyStore(db),
+      inbox: new DrizzleEventInbox(db),
+      publications: new DrizzlePublicationStore(db),
+    })));
+
   const authorization = { tenantId: session.tenantId, principalId: session.principal };
 
   const social = createSocial({
     backends: { [backendName]: backend },
-    idempotencyStore: new SqliteIdempotencyStore(db),
+    idempotencyStore: {
+      claim: async (input) => (await stores()).idempotency.claim(input),
+      saveOutcome: async (input) => (await stores()).idempotency.saveOutcome(input),
+    },
     authorization: {
       async authorizeTargets({ accounts, context }) {
         return Promise.all(
@@ -213,6 +230,8 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     const path = new URL(request.url).pathname;
 
     try {
+      const { inbox, publications } = await stores();
+
       if (request.method === "POST") {
         const origin = request.headers.get("origin");
 
@@ -411,9 +430,9 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           )
         )
           return json({ idempotencyKey: key, result }, 409);
-        const saved = publications.get(session.tenantId, key);
+        const saved = await publications.get(session.tenantId, key);
 
-        if (!saved) publications.save(session.tenantId, key, result);
+        if (!saved) await publications.save(session.tenantId, key, result);
 
         return json({ simulated, idempotencyKey: key, result: saved ?? result });
       }
@@ -421,24 +440,25 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
       if (request.method === "POST" && path === "/api/reconcile") {
         const input = await body(request);
         const key = required(input, "idempotencyKey");
-        const previous = publications.get(session.tenantId, key);
+        const previous = await publications.get(session.tenantId, key);
 
         if (!previous) return fail("Unknown publication", 404);
         const result = await reconcile(previous);
-        publications.save(session.tenantId, key, result);
+        await publications.save(session.tenantId, key, result);
 
         return json({
           idempotencyKey: key,
-          result: publications.get(session.tenantId, key) ?? result,
+          result: (await publications.get(session.tenantId, key)) ?? result,
         });
       }
 
       if (request.method === "POST" && path === "/api/events/reports") {
         const key = required(await body(request), "idempotencyKey");
 
-        if (!publications.get(session.tenantId, key)) return fail("Unknown publication", 404);
+        if (!(await publications.get(session.tenantId, key)))
+          return fail("Unknown publication", 404);
 
-        return json({ reports: publications.removalReports(session.tenantId, key) });
+        return json({ reports: await publications.removalReports(session.tenantId, key) });
       }
 
       if (request.method === "POST" && path === "/api/metrics")
@@ -510,7 +530,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
 
           const key =
             mapped && event.backendRecordId
-              ? publications.findByDelivery(
+              ? await publications.findByDelivery(
                   session.tenantId,
                   backendName,
                   event.backendRecordId,
@@ -523,7 +543,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
             !["publication.updated", "post.removed", "backend-record.deleted"].includes(event.type);
 
           return json({
-            state: inbox.accept(
+            state: await inbox.accept(
               JSON.stringify([1, event.provider, backendName, "/api/events", event.id]),
               { tenantId: session.tenantId, publicationKey: key, event },
               quarantined,
@@ -535,7 +555,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         const eventId = required(decoded, "eventId");
         const key = typeof decoded["publicationKey"] === "string" ? decoded["publicationKey"] : "";
         const accountId = typeof decoded["accountId"] === "string" ? decoded["accountId"] : "";
-        const publication = publications.get(session.tenantId, key);
+        const publication = await publications.get(session.tenantId, key);
 
         const quarantined =
           !publication ||
@@ -543,7 +563,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           !publication.outcomes.some((outcome) => outcome.account.accountId === accountId);
 
         return json({
-          state: inbox.accept(
+          state: await inbox.accept(
             JSON.stringify([backendName, eventId]),
             { tenantId: session.tenantId, publicationKey: key, event: decoded },
             quarantined,
@@ -555,7 +575,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
       if (request.method === "POST" && path === "/api/events/process") {
         let applied = 0;
 
-        for (const entry of inbox.pending()) {
+        for (const entry of await inbox.pending()) {
           if (
             !record(entry.payload) ||
             entry.payload["tenantId"] !== session.tenantId ||
@@ -563,7 +583,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           )
             continue;
           const key = entry.payload["publicationKey"];
-          const previous = publications.get(session.tenantId, key);
+          const previous = await publications.get(session.tenantId, key);
 
           if (!previous) continue;
 
@@ -587,7 +607,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
             : await reconcile(previous, event["originalType"] === "post.tiktok.url_resolved");
 
           if (
-            publications.applyEvent(
+            await publications.applyEvent(
               session.tenantId,
               key,
               result,
@@ -598,11 +618,11 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
             applied++;
         }
 
-        return json({ applied, pending: inbox.pendingCount() });
+        return json({ applied, pending: await inbox.pendingCount() });
       }
 
       if (request.method === "POST" && path === "/api/events/replay")
-        return json({ pending: inbox.pendingCount() });
+        return json({ pending: await inbox.pendingCount() });
 
       return new Response("Not found", { status: 404 });
     } catch (error) {

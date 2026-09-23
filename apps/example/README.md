@@ -1,6 +1,6 @@
 # Social SDK example
 
-The example uses a simulated backend and a local demo user by default. Its Request/Response handler selects accounts through server-side membership checks, prepares text or URL video, preserves per-target outcomes, and stores publication results, idempotency claims, and the event inbox in SQLite.
+The example uses a simulated backend and a local demo user by default. Its Request/Response handler selects accounts through server-side membership checks, prepares text or URL video, preserves per-target outcomes, and stores publication results, idempotency claims, and the event inbox in Postgres.
 
 From the repository root:
 
@@ -10,11 +10,32 @@ bun run --cwd packages/social-sdk build
 bun run --cwd apps/example dev
 ```
 
-The runner enables Node’s SQLite module with `--experimental-sqlite` for Node 22.12 compatibility. Node 24 accepts the same flag. The SDK itself does not require SQLite; it is the example’s persistent storage implementation.
-
-The server binds to the loopback interface on port 3030. `PORT` changes the port. It stores local state in `apps/example/social-example.sqlite`; `EXAMPLE_DB` overrides the filename. Deleting this file resets the local demo and its idempotency history. The database files are ignored by Git.
+The server binds to the loopback interface on port 3030. `PORT` changes the port. With no configuration it keeps its data in a local embedded Postgres, so it needs no database setup.
 
 The default `EXAMPLE_SCENARIO` is `mixed-success-failure`. Selecting both mock accounts produces one published result and one failed result. Set `EXAMPLE_SCENARIO=media-processing-then-success` to exercise processing. Tests explicitly advance the mock controller before reconciliation; the adapter never starts hidden polling.
+
+## Storage
+
+Publication results, idempotency claims, encrypted credentials, and the event inbox live in Postgres. The example reaches it through Drizzle ORM. `src/db/schema.ts` holds the typed schema, and `src/db/client.ts` picks the driver:
+
+- When `DATABASE_URL` is set, the example connects to Neon with the `@neondatabase/serverless` WebSocket pool. This driver supports the interactive transactions that the event worker and idempotency store use.
+- Otherwise it runs PGlite, Postgres compiled to WebAssembly, with its data in `apps/example/.data/pglite`. `EXAMPLE_DB` points it at another directory. Delete the directory to reset the local demo and its idempotency history. Git ignores it.
+
+```sh
+DATABASE_URL="postgresql://user:password@ep-example.us-east-2.aws.neon.tech/neondb?sslmode=require" \
+  bun run --cwd apps/example dev
+```
+
+The server applies pending migrations from `apps/example/drizzle` before it accepts requests. Tests use an in-memory PGlite database. The SDK itself has no database dependency; Postgres is only the example's storage.
+
+After you change the schema, generate a migration and commit it with the schema change:
+
+```sh
+bun run --cwd apps/example db:generate
+bun run --cwd apps/example db:migrate
+```
+
+`db:migrate` uses the same driver selection as the server. It migrates Neon when `DATABASE_URL` is set and the local PGlite directory otherwise.
 
 ## Request flow
 

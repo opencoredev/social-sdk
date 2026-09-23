@@ -2,12 +2,12 @@ import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { createExampleHandler } from "./app.js";
 import { exampleBackendConfig } from "./config.js";
-import { openExampleDatabase } from "./storage.js";
+import { openDatabaseFromEnv } from "./storage.js";
 
-const handler = createExampleHandler({
-  ...exampleBackendConfig(process.env),
-  database: openExampleDatabase(process.env["EXAMPLE_DB"] ?? "./social-example.sqlite"),
-});
+// Applies pending migrations before the server accepts requests.
+const database = await openDatabaseFromEnv(process.env);
+
+const handler = createExampleHandler({ ...exampleBackendConfig(process.env), database });
 
 const server = createServer(async (request, response) => {
   const origin = `http://${request.headers.host ?? "localhost"}`;
@@ -37,6 +37,13 @@ const server = createServer(async (request, response) => {
 
 server.listen(Number(process.env["PORT"] ?? 3030), process.env["EXAMPLE_BIND"] ?? "127.0.0.1", () =>
   console.log(
-    `Example listening on port ${process.env["PORT"] ?? 3030}; backend ${process.env["EXAMPLE_BACKEND"] ?? "mock"}`,
+    `Example listening on port ${process.env["PORT"] ?? 3030}; backend ${process.env["EXAMPLE_BACKEND"] ?? "mock"}; database ${database.driver}`,
   ),
 );
+
+// Close the database cleanly so a local PGlite directory is left consistent.
+for (const signal of ["SIGINT", "SIGTERM"] as const)
+  process.once(signal, () => {
+    server.close();
+    void database.close().finally(() => process.exit(0));
+  });

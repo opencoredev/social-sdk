@@ -22,7 +22,7 @@ const session = { principal: "user", tenantId: "tenant" };
 const membership = (_session: unknown, id: string) => id === "a";
 
 test("Zernio event survives restart, uses saved delivery, quarantines unknown mapping and preserves removal reports", async () => {
-  const db = openExampleDatabase();
+  const db = await openExampleDatabase();
   let published = false;
   let writes = 0;
 
@@ -124,11 +124,11 @@ test("Zernio event survives restart, uses saved delivery, quarantines unknown ma
     "published",
   );
   assert.equal(writes, 1);
-  db.close();
+  await db.close();
 });
 
 test("Post for Me result webhook resolves post_id without using result ID or payload tenant", async () => {
-  const db = openExampleDatabase();
+  const db = await openExampleDatabase();
   let allowed = true;
   let reads = 0;
 
@@ -203,5 +203,5 @@ test("Post for Me result webhook resolves post_id without using result ID or pay
       .outcomes[0].state,
     "published",
   );
-  db.close();
+  await db.close();
 });

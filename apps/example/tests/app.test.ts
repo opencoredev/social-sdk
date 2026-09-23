@@ -96,7 +96,7 @@ test("rejects arbitrary accounts, missing intentional keys, malformed and oversi
 });
 
 test("keeps video processing durable and reconciles after handler reconstruction", async () => {
-  const db = openExampleDatabase();
+  const db = await openExampleDatabase();
   const backend = mockBackend({ scenario: "media-processing-then-success" });
   const first = createExampleHandler({ backend, database: db });
 
@@ -127,11 +127,11 @@ test("keeps video processing durable and reconciles after handler reconstruction
     backend.testing.history().filter((entry) => entry.operation === "posts.publishTarget").length,
     1,
   );
-  db.close();
+  await db.close();
 });
 
 test("applies a verified pending event after restart, deduplicates and keeps terminal results", async () => {
-  const db = openExampleDatabase();
+  const db = await openExampleDatabase();
   const backend = mockBackend({ scenario: "media-processing-then-success" });
   const first = createExampleHandler({ backend, database: db });
   await first.handle(request("/api/publish", publication));
@@ -180,7 +180,7 @@ test("applies a verified pending event after restart, deduplicates and keeps ter
   ).json();
 
   assert.equal(current.result.outcomes[0].state, "published");
-  db.close();
+  await db.close();
 });
 
 test("reports each mixed outcome, keeps metrics server-side and replies to a returned comment", async () => {

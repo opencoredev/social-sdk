@@ -101,7 +101,6 @@ const recipeTests = (await readdir(resolve(root, "examples/snippets")))
   .map((name) => `examples/snippets/${name}`);
 
 await required("Node example and OAuth recipe tests", "node", [
-  "--experimental-sqlite",
   "--import",
   "tsx",
   "--test",
@@ -111,7 +110,6 @@ await required("Node example and OAuth recipe tests", "node", [
 
 if (process.env["SOCIAL_NODE22_BIN"])
   await required("additional Node22 example and recipe tests", process.env["SOCIAL_NODE22_BIN"], [
-    "--experimental-sqlite",
     "--import",
     "tsx",
     "--test",
