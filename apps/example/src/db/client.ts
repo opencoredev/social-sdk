@@ -35,6 +35,8 @@ export async function openExampleDatabase(
 ): Promise<ExampleDatabase> {
   if (options.url) {
     const pool = new Pool({ connectionString: options.url });
+    // An idle connection can drop when Neon suspends compute; without a listener that crashes the process.
+    pool.on("error", (error: Error) => console.error("Postgres pool error", error));
     const db = drizzleNeon({ client: pool, schema });
 
     try {

@@ -16,6 +16,13 @@ const bytea = customType<{ data: Buffer; driverData: Uint8Array }>({
   fromDriver: (value) => Buffer.from(value),
 });
 
+// Provider payloads are stored as JSON text: jsonb rejects strings containing U+0000.
+const jsonText = customType<{ data: unknown; driverData: string }>({
+  dataType: () => "text",
+  toDriver: (value) => JSON.stringify(value),
+  fromDriver: (value) => JSON.parse(value),
+});
+
 export const idempotency = pgTable(
   "idempotency",
   {
@@ -46,7 +53,7 @@ export const events = pgTable(
     sequence: integer("sequence").generatedAlwaysAsIdentity().notNull().unique(),
     eventKey: text("event_key").primaryKey(),
     state: text("state", { enum: eventStates }).notNull(),
-    payload: jsonb("payload").$type<unknown>().notNull(),
+    payload: jsonText("payload").notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
   },
@@ -94,7 +101,7 @@ export const removalReports = pgTable(
     tenantId: text("tenant_id").notNull(),
     operationKey: text("operation_key").notNull(),
     eventKey: text("event_key").notNull(),
-    payload: jsonb("payload").$type<unknown>().notNull(),
+    payload: jsonText("payload").notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.tenantId, table.eventKey] }),

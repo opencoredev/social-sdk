@@ -138,6 +138,17 @@ test("the inbox returns pending events in arrival order, 100 at a time, and skip
   await close();
 });
 
+test("the inbox keeps provider payloads that contain NUL characters", async () => {
+  const { db, close } = await openExampleDatabase();
+  const inbox = new DrizzleEventInbox(db);
+  assert.equal(await inbox.accept("nul", { text: "a\u0000b" }, false), "accepted");
+  assert.deepEqual(
+    (await inbox.pending()).map((entry) => entry.payload),
+    [{ text: "a\u0000b" }],
+  );
+  await close();
+});
+
 test("credentials reject encrypted row swaps and event database errors remain failures", async () => {
   const database = await openExampleDatabase();
   const { db } = database;

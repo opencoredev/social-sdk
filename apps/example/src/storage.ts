@@ -1,5 +1,5 @@
 import { createDecipheriv, createCipheriv, createHash, randomBytes } from "node:crypto";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import type { StoredCredential } from "@opencoredev/social-sdk/server";
 import type {
   CredentialStore,
@@ -257,6 +257,9 @@ export class DrizzlePublicationStore {
     key: string,
     incoming: PublishResult,
   ): Promise<void> {
+    // FOR UPDATE locks nothing before the first save, so serialize on the key itself.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${tenantId}:${key}`}))`);
+
     const [existing] = await tx
       .select({ result: publications.result })
       .from(publications)

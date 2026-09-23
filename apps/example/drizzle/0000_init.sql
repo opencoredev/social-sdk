@@ -10,7 +10,7 @@ CREATE TABLE "events" (
 	"sequence" integer GENERATED ALWAYS AS IDENTITY (sequence name "events_sequence_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),
 	"event_key" text PRIMARY KEY NOT NULL,
 	"state" text NOT NULL,
-	"payload" jsonb NOT NULL,
+	"payload" text NOT NULL,
 	"accepted_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"processed_at" timestamp with time zone,
 	CONSTRAINT "events_sequence_unique" UNIQUE("sequence")
@@ -48,7 +48,7 @@ CREATE TABLE "removal_reports" (
 	"tenant_id" text NOT NULL,
 	"operation_key" text NOT NULL,
 	"event_key" text NOT NULL,
-	"payload" jsonb NOT NULL,
+	"payload" text NOT NULL,
 	CONSTRAINT "removal_reports_tenant_id_event_key_pk" PRIMARY KEY("tenant_id","event_key"),
 	CONSTRAINT "removal_reports_sequence_unique" UNIQUE("sequence")
 );
