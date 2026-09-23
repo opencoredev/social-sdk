@@ -254,38 +254,40 @@ test("maps SocialError codes to their HTTP status", async () => {
   // Each PGlite open runs the migrations and takes over a second on CI, so the cases share one.
   const db = await openExampleDatabase();
 
-  for (const [code, status] of [
-    ["rate_limited", 429],
-    ["upstream_failure", 502],
-    ["timeout", 504],
-    ["not_found", 404],
-    ["invalid_input", 400],
-  ] as const) {
-    const base = mockBackend();
+  try {
+    for (const [code, status] of [
+      ["rate_limited", 429],
+      ["upstream_failure", 502],
+      ["timeout", 504],
+      ["not_found", 404],
+      ["invalid_input", 400],
+    ] as const) {
+      const base = mockBackend();
 
-    const backend = {
-      ...base,
-      accounts: {
-        ...base.accounts,
-        async list() {
-          throw new SocialError({ code, operation: "accounts.list", message: code });
+      const backend = {
+        ...base,
+        accounts: {
+          ...base.accounts,
+          async list() {
+            throw new SocialError({ code, operation: "accounts.list", message: code });
+          },
         },
-      },
-      posts: {
-        ...base.posts,
-        async publishTarget() {
-          throw new SocialError({ code, operation: "posts.publishTarget", message: code });
+        posts: {
+          ...base.posts,
+          async publishTarget() {
+            throw new SocialError({ code, operation: "posts.publishTarget", message: code });
+          },
         },
-      },
-    };
+      };
 
-    const response = await createExampleHandler({ backend, database: db }).handle(
-      request("/api/accounts"),
-    );
+      const response = await createExampleHandler({ backend, database: db }).handle(
+        request("/api/accounts"),
+      );
 
-    assert.equal(response.status, status, code);
-    assert.equal((await response.json()).error, code);
+      assert.equal(response.status, status, code);
+      assert.equal((await response.json()).error, code);
+    }
+  } finally {
+    await db.close();
   }
-
-  await db.close();
 });
