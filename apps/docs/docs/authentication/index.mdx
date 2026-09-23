@@ -71,7 +71,8 @@ const next = await refreshOAuthToken("x", { clientId, clientSecret }, current);
 </PlatformTab>
 <PlatformTab platform="tiktok">
 
-**Default scopes:** `user.info.basic` and `video.publish`. **PKCE:** S256.
+**Default scopes:** `user.info.basic` and `video.publish`. **PKCE:** the web Login Kit flow
+does not add PKCE.
 
 Refresh tokens can rotate. Scopes are sent comma-delimited.
 
