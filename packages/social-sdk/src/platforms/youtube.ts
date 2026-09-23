@@ -782,6 +782,18 @@ export function youtube(
 
         return outcome(video, { account, targetIndex: 0 });
       },
+      async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
+        authorize(ref, context);
+
+        if (!ref.postId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.removeFromPlatform",
+            message: "postId is required.",
+          });
+
+        await request("/youtube/v3/videos", context, undefined, { id: ref.postId }, "DELETE");
+      },
     },
     search: {
       async posts(
@@ -1373,16 +1385,6 @@ export function youtube(
             message: "videoId is required.",
           });
         await request("/youtube/v3/videos", context, undefined, { id: videoId }, "DELETE");
-      },
-      async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
-        nativeAuthorize(context);
-        if (!ref.postId)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "posts.removeFromPlatform",
-            message: "postId is required.",
-          });
-        await request("/youtube/v3/videos", context, undefined, { id: ref.postId }, "DELETE");
       },
       async rateVideo({ videoId, rating, context }) {
         nativeAuthorize(context);
