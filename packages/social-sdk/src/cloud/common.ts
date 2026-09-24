@@ -35,11 +35,9 @@ export const selectedPlatforms = [
   "facebook",
 ] as const;
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
 export function platform(value: unknown): Platform {
   const slug = value === "twitter" ? "x" : value;
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
   if (typeof slug !== "string" || !selectedPlatforms.some((item) => item === slug))
     throw new SocialError({
       code: "unsupported_capability",
@@ -65,7 +63,6 @@ export function managedHttp(origin: string, options: ManagedOptions) {
     body?: JsonObject,
     query: Record<string, string> = {},
     method: "GET" | "POST" | "PUT" | "DELETE" = body === undefined ? "GET" : "POST",
-    // oxlint-disable-next-line anti-slop/no-unknown-returns -- provider payload is validated at this adapter boundary.
   ): Promise<unknown> => {
     const url = new URL(origin + path);
 
@@ -88,9 +85,7 @@ export function managedHttp(origin: string, options: ManagedOptions) {
         headers,
         timeoutMs: remainingBudget(context),
         method,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
         ...(context.signal ? { signal: context.signal } : {}),
         maxAttempts: method === "GET" ? Math.min(5, context.retryBudget.maxAttempts) : 1,
       });
@@ -128,7 +123,6 @@ export function managedHttp(origin: string, options: ManagedOptions) {
         backend: context.backendInstance,
         correlationId: context.correlationId,
         message: error.message,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
         ...(error.status === undefined ? {} : { upstreamStatus: error.status }),
         retryDisposition: ambiguous
           ? { kind: "reconcile-first" }
@@ -157,10 +151,8 @@ export function capabilityManifest(
         platform,
         operation,
         availability: "available" as const,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
         ...(operation === "posts.publish"
           ? {
-              // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
               formats: (platform === "youtube"
                 ? ["video"]
                 : platform === "instagram" || platform === "tiktok"
@@ -180,7 +172,6 @@ export function capabilityManifest(
   };
 }
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- provider payload is validated at this adapter boundary.
 export function optionsObject(target: PreparedPublishTarget): Record<string, unknown> {
   return target.options === undefined ? {} : object(target.options);
 }
@@ -192,7 +183,6 @@ export function managedOptionIssues(
 ): PreparationIssue[] {
   const config = optionsObject(target);
 
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- provider payload is validated at this adapter boundary.
   const keys: Record<string, readonly string[]> = {
     youtube: ["title", "visibility", "madeForKids"],
     instagram: ["shareToFeed"],
@@ -234,7 +224,6 @@ export function managedOptionIssues(
     "aiGenerated",
     "draft",
   ]) {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
     if (config[key] !== undefined && typeof config[key] !== "boolean")
       fail(
         "options.boolean",
@@ -258,7 +247,6 @@ export function managedOptionIssues(
       "aiGenerated",
       "draft",
     ])
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
       if (typeof config[key] !== "boolean")
         fail(
           "tiktok.explicit_choice",
@@ -347,14 +335,12 @@ export function managedPreparation(target: PreparedPublishTarget): PreparationIs
     if (media.length !== 1 || media[0]?.kind !== "video")
       fail("youtube.video", "YouTube requires exactly one video.");
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
     if (typeof options["title"] !== "string" || !options["title"])
       fail("youtube.title", "Select a YouTube title explicitly.");
 
     if (!["public", "unlisted", "private"].includes(String(options["visibility"])))
       fail("youtube.visibility", "Select public, unlisted, or private visibility explicitly.");
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
     if (typeof options["madeForKids"] !== "boolean")
       fail("youtube.audience", "Declare whether the video is made for kids.");
   }
@@ -381,7 +367,6 @@ export function managedPreparation(target: PreparedPublishTarget): PreparationIs
 
 export async function uploadManagedMedia(
   item: MediaAttachment,
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- provider payload is validated at this adapter boundary.
   presign: (body: JsonObject) => Promise<unknown>,
   config: {
     options: ManagedOptions;
@@ -405,8 +390,7 @@ export async function uploadManagedMedia(
   const data = object(
     await presign(
       config.provider === "zernio"
-        ? // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          { filename, contentType: mimeType, ...(size === undefined ? {} : { size }) }
+        ? { filename, contentType: mimeType, ...(size === undefined ? {} : { size }) }
         : {},
     ),
   );
@@ -424,18 +408,14 @@ export async function uploadManagedMedia(
     url: uploadUrl,
     source: {
       mimeType,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
       ...(size === undefined ? {} : { size }),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- Blob bodies preserve known-size uploads for presigned storage.
       ...(source.kind === "blob" ? { body: source.blob } : {}),
       open: source.kind === "blob" ? () => source.blob.stream() : source.open,
     },
     allowHost,
     maxBytes: 5 * 1024 * 1024 * 1024,
     timeoutMs: remainingBudget(config.context),
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
     ...(config.options.fetch ? { fetch: config.options.fetch } : {}),
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
     ...(config.context.signal ? { signal: config.context.signal } : {}),
   });
 
@@ -454,7 +434,6 @@ export function accountMatches(
     });
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
 export function publicFields(value: unknown, fields: readonly string[]): JsonObject {
   const data = object(value);
   const result: Record<string, JsonValue> = {};
@@ -463,11 +442,8 @@ export function publicFields(value: unknown, fields: readonly string[]): JsonObj
     const value = data[field];
 
     if (
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
       typeof value === "string" ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
       typeof value === "boolean" ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
       typeof value === "number" ||
       value === null
     )

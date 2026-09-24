@@ -1,5 +1,3 @@
-/* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-conditional-empty-object-spread -- this example parses JSON requests and provider events at explicit boundaries. */
-
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
@@ -566,7 +564,6 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
 
         if (!simulated) {
           // SAFETY: The selected backend decoder returns the normalized event contract for non-simulated requests.
-          // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- the decoder's JsonObject must cross into the normalized event contract.
           const event = decoded as unknown as SocialEvent;
 
           if (

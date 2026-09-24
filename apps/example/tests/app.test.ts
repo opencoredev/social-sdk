@@ -5,7 +5,6 @@ import { mockBackend } from "@opencoredev/social-sdk/testing";
 import { openExampleDatabase } from "../src/storage.js";
 import { SocialError } from "@opencoredev/social-sdk";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function request(path: string, value?: unknown, headers: Record<string, string> = {}) {
   return new Request(
     `http://localhost:3030${path}`,
@@ -145,7 +144,6 @@ test("applies a verified pending event after restart, deduplicates and keeps ter
     type: "post.updated",
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
   const send = (value: unknown) => request("/api/events", value, { "x-mock-signature": "valid" });
   assert.equal((await first.handle(request("/api/events", event))).status, 401);
   assert.deepEqual(await (await first.handle(send(event))).json(), {

@@ -127,7 +127,6 @@ try {
   }
 
   if (baselineText !== undefined) {
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     const recorded = JSON.parse(baselineText) as {
       preparationP95Ms: number;
       dispatchOverheadP95Ms: number;

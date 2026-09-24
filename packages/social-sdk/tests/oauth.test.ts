@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion -- provider fixtures are intentionally grouped and request contracts are asserted after controlled fetch capture. */
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import {
@@ -29,21 +28,25 @@ const attempt: ConnectionAttempt = {
 describe("direct OAuth providers", () => {
   it("uses documented X authorization host, publish scopes, and Basic client authentication", async () => {
     let request: RequestInit | undefined;
+
     const provider = xOAuth({
       clientId: "client",
       clientSecret: "secret",
       fetch: async (url, init) => {
         if (init?.method === "POST") {
           request = init;
+
           return new Response(JSON.stringify({ access_token: "at", user_id: "42" }), {
             headers: { "content-type": "application/json" },
           });
         }
+
         return new Response(JSON.stringify({ data: { id: "42", name: "Ada" } }), {
           headers: { "content-type": "application/json" },
         });
       },
     });
+
     const started = await provider.start({
       platforms: ["x"],
       capabilities: [],
@@ -51,6 +54,7 @@ describe("direct OAuth providers", () => {
       state: attempt.state,
       codeChallenge: "challenge",
     });
+
     const auth = new URL(started.authorizationUrl);
     assert.equal(auth.origin + auth.pathname, "https://x.com/i/oauth2/authorize");
     assert.match(auth.searchParams.get("scope") ?? "", /tweet\.write/);
@@ -68,6 +72,7 @@ describe("direct OAuth providers", () => {
       state: attempt.state,
       codeChallenge: "challenge",
     });
+
     const url = new URL(started.authorizationUrl);
     assert.equal(url.searchParams.has("code_challenge"), false);
     assert.equal(url.searchParams.has("code_challenge_method"), false);
@@ -139,6 +144,7 @@ describe("direct OAuth providers", () => {
           headers: { "content-type": "application/json" },
         }),
     });
+
     await assert.rejects(
       provider.complete({ callbackUrl: `${attempt.redirectUri}?code=c&state=state`, attempt }),
       { code: "reconnect_required" },
@@ -170,33 +176,40 @@ describe("direct OAuth providers", () => {
             JSON.stringify({ data: [{ access_token: "at", user_id: "user-1" }] }),
             { headers: { "content-type": "application/json" } },
           );
+
         return new Response(JSON.stringify({ id: "id-1", user_id: "user-1", username: "Ada" }), {
           headers: { "content-type": "application/json" },
         });
       },
     });
+
     const accounts = await provider.complete({
       callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
       attempt: { ...attempt, platforms: ["instagram"] },
     });
+
     assert.equal(accounts[0]?.ref.accountId, "user-1");
   });
 
   it("uses the versioned LinkedIn organization ACL endpoint and accepts CONTENT_ADMINISTRATOR", async () => {
     const seen: string[] = [];
+
     const provider = linkedinOAuth({
       clientId: "client",
       linkedinApiVersion: "202609",
       fetch: async (url, init) => {
         seen.push(String(url));
+
         if (init?.method === "POST")
           return new Response(JSON.stringify({ access_token: "at" }), {
             headers: { "content-type": "application/json" },
           });
+
         if (String(url).includes("userinfo"))
           return new Response(JSON.stringify({ sub: "member", name: "Member" }), {
             headers: { "content-type": "application/json" },
           });
+
         return new Response(
           JSON.stringify({
             elements: [
@@ -207,10 +220,12 @@ describe("direct OAuth providers", () => {
         );
       },
     });
+
     const accounts = await provider.complete({
       callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
       attempt: { ...attempt, platforms: ["linkedin"] },
     });
+
     assert.equal(
       accounts.some((item) => item.ref.accountId === "urn:li:organization:123"),
       true,
@@ -222,9 +237,7 @@ describe("direct OAuth providers", () => {
   });
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function response(value: unknown, status = 200, contentType = "application/json") {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
   return new Response(typeof value === "string" ? value : JSON.stringify(value), {
     status,
     headers: { "content-type": contentType },
@@ -263,7 +276,6 @@ describe("provider-specific OAuth contracts", () => {
       linkedinApiVersion: "202609",
       fetch: async (url, init) => {
         seen.push(
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
           `${url} ${(init?.headers as Record<string, string>)?.["LinkedIn-Version"] ?? ""}`,
         );
 
@@ -298,6 +310,7 @@ describe("provider-specific OAuth contracts", () => {
 
   it("persists only validated accounts selected by the caller", async () => {
     const saved: string[] = [];
+
     const provider = youtubeOAuth({
       clientId: "client",
       credentialSink: {
@@ -326,6 +339,7 @@ describe("provider-specific OAuth contracts", () => {
 
   it("persists every validated account by default for multi-account discovery", async () => {
     const saved: string[] = [];
+
     const provider = youtubeOAuth({
       clientId: "client",
       credentialSink: { save: async ({ account }) => saved.push(account.ref.accountId) },

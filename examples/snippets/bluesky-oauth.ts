@@ -1,5 +1,3 @@
-/* oxlint-disable anti-slop/no-conditional-empty-object-spread, anti-slop/require-readable-spacing -- OAuth recipe mirrors upstream provider API shape and preserves compact teaching examples. */
-
 import {
   JoseKey,
   NodeOAuthClient,
@@ -32,6 +30,7 @@ export async function createBlueskyOAuthClient(
 ): Promise<NodeOAuthClient> {
   const key = await JoseKey.fromImportable(config.privateKey, config.keyId);
   const requestLock = config.requestLock ?? config.stores.requestLock;
+
   return new NodeOAuthClient({
     clientMetadata: config.clientMetadata,
     keyset: [key],
@@ -73,6 +72,7 @@ export function createBlueskyOAuthFlow(client: BlueskyOAuthClientLike) {
     }> {
       const url = new URL(callbackUrl);
       const result = await client.callback(url.searchParams);
+
       return { did: result.session.did, state: result.state, session: result.session };
     },
     async restore(did: string): Promise<OAuthSession> {
@@ -95,6 +95,7 @@ export function mapBackedBlueskyStores(rows: BlueskyStoreRows): BlueskyOAuthStor
       },
       async get(key) {
         const value = rows.states.get(key);
+
         return value === undefined ? undefined : structuredClone(value);
       },
       async del(key) {
@@ -107,6 +108,7 @@ export function mapBackedBlueskyStores(rows: BlueskyStoreRows): BlueskyOAuthStor
       },
       async get(key) {
         const value = rows.sessions.get(key);
+
         return value === undefined ? undefined : structuredClone(value);
       },
       async del(key) {

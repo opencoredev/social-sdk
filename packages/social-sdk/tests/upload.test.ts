@@ -184,7 +184,6 @@ it("upload cleanup cannot hang on an uncooperative source cancellation hook", as
           timer = setTimeout(() => reject(new Error("cleanup hung")), 1000);
         }),
       ]),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof HttpError && error.kind === "network",
     );
   } finally {

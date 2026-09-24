@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- authorization fixtures are intentionally grouped. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
@@ -63,7 +62,6 @@ it("tenant denial prevents analytics, comments, messages, post reads, and accoun
   ])
     await assert.rejects(
       action(),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "unauthorized",
     );
@@ -95,6 +93,7 @@ it("authorization for a different reference cannot authorize the requested accou
 
 it("keeps analytics account metrics compatible with analytics.read policies", async () => {
   const mock = mockBackend();
+
   const social = createSocial({
     backend: mock,
     authorization: {
@@ -155,7 +154,6 @@ it("missing managed messaging is an unsupported capability instead of an empty i
 
   await assert.rejects(
     social.messages.listConversations(account),
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) =>
       error instanceof Error && "code" in error && error.code === "unsupported_capability",
   );

@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/no-conditional-empty-object-spread, anti-slop/require-safety-comment-for-type-assertion -- facade dispatch keeps capability-specific branches together. */
 import { decodeCursor, encodeCursor, iterateItems, type IterationOptions } from "./pagination.js";
 import { createConcurrencyLimiter } from "./concurrency.js";
 import type { AuthorizationPolicy, SocialAdapter } from "./adapter.js";
@@ -45,8 +44,6 @@ import type {
   ProfileRef,
   RelationshipRecord,
 } from "./types.js";
-
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-known-value-widening, anti-slop/no-runtime-typeof -- Adapter and pagination boundaries intentionally accept arbitrary rejection values and build narrow option records. */
 
 export type BackendRegistry = Readonly<Record<string, SocialAdapter<unknown>>>;
 
@@ -359,7 +356,6 @@ function unsupported(operation: string, backend: string): never {
   });
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Adapter rejections enter the error boundary here.
 function outcomeFromError(
   error: unknown, // Transport and adapter rejections can be arbitrary JavaScript values.
   target: PreparedPublishTarget,
@@ -1063,6 +1059,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<ProfileRecord> {
       validateAccountRef(account, "profiles.read");
+
       if (
         input === null ||
         typeof input !== "object" ||
@@ -1084,7 +1081,9 @@ export function createSocial(
       await authorizeRef("profiles.read", account, callOptions, correlationId);
       const adapter = selected(account, "profiles.read");
       requireCapability(adapter, "profiles.read", account.platform, account.backend);
+
       if (adapter.graph?.getProfile === undefined) unsupported("profiles.read", account.backend);
+
       return dispatch(account.backend, callOptions?.signal, "profiles.read", () =>
         adapter.graph!.getProfile!(
           account,
@@ -1103,6 +1102,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<Page<RelationshipRecord>> {
       validateAccountRef(account, "graph.read");
+
       if (
         input === null ||
         typeof input !== "object" ||
@@ -1120,8 +1120,10 @@ export function createSocial(
       await authorizeRef("graph.read", account, callOptions, correlationId);
       const adapter = selected(account, "graph.read");
       requireCapability(adapter, "graph.read", account.platform, account.backend);
+
       if (adapter.graph?.listRelationships === undefined)
         unsupported("graph.read", account.backend);
+
       const scope = JSON.stringify([
         account.backend,
         "graph.read",
@@ -1131,6 +1133,7 @@ export function createSocial(
         input.kind,
         input.limit ?? null,
       ]);
+
       const page = await dispatch(account.backend, callOptions?.signal, "graph.read", () =>
         adapter.graph!.listRelationships!(
           account,
@@ -1141,6 +1144,7 @@ export function createSocial(
           makeContext(account.backend, correlationId, callOptions),
         ),
       );
+
       return encodePage(scope, page);
     },
     follow: (target: ProfileRef, options?: PublishCallOptions) =>
@@ -1187,6 +1191,7 @@ export function createSocial(
         operation,
         message: "A valid profile reference is required",
       });
+
     const account: ConnectedAccountRef = {
       kind: "connected-account",
       version: 1,
@@ -1194,12 +1199,15 @@ export function createSocial(
       platform: target.platform,
       accountId: target.accountId,
     };
+
     const correlationId = `social-${++correlationSequence}`;
     await authorizeRef(operation, account, callOptions, correlationId);
     const adapter = selected(target, operation);
     requireCapability(adapter, operation, target.platform, target.backend);
+
     if (adapter.graph === undefined) unsupported(operation, target.backend);
     const context = makeContext(target.backend, correlationId, callOptions);
+
     return dispatch<RelationshipRecord | void>(
       target.backend,
       callOptions?.signal,
@@ -1208,24 +1216,30 @@ export function createSocial(
         switch (operation) {
           case "graph.follow":
             if (adapter.graph!.follow === undefined) unsupported(operation, target.backend);
+
             return await adapter.graph!.follow(target, context);
           case "graph.unfollow":
             if (adapter.graph!.unfollow === undefined) unsupported(operation, target.backend);
             await adapter.graph!.unfollow(target, context);
+
             return undefined;
           case "graph.block":
             if (adapter.graph!.block === undefined) unsupported(operation, target.backend);
+
             return await adapter.graph!.block(target, context);
           case "graph.unblock":
             if (adapter.graph!.unblock === undefined) unsupported(operation, target.backend);
             await adapter.graph!.unblock(target, context);
+
             return undefined;
           case "graph.mute":
             if (adapter.graph!.mute === undefined) unsupported(operation, target.backend);
+
             return await adapter.graph!.mute(target, context);
           case "graph.unmute":
             if (adapter.graph!.unmute === undefined) unsupported(operation, target.backend);
             await adapter.graph!.unmute(target, context);
+
             return undefined;
         }
       },
@@ -1369,6 +1383,7 @@ export function createSocial(
           operation: "posts.publishSequence",
           message: "A sequence requires at least one item",
         });
+
       if (typeof request.idempotencyKey !== "string" || request.idempotencyKey.trim() === "")
         throw new SocialError({
           code: "invalid_input",
@@ -1377,6 +1392,7 @@ export function createSocial(
         });
 
       const prepared: PublishRequest[] = [];
+
       for (const [index, item] of request.items.entries()) {
         const publishRequest: PublishRequest = {
           targets: item.targets,
@@ -1428,6 +1444,7 @@ export function createSocial(
               }
             : publishRequest,
         );
+
         if (!plan.ok)
           throw new SocialError({
             code: "invalid_input",
@@ -1435,6 +1452,7 @@ export function createSocial(
             message: "Publication preparation failed; no targets were dispatched",
             issues: plan.issues,
           });
+
         for (const target of plan.targets)
           await authorizeRef(
             "posts.publish",
@@ -1459,6 +1477,7 @@ export function createSocial(
           chained && previous !== undefined
             ? { ...publishRequest, replyTo: previous }
             : publishRequest;
+
         let result: PublishResult;
         previous = undefined;
 
@@ -1471,12 +1490,14 @@ export function createSocial(
             if (request.stopOnFailure !== false) break;
             continue;
           }
+
           throw error;
         }
 
         results.push(result);
 
         const published = result.outcomes.find((outcome) => outcome.state === "published");
+
         if (published?.post !== undefined) previous = published.post;
 
         if (request.stopOnFailure !== false && result.status === "partial") break;
@@ -1547,6 +1568,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<Page<JsonObject>> {
       validateAccountRef(account, "search.posts");
+
       if (
         input === null ||
         input === undefined ||
@@ -1705,6 +1727,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<AnalyticsReport> {
       validateAccountRef(ref, "analytics.report.read");
+
       if (
         query === undefined ||
         query === null ||
@@ -1713,14 +1736,10 @@ export function createSocial(
         query.from > query.to ||
         !Array.isArray(query.metrics) ||
         query.metrics.length === 0 ||
-        query.metrics.some(
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- runtime query boundary.
-          (metric) => typeof metric !== "string" || !metric.trim(),
-        ) ||
+        query.metrics.some((metric) => typeof metric !== "string" || !metric.trim()) ||
         (query.dimensions !== undefined &&
           (!Array.isArray(query.dimensions) ||
             query.dimensions.some(
-              // oxlint-disable-next-line anti-slop/no-runtime-typeof -- runtime query boundary.
               (dimension) => typeof dimension !== "string" || !dimension.trim(),
             )))
       )
@@ -1753,6 +1772,7 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+
       if (
         callOptions?.limit !== undefined &&
         (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
@@ -1839,6 +1859,7 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+
       if (
         callOptions?.limit !== undefined &&
         (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
@@ -1889,6 +1910,7 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
+
       if (
         callOptions?.limit !== undefined &&
         (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
@@ -1975,6 +1997,7 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       validateAccountRef(account, "notifications.read");
+
       if (
         callOptions?.limit !== undefined &&
         (!Number.isSafeInteger(callOptions.limit) || callOptions.limit < 1)
@@ -1999,6 +2022,7 @@ export function createSocial(
         account.accountId,
         callOptions?.limit ?? null,
       ]);
+
       const received = await dispatch(
         account.backend,
         callOptions?.signal,
@@ -2028,6 +2052,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<void> {
       validateAccountRef(account, "notifications.seen");
+
       if (
         input === null ||
         typeof input !== "object" ||

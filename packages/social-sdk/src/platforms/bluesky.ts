@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof -- validated external boundary or fixture contract. */
 import { readBinary } from "../transport/binary.js";
 import { remainingBudget } from "../transport/budget.js";
 import {
@@ -339,7 +338,6 @@ function authHeaders(auth: BlueskyAuthorization): HeadersInit {
   return auth.accessJwt === undefined ? {} : { Authorization: `Bearer ${auth.accessJwt}` };
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function operationError(operation: string, error: unknown, mutation = true): SocialError {
   if (error instanceof SocialError) return error;
 
@@ -364,6 +362,7 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
                 : error.status === 429
                   ? "rate_limited"
                   : "upstream_failure";
+
     return new SocialError({
       code,
       operation,
@@ -377,7 +376,6 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
             : !mutation && error.status !== undefined && error.status >= 500
               ? { kind: "after-delay", delayMs: 1000 }
               : { kind: "never" },
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(error.status === undefined ? {} : { upstreamStatus: error.status }),
     });
   }
@@ -391,7 +389,6 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
   });
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function postRef(value: unknown): BlueskyPostRef {
   const record = object(value);
 
@@ -419,7 +416,6 @@ function linkFacets(text: string): readonly JsonObject[] {
   return facets;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function richTextOptions(text: string, options: unknown): JsonObject {
   const invalid = (message: string): never => {
     throw new SocialError({ code: "invalid_input", operation: "bluesky.prepare", message });
@@ -427,11 +423,9 @@ function richTextOptions(text: string, options: unknown): JsonObject {
 
   if (
     options !== undefined &&
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     (options === null || typeof options !== "object" || Array.isArray(options))
   )
     invalid("Bluesky options must be an object.");
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
   const config = (options ?? {}) as JsonObject;
 
   if (Object.keys(config).some((key) => key !== "languages" && key !== "mentions"))
@@ -444,13 +438,11 @@ function richTextOptions(text: string, options: unknown): JsonObject {
     if (
       !Array.isArray(languages) ||
       languages.length > 3 ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       languages.some((value) => typeof value !== "string")
     )
       invalid("Bluesky accepts at most three language tags.");
 
     try {
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       langs = Intl.getCanonicalLocales(languages as string[]);
     } catch {
       invalid("Bluesky languages must be valid BCP 47 tags.");
@@ -465,9 +457,7 @@ function richTextOptions(text: string, options: unknown): JsonObject {
     invalid("Bluesky mentions must be an array of at most 100 DID references.");
   const spans: { start: number; end: number }[] = [];
 
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
   for (const value of mentions as readonly JsonObject[]) {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     if (!value || typeof value !== "object" || Array.isArray(value))
       invalid("Each mention requires UTF-8 offsets and a DID.");
 
@@ -476,9 +466,7 @@ function richTextOptions(text: string, options: unknown): JsonObject {
       did = value["did"];
 
     if (
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       typeof start !== "number" ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       typeof end !== "number" ||
       !Number.isSafeInteger(start) ||
       !Number.isSafeInteger(end) ||
@@ -487,15 +475,12 @@ function richTextOptions(text: string, options: unknown): JsonObject {
       end > bytes.length ||
       (bytes[start]! & 0xc0) === 0x80 ||
       (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       typeof did !== "string" ||
       !/^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(did)
     )
       invalid("Mention offsets must span complete UTF-8 characters and identify a DID.");
 
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     const byteStart = start as number,
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       byteEnd = end as number;
 
     if (!new TextDecoder().decode(bytes.slice(byteStart, byteEnd)).startsWith("@"))
@@ -504,7 +489,6 @@ function richTextOptions(text: string, options: unknown): JsonObject {
     if (
       spans.some((span) => byteStart < span.end && byteEnd > span.start) ||
       facets.some((facet) => {
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         const index = facet["index"] as JsonObject;
 
         return byteStart < Number(index["byteEnd"]) && byteEnd > Number(index["byteStart"]);
@@ -514,47 +498,28 @@ function richTextOptions(text: string, options: unknown): JsonObject {
     spans.push({ start: byteStart, end: byteEnd });
     facets.push({
       index: { byteStart, byteEnd },
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       features: [{ $type: "app.bsky.richtext.facet#mention", did: did as string }],
     });
   }
 
   facets.sort(
     (left, right) =>
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       Number((left["index"] as JsonObject)["byteStart"]) -
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       Number((right["index"] as JsonObject)["byteStart"]),
   );
 
-  // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
   return { ...(langs === undefined ? {} : { langs }), ...(facets.length ? { facets } : {}) };
 }
 
 function graphemeCount(text: string): number {
-  const Segmenter =
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    (
-      Intl as unknown as {
-        readonly Segmenter?: new (
-          locales?: string | string[],
-          options?: { readonly granularity?: "grapheme" | "word" | "sentence" },
-        ) => { segment(value: string): Iterable<unknown> };
-      }
-    ).Segmenter;
+  const Segmenter = (
+    Intl as unknown as {
+      readonly Segmenter?: new (
+        locales?: string | string[],
+        options?: { readonly granularity?: "grapheme" | "word" | "sentence" },
+      ) => { segment(value: string): Iterable<unknown> };
+    }
+  ).Segmenter;
 
   return Segmenter === undefined
     ? Array.from(text).length
@@ -670,7 +635,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           return options.session!.fetchHandler(url.pathname + url.search, init);
         }
       : fetcher,
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
   });
 
@@ -811,14 +775,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       readonly headers?: HeadersInit;
       readonly maxAttempts?: number;
     } = {},
-    // oxlint-disable-next-line anti-slop/no-unknown-returns -- validated boundary or fixture contract.
   ): Promise<unknown> {
     try {
       const headers = new Headers(init.headers);
+
       if (typeof init.body === "string" && !headers.has("Content-Type"))
         headers.set("Content-Type", "application/json");
+
       if (method.startsWith("chat.bsky.") && !headers.has("atproto-proxy"))
         headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
+
       return await http({
         url: endpoint(service, method),
         timeoutMs: remainingBudget(context),
@@ -826,9 +792,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         ...(options.session
           ? { headers }
           : { headers: { ...authHeaders(auth), ...Object.fromEntries(headers.entries()) } }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(init.body === undefined ? {} : { body: init.body }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal === undefined ? {} : { signal: context.signal }),
         maxAttempts:
           init.maxAttempts ??
@@ -861,10 +825,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       });
     }
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     const handle = typeof session["handle"] === "string" ? session["handle"] : undefined;
 
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     return { did, ...(handle === undefined ? {} : { handle }) };
   }
 
@@ -890,12 +852,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
   const pageQuery = (input: BlueskyPageInput): URLSearchParams => {
     const limit = input.limit ?? 50;
+
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       throw new SocialError({
         code: "invalid_input",
         operation: "bluesky.graph.read",
         message: "Page size must be between 1 and 100.",
       });
+
     return new URLSearchParams({
       limit: String(limit),
       ...(input.cursor ? { cursor: input.cursor } : {}),
@@ -905,12 +869,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   const recordKey = (uri: string, collection: string): string => {
     const prefix = `at://${auth.did}/${collection}/`;
     const key = uri.startsWith(prefix) ? uri.slice(prefix.length) : "";
+
     if (!/^[A-Za-z0-9._~:-]{1,512}$/.test(key) || key === "." || key === "..")
       throw new SocialError({
         code: "invalid_input",
         operation: "bluesky.record.delete",
         message: "Record URI must belong to this account.",
       });
+
     return key;
   };
 
@@ -939,7 +905,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Bluesky post was not found.",
         });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(post) as JsonObject;
     },
     async getPostThread(input) {
@@ -951,7 +916,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({ uri: input.uri });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc(`app.bsky.feed.getPostThread?${query.toString()}`, context),
       ) as JsonObject;
@@ -961,6 +925,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.search.posts");
 
       const queryText = input.query.trim();
+
       if (!queryText)
         throw new SocialError({
           code: "invalid_input",
@@ -970,6 +935,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         });
 
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -985,6 +951,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Bluesky search sort must be latest or top.",
           retryDisposition: { kind: "never" },
         });
+
       if (input.scope === "all")
         throw new SocialError({
           code: "invalid_input",
@@ -1000,6 +967,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         });
 
       const query = new URLSearchParams({ q: queryText, limit: String(limit) });
+
       const optional = {
         cursor: input.cursor,
         sort: input.sort,
@@ -1011,30 +979,32 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         domain: input.domain,
         url: input.url,
       } as const;
+
       for (const [key, value] of Object.entries(optional))
         if (value !== undefined && value.trim() !== "") query.set(key, value);
+
       for (const tag of input.tags ?? []) {
         const normalizedTag = tag.trim();
+
         if (normalizedTag) query.append("tag", normalizedTag);
       }
 
       const response = object(await xrpc(`app.bsky.feed.searchPosts?${query}`, context));
+
       const posts = array(response["posts"]).map((post) => {
         const value = object(post);
 
         // The XRPC transport has already decoded a JSON payload; `object` validates
         // the record boundary while the recursive JSON shape is preserved for callers.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion
         return value as JsonObject;
       });
+
       const cursorValue = response["cursor"];
       const hitsTotalValue = response["hitsTotal"];
 
       return {
         posts,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(typeof cursorValue === "string" ? { cursor: cursorValue } : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(typeof hitsTotalValue === "number" && Number.isSafeInteger(hitsTotalValue)
           ? { hitsTotal: hitsTotalValue }
           : {}),
@@ -1089,11 +1059,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         cid = response["cid"];
 
       if (
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         typeof uri !== "string" ||
         !uri.startsWith(prefix) ||
         !/^[A-Za-z0-9._~:-]{1,512}$/.test(uri.slice(prefix.length)) ||
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         typeof cid !== "string" ||
         !cid
       )
@@ -1212,7 +1180,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.follow");
       assertNativeAccount(input.account, context, "bluesky.follow");
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc("com.atproto.repo.createRecord", context, {
           body: JSON.stringify({
@@ -1242,7 +1209,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.block");
       assertNativeAccount(input.account, context, "bluesky.block");
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc("com.atproto.repo.createRecord", context, {
           body: JSON.stringify({
@@ -1288,6 +1254,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.graph.followers");
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
+
       return actorPage(
         object(await xrpc(`app.bsky.graph.getFollowers?${q}`, context)) as JsonObject,
         "followers",
@@ -1298,6 +1265,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.graph.follows");
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
+
       return actorPage(
         object(await xrpc(`app.bsky.graph.getFollows?${q}`, context)) as JsonObject,
         "follows",
@@ -1306,6 +1274,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getMutes(input) {
       const context = nativeContext(input.context, "bluesky.graph.mutes");
       assertNativeAccount(input.account, context, "bluesky.graph.mutes");
+
       return actorPage(
         object(await xrpc(`app.bsky.graph.getMutes?${pageQuery(input)}`, context)) as JsonObject,
         "mutes",
@@ -1314,6 +1283,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getBlocks(input) {
       const context = nativeContext(input.context, "bluesky.graph.blocks");
       assertNativeAccount(input.account, context, "bluesky.graph.blocks");
+
       return actorPage(
         object(await xrpc(`app.bsky.graph.getBlocks?${pageQuery(input)}`, context)) as JsonObject,
         "blocks",
@@ -1324,8 +1294,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.likes.read");
       const q = pageQuery(input);
       q.set("uri", input.uri);
+
       if (input.cid) q.set("cid", input.cid);
       const value = object(await xrpc(`app.bsky.feed.getLikes?${q}`, context));
+
       return {
         likes: array(value["likes"] ?? []).map((entry) => object(entry) as JsonObject),
         ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
@@ -1337,6 +1309,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
       const value = object(await xrpc(`app.bsky.feed.getActorLikes?${q}`, context));
+
       return {
         feed: array(value["feed"] ?? []).map((entry) => object(entry) as JsonObject),
         ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
@@ -1345,6 +1318,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async searchActors(input) {
       const context = nativeContext(input.context, "bluesky.profiles.search");
       assertNativeAccount(input.account, context, "bluesky.profiles.search");
+
       if (!input.query.trim())
         throw new SocialError({
           code: "invalid_input",
@@ -1353,6 +1327,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         });
       const q = pageQuery(input);
       q.set("q", input.query.trim());
+
       return actorPage(
         object(await xrpc(`app.bsky.actor.searchActors?${q}`, context)) as JsonObject,
         "actors",
@@ -1361,6 +1336,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async searchActorsTypeahead(input) {
       const context = nativeContext(input.context, "bluesky.profiles.search");
       assertNativeAccount(input.account, context, "bluesky.profiles.search");
+
       if (!input.query.trim())
         throw new SocialError({
           code: "invalid_input",
@@ -1368,6 +1344,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Actor search query is required.",
         });
       const limit = input.limit ?? 8;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1375,6 +1352,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Page size must be between 1 and 100.",
         });
       const q = new URLSearchParams({ q: input.query.trim(), limit: String(limit) });
+
       return actorPage(
         object(await xrpc(`app.bsky.actor.searchActorsTypeahead?${q}`, context)) as JsonObject,
         "actors",
@@ -1383,6 +1361,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async createList(input) {
       const context = nativeContext(input.context, "bluesky.lists.create");
       assertNativeAccount(input.account, context, "bluesky.lists.create");
+
       const record = {
         $type: "app.bsky.graph.list",
         name: input.name,
@@ -1390,6 +1369,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         createdAt: new Date().toISOString(),
         ...(input.description === undefined ? {} : { description: input.description }),
       } as unknown as JsonObject;
+
       return postRef(
         object(
           await xrpc("com.atproto.repo.createRecord", context, {
@@ -1401,19 +1381,23 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async updateList(input) {
       const context = nativeContext(input.context, "bluesky.lists.update");
       assertNativeAccount(input.account, context, "bluesky.lists.update");
+
       const existing = object(
         await xrpc(
           `com.atproto.repo.getRecord?repo=${encodeURIComponent(auth.did)}&collection=app.bsky.graph.list&rkey=${encodeURIComponent(recordKey(input.listUri, "app.bsky.graph.list"))}`,
           context,
         ),
       );
+
       const record = object(existing["value"]);
+
       const next: JsonObject = {
         ...record,
         name: input.name,
         purpose: input.purpose,
         ...(input.description === undefined ? {} : { description: input.description }),
       };
+
       await xrpc("com.atproto.repo.putRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1437,6 +1421,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async addListItem(input) {
       const context = nativeContext(input.context, "bluesky.lists.items.add");
       assertNativeAccount(input.account, context, "bluesky.lists.items.add");
+
       return postRef(
         object(
           await xrpc("com.atproto.repo.createRecord", context, {
@@ -1470,6 +1455,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.lists.get");
       const q = pageQuery(input);
       q.set("list", input.listUri);
+
       return object(await xrpc(`app.bsky.graph.getList?${q}`, context)) as JsonObject;
     },
     async getLists(input) {
@@ -1477,6 +1463,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.lists.list");
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
+
       return object(await xrpc(`app.bsky.graph.getLists?${q}`, context)) as JsonObject;
     },
     async muteList(input) {
@@ -1521,9 +1508,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           limit: "100",
           ...(cursor === undefined ? {} : { cursor }),
         });
+
         const records = object(
           await xrpc(`com.atproto.repo.listRecords?${query.toString()}`, context),
         );
+
         record = array(records["records"])
           .map((value) => object(value) as JsonObject)
           .find((value) => object(value["value"])["subject"] === input.listUri);
@@ -1547,11 +1536,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async createModerationReport(input) {
       const context = nativeContext(input.context, "bluesky.moderation.report");
       assertNativeAccount(input.account, context, "bluesky.moderation.report");
+
       const body: JsonObject = {
         reasonType: input.reasonType,
         subject: input.subject,
         ...(input.reason === undefined ? {} : { reason: input.reason }),
       };
+
       return object(
         await xrpc("com.atproto.moderation.createReport", context, { body: JSON.stringify(body) }),
       ) as JsonObject;
@@ -1560,6 +1551,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.notifications.list");
       assertNativeAccount(input.account, context, "bluesky.notifications.list");
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1569,11 +1561,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(input.cursor ? { cursor: input.cursor } : {}),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc(`app.bsky.notification.listNotifications?${query}`, context),
       ) as JsonObject;
@@ -1589,7 +1579,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.profile.get");
       assertNativeAccount(input.account, context, "bluesky.profile.get");
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc(
           `app.bsky.actor.getProfile?actor=${encodeURIComponent(input.actor ?? auth.did)}`,
@@ -1613,6 +1602,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.feeds.list");
       assertNativeAccount(input.account, context, "bluesky.feeds.list");
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1622,17 +1612,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(input.cursor ? { cursor: input.cursor } : {}),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(await xrpc(`app.bsky.feed.getSuggestedFeeds?${query}`, context)) as JsonObject;
     },
     async listConversations(input) {
       const context = nativeContext(input.context, "bluesky.chat.list");
       assertNativeAccount(input.account, context, "bluesky.chat.list");
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1642,17 +1631,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(input.cursor ? { cursor: input.cursor } : {}),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(await xrpc(`chat.bsky.convo.listConvos?${query}`, context)) as JsonObject;
     },
     async listMessages(input) {
       const context = nativeContext(input.context, "bluesky.chat.messages");
       assertNativeAccount(input.account, context, "bluesky.chat.messages");
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1662,11 +1650,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(input.cursor ? { cursor: input.cursor } : {}),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc(
           `chat.bsky.convo.getMessages?convoId=${encodeURIComponent(input.conversationId)}&${query}`,
@@ -1685,7 +1671,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Message text is required.",
         });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc("chat.bsky.convo.sendMessage", context, {
           body: JSON.stringify({ convoId: input.conversationId, message: { text: input.text } }),
@@ -1708,8 +1693,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             : {}),
           context,
         });
+
         const actor = object(value) as JsonObject;
         const id = string(actor["did"]);
+
         return {
           ref: profileRef({
             backend,
@@ -1755,10 +1742,12 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
                     ...(input.limit === undefined ? {} : { limit: input.limit }),
                   });
+
         return {
           items: result.actors.map((actor) => {
             const value = object(actor);
             const id = string(value["did"]);
+
             return {
               profile: profileRef({
                 backend,
@@ -1779,14 +1768,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       },
       async follow(target, context): Promise<RelationshipRecord> {
         await native.follow({ account, did: target.profileId, context });
+
         return { profile: target, relationship: "following" };
       },
       async unfollow(target, context): Promise<void> {
         const profile = object(
           await native.getProfile({ account, actor: target.profileId, context }),
         );
+
         const viewer = object(profile["viewer"] ?? {});
         const uri = viewer["following"];
+
         if (typeof uri !== "string" || !uri)
           throw new SocialError({
             code: "invalid_input",
@@ -1797,14 +1789,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       },
       async block(target, context): Promise<RelationshipRecord> {
         await native.block({ account, did: target.profileId, context });
+
         return { profile: target, relationship: "blocked" };
       },
       async unblock(target, context): Promise<void> {
         const profile = object(
           await native.getProfile({ account, actor: target.profileId, context }),
         );
+
         const viewer = object(profile["viewer"] ?? {});
         const uri = viewer["blocking"];
+
         if (typeof uri !== "string" || !uri)
           throw new SocialError({
             code: "invalid_input",
@@ -1815,6 +1810,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       },
       async mute(target, context): Promise<RelationshipRecord> {
         await native.mute({ account, did: target.profileId, context });
+
         return { profile: target, relationship: "muted" };
       },
       async unmute(target, context): Promise<void> {
@@ -1830,7 +1826,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             {
               ref: account,
               displayName: session.handle ?? session.did,
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(session.handle === undefined ? {} : { handle: session.handle }),
               status: "connected",
             },
@@ -1850,7 +1845,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         return {
           ref: account,
           displayName: session.handle ?? session.did,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(session.handle === undefined ? {} : { handle: session.handle }),
           status: "connected",
         };
@@ -1900,25 +1894,24 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const response = await native.listNotifications({
           account,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.limit === undefined ? {} : { limit: input.limit }),
           context,
         });
+
         const values = response["notifications"];
+
         const items =
           values === undefined
             ? []
             : array(values).map((value) => {
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated provider notification object.
                 return object(value) as JsonObject;
               });
+
         const cursor = response["cursor"];
 
         return {
           items,
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
           ...(typeof cursor === "string" ? { nextCursor: cursor } : {}),
         };
       },
@@ -1936,7 +1929,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           });
         await native.markNotificationsSeen({
           account,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.seenAt === undefined ? {} : { seenAt: input.seenAt }),
           context,
         });
@@ -1966,7 +1958,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const query = new URLSearchParams({
           actor: auth.did,
           limit: String(limit),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
         });
 
@@ -1989,7 +1980,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               "indexedAt",
               "labels",
             ]),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(post["author"] === undefined
               ? {}
               : {
@@ -2000,7 +1990,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                     "avatar",
                   ]),
                 }),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(post["record"] === undefined
               ? {}
               : {
@@ -2014,23 +2003,18 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                 }),
           };
 
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
           return {
             post: safePost,
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(entry["reason"] === undefined
               ? {}
               : { reason: publicFields(object(entry["reason"]), ["$type", "by", "indexedAt"]) }),
           } as JsonObject;
         });
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         const cursor = typeof response["cursor"] === "string" ? response["cursor"] : undefined;
 
         return {
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
           items: feed as JsonObject[],
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(cursor === undefined ? {} : { nextCursor: cursor }),
         };
       },
@@ -2098,14 +2082,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           const content = target.content;
           const text = content.text ?? "";
 
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- provider payload is validated at this adapter boundary.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
           const record: Record<string, unknown> = {
             $type: "app.bsky.feed.post",
             text,
@@ -2143,7 +2119,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           }
 
           if (content.media !== undefined && content.media.length > 0) {
-            // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
             const blobs: Record<string, unknown>[] = [];
 
             for (const media of content.media) {
@@ -2151,7 +2126,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
               const blob = object(
                 await xrpc("com.atproto.repo.uploadBlob", context, {
-                  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
                   body: new Blob([source.bytes.slice().buffer as ArrayBuffer], {
                     type: source.mimeType,
                   }),
@@ -2259,7 +2233,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const thread = await native.getPostThread({ uri: post.postId, context });
         const replies = array(object(thread["thread"])["replies"] ?? []);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return { items: replies.map((reply) => object(reply) as JsonObject) };
       },
       async reply(comment, content, context): Promise<CommentRef> {
@@ -2316,7 +2289,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         ] as const) {
           const count = record[field];
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
           if (typeof count === "number" && Number.isFinite(count))
             metrics.push({
               name,
@@ -2359,7 +2331,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             ["posts", profile["postsCount"]],
           ] as const
         ).flatMap(([name, value]) =>
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
           typeof value === "number" && Number.isFinite(value)
             ? [
                 {

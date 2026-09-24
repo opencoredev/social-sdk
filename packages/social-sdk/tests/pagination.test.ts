@@ -109,13 +109,11 @@ test("post feeds bind cursors to account and traverse lazily through the public 
     },
     posts: {
       ...base.posts!,
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       async list(_account: unknown, input: { cursor?: string }) {
         calls++;
 
         return {
           items: [{ postId: input.cursor ? "second" : "first" }],
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor ? {} : { nextCursor: "upstream" }),
         };
       },

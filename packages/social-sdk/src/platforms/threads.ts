@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import {
   connectedAccountRef,
   defineAdapter,
@@ -192,7 +191,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
   const http = managedHttp(`https://graph.threads.net/${version}`, {
     apiKey: auth.accessToken,
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
 
@@ -206,7 +204,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     const query = Object.fromEntries(new URLSearchParams(qs ?? ""));
 
     try {
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await http(
           `/${raw.replace(/^\//, "")}`,
@@ -236,8 +233,10 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       // SAFETY: object() validates each provider data entry as a JSON object.
       return object(entry) as JsonObject;
     });
+
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
+
     // Graph omits paging.next on the last page even when cursors.after is present.
     const nextCursor =
       typeof paging["next"] === "string" && paging["next"].length > 0
@@ -258,22 +257,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     const id = v["id"],
       username = v["username"];
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     if (typeof id !== "string" || id !== auth.userId)
       fail("threads.accounts.read", "Threads returned an unauthorized account.", "unauthorized");
 
     return {
       ref: account,
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       displayName: typeof username === "string" ? username : (auth.handle ?? auth.userId),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
       ...(typeof username === "string" ? { handle: username } : {}),
       status: "connected" as const,
     };
@@ -317,16 +306,13 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     const hasNext = typeof paging["next"] === "string" && paging["next"].length > 0;
 
     const nextCursor =
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       hasNext && typeof cursors["after"] === "string" ? cursors["after"] : undefined;
 
     return {
       items,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(nextCursor === undefined ? {} : { nextCursor }),
     };
   }
@@ -358,7 +344,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     return array(result["data"]).flatMap((entry) => {
       const row = object(entry);
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       const name = typeof row["name"] === "string" ? row["name"] : undefined;
 
       if (name === undefined || !allowed.has(name)) return [];
@@ -399,7 +384,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           value,
           unit: "count" as const,
           period,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(totalValue === undefined && latestEnd !== undefined ? { measuredAt: latestEnd } : {}),
           fetchedAt: now(),
           freshness: "unknown" as const,
@@ -412,7 +396,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   async function status(id: string, c: AdapterOperationContext) {
     return request(
       `${encodeURIComponent(id)}?fields=id,status,error_message`,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       { method: "GET", ...(c.signal ? { signal: c.signal } : {}) },
       "threads.container.status",
       c,
@@ -425,20 +408,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     state: DeliveryOutcome["state"],
     backendState?: string,
   ) =>
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
     ({
       state,
       targetIndex: 0,
       account: a,
       observedAt: now(),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(backendState ? { backendState } : {}),
       delivery: {
         kind: "delivery" as const,
@@ -451,7 +425,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     }) as unknown as DeliveryOutcome;
 
   const terminalFailure = (a: ConnectedAccountRef, id: string, state: string): DeliveryOutcome =>
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     ({
       ...base(a, id, "failed", state),
       code: "media_error",
@@ -465,7 +438,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     c: AdapterOperationContext,
   ): Promise<DeliveryOutcome> {
     if (w.nativeId)
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return {
         ...base(a, w.id, "published", "PUBLISHED"),
         post: platformPostRef({
@@ -477,7 +449,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       } as DeliveryOutcome;
 
     if (w.stage === "unknown")
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return {
         ...base(a, w.id, "unknown", w.backendState),
         reason: "ambiguous-submission",
@@ -495,14 +466,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         ...(item["kind"] === "video"
           ? { video_url: String(item["url"]) }
           : { image_url: String(item["url"]) }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
         ...(typeof item["altText"] === "string" ? { alt_text: item["altText"] } : {}),
       });
 
@@ -510,13 +473,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const child = await request(
         `${a.accountId}/threads?${p}`,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         { method: "POST", ...(c.signal ? { signal: c.signal } : {}) },
         "threads.container.child",
         c,
       );
 
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       if (typeof child["id"] !== "string")
         fail("threads.container.child", "Threads did not return a child container ID.");
       cur = await store.update(cur.id, {
@@ -527,7 +488,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     for (const id of cur.childIds) {
       const s = await status(id, c);
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       const st = typeof s["status"] === "string" ? s["status"] : "";
 
       if (st === "ERROR" || st === "EXPIRED") return terminalFailure(a, w.id, st);
@@ -548,42 +508,16 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             : singleKind === "image"
               ? "IMAGE"
               : "TEXT",
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(cur.childIds.length ? { children: cur.childIds.join(",") } : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
         ...(typeof singleUrl === "string"
           ? singleKind === "video"
             ? { video_url: singleUrl }
             : { image_url: singleUrl }
           : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
         ...(typeof cur.options["_altText"] === "string"
           ? { alt_text: cur.options["_altText"] }
           : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(cur.caption ? { text: cur.caption } : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
         ...(typeof cur.options["replyControl"] === "string"
           ? {
               reply_control:
@@ -594,14 +528,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
                     : "everyone",
             }
           : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
         ...(typeof cur.options["_replyToId"] === "string"
           ? { reply_to_id: cur.options["_replyToId"] }
           : {}),
@@ -613,7 +539,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const parent = await request(
         `${a.accountId}/threads?${p}`,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         { method: "POST", ...(c.signal ? { signal: c.signal } : {}) },
         "threads.container.create",
         c,
@@ -621,7 +546,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const parentId = parent["id"];
 
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       if (typeof parentId !== "string")
         fail("threads.container.create", "Threads did not return a container ID.");
       cur = await store.update(cur.id, { parentId, stage: "parent" });
@@ -631,7 +555,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     if (!parentId) fail("threads.container.create", "Missing parent container ID.");
     const ps = await status(parentId, c);
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
     const pst = typeof ps["status"] === "string" ? ps["status"] : "";
 
     if (pst === "ERROR" || pst === "EXPIRED") return terminalFailure(a, cur.id, pst);
@@ -639,7 +562,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     if (pst === "PUBLISHED") {
       await store.update(cur.id, { stage: "unknown", backendState: "PUBLISHED_WITHOUT_NATIVE_ID" });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return {
         ...base(a, cur.id, "unknown", pst),
         reason: "ambiguous-submission",
@@ -652,7 +574,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     try {
       const pub = await request(
         `${a.accountId}/threads_publish?creation_id=${encodeURIComponent(parentId)}`,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         { method: "POST", ...(c.signal ? { signal: c.signal } : {}) },
         "threads.publish",
         c,
@@ -660,11 +581,9 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const nativeId = pub["id"];
 
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       if (typeof nativeId !== "string") {
         await store.update(cur.id, { stage: "unknown", backendState: "MISSING_ID" });
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return {
           ...base(a, cur.id, "unknown", "MISSING_ID"),
           reason: "ambiguous-submission",
@@ -674,7 +593,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       await store.update(cur.id, { nativeId, stage: "published", backendState: "PUBLISHED" });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return {
         ...base(a, cur.id, "published", "PUBLISHED"),
         post: platformPostRef({
@@ -688,7 +606,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       await store.update(cur.id, { stage: "unknown", backendState: "AMBIGUOUS" });
 
       if (e instanceof SocialError)
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return {
           ...base(a, cur.id, "unknown", "AMBIGUOUS"),
           reason: "ambiguous-submission",
@@ -813,7 +730,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     getPost: (id, c) =>
       request(
         `${encodeURIComponent(id)}?fields=id,text,username,media_type,permalink`,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         { method: "GET", ...(c.signal ? { signal: c.signal } : {}) },
         "threads.posts.get",
         c,
@@ -847,9 +763,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         "threads.posts.quote",
         context,
       );
+
       const creationId = optionalString(container["id"]);
+
       if (creationId === undefined)
         fail("threads.posts.quote", "Threads did not return a quote container ID.");
+
       return request(
         `${encodeURIComponent(account.accountId)}/threads_publish?creation_id=${encodeURIComponent(creationId)}`,
         { method: "POST" },
@@ -892,7 +811,9 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       authorize(account, "threads.search");
 
       const q = query.trim();
+
       if (!q) fail("threads.search", "A search query is required.", "invalid_input");
+
       if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100))
         fail(
           "threads.search",
@@ -904,13 +825,21 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         q,
         fields: "id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post",
       });
+
       if (searchType !== undefined) params.set("search_type", searchType);
+
       if (searchMode !== undefined) params.set("search_mode", searchMode);
+
       if (mediaType !== undefined) params.set("media_type", mediaType);
+
       if (since !== undefined) params.set("since", since);
+
       if (until !== undefined) params.set("until", until);
+
       if (limit !== undefined) params.set("limit", String(limit));
+
       if (authorUsername !== undefined) params.set("author_username", authorUsername);
+
       if (cursor !== undefined) params.set("after", cursor);
 
       return request(
@@ -942,6 +871,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     },
     async hideReply({ account, replyId, hide, context }) {
       authorize(account, "threads.comments.moderate");
+
       return request(
         `${encodeURIComponent(replyId)}/manage_reply?hide=${String(hide)}`,
         { method: "POST" },
@@ -951,6 +881,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     },
     async listConversation({ account, mediaId, cursor, context }) {
       authorize(account, "threads.comments.conversation");
+
       return request(
         `${encodeURIComponent(mediaId)}/conversation?fields=id,text,username,permalink,timestamp,is_reply,hide_status${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`,
         { method: "GET" },
@@ -960,11 +891,15 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     },
     async listPendingReplies({ account, mediaId, cursor, approvalStatus, context }) {
       authorize(account, "threads.comments.pending");
+
       const params = new URLSearchParams({
         fields: "id,text,username,timestamp,is_reply,hide_status,reply_approval_status",
       });
+
       if (cursor !== undefined) params.set("after", cursor);
+
       if (approvalStatus !== undefined) params.set("approval_status", approvalStatus);
+
       return request(
         `${encodeURIComponent(mediaId)}/pending_replies?${params.toString()}`,
         { method: "GET" },
@@ -974,6 +909,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     },
     async managePendingReply({ account, replyId, approve, context }) {
       authorize(account, "threads.comments.moderate");
+
       return request(
         `${encodeURIComponent(replyId)}/manage_pending_reply?approve=${String(approve)}`,
         { method: "POST" },
@@ -999,6 +935,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       async getProfile(account, input, context): Promise<ProfileRecord> {
         authorize(account, "profiles.read");
         let result: JsonObject;
+
         if (input.handle !== undefined) {
           result = await request(
             `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=id,username,name,profile_picture_url,biography,is_verified`,
@@ -1008,6 +945,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           );
         } else {
           const profileId = input.profileId ?? account.accountId;
+
           if (profileId !== account.accountId)
             fail(
               "profiles.read",
@@ -1021,20 +959,26 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             context,
           );
         }
+
         const returnedProfileId = optionalString(result["id"]);
+
         const profileId =
           returnedProfileId ??
           input.profileId ??
           (input.handle ? `lookup:${input.handle}` : undefined);
+
         if (profileId === undefined)
           fail("profiles.read", "Threads profile response did not return a profile ID.");
         const handle = optionalString(result["username"]) ?? input.handle;
         const displayName = optionalString(result["name"]);
+
         const avatarUrl =
           optionalString(result["profile_picture_url"]) ??
           optionalString(result["threads_profile_picture_url"]);
+
         const bio =
           optionalString(result["biography"]) ?? optionalString(result["threads_biography"]);
+
         return {
           ref: profileRef({
             backend,
@@ -1054,15 +998,19 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     search: {
       async posts(account, input: SearchPostsInput, context): Promise<Page<JsonObject>> {
         authorize(account, "search.posts");
+
         if (input.scope === "all")
           fail("search.posts", "Threads search does not support scope 'all'.", "invalid_input");
         const query = input.query.trim();
+
         if (!query) fail("search.posts", "A search query is required.", "invalid_input");
+
         const params = new URLSearchParams({
           q: query,
           fields:
             "id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post",
         });
+
         if (input.limit !== undefined) {
           if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
             fail(
@@ -1072,15 +1020,20 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             );
           params.set("limit", String(input.limit));
         }
+
         if (input.cursor !== undefined) params.set("after", input.cursor);
+
         if (input.startTime !== undefined) params.set("since", input.startTime);
+
         if (input.endTime !== undefined) params.set("until", input.endTime);
+
         const result = await request(
           `keyword_search?${params.toString()}`,
           { method: "GET" },
           "search.posts",
           context,
         );
+
         return pageFrom(result);
       },
     },
@@ -1160,29 +1113,22 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const item = media.length === 1 ? media[0] : undefined;
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         const opts = {
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
           ...(object(target.options ?? {}) as JsonObject),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(target.replyTo ? { _replyToId: target.replyTo.postId } : {}),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(media.length > 1
             ? {
                 _mediaItems: media.map((entry) => ({
                   kind: entry.kind,
                   url: entry.source.kind === "https-url" ? entry.source.url : "",
-                  // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
                   ...(entry.altText ? { altText: entry.altText } : {}),
                 })),
               }
             : {}),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(item?.source.kind === "https-url"
             ? {
                 _mediaKind: item.kind,
                 _mediaUrl: item.source.url,
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
                 ...(item.altText ? { _altText: item.altText } : {}),
               }
             : {}),
@@ -1197,11 +1143,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           stage: "children",
         });
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         if (!(await store.claim(w.id))) return base(target.account, w.id, "processing", "CLAIMED");
+
         try {
           try {
             const outcome = await resume((await store.get(w.id)) ?? w, target.account, context);
+
             return { ...outcome, targetIndex: target.targetIndex } as DeliveryOutcome;
           } catch (error) {
             if (error instanceof SocialError && error.code === "ambiguous_outcome")
@@ -1224,6 +1171,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       },
       async removeFromPlatform(ref, c) {
         authorize(ref, "threads.posts.delete");
+
         return native.deletePost({
           account: accountRef(backend, ref.accountId),
           postId: ref.postId,
@@ -1242,7 +1190,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           );
 
         if (w.nativeId)
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
           return {
             ...base(accountRef(backend, ref.accountId), w.id, "published", "PUBLISHED"),
             post: platformPostRef({
@@ -1254,7 +1201,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           } as DeliveryOutcome;
 
         if (w.stage === "unknown")
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
           return {
             ...base(accountRef(backend, ref.accountId), w.id, "unknown", w.backendState),
             reason: "ambiguous-submission",
@@ -1263,6 +1209,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         if (!(await store.claim(w.id)))
           return base(accountRef(backend, ref.accountId), w.id, "processing", "CLAIMED");
+
         try {
           return await resume((await store.get(w.id)) ?? w, accountRef(backend, ref.accountId), c);
         } finally {
@@ -1281,29 +1228,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           context,
         );
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         const rows = Array.isArray(result["data"]) ? (result["data"] as JsonObject[]) : [];
 
         return {
           items: rows,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
           ...(typeof result["paging"] === "object" &&
           result["paging"] &&
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
           typeof (result["paging"] as JsonObject)["cursors"] === "object" &&
           (result["paging"] as JsonObject)["cursors"] !== null &&
           typeof ((result["paging"] as JsonObject)["cursors"] as JsonObject)["after"] === "string"
@@ -1329,14 +1259,17 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         );
 
         const creationId = optionalString(container["id"]);
+
         if (creationId === undefined)
           fail("threads.comments.reply", "Threads did not return a reply container ID.");
+
         const result = await request(
           `${encodeURIComponent(comment.accountId)}/threads_publish?creation_id=${encodeURIComponent(creationId)}`,
           { method: "POST" },
           "threads.comments.reply",
           context,
         );
+
         return { ...comment, commentId: optionalString(result["id"]) ?? comment.commentId };
       },
     },
@@ -1347,7 +1280,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const r = await request(
           `${encodeURIComponent(post.postId)}/insights?metric=views,likes,replies,reposts,quotes,shares,link_total_values`,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           { method: "GET", ...(c.signal ? { signal: c.signal } : {}) },
           "threads.analytics",
           c,
@@ -1358,7 +1290,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           const first = Array.isArray(row["values"]) ? row["values"][0] : undefined;
 
           const value =
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
             first && typeof first === "object"
               ? optionalNumber(object(first)["value"])
               : optionalNumber(row["value"]);
@@ -1366,7 +1297,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           const rawName = row["name"];
           const name = rawName === "link_total_values" ? "clicks" : rawName;
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
           return value === undefined || typeof name !== "string"
             ? []
             : [

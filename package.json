@@ -13,7 +13,7 @@
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "test:node": "node --import tsx --test packages/social-sdk/tests/*.test.ts",
-    "lint": "turbo run lint && oxlint .",
+    "lint": "turbo run lint && oxlint . && bun scripts/check-lint-policy.ts",
     "format:check": "oxfmt --check .",
     "format:fix": "oxfmt --write .",
     "check": "bun run lint && bun run format:check && bun run check-types && bun run test && bun run rebrand:check",

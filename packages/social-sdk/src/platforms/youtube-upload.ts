@@ -276,7 +276,6 @@ export async function beginYouTubeUpload(
 
 export type YouTubeUploadStatus =
   | { state: "incomplete"; nextByte: number }
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
   | { state: "complete"; video: Record<string, unknown> };
 
 async function statusFrom(response: Response): Promise<YouTubeUploadStatus> {

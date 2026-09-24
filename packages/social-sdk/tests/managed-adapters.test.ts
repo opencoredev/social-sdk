@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
@@ -98,7 +97,6 @@ it("Zernio accounts.get lists accounts and reports an absent account as not_foun
   assert.equal((await adapter.accounts.get(x, context)).ref.accountId, "a1");
   await assert.rejects(
     () => adapter.accounts.get({ ...x, accountId: "missing" }, context),
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- assertion predicate receives the thrown value.
     (error: unknown) => {
       return error instanceof Error && "code" in error && error.code === "not_found";
     },
@@ -149,6 +147,7 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
     apiKey: "test",
     fetch: async (input, init) => {
       const url = new URL(String(input));
+
       if (url.pathname === "/api/v1/inbox/comments/p1") {
         if (init?.method === "POST") {
           assert.deepEqual(JSON.parse(String(init.body)), {
@@ -156,26 +155,33 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
             message: "reply",
             commentId: "c1",
           });
+
           return Response.json({ success: true, data: { commentId: "c2" } });
         }
+
         return Response.json({
           comments: [{ id: "c1", message: "hello" }],
           pagination: { hasMore: false, cursor: "next" },
         });
       }
+
       if (url.pathname === "/api/v1/inbox/conversations")
         return Response.json({
           data: [{ id: "cv1", participantId: "u1" }],
           pagination: { nextCursor: "next" },
         });
       assert.equal(url.pathname, "/api/v1/inbox/conversations/cv1/messages");
+
       if (init?.method === "POST") {
         assert.deepEqual(JSON.parse(String(init.body)), { accountId: "a1", message: "sent" });
+
         return Response.json({ success: true, data: { messageId: "m2" } });
       }
+
       return Response.json({ messages: [{ id: "m1", message: "hi" }] });
     },
   });
+
   const post = { kind: "platform-post" as const, version: 1 as const, ...x, postId: "p1" };
   const comment = await adapter.comments!.list(post, {}, context);
   assert.equal(comment.items[0]?.id, "c1");
@@ -192,11 +198,13 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
   );
   const conversations = await adapter.messages!.listConversations(x, {}, context);
   assert.equal(conversations.items[0]?.id, "cv1");
+
   const messages = await adapter.messages!.listMessages(
     { ...x, kind: "conversation", conversationId: "cv1" },
     {},
     context,
   );
+
   assert.equal(messages.items[0]?.id, "m1");
   assert.deepEqual(
     await adapter.messages!.send(
@@ -440,7 +448,6 @@ it("a lost managed write response remains unknown and is not retried", async () 
 
 for (const provider of ["zernio", "post-for-me"] as const) {
   it(`${provider} preserves explicit TikTok interaction and disclosure choices`, async () => {
-    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
     let payload: Record<string, unknown> = {};
     const make = provider === "zernio" ? zernio : postForMe;
 
@@ -502,31 +509,15 @@ for (const provider of ["zernio", "post-for-me"] as const) {
     await social.posts.publish(request);
 
     if (provider === "zernio") {
-      const native =
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        (payload["platforms"] as { platformSpecificData: Record<string, unknown> }[])[0]!
-          .platformSpecificData;
+      const native = (
+        payload["platforms"] as { platformSpecificData: Record<string, unknown> }[]
+      )[0]!.platformSpecificData;
 
       assert.equal(native["allowDuet"], false);
       assert.equal(native["allowStitch"], true);
       assert.equal(native["isBrandOrganicPost"], true);
       assert.equal(native["videoMadeWithAi"], true);
     } else {
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
       const native = (payload["platform_configurations"] as { tiktok: Record<string, unknown> })
         .tiktok;
 

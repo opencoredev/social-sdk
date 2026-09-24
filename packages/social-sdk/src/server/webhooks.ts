@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- webhook bodies are unknown until validated by the decoder. */
 import { parseJson } from "../transport/json.js";
 import { SocialError } from "../core/errors.js";
 import { array, object, optionalString, string } from "../transport/validation.js";

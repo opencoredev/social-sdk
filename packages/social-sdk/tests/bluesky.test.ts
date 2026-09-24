@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { bluesky } from "../src/platforms/bluesky.js";
@@ -8,7 +7,6 @@ import {
   type PreparedPublishTarget,
 } from "../src/core/index.js";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 function response(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
@@ -27,11 +25,13 @@ function context(): AdapterOperationContext {
 describe("Bluesky adapter", () => {
   it("searches posts with typed filters and preserves pagination metadata", async () => {
     const requests: string[] = [];
+
     const adapter = bluesky({
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async (input) => {
         requests.push(String(input));
+
         return response({
           cursor: "next-cursor",
           hitsTotal: 42,
@@ -39,6 +39,7 @@ describe("Bluesky adapter", () => {
         });
       },
     });
+
     const account = connectedAccountRef({
       backend: "direct",
       platform: "bluesky",
@@ -69,14 +70,17 @@ describe("Bluesky adapter", () => {
 
   it("rejects empty or out-of-range Bluesky search input before network access", async () => {
     let requests = 0;
+
     const adapter = bluesky({
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async () => {
         requests++;
+
         return response({ posts: [] });
       },
     });
+
     const account = connectedAccountRef({
       backend: "direct",
       platform: "bluesky",
@@ -103,7 +107,6 @@ describe("Bluesky adapter", () => {
       fetch: async (input, init) => {
         requests.push({
           url: String(input),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(init?.body === undefined ? {} : { body: String(init.body) }),
           headers: new Headers(init?.headers),
         });
@@ -195,21 +198,12 @@ describe("Bluesky adapter", () => {
   });
 
   it("creates a text post and encodes link facets using UTF-8 byte offsets", async () => {
-    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
     let requestBody: Record<string, unknown> | undefined;
 
     const adapter = bluesky({
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async (_input, init) => {
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
         requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
 
         return response({ uri: "at://did:plc:test/app.bsky.feed.post/one", cid: "bafyreione" });
@@ -232,7 +226,6 @@ describe("Bluesky adapter", () => {
     const outcome = await adapter.posts?.publishTarget(target, context());
     assert.equal(outcome?.state, "published");
 
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     const record = requestBody?.record as {
       facets?: readonly { index: { byteStart: number; byteEnd: number } }[];
     };
@@ -311,7 +304,6 @@ describe("Bluesky adapter", () => {
         targetKey: "reply",
         account,
         content: { text: "Reply" },
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(first?.state === "published" ? { replyTo: first.post } : {}),
       },
       context(),
@@ -496,21 +488,23 @@ it("serializes language tags and explicit DID mentions at UTF-8 boundaries witho
 
 it("exposes Bluesky notifications through the normalized paged adapter", async () => {
   const requests: Array<{ url: string; body?: string }> = [];
+
   const adapter = bluesky({
     backend: "direct",
     auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
     fetch: async (input, init) => {
       requests.push({
         url: String(input),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(init?.body === undefined ? {} : { body: String(init.body) }),
       });
+
       return response({
         cursor: "next",
         notifications: [{ reason: "like", author: { did: "did:plc:author" } }],
       });
     },
   });
+
   const account = connectedAccountRef({
     backend: "direct",
     platform: "bluesky",

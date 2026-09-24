@@ -1,7 +1,5 @@
 import type { DeliveryOutcome } from "./types.js";
 
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening -- This module is the deliberate JSON boundary for arbitrary caller payloads. */
-
 export interface IdempotencyClaimInput {
   readonly scope: string;
   readonly key: string;

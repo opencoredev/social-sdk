@@ -19,7 +19,6 @@ function delivery(context: OutcomeContext, deliveryId: string): DeliveryRef {
 }
 
 /** Never infer destination success from the aggregate HTTP/parent status. */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
 export function zernioOutcome(value: unknown, context: OutcomeContext): DeliveryOutcome {
   const response = object(value);
   const post = object(response["post"] ?? response["existingPost"] ?? response);
@@ -29,11 +28,9 @@ export function zernioOutcome(value: unknown, context: OutcomeContext): Delivery
 
   const matches = entries.filter((entry) => {
     const accountId =
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
       typeof entry["accountId"] === "string"
         ? entry["accountId"]
-        : // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-          entry["accountId"] && typeof entry["accountId"] === "object"
+        : entry["accountId"] && typeof entry["accountId"] === "object"
           ? optionalString(object(entry["accountId"])["_id"])
           : undefined;
 
@@ -127,9 +124,7 @@ export function zernioOutcome(value: unknown, context: OutcomeContext): Delivery
 }
 
 export function postForMeOutcome(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
   parentValue: unknown,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
   resultsValue: unknown | undefined,
   context: OutcomeContext,
 ): DeliveryOutcome {

@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/no-unknown-parameters -- adapter fixture assertions validate the error boundary. */
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import {
@@ -10,6 +9,7 @@ import {
 } from "../src/index.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "me" });
+
 const target = profileRef({ ...account, profileId: "someone" });
 
 function adapter(): SocialAdapter {
@@ -25,6 +25,7 @@ function adapter(): SocialAdapter {
       { operation: "graph.unfollow", platform: "x", availability: "available" },
     ],
   };
+
   return {
     id: "graph-test",
     capabilities,

@@ -40,7 +40,6 @@ export function managedLifecycle(
     ref: ScopedRef,
     id: string,
     context: AdapterOperationContext,
-    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- provider payload is validated at this adapter boundary.
   ): Promise<Record<string, unknown>> {
     accountMatches(ref, context);
 
@@ -59,7 +58,6 @@ export function managedLifecycle(
       reject("This operation requires a backend record with exactly one destination.");
     const entry = entries[0]!;
     const rawId = provider === "zernio" ? entry["accountId"] : entry["id"];
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
     const accountId = typeof rawId === "string" ? rawId : object(rawId)["_id"];
     const platform = entry["platform"] === "twitter" ? "x" : entry["platform"];
 
@@ -94,7 +92,6 @@ export function managedLifecycle(
 
       if (
         record["status"] !== "scheduled" ||
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
         typeof scheduledAt !== "string" ||
         !Number.isFinite(Date.parse(scheduledAt)) ||
         Date.parse(scheduledAt) <= Date.parse(now())
@@ -110,7 +107,6 @@ export function managedLifecycle(
       }
 
       // A missing/null scheduled_at means publish immediately. Keep the timestamp.
-      // oxlint-disable-next-line anti-slop/no-known-value-widening -- provider payload is validated at this adapter boundary.
       const body: Record<string, import("../core/types.js").JsonValue> = {
         caption: string(record["caption"]),
         social_accounts: [ref.accountId],
@@ -125,7 +121,6 @@ export function managedLifecycle(
         "external_id",
       ]) {
         if (record[key] !== undefined && record[key] !== null)
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
           body[key] = record[key] as JsonObject;
       }
 
@@ -147,7 +142,6 @@ export function managedLifecycle(
         );
       await deleteRecord(ref.recordId, context);
     },
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
     ...(provider === "zernio"
       ? {
           async removeFromPlatform(

@@ -13,7 +13,6 @@ const context = (backend: string): AdapterOperationContext => ({
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const json = (value: unknown) =>
   new Response(JSON.stringify(value), {
     status: 200,

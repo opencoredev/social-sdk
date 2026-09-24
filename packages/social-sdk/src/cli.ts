@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- CLI JSON is parsed and validated at its input boundary. */
 import { realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { pathToFileURL } from "node:url";

@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- compact mocked-fetch fixtures keep request assertions local. */
 import { strict as assert } from "node:assert";
 import { it } from "node:test";
 import {
@@ -93,10 +92,12 @@ it("validates professional-account media and publishes an image container", asyn
 
 it("normalizes the authorized Instagram profile without a selector", async () => {
   const calls: string[] = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     fetch: async (input) => {
       calls.push(String(input));
+
       return new Response(
         JSON.stringify({
           id: "ig1",
@@ -108,6 +109,7 @@ it("normalizes the authorized Instagram profile without a selector", async () =>
       );
     },
   });
+
   const account = connectedAccountRef({
     backend: "default",
     platform: "instagram",
@@ -124,14 +126,18 @@ it("normalizes the authorized Instagram profile without a selector", async () =>
 
 it("uses Facebook Login business discovery for handle profiles", async () => {
   const calls: string[] = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async (input) => {
       calls.push(String(input));
+
       return new Response(JSON.stringify({ business_discovery: { id: "ig2", username: "other" } }));
     },
   });
+
   const social = createSocial({ backend: adapter });
+
   const account = connectedAccountRef({
     backend: "default",
     platform: "instagram",
@@ -155,11 +161,13 @@ it("makes mentions an alias for the paginated tags reader", async () => {
         }),
       ),
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
     accountId: "ig1",
   });
+
   const result = await adapter.native?.mentions({ account, context: context() });
   assert.deepEqual(result, { items: [{ id: "media1" }], nextCursor: "next" });
 });
@@ -172,11 +180,13 @@ it("stops paginating when Graph omits paging.next", async () => {
         JSON.stringify({ data: [{ id: "media1" }], paging: { cursors: { after: "last" } } }),
       ),
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
     accountId: "ig1",
   });
+
   const result = await adapter.native?.mentions({ account, context: context() });
   assert.deepEqual(result, { items: [{ id: "media1" }] });
 });
@@ -328,6 +338,7 @@ it("reconstructs a carousel workflow and resumes without recreating children", a
     },
     context(),
   );
+
   assert.equal(resumed?.state, "published");
   assert.equal(calls.filter((x) => x.includes("POST") && x.endsWith("/media")).length, 3);
 });
@@ -336,22 +347,28 @@ it("polls a single video workflow through getDelivery and publishes after FINISH
   const store = new TestWorkflowStore();
   let statusCode = "IN_PROGRESS";
   const calls: Array<{ method: string; body: string }> = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     workflowStore: store,
     fetch: async (input, init) => {
       calls.push({ method: init?.method ?? "GET", body: String(init?.body ?? "") });
+
       if (init?.method === "POST" && String(input).endsWith("/media"))
         return new Response(JSON.stringify({ id: "video-container" }));
+
       if (init?.method === "POST") return new Response(JSON.stringify({ id: "published-media" }));
+
       return new Response(JSON.stringify({ status_code: statusCode }));
     },
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
     accountId: "ig1",
   });
+
   const pending = await adapter.posts?.publishTarget(
     target(account, [
       {
@@ -364,15 +381,18 @@ it("polls a single video workflow through getDelivery and publishes after FINISH
     ]),
     context(),
   );
+
   const deliveryId = pending?.delivery?.deliveryId;
   assert.equal(pending?.state, "processing");
   assert.ok(deliveryId);
   assert.equal(deliveryId, [...store.rows.keys()][0]);
   statusCode = "FINISHED";
+
   const result = await adapter.posts?.getDelivery(
     { backend: "instagram", platform: "instagram", accountId: "ig1", deliveryId },
     context(),
   );
+
   assert.equal(result?.state, "published");
   assert.equal(result?.post?.postId, "published-media");
   assert.ok(
@@ -514,13 +534,16 @@ it("keeps an ambiguous marker when persistence fails after accepted publish", as
 
 it("moderates comments, toggles media comments, and deletes comments with Graph mutations", async () => {
   const calls: Array<{ method: string; url: URL }> = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     fetch: async (input, init) => {
       calls.push({ method: init?.method ?? "GET", url: new URL(String(input)) });
+
       return new Response(JSON.stringify({ success: true }));
     },
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
@@ -560,11 +583,13 @@ it("moderates comments, toggles media comments, and deletes comments with Graph 
 
 it("lists comment replies across cursors and keeps an empty page empty", async () => {
   const urls: URL[] = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     fetch: async (input) => {
       const url = new URL(String(input));
       urls.push(url);
+
       return urls.length === 1
         ? new Response(
             JSON.stringify({
@@ -578,6 +603,7 @@ it("lists comment replies across cursors and keeps an empty page empty", async (
         : new Response(JSON.stringify({ data: [] }));
     },
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
@@ -590,6 +616,7 @@ it("lists comment replies across cursors and keeps an empty page empty", async (
     limit: 10,
     context: context(),
   });
+
   const second = await adapter.native?.listCommentReplies({
     account,
     commentId: "comment-1",
@@ -606,11 +633,13 @@ it("lists comment replies across cursors and keeps an empty page empty", async (
 
 it("lists tagged media mentions with cursor pagination and handles an empty data array", async () => {
   const urls: URL[] = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async (input) => {
       const url = new URL(String(input));
       urls.push(url);
+
       return urls.length === 1
         ? new Response(
             JSON.stringify({
@@ -624,6 +653,7 @@ it("lists tagged media mentions with cursor pagination and handles an empty data
         : new Response(JSON.stringify({ data: [] }));
     },
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
@@ -635,6 +665,7 @@ it("lists tagged media mentions with cursor pagination and handles an empty data
     limit: 5,
     context: context(),
   });
+
   const second = await adapter.native?.listTaggedMedia({
     account,
     cursor: first?.nextCursor,
@@ -656,6 +687,7 @@ it("requires Facebook Login for business discovery and specific mention lookups"
     platform: "instagram",
     accountId: "ig1",
   });
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     fetch: async () => new Response(JSON.stringify({ data: [] })),
@@ -678,13 +710,16 @@ it("requires Facebook Login for business discovery and specific mention lookups"
 
 it("uses ID-scoped field expansions for Facebook mention lookups", async () => {
   const urls: URL[] = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async (input) => {
       urls.push(new URL(String(input)));
+
       return new Response(JSON.stringify({ mentioned_media: { id: "media-1" }, id: "ig1" }));
     },
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
@@ -703,19 +738,24 @@ it("uses ID-scoped field expansions for Facebook mention lookups", async () => {
 
 it("rejects tags mentions with Instagram Login through the public native facade", async () => {
   let requests = 0;
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     fetch: async (_input) => {
       requests++;
+
       return new Response(JSON.stringify({ data: [{ id: "mention-1" }] }));
     },
   });
+
   const social = createSocial({ backend: adapter });
+
   const account = connectedAccountRef({
     backend: "default",
     platform: "instagram",
     accountId: "ig1",
   });
+
   const native = social.native("default", { acknowledgeUnsafe: true });
   await assert.rejects(
     () => native?.listMentions({ account, context: context("default") }),
@@ -726,21 +766,26 @@ it("rejects tags mentions with Instagram Login through the public native facade"
 
 it("uses user_id for an Instagram Login own-profile response", async () => {
   let url: URL | undefined;
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "user-1" },
     fetch: async (input) => {
       url = new URL(String(input));
+
       return new Response(
         JSON.stringify({ user_id: "user-1", id: "app-scoped", username: "owner", name: "Owner" }),
       );
     },
   });
+
   const social = createSocial({ backend: adapter });
+
   const account = connectedAccountRef({
     backend: "default",
     platform: "instagram",
     accountId: "user-1",
   });
+
   const profile = await social.graph.getProfile(account, {});
   assert.equal(profile.ref.profileId, "user-1");
   assert.match(url?.searchParams.get("fields") ?? "", /user_id/);
@@ -751,12 +796,15 @@ it("searches hashtags, validates identifiers, and rejects empty names", async ()
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async () => new Response(JSON.stringify({ data: [{ id: "tag-1" }] })),
   });
+
   const social = createSocial({ backend: adapter });
+
   const account = connectedAccountRef({
     backend: "default",
     platform: "instagram",
     accountId: "ig1",
   });
+
   const native = social.native("default", { acknowledgeUnsafe: true });
   assert.deepEqual(
     await native?.hashtagSearch({ account, hashtag: "#coffee", context: context("default") }),
@@ -773,11 +821,13 @@ it("maps malformed Instagram responses to an upstream SocialError", async () => 
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async () => new Response(JSON.stringify(null)),
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
     accountId: "ig1",
   });
+
   await assert.rejects(
     () => adapter.native?.listMentions({ account, context: context("instagram") }),
     { code: "upstream_failure" },

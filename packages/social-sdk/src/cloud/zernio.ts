@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-runtime-typeof -- validated external boundary or fixture contract. */
 import { managedLifecycle } from "./lifecycle.js";
 import { managedMedia } from "./media.js";
 
@@ -52,7 +51,6 @@ export function zernio(options: ManagedOptions) {
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
   const account = (value: unknown, backend: string): AccountRecord => {
     const row = object(value);
     const handle = optionalString(row["username"]);
@@ -66,7 +64,6 @@ export function zernio(options: ManagedOptions) {
         accountId: string(row["_id"]),
       },
       displayName: optionalString(row["displayName"]) ?? handle ?? string(row["_id"]),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
       ...(handle ? { handle } : {}),
       status:
         row["isActive"] === true
@@ -77,7 +74,6 @@ export function zernio(options: ManagedOptions) {
     };
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated by account at this boundary.
   const supportedAccount = (value: unknown, backend: string): AccountRecord | undefined => {
     try {
       return account(value, backend);
@@ -190,7 +186,6 @@ export function zernio(options: ManagedOptions) {
 
             return parsed ? [parsed] : [];
           }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
           ...(pages !== undefined && page < pages ? { nextCursor: String(page + 1) } : {}),
         };
       },
@@ -290,11 +285,9 @@ export function zernio(options: ManagedOptions) {
               const value = item["accountId"];
 
               const id =
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
                 typeof value === "string"
                   ? value
-                  : // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-                    value && typeof value === "object"
+                  : value && typeof value === "object"
                     ? object(value)["_id"]
                     : undefined;
 
@@ -308,33 +301,16 @@ export function zernio(options: ManagedOptions) {
             if (destination === undefined) return [];
 
             const platformPostId =
-              // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
               typeof destination["platformPostId"] === "string"
                 ? destination["platformPostId"]
                 : undefined;
 
             return [
-              // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
               {
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
                 ...(typeof row["_id"] === "string" ? { backendPostId: row["_id"] } : {}),
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
                 ...(platformPostId === undefined ? {} : { platformPostId }),
                 platform: account.platform,
                 accountId: account.accountId,
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
                 ...(typeof destination["platformPostUrl"] === "string"
                   ? { platformPostUrl: destination["platformPostUrl"] }
                   : {}),
@@ -357,9 +333,7 @@ export function zernio(options: ManagedOptions) {
           optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
 
         return {
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
           items: rows as JsonObject[],
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
           ...(totalPages !== undefined && page < totalPages
             ? { nextCursor: String(page + 1) }
             : {}),
@@ -396,9 +370,7 @@ export function zernio(options: ManagedOptions) {
           media.push({
             type: item.kind,
             url: await mediaPipeline.resolve(item, target.account, context),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
             ...(item.altText === undefined ? {} : { altText: item.altText }),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
             ...(item.mimeType === undefined ? {} : { mimeType: item.mimeType }),
           });
         const config = optionsObject(target);
@@ -408,12 +380,10 @@ export function zernio(options: ManagedOptions) {
           native["title"] = string(config["title"]);
           native["visibility"] = string(config["visibility"]);
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
           if (typeof config["madeForKids"] === "boolean")
             native["madeForKids"] = config["madeForKids"];
         }
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
         if (target.account.platform === "instagram" && typeof config["shareToFeed"] === "boolean")
           native["shareToFeed"] = config["shareToFeed"];
 
@@ -431,22 +401,16 @@ export function zernio(options: ManagedOptions) {
           native["autoAddMusic"] = false;
           native["allowDuet"] = !config["disableDuet"];
           native["allowStitch"] = !config["disableStitch"];
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
           native["isBrandOrganicPost"] = config["ownBrand"] as boolean;
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
           native["videoMadeWithAi"] = config["aiGenerated"] as boolean;
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
           native["draft"] = config["draft"] as boolean;
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
           if (typeof config["photoCoverIndex"] === "number")
             native["photoCoverIndex"] = config["photoCoverIndex"];
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
           if (typeof config["disableComments"] === "boolean")
             native["allowComment"] = !config["disableComments"];
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
           if (typeof config["brandedContent"] === "boolean")
             native["brandPartnerPromote"] = config["brandedContent"];
         }
@@ -458,14 +422,12 @@ export function zernio(options: ManagedOptions) {
             {
               platform: target.account.platform === "x" ? "twitter" : target.account.platform,
               accountId: target.account.accountId,
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
               ...(Object.keys(native).length ? { platformSpecificData: native } : {}),
             },
           ],
           ...(target.schedule
             ? {
                 scheduledFor: target.schedule.at,
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
                 ...(target.schedule.timeZone ? { timezone: target.schedule.timeZone } : {}),
               }
             : { publishNow: true }),
@@ -621,7 +583,6 @@ export function zernio(options: ManagedOptions) {
             {
               accountId: ref.accountId,
               limit: String(limit),
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
               ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
             },
           ),
@@ -648,7 +609,6 @@ export function zernio(options: ManagedOptions) {
               "canHide",
             ]),
           ),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
           ...(hasMore === false || !cursor ? {} : { nextCursor: cursor }),
         };
       },
@@ -697,7 +657,6 @@ export function zernio(options: ManagedOptions) {
           await request("/v1/inbox/conversations", context, undefined, {
             accountId: ref.accountId,
             limit: String(limit),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
             ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
           }),
         );
@@ -718,7 +677,6 @@ export function zernio(options: ManagedOptions) {
               "unreadCount",
             ]),
           ),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
           ...(cursor ? { nextCursor: cursor } : {}),
         };
       },
@@ -745,7 +703,6 @@ export function zernio(options: ManagedOptions) {
             {
               accountId: ref.accountId,
               limit: String(limit),
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
               ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
             },
           ),
@@ -766,7 +723,6 @@ export function zernio(options: ManagedOptions) {
               "deliveryStatus",
             ]),
           ),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
           ...(cursor ? { nextCursor: cursor } : {}),
         };
       },
@@ -794,7 +750,6 @@ export function zernio(options: ManagedOptions) {
         const data = object(result["data"]);
         const messageId = optionalString(data["messageId"]);
 
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
         return { state: "sent", ...(messageId ? { messageId } : {}) };
       },
     },
@@ -833,13 +788,6 @@ export function zernio(options: ManagedOptions) {
 
         return {
           url: string(response["authUrl"]),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
           ...(typeof response["state"] === "string" ? { providerState: response["state"] } : {}),
         };
       },

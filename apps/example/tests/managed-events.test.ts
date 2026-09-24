@@ -6,7 +6,6 @@ import { postForMe } from "@opencoredev/social-sdk/cloud/post-for-me";
 import { createExampleHandler } from "../src/app.js";
 import { openExampleDatabase } from "../src/storage.js";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const request = (path: string, value: unknown, headers: Record<string, string> = {}) =>
   new Request(`http://localhost:3030${path}`, {
     method: "POST",
@@ -18,7 +17,6 @@ const publication = { accountIds: ["a"], text: "hello", idempotencyKey: "intent"
 
 const session = { principal: "user", tenantId: "tenant" };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const membership = (_session: unknown, id: string) => id === "a";
 
 test("Zernio event survives restart, uses saved delivery, quarantines unknown mapping and preserves removal reports", async () => {
@@ -46,7 +44,6 @@ test("Zernio event survives restart, uses saved delivery, quarantines unknown ma
               platform: "threads",
               accountId: "a",
               status: published ? "published" : "processing",
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(published ? { platformPostId: "native" } : {}),
             },
           ],
@@ -66,7 +63,6 @@ test("Zernio event survives restart, uses saved delivery, quarantines unknown ma
     account: { accountId: "a" },
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
   const send = (value: unknown) =>
     request("/api/events", value, {
       "X-Zernio-Signature": createHmac("sha256", "secret")

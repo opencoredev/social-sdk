@@ -231,7 +231,6 @@ it("quarantines partially mapped and cross-tenant payloads instead of exposing o
 });
 
 it("maps documented provider record IDs and keeps backend deletion distinct from native removal", async () => {
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
   const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
 
   const zernio = await decodeWebhook({

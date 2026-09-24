@@ -44,7 +44,6 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
     resolve = next;
   });
 
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
   return { promise, resolve };
 }
 
@@ -190,7 +189,6 @@ test("queue overflow rejects before the adapter is called", async () => {
   await eventually(() => state.calls === 1);
   await assert.rejects(
     social.accounts.get(account("default", "account-2")),
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) => error instanceof SocialError && error.code === "rate_limited",
   );
   assert.equal(state.calls, 1);
@@ -220,7 +218,6 @@ test("cancelling a queued call frees its queue slot", async () => {
   controller.abort();
   await assert.rejects(
     cancelled,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     (error: unknown) => error instanceof SocialError && error.code === "cancelled",
   );
   const third = social.accounts.get(account("default", "account-3"));

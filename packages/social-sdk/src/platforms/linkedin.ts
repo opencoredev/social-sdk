@@ -17,8 +17,6 @@ import { array, object, string, optionalString, optionalNumber } from "../transp
 import { upload } from "../transport/upload.js";
 import { publicFields } from "../cloud/common.js";
 
-/* oxlint-disable anti-slop/require-readable-spacing -- Existing adapter style keeps compact guards and native dispatch blocks. */
-
 export interface LinkedInOptions {
   readonly auth: {
     readonly accessToken: string;
@@ -195,11 +193,8 @@ export function linkedin(
           ...extraHeaders,
         },
         method,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal ? { signal: context.signal } : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(selectedHeaders ? { responseHeaders: selectedHeaders } : {}),
         maxAttempts: method === "GET" ? Math.min(5, context.retryBudget.maxAttempts) : 1,
       });
@@ -307,15 +302,12 @@ export function linkedin(
       url: string(initialized["uploadUrl"]),
       source: {
         mimeType: media.mimeType!,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(size === undefined ? {} : { size }),
         open: source.kind === "blob" ? () => source.blob.stream() : source.open,
       },
       allowHost: (host) => host === "www.linkedin.com",
       maxBytes: 20 * 1024 * 1024,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(options.fetch ? { fetch: options.fetch } : {}),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(context.signal ? { signal: context.signal } : {}),
     });
 
@@ -329,13 +321,13 @@ export function linkedin(
     };
   }
 
-  /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing -- These helpers normalize documented LinkedIn response facets at the transport boundary. */
   const organizationOnly = (
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
     operation: string,
   ) => {
     authorize(account, context);
+
     if (!account.accountId.startsWith("urn:li:organization:"))
       throw new SocialError({
         code: "unsupported_capability",
@@ -352,6 +344,7 @@ export function linkedin(
     interval?: LinkedInTimeInterval,
   ) => {
     const params = [`q=${finder}`, `${finder}=${encodeURIComponent(account.accountId)}`];
+
     if (interval) {
       if (
         interval.start !== undefined &&
@@ -362,12 +355,14 @@ export function linkedin(
           operation: "analytics.organization.read",
           message: "Interval start must be a nonnegative epoch-millisecond integer.",
         });
+
       if (interval.end !== undefined && (!Number.isSafeInteger(interval.end) || interval.end < 0))
         throw new SocialError({
           code: "invalid_input",
           operation: "analytics.organization.read",
           message: "Interval end must be a nonnegative epoch-millisecond integer.",
         });
+
       if (
         interval.start !== undefined &&
         interval.end !== undefined &&
@@ -378,17 +373,21 @@ export function linkedin(
           operation: "analytics.organization.read",
           message: "Interval end must be after interval start.",
         });
+
       if (interval.start === undefined)
         throw new SocialError({
           code: "invalid_input",
           operation: "analytics.organization.read",
           message: "Interval start is required for time-bound organization statistics.",
         });
+
       const rangeParts = [
         `start:${interval.start}`,
         ...(interval.end === undefined ? [] : [`end:${interval.end}`]),
       ];
+
       const range = `(timeRange:(${rangeParts.join(",")}),timeGranularityType:${interval.granularity})`;
+
       if (!["DAY", "WEEK", "MONTH"].includes(interval.granularity))
         throw new SocialError({
           code: "invalid_input",
@@ -397,29 +396,36 @@ export function linkedin(
         });
       params.push(`timeIntervals=${range}`);
     }
+
     return `${path}?${params.join("&")}`;
   };
 
   const numberMap = (value: unknown): Readonly<Record<string, number>> => {
     const row = value === undefined ? {} : object(value);
     const output: Record<string, number> = {};
+
     for (const [key, item] of Object.entries(row)) {
       const number = optionalNumber(item);
+
       if (number !== undefined) output[key] = number;
       else if (item !== null && typeof item === "object" && !Array.isArray(item)) {
         const nestedObject = object(item);
+
         const nested = ["pageViews", "uniquePageViews", "clicks", "count"]
           .map((name) => optionalNumber(nestedObject[name]))
           .find((candidate) => candidate !== undefined);
+
         if (nested !== undefined) output[key] = nested;
         else {
           for (const [nestedKey, nestedValue] of Object.entries(nestedObject)) {
             const nestedNumber = optionalNumber(nestedValue);
+
             if (nestedNumber !== undefined) output[`${key}.${nestedKey}`] = nestedNumber;
           }
         }
       }
     }
+
     return output;
   };
 
@@ -433,12 +439,16 @@ export function linkedin(
       ["staffCountRange", "followerCountsByStaffCountRange", "staffCountRange"],
       ["associationType", "followerCountsByAssociationType", "associationType"],
     ] as const;
+
     const output: LinkedInFollowerBreakdown[] = [];
+
     for (const [dimension, field, key] of dimensions) {
       if (row[field] === undefined) continue;
+
       for (const value of array(row[field])) {
         const item = object(value);
         const label = optionalString(item[key]);
+
         if (!label) continue;
         const counts = item["followerCounts"] === undefined ? {} : object(item["followerCounts"]);
         output.push({
@@ -453,6 +463,7 @@ export function linkedin(
         });
       }
     }
+
     return output;
   };
 
@@ -465,11 +476,13 @@ export function linkedin(
     const start = optionalNumber(range["start"]);
     const end = optionalNumber(range["end"]);
     const granularity = requestedGranularity ?? optionalString(row["timeGranularityType"]);
+
     if (
       (granularity !== "DAY" && granularity !== "WEEK" && granularity !== "MONTH") ||
       (start === undefined && end === undefined)
     )
       return undefined;
+
     return {
       granularity,
       ...(start === undefined ? {} : { start }),
@@ -484,6 +497,7 @@ export function linkedin(
     array(result["elements"]).map((value) => {
       const row = object(value);
       const gains = row["followerGains"] === undefined ? {} : object(row["followerGains"]);
+
       return {
         organization: string(row["organizationalEntity"]),
         ...(parseInterval(row, requestedGranularity) === undefined
@@ -501,6 +515,7 @@ export function linkedin(
 
   const pageBreakdowns = (row: Record<string, unknown>) => {
     const output: LinkedInPageStatistics["breakdowns"] = [];
+
     for (const [field, dimension, key] of [
       ["pageStatisticsByFunction", "function", "function"],
       ["pageStatisticsBySeniority", "seniority", "seniority"],
@@ -511,9 +526,11 @@ export function linkedin(
       ["pageStatisticsByStaffCountRange", "staffCountRange", "staffCountRange"],
     ] as const) {
       if (row[field] === undefined) continue;
+
       for (const value of array(row[field])) {
         const item = object(value);
         const label = optionalString(item[key]);
+
         if (!label) continue;
         const stats = item["pageStatistics"] === undefined ? {} : object(item["pageStatistics"]);
         const views = stats["views"] === undefined ? {} : object(stats["views"]);
@@ -526,6 +543,7 @@ export function linkedin(
         });
       }
     }
+
     return output;
   };
 
@@ -535,8 +553,10 @@ export function linkedin(
   ): LinkedInPageStatistics[] =>
     array(result["elements"]).map((value) => {
       const row = object(value);
+
       const total =
         row["totalPageStatistics"] === undefined ? {} : object(row["totalPageStatistics"]);
+
       return {
         organization: string(row["organization"]),
         ...(parseInterval(row, requestedGranularity) === undefined
@@ -554,6 +574,7 @@ export function linkedin(
   ): LinkedInShareStatistics[] =>
     array(result["elements"]).map((value) => {
       const row = object(value);
+
       return {
         organization: string(row["organizationalEntity"]),
         ...(parseInterval(row, requestedGranularity) === undefined
@@ -562,8 +583,6 @@ export function linkedin(
         metrics: numberMap(row["totalShareStatistics"]),
       };
     });
-
-  /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof */
 
   return defineAdapter({
     id: "linkedin",
@@ -767,6 +786,7 @@ export function linkedin(
           authorize(media.source.ref, context);
 
           let image: JsonObject | undefined;
+
           try {
             // SAFETY: object() validates the upstream response as a JSON object.
             image = object(
@@ -800,7 +820,6 @@ export function linkedin(
           content = {
             media: {
               id: media.source.ref.mediaId,
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(media.altText ? { altText: media.altText } : {}),
             },
           };
@@ -821,7 +840,6 @@ export function linkedin(
               },
               lifecycleState: "PUBLISHED",
               isReshareDisabledByAuthor: false,
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(content ? { content } : {}),
             },
             ["x-restli-id"],
@@ -926,7 +944,6 @@ export function linkedin(
 
         return {
           items,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
             ? { nextCursor: String(start + items.length) }
             : {}),
@@ -991,7 +1008,6 @@ export function linkedin(
             ? String(start + items.length)
             : undefined;
 
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         return { items, ...(next === undefined ? {} : { nextCursor: next }) };
       },
       async reply(
@@ -1030,6 +1046,7 @@ export function linkedin(
           });
 
         const parentObject = optionalString(parent["object"]);
+
         if (
           parentObject !== undefined &&
           parentObject !== ref.postId &&
@@ -1199,7 +1216,9 @@ export function linkedin(
             ["x-restli-id"],
           ),
         );
+
         const id = optionalString(object(result["headers"])["x-restli-id"]);
+
         // SAFETY: result is validated as a JSON object and id is a JSON string.
         return (id === undefined ? result : { ...result, id }) as JsonObject;
       },
@@ -1232,14 +1251,15 @@ export function linkedin(
             ["x-restli-id"],
           ),
         );
+
         const id = optionalString(object(result["headers"])["x-restli-id"]);
+
         // SAFETY: result is validated as a JSON object and id is a JSON string.
         return (id === undefined ? result : { ...result, id }) as JsonObject;
       },
       async updatePost({ account, postId, body, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await request(
           `/rest/posts/${encodeURIComponent(postId)}`,
           context,
@@ -1269,7 +1289,6 @@ export function linkedin(
             message: "Organization analytics requires an organization author.",
           });
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return (await request(
           `/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(account.accountId)}`,
           context,
@@ -1277,6 +1296,7 @@ export function linkedin(
       },
       async getOrganizationFollowerStatistics({ account, interval, context }) {
         organizationOnly(account, context, "analytics.followers.read");
+
         return parseFollowerStatistics(
           object(
             await request(
@@ -1294,6 +1314,7 @@ export function linkedin(
       },
       async getOrganizationPageStatistics({ account, interval, context }) {
         organizationOnly(account, context, "analytics.page.read");
+
         return parsePageStatistics(
           object(
             await request(
@@ -1306,6 +1327,7 @@ export function linkedin(
       },
       async getOrganizationShareStatistics({ account, interval, context }) {
         organizationOnly(account, context, "analytics.shares.read");
+
         return parseShareStatistics(
           object(
             await request(
@@ -1323,12 +1345,14 @@ export function linkedin(
       },
       async getOrganizationFollowerCount({ account, context }) {
         organizationOnly(account, context, "analytics.account.read");
+
         const response = object(
           await request(
             `/rest/networkSizes/${encodeURIComponent(account.accountId)}?edgeType=COMPANY_FOLLOWED_BY_MEMBER`,
             context,
           ),
         );
+
         return optionalNumber(response["firstDegreeSize"]);
       },
     },

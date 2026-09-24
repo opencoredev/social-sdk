@@ -85,7 +85,6 @@ export function decodeCursor(scope: string, cursor: string): string {
       !Array.isArray(parsed) ||
       parsed.length !== 2 ||
       parsed[0] !== scope ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the untrusted decoded cursor tuple.
       typeof parsed[1] !== "string" ||
       !parsed[1] ||
       parsed[1].length > 16_384

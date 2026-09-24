@@ -60,7 +60,6 @@ const context: AdapterOperationContext = {
   retryBudget: { maxAttempts: 1, maxElapsedMs: 30000 },
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const response = (data: unknown) => Response.json({ data, error: { code: "ok" } });
 
 it("TikTok validates consent and verified origins locally before any transfer", () => {

@@ -35,7 +35,6 @@ it("uses one deadline across source reads and upload chunks", async () => {
     () =>
       sendYouTubeUpload(
         session,
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         {
           kind: "video",
           source: {
@@ -110,7 +109,6 @@ it("shares timeout budget across multiple chunks", async () => {
     () =>
       sendYouTubeUpload(
         session,
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         {
           kind: "video",
           source: {

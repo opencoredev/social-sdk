@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- OAuth responses are unknown by contract and validated at this boundary. */
 import { SocialError } from "../core/errors.js";
 import { connectedAccountRef, type Platform } from "../core/types.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
@@ -257,6 +256,7 @@ async function body(
         contentType.includes("json") || raw.trimStart().startsWith("{")
           ? JSON.parse(raw)
           : Object.fromEntries(new URLSearchParams(raw).entries());
+
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
         const error = (parsed as Record<string, unknown>)["error"];
         providerCode = typeof error === "string" ? error : undefined;
@@ -322,14 +322,12 @@ function tokenSet(data: Record<string, unknown>, operation = "oauth.token"): OAu
   const scopes = parseScopes(data["scope"]);
   const tokenType = optionalString(data["token_type"]);
 
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
   const result: {
     accessToken: string;
     refreshToken?: string;
     expiresAt?: string;
     scopes?: readonly string[];
     tokenType?: string;
-    // oxlint-disable-next-line anti-slop/no-known-value-widening -- provider payload is validated at this adapter boundary.
   } = { accessToken };
 
   if (refreshToken !== undefined) result.refreshToken = refreshToken;
@@ -350,8 +348,10 @@ interface TokenResult {
 
 function tokenResult(data: Record<string, unknown>, kind: ProviderKind): TokenResult {
   let nested = data;
+
   if (kind === "tiktok" && data["data"] !== undefined)
     nested = asRecord(data["data"], "oauth.token");
+
   if (kind === "instagram" && Array.isArray(data["data"])) {
     const first = data["data"][0];
     nested = asRecord(first, "oauth.token");
@@ -614,6 +614,7 @@ export function oauthProvider(
         "content-type": "application/x-www-form-urlencoded",
         accept: "application/json",
       });
+
       if (kind === "x" && options.clientSecret)
         tokenHeaders.set(
           "authorization",
@@ -660,6 +661,7 @@ export function oauthProvider(
         const selectedIds = options.selectAccounts
           ? await options.selectAccounts(accounts, input.attempt)
           : accounts.map((item) => item.ref.accountId);
+
         const selected = new Set(selectedIds);
 
         if (
@@ -806,7 +808,9 @@ async function discover(
       "user id",
       "instagram.account",
     );
+
     const discoveredUserId = optionalString(data["user_id"]);
+
     const discoveredAccountId =
       hint !== undefined && (hint === discoveredId || hint === discoveredUserId)
         ? hint
@@ -994,6 +998,7 @@ export async function refreshOAuthToken(
     "content-type": "application/x-www-form-urlencoded",
     accept: "application/json",
   });
+
   if (kind === "x" && options.clientSecret)
     refreshHeaders.set(
       "authorization",

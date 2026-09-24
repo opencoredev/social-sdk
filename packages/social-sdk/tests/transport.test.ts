@@ -2,8 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createHttp, HttpError, retryDelay } from "../src/transport/http.js";
 
-/* oxlint-disable anti-slop/require-readable-spacing -- assertions keep their options adjacent. */
-
 describe("HTTP transport", () => {
   it("rejects oversized responses without waiting for an uncooperative cancellation hook", async () => {
     for (const declaredLength of [false, true]) {
@@ -29,7 +27,6 @@ describe("HTTP transport", () => {
 
       await assert.rejects(
         http({ url: new URL("https://api.example.test/posts"), method: "POST" }),
-        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
         (error: unknown) => error instanceof HttpError && error.kind === "invalid-response",
       );
       assert.equal(cancelled, true);
@@ -84,7 +81,6 @@ describe("HTTP transport", () => {
     assert.equal(calls, 0);
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), method: "POST" }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => {
         assert.ok(error instanceof HttpError);
         assert.equal(error.kind, "network");
@@ -141,7 +137,6 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts?token=secret"), maxAttempts: 5 }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => {
         assert.ok(error instanceof HttpError);
         assert.equal(error.status, 403);
@@ -166,7 +161,6 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), maxAttempts: 5, timeoutMs: 1000 }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) =>
         error instanceof HttpError &&
         error.kind === "http" &&
@@ -178,6 +172,7 @@ describe("HTTP transport", () => {
 
   it("uses x-rate-limit-reset when Retry-After is absent", async () => {
     let now = 1_000;
+
     const http = createHttp({
       now: () => now,
       sleep: async (delay) => {
@@ -188,7 +183,6 @@ describe("HTTP transport", () => {
         new Response(null, { status: 429, headers: { "x-rate-limit-reset": "5" } }),
     });
 
-    // oxlint-disable-next-line anti-slop/require-readable-spacing -- assertion options stay adjacent to the assertion.
     await assert.rejects(http({ url: new URL("https://api.example.test/posts"), maxAttempts: 2 }), {
       kind: "http",
       status: 429,
@@ -235,7 +229,6 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts") }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof HttpError && error.kind === "invalid-response",
     );
     assert.equal(cancelled, true);
@@ -253,7 +246,6 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), signal: pre.signal }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof HttpError && !error.dispatched,
     );
     const post = new AbortController();
@@ -271,7 +263,6 @@ describe("HTTP transport", () => {
         method: "POST",
         signal: post.signal,
       }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) =>
         error instanceof HttpError && error.dispatched && error.kind === "cancelled",
     );

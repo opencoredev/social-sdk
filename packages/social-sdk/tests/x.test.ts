@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- compact mocked transport fixtures. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, type AdapterOperationContext } from "../src/index.js";
@@ -7,6 +6,7 @@ import { x } from "../src/platforms/x.js";
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
 
 const auth = { userId: "u1", accessToken: "test" };
+
 const operationContext: AdapterOperationContext = {
   backendInstance: "default",
   correlationId: "x-test",
@@ -172,11 +172,13 @@ it("X search posts uses the recent endpoint, preserves query operators, and enco
 
 it("X preserves requested tweet objects and treats omitted data as an empty page", async () => {
   let calls = 0;
+
   const social = createSocial({
     backend: x({
       auth,
       fetch: async () => {
         calls++;
+
         return calls === 1
           ? Response.json({
               data: [
@@ -192,6 +194,7 @@ it("X preserves requested tweet objects and treats omitted data as an empty page
       },
     }),
   });
+
   const searched = await social.search.posts(account, { query: "hello", limit: 10 });
   assert.deepEqual(searched.items[0]?.["public_metrics"], { like_count: 2 });
   assert.deepEqual(searched.items[0]?.["entities"], { hashtags: [] });
@@ -231,6 +234,7 @@ it("X search posts supports full archive limits and rejects an invalid range", a
 
 it("X app-only reads request explicit fields and preserve pagination", async () => {
   const calls: URL[] = [];
+
   const social = createSocial({
     backend: x({
       auth: { userId: "u1" },
@@ -238,8 +242,10 @@ it("X app-only reads request explicit fields and preserve pagination", async () 
       fetch: async (input) => {
         const url = new URL(String(input));
         calls.push(url);
+
         if (url.pathname === "/2/users/u2")
           return Response.json({ data: { id: "u2", name: "Alice", username: "alice" } });
+
         return Response.json({
           data: [{ id: "u2", name: "Alice", username: "alice" }],
           meta: { next_token: "next" },
@@ -247,6 +253,7 @@ it("X app-only reads request explicit fields and preserve pagination", async () 
       },
     }),
   });
+
   const profile = await social.graph.getProfile(account, { profileId: "u2" });
   assert.equal(profile.handle, "alice");
   assert.equal(
@@ -295,6 +302,7 @@ it("X validates the declared reply parent conversation before creating a reply",
 
 it("X native pinned lists, conversation DMs, and group DMs use v2 endpoints", async () => {
   const requests: { path: string; method: string; body?: string }[] = [];
+
   const social = createSocial({
     backend: x({
       auth,
@@ -304,10 +312,12 @@ it("X native pinned lists, conversation DMs, and group DMs use v2 endpoints", as
           method: init?.method ?? "GET",
           body: String(init?.body ?? ""),
         });
+
         return Response.json({ data: [{ id: "l1" }], meta: { next_token: "next" } });
       },
     }),
   });
+
   const native = social.native("default", { acknowledgeUnsafe: true });
   await native.pinList({ account, listId: "l1", context: operationContext });
   await native.unpinList({ account, listId: "l1", context: operationContext });

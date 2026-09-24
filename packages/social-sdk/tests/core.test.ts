@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unknown-parameters -- test cases keep fixture setup together and exercise runtime-invalid inputs. */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -109,7 +108,6 @@ describe("core publication contract", () => {
         ],
         content: { text: "hello" },
       }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof SocialError && error.code === "unauthorized",
     );
     assert.equal(authorizeCalls, 1);
@@ -135,7 +133,6 @@ describe("core publication contract", () => {
         ],
         content: { text: "hello" },
       }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
     );
     assert.equal(mock.testing.history().length, 0);
@@ -167,7 +164,6 @@ describe("core publication contract", () => {
         targets: [{ account: account("default", "a") }],
         content: { text: "hello" },
       }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
     );
   });
@@ -255,7 +251,6 @@ describe("core publication contract", () => {
     assert.equal(mock.testing.history().length, historyAfterFirst);
     await assert.rejects(
       social.posts.publish({ ...request, content: { text: "changed" } }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
       (error: unknown) => error instanceof SocialError && error.code === "idempotency_conflict",
     );
   });
@@ -406,7 +401,9 @@ describe("core publication contract", () => {
         },
       },
     });
+
     const social = createSocial({ backend: scheduledAdapter });
+
     const result = await social.posts.publishSequence({
       idempotencyKey: "scheduled-sequence",
       items: [
@@ -449,7 +446,9 @@ describe("core publication contract", () => {
         },
       },
     });
+
     const social = createSocial({ backend: pendingAdapter });
+
     const result = await social.posts.publishSequence({
       idempotencyKey: "chain-pending",
       replyToPrevious: true,

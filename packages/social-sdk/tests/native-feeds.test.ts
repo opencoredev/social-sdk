@@ -11,7 +11,6 @@ const context = (backend: string): AdapterOperationContext => ({
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
 const json = (data: unknown) =>
   new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } });
 
@@ -143,7 +142,6 @@ it("YouTube resolves channel uploads and returns native video IDs across pages",
             secret: "hidden",
           },
         ],
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(url.searchParams.has("pageToken") ? {} : { nextPageToken: "next" }),
       });
     },

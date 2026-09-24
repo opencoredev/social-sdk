@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createDiagnosticAdapter, runCli } from "../packages/social-sdk/dist/cli.js";
@@ -23,7 +22,6 @@ const adapters: string[] = (await command(["adapters"])).adapters;
 
 const manifests = [];
 
-// oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
 const implementationPaths: Record<string, readonly string[]> = {
   "accounts.read": ["accounts.list", "accounts.get"],
   "posts.publish": ["posts.prepareTarget", "posts.publishTarget"],
@@ -134,7 +132,6 @@ for (const adapter of adapters) {
   manifests.push({ adapter, manifest });
 
   const instance = createDiagnosticAdapter(
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     adapter as Parameters<typeof createDiagnosticAdapter>[0],
   );
 
@@ -151,20 +148,10 @@ for (const adapter of adapters) {
 
         for (const key of candidate.split("."))
           value =
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
             value && typeof value === "object"
-              ? // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-                (value as Record<string, unknown>)[key]
+              ? (value as Record<string, unknown>)[key]
               : undefined;
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         return typeof value === "function";
       });
 

@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- provider fixture setup stays grouped by scenario. */
 import { strict as assert } from "node:assert";
 import { it } from "node:test";
 import { youtube } from "../src/platforms/youtube.js";
@@ -10,7 +9,6 @@ const context = (backend: string): AdapterOperationContext => ({
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- test fixture serializer.
 const json = (value: unknown) =>
   new Response(JSON.stringify(value), {
     status: 200,
@@ -19,6 +17,7 @@ const json = (value: unknown) =>
 
 it("reads a bounded YouTube Analytics report into provider-neutral rows", async () => {
   let requested = "";
+
   const adapter = youtube({
     auth: { accessToken: "jwt", channelId: "channel-1" },
     fetch: async (input) => {
@@ -34,6 +33,7 @@ it("reads a bounded YouTube Analytics report into provider-neutral rows", async 
       });
     },
   });
+
   const account = connectedAccountRef({
     backend: "youtube",
     platform: "youtube",
@@ -69,6 +69,7 @@ it("rejects unbounded or unsafe YouTube report queries", async () => {
     auth: { accessToken: "jwt", channelId: "channel-1" },
     fetch: async () => json({}),
   });
+
   const account = connectedAccountRef({
     backend: "youtube",
     platform: "youtube",

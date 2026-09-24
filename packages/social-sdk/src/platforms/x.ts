@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { remainingBudget } from "../transport/budget.js";
 import { isValidXText } from "./x-text.js";
 import { defineAdapter } from "../core/adapter.js";
@@ -31,13 +30,13 @@ import {
   string,
 } from "../transport/validation.js";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- transport parser validates the provider boundary.
 const object = (value: unknown): JsonObject => parseObject(value) as JsonObject;
 
 // 53-bit conversation ID hashes, 11 base36 characters each. listConversations returns at
 // most 1,200 distinct conversations, which keeps its cursor well under the client's 16,384
 // character cursor limit.
 const conversationHashWidth = 11;
+
 const maxConversationHashes = 1200;
 
 function conversationHash(id: string): string {
@@ -53,6 +52,7 @@ function conversationHash(id: string): string {
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   const value = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+
   return value.toString(36).padStart(conversationHashWidth, "0");
 }
 
@@ -415,9 +415,9 @@ export interface XNative {
 export function x(options: XOptions): import("../core/adapter.js").SocialAdapter<XNative> {
   const request = managedHttp("https://api.x.com", {
     apiKey: options.auth.accessToken ?? "app-auth-placeholder",
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
+
   const appRequest = () => {
     if (!options.appBearerToken?.trim())
       throw new SocialError({
@@ -425,12 +425,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         operation: "x.app-auth",
         message: "This X endpoint requires an app-only bearer token. Configure appBearerToken.",
       });
+
     return managedHttp("https://api.x.com", {
       apiKey: options.appBearerToken,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
       ...(options.fetch ? { fetch: options.fetch } : {}),
     });
   };
+
   const requireUserToken = (operation: string) => {
     if (!options.auth.accessToken?.trim())
       throw new SocialError({
@@ -438,8 +439,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         operation,
         message: "This X operation requires a user access token.",
       });
+
     return request;
   };
+
   const readRequest = (path: string) =>
     ["/2/users/me", "/liked_tweets", "/mentions", "/timelines/reverse_chronological"].some(
       (suffix) => path.includes(suffix),
@@ -487,14 +490,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         accountId: options.auth.userId,
       },
       displayName: string(user["name"]),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary or fixture contract.
       ...(typeof user["username"] === "string" ? { handle: user["username"] } : {}),
       status: "connected" as const,
     };
@@ -521,7 +516,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         message: "X post identity or author does not match the declared reference.",
       });
 
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
     return result as JsonObject;
   }
 
@@ -549,9 +543,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         undefined,
         {
           "tweet.fields": "id,text,author_id,created_at,conversation_id",
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor === undefined ? {} : { pagination_token: input.cursor }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
         },
       ),
@@ -576,7 +568,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     return {
       items,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(nextCursor === undefined ? {} : { nextCursor }),
     };
   }
@@ -657,25 +648,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ]
             .filter((field, index, fields) => fields.indexOf(field) === index)
             .join(","),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.startTime === undefined ? {} : { start_time: input.startTime }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.endTime === undefined ? {} : { end_time: input.endTime }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(nativeInput?.sortOrder === undefined ? {} : { sort_order: nativeInput.sortOrder }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(nativeInput?.expansions === undefined
             ? {}
             : { expansions: nativeInput.expansions.join(",") }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(nativeInput?.userFields === undefined
             ? {}
             : { "user.fields": nativeInput.userFields.join(",") }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(nativeInput?.mediaFields === undefined
             ? {}
             : { "media.fields": nativeInput.mediaFields.join(",") }),
@@ -698,6 +681,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const items = (result["data"] === undefined ? [] : array(result["data"])).map((entry) => {
       const row = object(entry);
+
       return Object.fromEntries(
         ["id", "text", ...requestedFields].flatMap((field, index, fields) =>
           fields.indexOf(field) === index && field in row ? [[field, row[field]]] : [],
@@ -712,7 +696,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     return {
       items,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(nextCursor === undefined ? {} : { nextCursor }),
       ...(includes === undefined
         ? {}
@@ -736,6 +719,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const isTweets = resource === "tweets";
     const minLimit = 1;
     const maxLimit = 100;
+
     if (
       input.limit !== undefined &&
       (!Number.isInteger(input.limit) || input.limit < minLimit || input.limit > maxLimit)
@@ -745,6 +729,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         operation: path,
         message: `X limits must be integers from ${minLimit} through ${maxLimit}.`,
       });
+
     const result = object(
       await readRequest(path)(path, context, undefined, {
         ...query,
@@ -763,11 +748,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
       }),
     );
+
     const items = (result["data"] === undefined ? [] : array(result["data"])).map(
       (entry) => object(entry) as JsonObject,
     );
+
     const meta = result["meta"] === undefined ? {} : object(result["meta"]);
     const nextCursor = optionalString(meta["next_token"]);
+
     return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
   }
 
@@ -846,7 +834,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
       if (
         root["id"] !== ref.postId ||
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
         (typeof parent["conversation_id"] === "string" &&
           parent["conversation_id"] !== root["conversation_id"])
       )
@@ -863,6 +850,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<string> {
     requireUserToken("media.upload");
+
     if (
       media.source.kind !== "blob" ||
       media.kind !== "image" ||
@@ -885,7 +873,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
         body,
         timeoutMs: remainingBudget(context),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal ? { signal: context.signal } : {}),
       });
     } catch (error) {
@@ -917,6 +904,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   const xMaxStatusPolls = 30;
 
   type XChunkedCategory = "tweet_video" | "tweet_gif";
+
   type XProcessing = { state: string; checkAfterSecs: number };
 
   function chunkedCategory(media: MediaAttachment): XChunkedCategory | undefined {
@@ -1020,10 +1008,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 Authorization: `Bearer ${options.auth.accessToken}`,
                 "Content-Type": "application/json",
               },
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- FINALIZE carries no body.
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         timeoutMs: remainingBudget(context),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal ? { signal: context.signal } : {}),
       });
     } catch (error) {
@@ -1053,7 +1039,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
         body,
         timeoutMs: remainingBudget(context),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal ? { signal: context.signal } : {}),
       });
     } catch (error) {
@@ -1078,7 +1063,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         method: "GET",
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
         timeoutMs: remainingBudget(context),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         ...(context.signal ? { signal: context.signal } : {}),
       });
     } catch (error) {
@@ -1138,6 +1122,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         clearTimeout(timer);
         reject(uploadCancelled());
       };
+
       const timer = setTimeout(() => {
         context.signal?.removeEventListener("abort", onAbort);
         resolve();
@@ -1188,6 +1173,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       context,
     );
+
     const mediaId = string(initialized["id"]);
     const segmentCount = Math.ceil(totalBytes / xChunkBytes);
 
@@ -1205,6 +1191,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       undefined,
       context,
     );
+
     const finalizedId = optionalString(finalized["id"]) ?? mediaId;
     const processing = finalized["processing_info"];
 
@@ -1283,6 +1270,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   }
 
   let nativeAdapter: XNative;
+
   const adapter = defineAdapter({
     id: "x",
     capabilities: {
@@ -1486,8 +1474,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             : input.handle !== undefined
               ? await nativeAdapter.getUserByUsername({ account, username: input.handle, context })
               : await nativeAdapter.getMe({ account, context });
+
         const user = object(object(value)["data"]);
         const id = string(user["id"]);
+
         return {
           ref: profileRef({
             backend: context.backendInstance,
@@ -1506,6 +1496,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         };
+
         const result =
           input.kind === "following"
             ? await nativeAdapter.following({
@@ -1532,10 +1523,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                     ...pagination,
                     context,
                   });
+
         return {
           items: result.items.map((entry) => {
             const user = object(entry);
             const id = string(user["id"]);
+
             return {
               profile: profileRef({
                 backend: context.backendInstance,
@@ -1560,7 +1553,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           accountId: target.accountId,
         });
+
         await nativeAdapter.followUser({ account, userId: target.profileId, context });
+
         return { profile: target, relationship: "following" };
       },
       async unfollow(target: ProfileRef, context): Promise<void> {
@@ -1569,6 +1564,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           accountId: target.accountId,
         });
+
         await nativeAdapter.unfollowUser({ account, userId: target.profileId, context });
       },
       async block(target: ProfileRef, context): Promise<RelationshipRecord> {
@@ -1577,7 +1573,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           accountId: target.accountId,
         });
+
         await nativeAdapter.blockUser({ account, userId: target.profileId, context });
+
         return { profile: target, relationship: "blocked" };
       },
       async unblock(target: ProfileRef, context): Promise<void> {
@@ -1586,6 +1584,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           accountId: target.accountId,
         });
+
         await nativeAdapter.unblockUser({ account, userId: target.profileId, context });
       },
       async mute(target: ProfileRef, context): Promise<RelationshipRecord> {
@@ -1594,7 +1593,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           accountId: target.accountId,
         });
+
         await nativeAdapter.muteUser({ account, userId: target.profileId, context });
+
         return { profile: target, relationship: "muted" };
       },
       async unmute(target: ProfileRef, context): Promise<void> {
@@ -1603,6 +1604,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           accountId: target.accountId,
         });
+
         await nativeAdapter.unmuteUser({ account, userId: target.profileId, context });
       },
     },
@@ -1703,6 +1705,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         for (const media of target.content.media ?? [])
           ids.push(await uploadXMedia(media, context));
         const settings = target.options === undefined ? {} : object(target.options);
+
         const hasVideo = (target.content.media ?? []).some(
           (media) => chunkedCategory(media) === "tweet_video",
         );
@@ -1713,11 +1716,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             target.content.text ?? "",
             context,
             {
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(ids.length ? { media: { media_ids: ids } } : {}),
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(target.replyTo ? { reply: { in_reply_to_tweet_id: target.replyTo.postId } } : {}),
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
               ...(settings["replySettings"] && settings["replySettings"] !== "everyone"
                 ? { reply_settings: string(settings["replySettings"]) }
                 : {}),
@@ -1813,6 +1813,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         // X has no conversation-list endpoint. This page is derived from /2/dm_events,
         // with the latest event for each distinct dm_conversation_id.
         requireUserToken("messages.read");
+
         if (
           input.limit !== undefined &&
           (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)
@@ -1836,6 +1837,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             const hashes = string(state["s"]);
 
             if (hashes.length % conversationHashWidth !== 0) throw new Error("bad cursor");
+
             for (let at = 0; at < hashes.length; at += conversationHashWidth)
               seen.push(hashes.slice(at, at + conversationHashWidth));
           } catch {
@@ -1850,6 +1852,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         const seenSet = new Set(seen);
         const target = input.limit ?? 100;
         const items: JsonObject[] = [];
+
         // A walk that has reached the conversation cap has no next page.
         const pageFrom = (c: string | undefined): Page<JsonObject> =>
           seen.length >= maxConversationHashes
@@ -1896,6 +1899,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         context: AdapterOperationContext,
       ): Promise<Page<JsonObject>> {
         requireUserToken("messages.read");
+
         return nativeAdapter.listDirectMessages({
           account: connectedAccountRef({
             backend: conversation.backend,
@@ -1914,12 +1918,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         context: AdapterOperationContext,
       ): Promise<JsonObject> {
         requireUserToken("messages.write");
+
         if (!content.text.trim())
           throw new SocialError({
             code: "invalid_input",
             operation: "messages.write",
             message: "X direct messages require non-empty text.",
           });
+
         return nativeAdapter.sendConversationMessage({
           account: connectedAccountRef({
             backend: conversation.backend,
@@ -1978,7 +1984,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async repost({ account, postId, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(`/2/users/${encodeURIComponent(account.accountId)}/retweets`, context, {
             tweet_id: postId,
@@ -1988,7 +1993,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async quote({ account, text, quotedPostId, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request("/2/tweets", context, { text, quote_tweet_id: quotedPostId }),
         ) as JsonObject;
@@ -1999,6 +2003,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async uploadVideo({ account, video, context }) {
         authorize(account, context);
+
         const media: MediaAttachment = {
           kind: "video",
           mimeType: "video/mp4",
@@ -2009,6 +2014,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async uploadGif({ account, gif, context }) {
         authorize(account, context);
+
         const media: MediaAttachment = {
           kind: "image",
           mimeType: "image/gif",
@@ -2032,7 +2038,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             message: "X polls require 2-4 options and a duration from 5 minutes to 7 days.",
           });
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request("/2/tweets", context, {
             text,
@@ -2043,7 +2048,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async bookmarks({ account, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(`/2/users/${encodeURIComponent(account.accountId)}/bookmarks`, context),
         ) as JsonObject;
@@ -2067,7 +2071,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async follow({ account, userId, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return object(
           await request(`/2/users/${encodeURIComponent(account.accountId)}/following`, context, {
             target_user_id: userId,
@@ -2086,17 +2089,20 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async listDirectMessages({ account, participantId, conversationId, cursor, limit, context }) {
         authorize(account, context);
+
         if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100))
           throw new SocialError({
             code: "invalid_input",
             operation: "messages.read",
             message: "X DM limits must be integers from 1 through 100.",
           });
+
         const path = conversationId
           ? `/2/dm_conversations/${encodeURIComponent(conversationId)}/dm_events`
           : participantId
             ? `/2/dm_conversations/with/${encodeURIComponent(participantId)}/dm_events`
             : "/2/dm_events";
+
         const result = object(
           await request(path, context, undefined, {
             "dm_event.fields":
@@ -2106,8 +2112,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             ...(limit === undefined ? {} : { max_results: String(limit) }),
           }),
         );
+
         const meta = result["meta"] === undefined ? {} : object(result["meta"]);
         const nextCursor = optionalString(meta["next_token"]);
+
         return {
           items: result["data"] === undefined ? [] : array(result["data"]).map(object),
           ...(nextCursor === undefined ? {} : { nextCursor }),
@@ -2116,12 +2124,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async sendDirectMessage({ account, participantId, text, context }) {
         authorize(account, context);
         const userRequest = requireUserToken("messages.write");
+
         if (!text.trim())
           throw new SocialError({
             code: "invalid_input",
             operation: "messages.write",
             message: "X direct messages require non-empty text.",
           });
+
         return object(
           await userRequest(
             `/2/dm_conversations/with/${encodeURIComponent(participantId)}/messages`,
@@ -2132,12 +2142,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async sendConversationMessage({ account, conversationId, text, attachments, context }) {
         authorize(account, context);
+
         if (!text.trim())
           throw new SocialError({
             code: "invalid_input",
             operation: "messages.conversation.write",
             message: "X direct messages require non-empty text.",
           });
+
         return object(
           await requireUserToken("messages.conversation.write")(
             `/2/dm_conversations/${encodeURIComponent(conversationId)}/messages`,
@@ -2148,12 +2160,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async createGroupConversation({ account, participantIds, message, context }) {
         authorize(account, context);
+
         if (!message.trim())
           throw new SocialError({
             code: "invalid_input",
             operation: "messages.group.write",
             message: "X direct messages require non-empty text.",
           });
+
         return object(
           await requireUserToken("messages.group.write")("/2/dm_conversations", context, {
             conversation_type: "Group",
@@ -2164,24 +2178,30 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async getUserById({ account, userId, context }) {
         authorize(account, context);
+
         const result = object(
           await readRequest("users")(`/2/users/${encodeURIComponent(userId)}`, context, undefined, {
             "user.fields":
               "id,name,username,description,created_at,public_metrics,profile_image_url,verified",
           }),
         );
+
         const errors = result["errors"];
+
         if (errors !== undefined && result["data"] === undefined) {
           const detail =
             array(errors)[0] === undefined
               ? "X user was not found."
               : (optionalString(object(array(errors)[0])["detail"]) ?? "X user was not found.");
+
           throw new SocialError({ code: "not_found", operation: "profiles.read", message: detail });
         }
+
         return result;
       },
       async getUserByUsername({ account, username, context }) {
         authorize(account, context);
+
         const result = object(
           await readRequest("users")(
             `/2/users/by/username/${encodeURIComponent(username)}`,
@@ -2193,6 +2213,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             },
           ),
         );
+
         if (result["errors"] !== undefined && result["data"] === undefined) {
           const first = array(result["errors"])[0];
           throw new SocialError({
@@ -2204,10 +2225,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 : (optionalString(object(first)["detail"]) ?? "X user was not found."),
           });
         }
+
         return result;
       },
       async getMe({ account, context }) {
         authorize(account, context);
+
         return object(
           await readRequest("/2/users/me")("/2/users/me", context, undefined, {
             "user.fields":
@@ -2233,6 +2256,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async followUser({ account, userId, context }) {
         authorize(account, context);
+
         return object(
           await requireUserToken("graph.follow")(
             `/2/users/${encodeURIComponent(account.accountId)}/following`,
@@ -2255,6 +2279,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async muteUser({ account, userId, context }) {
         authorize(account, context);
+
         return object(
           await requireUserToken("graph.mute")(
             `/2/users/${encodeURIComponent(account.accountId)}/muting`,
@@ -2285,6 +2310,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async blockUser({ account, userId, context }) {
         authorize(account, context);
+
         return object(
           await requireUserToken("graph.block")(
             `/2/users/${encodeURIComponent(account.accountId)}/blocking`,
@@ -2357,6 +2383,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async createList({ account, name, description, isPrivate, context }) {
         authorize(account, context);
+
         return object(
           await request("/2/lists", context, {
             name,
@@ -2367,6 +2394,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async updateList({ account, listId, name, description, isPrivate, context }) {
         authorize(account, context);
+
         return object(
           await request(
             `/2/lists/${encodeURIComponent(listId)}`,
@@ -2387,6 +2415,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async getList({ account, listId, context }) {
         authorize(account, context);
+
         return object(await request(`/2/lists/${encodeURIComponent(listId)}`, context));
       },
       async listMembers({ account, listId, cursor, limit, context }) {
@@ -2401,6 +2430,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async addListMember({ account, listId, userId, context }) {
         authorize(account, context);
+
         return object(
           await request(`/2/lists/${encodeURIComponent(listId)}/members`, context, {
             user_id: userId,
@@ -2419,6 +2449,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async followList({ account, listId, context }) {
         authorize(account, context);
+
         return object(
           await request(
             `/2/users/${encodeURIComponent(account.accountId)}/followed_lists`,
@@ -2449,6 +2480,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async pinList({ account, listId, context }) {
         authorize(account, context);
+
         return object(
           await requireUserToken("lists.pinned.write")(
             `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists`,
@@ -2471,6 +2503,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async pinnedLists({ account, context }) {
         authorize(account, context);
+
         const result = object(
           await readRequest("pinned_lists")(
             `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists`,
@@ -2479,6 +2512,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             { "list.fields": "id,name,description,private,member_count,follower_count" },
           ),
         );
+
         return { items: result["data"] === undefined ? [] : array(result["data"]).map(object) };
       },
       async listPosts({ account, listId, cursor, limit, context }) {
@@ -2537,5 +2571,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
     }),
   });
+
   return adapter;
 }

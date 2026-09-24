@@ -167,7 +167,6 @@ export class DrizzleEventInbox {
   constructor(private readonly db: Database) {}
   async accept(
     eventKey: string,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payloads are validated by the worker.
     payload: unknown,
     quarantined: boolean,
   ): Promise<"accepted" | "duplicate"> {
@@ -346,7 +345,6 @@ export class DrizzlePublicationStore {
     key: string,
     result: PublishResult,
     eventKey: string,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- removal reports are opaque JSON observations.
     removalReport?: unknown,
   ): Promise<boolean> {
     return this.db.transaction(async (tx) => {

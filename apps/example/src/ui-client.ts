@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import type {
   AccountRecord,
   DeliveryOutcome,
@@ -12,7 +11,6 @@ function element<T extends HTMLElement>(id: string): T {
 
   if (!found) throw new Error(`Missing element ${id}`);
 
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
   return found as T;
 }
 
@@ -40,7 +38,6 @@ let selectedPost: PlatformPostRef | undefined;
 
 async function api<T>(
   path: string,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
   value?: unknown,
   headers: Record<string, string> = {},
 ): Promise<T> {
@@ -61,19 +58,16 @@ async function api<T>(
   try {
     data = JSON.parse(raw);
   } catch {
-    // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
     data = { message: raw };
   }
 
   if (!response.ok)
     throw new Error(
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
       typeof data === "object" && data && "message" in data
         ? String(data.message)
         : `Request failed (${response.status})`,
     );
 
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
   return data as T;
 }
 
@@ -97,21 +91,12 @@ function draft() {
     text: text.value,
     format: format.value,
     idempotencyKey: key,
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     ...(format.value === "video"
       ? {
           mediaUrl: element<HTMLInputElement>("media-url").value,
           mediaMime: element<HTMLInputElement>("media-mime").value,
         }
       : {}),
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
     ...(options ? { optionsByAccount: JSON.parse(options) as unknown } : {}),
   };
 }
