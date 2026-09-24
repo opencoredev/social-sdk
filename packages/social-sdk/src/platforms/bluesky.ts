@@ -292,6 +292,25 @@ export interface BlueskyNative {
     readonly text: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /**
+   * Hides or unhides a reply in a thread whose root post belongs to this account.
+   * Updates the root post's `app.bsky.feed.threadgate` record `hiddenReplies` list.
+   */
+  readonly hideReply: (input: BlueskyHideReplyInput) => Promise<BlueskyHideReplyResult>;
+}
+
+export interface BlueskyHideReplyInput {
+  readonly account: ConnectedAccountRef;
+  /** AT-URI of the reply post to hide or unhide. */
+  readonly replyUri: string;
+  readonly hidden: boolean;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyHideReplyResult {
+  readonly hidden: boolean;
+  /** The threadgate record after the change. Absent when no threadgate exists. */
+  readonly threadgate?: BlueskyPostRef;
 }
 
 export interface BlueskyPageInput {
@@ -931,7 +950,19 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls.",
       },
       {
+<<<<<<< ours
         operation: "media.upload",
+=======
+        operation: "comments.moderate",
+        platform: "bluesky",
+        availability: "available",
+        requiredScopes: ["repo"],
+        notes:
+          "Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies.",
+      },
+      {
+        operation: "posts.publish.video",
+>>>>>>> theirs
         platform: "bluesky",
         availability: "available",
         formats: ["video"],
@@ -2109,6 +2140,112 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           body: JSON.stringify({ convoId: input.conversationId, message: { text: input.text } }),
         }),
       );
+    },
+    async hideReply(input) {
+      const operation = "bluesky.comments.moderate";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+      const invalid = (message: string) =>
+        new SocialError({
+          code: "invalid_input",
+          operation,
+          message,
+          retryDisposition: { kind: "never" },
+        });
+      const postUri =
+        /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.feed\.post\/[A-Za-z0-9._~:-]{1,512}$/;
+      if (!postUri.test(input.replyUri))
+        throw invalid("Reply must be an app.bsky.feed.post AT-URI.");
+
+      const postView = async (uri: string): Promise<ReturnType<typeof object>> => {
+        const query = new URLSearchParams({ uris: uri });
+        const found = array(
+          object(await xrpc(`app.bsky.feed.getPosts?${query.toString()}`, context))["posts"],
+        )
+          .map((value) => object(value))
+          .find((value) => value["uri"] === uri);
+        if (found === undefined)
+          throw new SocialError({
+            code: "not_found",
+            operation,
+            message: "Bluesky post was not found.",
+          });
+        return found;
+      };
+
+      const reply = object(object((await postView(input.replyUri))["record"]))["reply"];
+      if (reply === undefined) throw invalid("The URI identifies a root post, not a reply.");
+      const rootUri = string(object(object(reply)["root"])["uri"]);
+      if (!rootUri.startsWith(`at://${auth.did}/app.bsky.feed.post/`))
+        throw invalid("Only the author of the thread's root post can hide its replies.");
+      const rkey = recordKey(rootUri, "app.bsky.feed.post");
+      const threadgateUri = `at://${auth.did}/app.bsky.feed.threadgate/${rkey}`;
+
+      const gate = (await postView(rootUri))["threadgate"];
+      let existing:
+        | {
+            readonly ref: BlueskyPostRef;
+            readonly record: ReturnType<typeof object>;
+            readonly hiddenReplies: readonly string[];
+          }
+        | undefined;
+      if (gate !== undefined) {
+        const view = object(gate);
+        if (view["uri"] !== threadgateUri)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation,
+            message: "Bluesky returned a threadgate for a different post.",
+          });
+        const record = object(view["record"]);
+        existing = {
+          ref: postRef(view),
+          record,
+          hiddenReplies:
+            record["hiddenReplies"] === undefined
+              ? []
+              : array(record["hiddenReplies"]).map((value) => string(value)),
+        };
+      }
+
+      const current = existing?.hiddenReplies.includes(input.replyUri) ?? false;
+      if (current === input.hidden)
+        return existing === undefined
+          ? { hidden: current }
+          : { hidden: current, threadgate: existing.ref };
+
+      if (existing === undefined) {
+        // Omit `allow`: an absent allow list keeps replies open, an empty one closes them.
+        const created = await xrpc("com.atproto.repo.createRecord", context, {
+          body: JSON.stringify({
+            repo: auth.did,
+            collection: "app.bsky.feed.threadgate",
+            rkey,
+            record: {
+              $type: "app.bsky.feed.threadgate",
+              post: rootUri,
+              createdAt: new Date().toISOString(),
+              hiddenReplies: [input.replyUri],
+            },
+          }),
+        });
+        return { hidden: true, threadgate: postRef(created) };
+      }
+
+      const hiddenReplies = input.hidden
+        ? [...existing.hiddenReplies, input.replyUri]
+        : existing.hiddenReplies.filter((uri) => uri !== input.replyUri);
+      // swapRecord makes the PDS reject the write if the threadgate changed since it was read.
+      const updated = await xrpc("com.atproto.repo.putRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.feed.threadgate",
+          rkey,
+          record: { ...existing.record, hiddenReplies },
+          swapRecord: existing.ref.cid,
+        }),
+      });
+      return { hidden: input.hidden, threadgate: postRef(updated) };
     },
   };
 
