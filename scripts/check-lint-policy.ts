@@ -26,6 +26,7 @@ const MAX_IDENTICAL_SAFETY_COMMENTS = 3;
 
 const REQUIRED_RULES = [
   "oxc/no-accumulating-spread",
+  "typescript/no-explicit-any",
   "anti-slop/no-array-filter-map",
   "anti-slop/no-reduce-accumulator-copy",
   "anti-slop/no-chained-type-assertions",

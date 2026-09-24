@@ -8,6 +8,7 @@
   },
   "rules": {
     "oxc/no-accumulating-spread": "error",
+    "typescript/no-explicit-any": "error",
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-chained-type-assertions": "error",
