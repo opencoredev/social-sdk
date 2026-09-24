@@ -12,17 +12,29 @@ import {
   type ConnectedAccountRef,
   type DeliveryOutcome,
   type JsonObject,
+  type JsonValue,
   type MediaInput,
   type MetricValue,
   type Page,
+  type PreparedPublishTarget,
   type ProfileRecord,
   type RelationshipRecord,
   type SocialAdapter,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
+import { definedFields } from "../core/fields.js";
 import { abortable, createHttp, HttpError } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
-import { array, object, string } from "../transport/validation.js";
+import {
+  array,
+  isFiniteNumber,
+  isString,
+  object,
+  optionalNumber,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 import { publicFields } from "../cloud/common.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -338,10 +350,12 @@ function authHeaders(auth: BlueskyAuthorization): HeadersInit {
   return auth.accessJwt === undefined ? {} : { Authorization: `Bearer ${auth.accessJwt}` };
 }
 
-function operationError(operation: string, error: unknown, mutation = true): SocialError {
-  if (error instanceof SocialError) return error;
+function operationError(operation: string, cause: unknown, mutation = true): SocialError {
+  if (cause instanceof SocialError) return cause;
 
-  if (error instanceof HttpError) {
+  if (cause instanceof HttpError) {
+    const error = cause;
+
     const ambiguous =
       mutation &&
       error.dispatched &&
@@ -376,7 +390,7 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
             : !mutation && error.status !== undefined && error.status >= 500
               ? { kind: "after-delay", delayMs: 1000 }
               : { kind: "never" },
-      ...(error.status === undefined ? {} : { upstreamStatus: error.status }),
+      ...definedFields({ upstreamStatus: error.status }),
     });
   }
 
@@ -385,18 +399,29 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
     operation,
     message: "Bluesky request failed.",
     retryDisposition: { kind: "reconcile-first" },
-    cause: error,
+    cause,
   });
 }
 
-function postRef(value: unknown): BlueskyPostRef {
+function postRef(value: JsonField): BlueskyPostRef {
   const record = object(value);
 
   return { uri: string(record["uri"]), cid: string(record["cid"]) };
 }
 
-function linkFacets(text: string): readonly JsonObject[] {
-  const facets: JsonObject[] = [];
+type RichTextFacet = {
+  readonly index: { readonly byteStart: number; readonly byteEnd: number };
+  readonly features: readonly JsonObject[];
+};
+
+interface MentionInput {
+  readonly byteStart: number;
+  readonly byteEnd: number;
+  readonly did: string;
+}
+
+function linkFacets(text: string): RichTextFacet[] {
+  const facets: RichTextFacet[] = [];
   const urlPattern = /https?:\/\/[^\s<>]+/g;
 
   for (const match of text.matchAll(urlPattern)) {
@@ -416,114 +441,116 @@ function linkFacets(text: string): readonly JsonObject[] {
   return facets;
 }
 
-function richTextOptions(text: string, options: unknown): JsonObject {
-  const invalid = (message: string): never => {
-    throw new SocialError({ code: "invalid_input", operation: "bluesky.prepare", message });
-  };
+function invalidRichText(message: string): never {
+  throw new SocialError({ code: "invalid_input", operation: "bluesky.prepare", message });
+}
 
-  if (
-    options !== undefined &&
-    (options === null || typeof options !== "object" || Array.isArray(options))
-  )
-    invalid("Bluesky options must be an object.");
-  const config = (options ?? {}) as JsonObject;
+/** Caller-supplied publish options arrive untyped; this only admits non-array objects. */
+function isOptionBag(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOptionList(value: unknown): value is readonly unknown[] {
+  return Array.isArray(value);
+}
+
+function isStringItem(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isStringList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every(isStringItem);
+}
+
+function hasMentionFields(value: unknown): value is MentionInput {
+  return (
+    isOptionBag(value) &&
+    "byteStart" in value &&
+    "byteEnd" in value &&
+    "did" in value &&
+    typeof value.byteStart === "number" &&
+    typeof value.byteEnd === "number" &&
+    typeof value.did === "string"
+  );
+}
+
+function isJsonBody(body: BodyInit | undefined): body is string {
+  return typeof body === "string";
+}
+
+function richTextOptions(text: string, target: PreparedPublishTarget): JsonObject {
+  const options = target.options;
+
+  if (options !== undefined && !isOptionBag(options))
+    invalidRichText("Bluesky options must be an object.");
+  const config = options ?? {};
 
   if (Object.keys(config).some((key) => key !== "languages" && key !== "mentions"))
-    invalid("A supplied Bluesky option is not supported.");
+    invalidRichText("A supplied Bluesky option is not supported.");
   let langs: string[] | undefined;
+  const languages = "languages" in config ? config.languages : undefined;
 
-  if (config["languages"] !== undefined) {
-    const languages = config["languages"];
-
-    if (
-      !Array.isArray(languages) ||
-      languages.length > 3 ||
-      languages.some((value) => typeof value !== "string")
-    )
-      invalid("Bluesky accepts at most three language tags.");
+  if (languages !== undefined) {
+    if (!isStringList(languages) || languages.length > 3)
+      invalidRichText("Bluesky accepts at most three language tags.");
 
     try {
-      langs = Intl.getCanonicalLocales(languages as string[]);
+      langs = Intl.getCanonicalLocales([...languages]);
     } catch {
-      invalid("Bluesky languages must be valid BCP 47 tags.");
+      invalidRichText("Bluesky languages must be valid BCP 47 tags.");
     }
   }
 
-  const facets = [...linkFacets(text)];
+  const facets = linkFacets(text);
   const bytes = new TextEncoder().encode(text);
-  const mentions = config["mentions"] ?? [];
+  const mentions = ("mentions" in config ? config.mentions : undefined) ?? [];
 
-  if (!Array.isArray(mentions) || mentions.length > 100)
-    invalid("Bluesky mentions must be an array of at most 100 DID references.");
+  if (!isOptionList(mentions) || mentions.length > 100)
+    invalidRichText("Bluesky mentions must be an array of at most 100 DID references.");
   const spans: { start: number; end: number }[] = [];
 
-  for (const value of mentions as readonly JsonObject[]) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      invalid("Each mention requires UTF-8 offsets and a DID.");
-
-    const start = value["byteStart"],
-      end = value["byteEnd"],
-      did = value["did"];
+  for (const value of mentions) {
+    if (!isOptionBag(value)) invalidRichText("Each mention requires UTF-8 offsets and a DID.");
 
     if (
-      typeof start !== "number" ||
-      typeof end !== "number" ||
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start < 0 ||
-      end <= start ||
-      end > bytes.length ||
-      (bytes[start]! & 0xc0) === 0x80 ||
-      (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) ||
-      typeof did !== "string" ||
-      !/^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(did)
+      !hasMentionFields(value) ||
+      !Number.isSafeInteger(value.byteStart) ||
+      !Number.isSafeInteger(value.byteEnd) ||
+      value.byteStart < 0 ||
+      value.byteEnd <= value.byteStart ||
+      value.byteEnd > bytes.length ||
+      (bytes[value.byteStart]! & 0xc0) === 0x80 ||
+      (value.byteEnd < bytes.length && (bytes[value.byteEnd]! & 0xc0) === 0x80) ||
+      !/^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(value.did)
     )
-      invalid("Mention offsets must span complete UTF-8 characters and identify a DID.");
+      invalidRichText("Mention offsets must span complete UTF-8 characters and identify a DID.");
 
-    const byteStart = start as number,
-      byteEnd = end as number;
+    const { byteStart, byteEnd, did } = value;
 
     if (!new TextDecoder().decode(bytes.slice(byteStart, byteEnd)).startsWith("@"))
-      invalid("A mention span must start with @.");
+      invalidRichText("A mention span must start with @.");
 
     if (
       spans.some((span) => byteStart < span.end && byteEnd > span.start) ||
-      facets.some((facet) => {
-        const index = facet["index"] as JsonObject;
-
-        return byteStart < Number(index["byteEnd"]) && byteEnd > Number(index["byteStart"]);
-      })
+      facets.some((facet) => byteStart < facet.index.byteEnd && byteEnd > facet.index.byteStart)
     )
-      invalid("Mention spans must not overlap links or other mentions.");
+      invalidRichText("Mention spans must not overlap links or other mentions.");
     spans.push({ start: byteStart, end: byteEnd });
     facets.push({
       index: { byteStart, byteEnd },
-      features: [{ $type: "app.bsky.richtext.facet#mention", did: did as string }],
+      features: [{ $type: "app.bsky.richtext.facet#mention", did }],
     });
   }
 
-  facets.sort(
-    (left, right) =>
-      Number((left["index"] as JsonObject)["byteStart"]) -
-      Number((right["index"] as JsonObject)["byteStart"]),
-  );
+  facets.sort((left, right) => left.index.byteStart - right.index.byteStart);
 
-  return { ...(langs === undefined ? {} : { langs }), ...(facets.length ? { facets } : {}) };
+  return definedFields({ langs, facets: facets.length ? facets : undefined });
 }
 
 function graphemeCount(text: string): number {
-  const Segmenter = (
-    Intl as unknown as {
-      readonly Segmenter?: new (
-        locales?: string | string[],
-        options?: { readonly granularity?: "grapheme" | "word" | "sentence" },
-      ) => { segment(value: string): Iterable<unknown> };
-    }
-  ).Segmenter;
-
-  return Segmenter === undefined
+  return Intl.Segmenter === undefined
     ? Array.from(text).length
-    : [...new Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+    : [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
 }
 
 async function readMedia(
@@ -635,7 +662,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           return options.session!.fetchHandler(url.pathname + url.search, init);
         }
       : fetcher,
-    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...definedFields({ timeoutMs: options.timeoutMs }),
   });
 
   const auth = options.auth;
@@ -775,11 +802,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       readonly headers?: HeadersInit;
       readonly maxAttempts?: number;
     } = {},
-  ): Promise<unknown> {
+  ): Promise<JsonValue> {
     try {
       const headers = new Headers(init.headers);
 
-      if (typeof init.body === "string" && !headers.has("Content-Type"))
+      if (isJsonBody(init.body) && !headers.has("Content-Type"))
         headers.set("Content-Type", "application/json");
 
       if (method.startsWith("chat.bsky.") && !headers.has("atproto-proxy"))
@@ -792,8 +819,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         ...(options.session
           ? { headers }
           : { headers: { ...authHeaders(auth), ...Object.fromEntries(headers.entries()) } }),
-        ...(init.body === undefined ? {} : { body: init.body }),
-        ...(context.signal === undefined ? {} : { signal: context.signal }),
+        ...definedFields({ body: init.body, signal: context.signal }),
         maxAttempts:
           init.maxAttempts ??
           (init.body === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1),
@@ -825,9 +851,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       });
     }
 
-    const handle = typeof session["handle"] === "string" ? session["handle"] : undefined;
-
-    return { did, ...(handle === undefined ? {} : { handle }) };
+    return { did, ...definedFields({ handle: optionalString(session["handle"]) }) };
   }
 
   const nativeContext = (context: AdapterOperationContext | undefined, operation: string) =>
@@ -862,7 +886,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
     return new URLSearchParams({
       limit: String(limit),
-      ...(input.cursor ? { cursor: input.cursor } : {}),
+      ...definedFields({ cursor: input.cursor || undefined }),
     });
   };
 
@@ -881,8 +905,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   };
 
   const actorPage = (response: JsonObject, key: string): BlueskyActorPageResult => ({
-    actors: array(response[key] ?? []).map((value) => object(value) as unknown as JsonObject),
-    ...(typeof response["cursor"] === "string" ? { cursor: response["cursor"] } : {}),
+    actors: array(response[key] ?? []).map((value) => object(value)),
+    ...definedFields({ cursor: optionalString(response["cursor"]) }),
   });
 
   const native: BlueskyNative = {
@@ -905,7 +929,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Bluesky post was not found.",
         });
 
-      return object(post) as JsonObject;
+      return object(post);
     },
     async getPostThread(input) {
       const context = input.context ?? {
@@ -916,9 +940,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({ uri: input.uri });
 
-      return object(
-        await xrpc(`app.bsky.feed.getPostThread?${query.toString()}`, context),
-      ) as JsonObject;
+      return object(await xrpc(`app.bsky.feed.getPostThread?${query.toString()}`, context));
     },
     async searchPosts(input) {
       const context = nativeContext(input.context, "bluesky.search.posts");
@@ -991,23 +1013,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const response = object(await xrpc(`app.bsky.feed.searchPosts?${query}`, context));
 
-      const posts = array(response["posts"]).map((post) => {
-        const value = object(post);
-
-        // The XRPC transport has already decoded a JSON payload; `object` validates
-        // the record boundary while the recursive JSON shape is preserved for callers.
-        return value as JsonObject;
-      });
-
-      const cursorValue = response["cursor"];
-      const hitsTotalValue = response["hitsTotal"];
+      const posts = array(response["posts"]).map((post) => object(post));
+      const hitsTotal = optionalNumber(response["hitsTotal"]);
 
       return {
         posts,
-        ...(typeof cursorValue === "string" ? { cursor: cursorValue } : {}),
-        ...(typeof hitsTotalValue === "number" && Number.isSafeInteger(hitsTotalValue)
-          ? { hitsTotal: hitsTotalValue }
-          : {}),
+        ...definedFields({
+          cursor: optionalString(response["cursor"]),
+          hitsTotal:
+            hitsTotal !== undefined && Number.isSafeInteger(hitsTotal) ? hitsTotal : undefined,
+        }),
       };
     },
     async likePost(input) {
@@ -1059,10 +1074,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         cid = response["cid"];
 
       if (
-        typeof uri !== "string" ||
+        !isString(uri) ||
         !uri.startsWith(prefix) ||
         !/^[A-Za-z0-9._~:-]{1,512}$/.test(uri.slice(prefix.length)) ||
-        typeof cid !== "string" ||
+        !isString(cid) ||
         !cid
       )
         throw new SocialError({
@@ -1192,7 +1207,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         }),
-      ) as JsonObject;
+      );
     },
     async unfollow(input) {
       const context = nativeContext(input.context, "bluesky.unfollow");
@@ -1221,7 +1236,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         }),
-      ) as JsonObject;
+      );
     },
     async unblock(input) {
       const context = nativeContext(input.context, "bluesky.unblock");
@@ -1256,7 +1271,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       q.set("actor", input.actor ?? auth.did);
 
       return actorPage(
-        object(await xrpc(`app.bsky.graph.getFollowers?${q}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.graph.getFollowers?${q}`, context)),
         "followers",
       );
     },
@@ -1266,17 +1281,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
 
-      return actorPage(
-        object(await xrpc(`app.bsky.graph.getFollows?${q}`, context)) as JsonObject,
-        "follows",
-      );
+      return actorPage(object(await xrpc(`app.bsky.graph.getFollows?${q}`, context)), "follows");
     },
     async getMutes(input) {
       const context = nativeContext(input.context, "bluesky.graph.mutes");
       assertNativeAccount(input.account, context, "bluesky.graph.mutes");
 
       return actorPage(
-        object(await xrpc(`app.bsky.graph.getMutes?${pageQuery(input)}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.graph.getMutes?${pageQuery(input)}`, context)),
         "mutes",
       );
     },
@@ -1285,7 +1297,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.graph.blocks");
 
       return actorPage(
-        object(await xrpc(`app.bsky.graph.getBlocks?${pageQuery(input)}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.graph.getBlocks?${pageQuery(input)}`, context)),
         "blocks",
       );
     },
@@ -1299,8 +1311,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const value = object(await xrpc(`app.bsky.feed.getLikes?${q}`, context));
 
       return {
-        likes: array(value["likes"] ?? []).map((entry) => object(entry) as JsonObject),
-        ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
+        likes: array(value["likes"] ?? []).map((entry) => object(entry)),
+        ...definedFields({ cursor: optionalString(value["cursor"]) }),
       };
     },
     async getActorLikes(input) {
@@ -1311,8 +1323,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const value = object(await xrpc(`app.bsky.feed.getActorLikes?${q}`, context));
 
       return {
-        feed: array(value["feed"] ?? []).map((entry) => object(entry) as JsonObject),
-        ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
+        feed: array(value["feed"] ?? []).map((entry) => object(entry)),
+        ...definedFields({ cursor: optionalString(value["cursor"]) }),
       };
     },
     async searchActors(input) {
@@ -1328,10 +1340,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const q = pageQuery(input);
       q.set("q", input.query.trim());
 
-      return actorPage(
-        object(await xrpc(`app.bsky.actor.searchActors?${q}`, context)) as JsonObject,
-        "actors",
-      );
+      return actorPage(object(await xrpc(`app.bsky.actor.searchActors?${q}`, context)), "actors");
     },
     async searchActorsTypeahead(input) {
       const context = nativeContext(input.context, "bluesky.profiles.search");
@@ -1354,7 +1363,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const q = new URLSearchParams({ q: input.query.trim(), limit: String(limit) });
 
       return actorPage(
-        object(await xrpc(`app.bsky.actor.searchActorsTypeahead?${q}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.actor.searchActorsTypeahead?${q}`, context)),
         "actors",
       );
     },
@@ -1367,15 +1376,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         name: input.name,
         purpose: input.purpose,
         createdAt: new Date().toISOString(),
-        ...(input.description === undefined ? {} : { description: input.description }),
-      } as unknown as JsonObject;
+        ...definedFields({ description: input.description }),
+      };
 
       return postRef(
-        object(
-          await xrpc("com.atproto.repo.createRecord", context, {
-            body: JSON.stringify({ repo: auth.did, collection: "app.bsky.graph.list", record }),
-          }),
-        ) as unknown as JsonObject,
+        await xrpc("com.atproto.repo.createRecord", context, {
+          body: JSON.stringify({ repo: auth.did, collection: "app.bsky.graph.list", record }),
+        }),
       );
     },
     async updateList(input) {
@@ -1391,11 +1398,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const record = object(existing["value"]);
 
-      const next: JsonObject = {
+      const next = {
         ...record,
         name: input.name,
         purpose: input.purpose,
-        ...(input.description === undefined ? {} : { description: input.description }),
+        ...definedFields({ description: input.description }),
       };
 
       await xrpc("com.atproto.repo.putRecord", context, {
@@ -1423,20 +1430,18 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.lists.items.add");
 
       return postRef(
-        object(
-          await xrpc("com.atproto.repo.createRecord", context, {
-            body: JSON.stringify({
-              repo: auth.did,
-              collection: "app.bsky.graph.listitem",
-              record: {
-                $type: "app.bsky.graph.listitem",
-                list: input.listUri,
-                subject: input.subject,
-                createdAt: new Date().toISOString(),
-              },
-            }),
+        await xrpc("com.atproto.repo.createRecord", context, {
+          body: JSON.stringify({
+            repo: auth.did,
+            collection: "app.bsky.graph.listitem",
+            record: {
+              $type: "app.bsky.graph.listitem",
+              list: input.listUri,
+              subject: input.subject,
+              createdAt: new Date().toISOString(),
+            },
           }),
-        ) as unknown as JsonObject,
+        }),
       );
     },
     async removeListItem(input) {
@@ -1456,7 +1461,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const q = pageQuery(input);
       q.set("list", input.listUri);
 
-      return object(await xrpc(`app.bsky.graph.getList?${q}`, context)) as JsonObject;
+      return object(await xrpc(`app.bsky.graph.getList?${q}`, context));
     },
     async getLists(input) {
       const context = nativeContext(input.context, "bluesky.lists.list");
@@ -1464,7 +1469,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
 
-      return object(await xrpc(`app.bsky.graph.getLists?${q}`, context)) as JsonObject;
+      return object(await xrpc(`app.bsky.graph.getLists?${q}`, context));
     },
     async muteList(input) {
       const context = nativeContext(input.context, "bluesky.lists.mute");
@@ -1506,7 +1511,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           repo: auth.did,
           collection: "app.bsky.graph.listblock",
           limit: "100",
-          ...(cursor === undefined ? {} : { cursor }),
+          ...definedFields({ cursor }),
         });
 
         const records = object(
@@ -1514,9 +1519,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         );
 
         record = array(records["records"])
-          .map((value) => object(value) as JsonObject)
+          .map((value) => object(value))
           .find((value) => object(value["value"])["subject"] === input.listUri);
-        cursor = typeof records["cursor"] === "string" ? records["cursor"] : undefined;
+        cursor = optionalString(records["cursor"]);
       } while (record === undefined && cursor !== undefined);
 
       if (record === undefined)
@@ -1537,15 +1542,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.moderation.report");
       assertNativeAccount(input.account, context, "bluesky.moderation.report");
 
-      const body: JsonObject = {
+      const body = {
         reasonType: input.reasonType,
         subject: input.subject,
-        ...(input.reason === undefined ? {} : { reason: input.reason }),
+        ...definedFields({ reason: input.reason }),
       };
 
       return object(
         await xrpc("com.atproto.moderation.createReport", context, { body: JSON.stringify(body) }),
-      ) as JsonObject;
+      );
     },
     async listNotifications(input) {
       const context = nativeContext(input.context, "bluesky.notifications.list");
@@ -1561,12 +1566,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
-      return object(
-        await xrpc(`app.bsky.notification.listNotifications?${query}`, context),
-      ) as JsonObject;
+      return object(await xrpc(`app.bsky.notification.listNotifications?${query}`, context));
     },
     async markNotificationsSeen(input) {
       const context = nativeContext(input.context, "bluesky.notifications.seen");
@@ -1584,7 +1587,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           `app.bsky.actor.getProfile?actor=${encodeURIComponent(input.actor ?? auth.did)}`,
           context,
         ),
-      ) as JsonObject;
+      );
     },
     async updateProfile(input) {
       const context = nativeContext(input.context, "bluesky.profile.update");
@@ -1612,10 +1615,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
-      return object(await xrpc(`app.bsky.feed.getSuggestedFeeds?${query}`, context)) as JsonObject;
+      return object(await xrpc(`app.bsky.feed.getSuggestedFeeds?${query}`, context));
     },
     async listConversations(input) {
       const context = nativeContext(input.context, "bluesky.chat.list");
@@ -1631,10 +1634,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
-      return object(await xrpc(`chat.bsky.convo.listConvos?${query}`, context)) as JsonObject;
+      return object(await xrpc(`chat.bsky.convo.listConvos?${query}`, context));
     },
     async listMessages(input) {
       const context = nativeContext(input.context, "bluesky.chat.messages");
@@ -1650,7 +1653,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
       return object(
@@ -1658,7 +1661,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           `chat.bsky.convo.getMessages?convoId=${encodeURIComponent(input.conversationId)}&${query}`,
           context,
         ),
-      ) as JsonObject;
+      );
     },
     async sendMessage(input) {
       const context = nativeContext(input.context, "bluesky.chat.send");
@@ -1675,7 +1678,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         await xrpc("chat.bsky.convo.sendMessage", context, {
           body: JSON.stringify({ convoId: input.conversationId, message: { text: input.text } }),
         }),
-      ) as JsonObject;
+      );
     },
   };
 
@@ -1687,14 +1690,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       async getProfile(account, input, context): Promise<ProfileRecord> {
         const value = await native.getProfile({
           account,
-          ...(input.profileId === undefined ? {} : { actor: input.profileId }),
-          ...(input.profileId === undefined && input.handle !== undefined
-            ? { actor: input.handle }
-            : {}),
+          ...definedFields({ actor: input.profileId ?? input.handle }),
           context,
         });
 
-        const actor = object(value) as JsonObject;
+        const actor = object(value);
         const id = string(actor["did"]);
 
         return {
@@ -1704,43 +1704,41 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             accountId: account.accountId,
             profileId: id,
           }),
-          ...(typeof actor["displayName"] === "string"
-            ? { displayName: actor["displayName"] }
-            : {}),
-          ...(typeof actor["handle"] === "string" ? { handle: actor["handle"] } : {}),
-          ...(typeof actor["avatar"] === "string" ? { avatarUrl: actor["avatar"] } : {}),
-          ...(typeof actor["description"] === "string" ? { bio: actor["description"] } : {}),
+          ...definedFields({
+            displayName: optionalString(actor["displayName"]),
+            handle: optionalString(actor["handle"]),
+            avatarUrl: optionalString(actor["avatar"]),
+            bio: optionalString(actor["description"]),
+          }),
           native: actor,
         };
       },
       async listRelationships(account, input, context): Promise<Page<RelationshipRecord>> {
+        const page = definedFields({ cursor: input.cursor, limit: input.limit });
+
         const result =
           input.kind === "following"
             ? await native.getFollows({
                 account,
                 context,
-                ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                ...(input.limit === undefined ? {} : { limit: input.limit }),
+                ...page,
               })
             : input.kind === "followers"
               ? await native.getFollowers({
                   account,
                   context,
-                  ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                  ...(input.limit === undefined ? {} : { limit: input.limit }),
+                  ...page,
                 })
               : input.kind === "blocked"
                 ? await native.getBlocks({
                     account,
                     context,
-                    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                    ...(input.limit === undefined ? {} : { limit: input.limit }),
+                    ...page,
                   })
                 : await native.getMutes({
                     account,
                     context,
-                    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                    ...(input.limit === undefined ? {} : { limit: input.limit }),
+                    ...page,
                   });
 
         return {
@@ -1763,7 +1761,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                     : input.kind,
             };
           }),
-          ...(result.cursor === undefined ? {} : { nextCursor: result.cursor }),
+          ...definedFields({ nextCursor: result.cursor }),
         };
       },
       async follow(target, context): Promise<RelationshipRecord> {
@@ -1779,7 +1777,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const viewer = object(profile["viewer"] ?? {});
         const uri = viewer["following"];
 
-        if (typeof uri !== "string" || !uri)
+        if (!isString(uri) || !uri)
           throw new SocialError({
             code: "invalid_input",
             operation: "graph.unfollow",
@@ -1800,7 +1798,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const viewer = object(profile["viewer"] ?? {});
         const uri = viewer["blocking"];
 
-        if (typeof uri !== "string" || !uri)
+        if (!isString(uri) || !uri)
           throw new SocialError({
             code: "invalid_input",
             operation: "graph.unblock",
@@ -1826,7 +1824,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             {
               ref: account,
               displayName: session.handle ?? session.did,
-              ...(session.handle === undefined ? {} : { handle: session.handle }),
+              ...definedFields({ handle: session.handle }),
               status: "connected",
             },
           ],
@@ -1845,7 +1843,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         return {
           ref: account,
           displayName: session.handle ?? session.did,
-          ...(session.handle === undefined ? {} : { handle: session.handle }),
+          ...definedFields({ handle: session.handle }),
           status: "connected",
         };
       },
@@ -1863,18 +1861,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const result = await native.searchPosts({
           account,
           query: input.query,
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
-          ...(input.startTime === undefined ? {} : { since: input.startTime }),
-          ...(input.endTime === undefined ? {} : { until: input.endTime }),
-          ...(input.scope === undefined ? {} : { scope: input.scope }),
+          ...definedFields({
+            cursor: input.cursor,
+            limit: input.limit,
+            since: input.startTime,
+            until: input.endTime,
+            scope: input.scope,
+          }),
           context,
         });
 
         return {
           items: result.posts,
-          ...(result.cursor === undefined ? {} : { nextCursor: result.cursor }),
-          ...(result.hitsTotal === undefined ? {} : { metadata: { hitsTotal: result.hitsTotal } }),
+          ...definedFields({
+            nextCursor: result.cursor,
+            metadata: result.hitsTotal === undefined ? undefined : { hitsTotal: result.hitsTotal },
+          }),
         };
       },
     },
@@ -1894,25 +1896,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const response = await native.listNotifications({
           account,
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...definedFields({ cursor: input.cursor, limit: input.limit }),
           context,
         });
 
         const values = response["notifications"];
-
-        const items =
-          values === undefined
-            ? []
-            : array(values).map((value) => {
-                return object(value) as JsonObject;
-              });
-
-        const cursor = response["cursor"];
+        const items = values === undefined ? [] : array(values).map((value) => object(value));
 
         return {
           items,
-          ...(typeof cursor === "string" ? { nextCursor: cursor } : {}),
+          ...definedFields({ nextCursor: optionalString(response["cursor"]) }),
         };
       },
       async markSeen(
@@ -1929,7 +1922,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           });
         await native.markNotificationsSeen({
           account,
-          ...(input.seenAt === undefined ? {} : { seenAt: input.seenAt }),
+          ...definedFields({ seenAt: input.seenAt }),
           context,
         });
       },
@@ -1958,14 +1951,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const query = new URLSearchParams({
           actor: auth.did,
           limit: String(limit),
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+          ...definedFields({ cursor: input.cursor }),
         });
 
         const response = object(
           await xrpc(`app.bsky.feed.getAuthorFeed?${query.toString()}`, context),
         );
 
-        const feed = array(response["feed"]).map((value) => {
+        const feed = array(response["feed"]).map((value): JsonObject => {
           const entry = object(value);
           const post = object(entry["post"]);
 
@@ -1980,42 +1973,43 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               "indexedAt",
               "labels",
             ]),
-            ...(post["author"] === undefined
-              ? {}
-              : {
-                  author: publicFields(object(post["author"]), [
-                    "did",
-                    "handle",
-                    "displayName",
-                    "avatar",
-                  ]),
-                }),
-            ...(post["record"] === undefined
-              ? {}
-              : {
-                  record: publicFields(object(post["record"]), [
-                    "text",
-                    "facets",
-                    "createdAt",
-                    "reply",
-                    "embed",
-                  ]),
-                }),
+            ...definedFields({
+              author:
+                post["author"] === undefined
+                  ? undefined
+                  : publicFields(object(post["author"]), [
+                      "did",
+                      "handle",
+                      "displayName",
+                      "avatar",
+                    ]),
+              record:
+                post["record"] === undefined
+                  ? undefined
+                  : publicFields(object(post["record"]), [
+                      "text",
+                      "facets",
+                      "createdAt",
+                      "reply",
+                      "embed",
+                    ]),
+            }),
           };
 
           return {
             post: safePost,
-            ...(entry["reason"] === undefined
-              ? {}
-              : { reason: publicFields(object(entry["reason"]), ["$type", "by", "indexedAt"]) }),
-          } as JsonObject;
+            ...definedFields({
+              reason:
+                entry["reason"] === undefined
+                  ? undefined
+                  : publicFields(object(entry["reason"]), ["$type", "by", "indexedAt"]),
+            }),
+          };
         });
 
-        const cursor = typeof response["cursor"] === "string" ? response["cursor"] : undefined;
-
         return {
-          items: feed as JsonObject[],
-          ...(cursor === undefined ? {} : { nextCursor: cursor }),
+          items: feed,
+          ...definedFields({ nextCursor: optionalString(response["cursor"]) }),
         };
       },
       prepareTarget(target) {
@@ -2023,7 +2017,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const text = target.content.text ?? "";
 
         try {
-          richTextOptions(text, target.options);
+          richTextOptions(text, target);
         } catch (error) {
           issues.push({
             code: "bluesky.richtext",
@@ -2081,14 +2075,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         try {
           const content = target.content;
           const text = content.text ?? "";
-
-          const record: Record<string, unknown> = {
-            $type: "app.bsky.feed.post",
-            text,
-            createdAt: new Date().toISOString(),
-          };
-
-          Object.assign(record, richTextOptions(text, target.options));
+          const createdAt = new Date().toISOString();
+          const richText = richTextOptions(text, target);
+          let reply: JsonObject | undefined;
+          let embed: JsonObject | undefined;
 
           if (target.replyTo !== undefined) {
             if (target.replyTo.kind !== "platform-post")
@@ -2115,18 +2105,18 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
             const rootValue = parentRecord["reply"];
             const root = rootValue === undefined ? parentRef : object(object(rootValue)["root"]);
-            Object.assign(record, { reply: { root, parent: parentRef } });
+            reply = { root, parent: parentRef };
           }
 
           if (content.media !== undefined && content.media.length > 0) {
-            const blobs: Record<string, unknown>[] = [];
+            const blobs: JsonObject[] = [];
 
             for (const media of content.media) {
               const source = await readMedia(media.source, fetcher, context, allowMediaHost);
 
               const blob = object(
                 await xrpc("com.atproto.repo.uploadBlob", context, {
-                  body: new Blob([source.bytes.slice().buffer as ArrayBuffer], {
+                  body: new Blob([source.bytes.slice()], {
                     type: source.mimeType,
                   }),
                   headers: { "Content-Type": source.mimeType },
@@ -2136,16 +2126,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               blobs.push(object(blob["blob"]));
             }
 
-            Object.assign(record, {
-              embed: {
-                $type: "app.bsky.embed.images",
-                images: blobs.map((blob, index) => ({
-                  image: blob,
-                  alt: content.media?.[index]?.altText ?? "",
-                })),
-              },
-            });
+            embed = {
+              $type: "app.bsky.embed.images",
+              images: blobs.map((blob, index) => ({
+                image: blob,
+                alt: content.media?.[index]?.altText ?? "",
+              })),
+            };
           }
+
+          const record = {
+            $type: "app.bsky.feed.post",
+            text,
+            createdAt,
+            ...richText,
+            ...definedFields({ reply, embed }),
+          };
 
           const response = object(
             await xrpc("com.atproto.repo.createRecord", context, {
@@ -2233,7 +2229,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const thread = await native.getPostThread({ uri: post.postId, context });
         const replies = array(object(thread["thread"])["replies"] ?? []);
 
-        return { items: replies.map((reply) => object(reply) as JsonObject) };
+        return { items: replies.map((reply) => object(reply)) };
       },
       async reply(comment, content, context): Promise<CommentRef> {
         const outcome = await adapter.posts?.publishTarget(
@@ -2289,7 +2285,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         ] as const) {
           const count = record[field];
 
-          if (typeof count === "number" && Number.isFinite(count))
+          if (isFiniteNumber(count))
             metrics.push({
               name,
               value: count,
@@ -2331,7 +2327,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             ["posts", profile["postsCount"]],
           ] as const
         ).flatMap(([name, value]) =>
-          typeof value === "number" && Number.isFinite(value)
+          isFiniteNumber(value)
             ? [
                 {
                   name,

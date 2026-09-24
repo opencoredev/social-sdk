@@ -1,9 +1,23 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { connectedAccountRef, createSocial, platformPostRef, profileRef } from "../src/index.js";
+import {
+  connectedAccountRef,
+  createSocial,
+  platformPostRef,
+  profileRef,
+  SocialError,
+} from "../src/index.js";
+import type { JsonObject, JsonValue } from "../src/core/index.js";
+import { definedFields } from "../src/core/fields.js";
 import { bluesky } from "../src/platforms/bluesky.js";
+import { object } from "../src/transport/validation.js";
 
-const response = (value: unknown): Response => Response.json(value);
+const response = (value: JsonValue): Response => Response.json(value);
+
+/** Decode a captured request body; bodyless requests stay undefined. */
+function requestBody(body: BodyInit | null | undefined): JsonObject | undefined {
+  return body === undefined ? undefined : object(JSON.parse(String(body)));
+}
 
 const account = connectedAccountRef({
   backend: "default",
@@ -88,21 +102,19 @@ it("propagates an aborted client signal into Bluesky relationship reads", async 
 
   await assert.rejects(
     social.graph.listRelationships(account, { kind: "following" }, { signal: controller.signal }),
-    (error: unknown) => error instanceof Error && "code" in error && error.code === "cancelled",
+    (error) => error instanceof SocialError && error.code === "cancelled",
   );
   assert.equal(calls, 0);
 });
 
 it("unfollows, unblocks, and unmutes through the client facade", async () => {
-  const requests: Array<{ url: URL; body?: Record<string, unknown> }> = [];
+  const requests: Array<{ url: URL; body?: JsonObject }> = [];
 
   const social = socialWith(async (input, init) => {
     const url = new URL(String(input));
     requests.push({
       url,
-      ...(init?.body === undefined
-        ? {}
-        : { body: JSON.parse(String(init.body)) as Record<string, unknown> }),
+      ...definedFields({ body: requestBody(init?.body) }),
     });
 
     if (url.pathname.endsWith("app.bsky.actor.getProfile"))
@@ -179,18 +191,15 @@ it("reads paginated Bluesky likes and actor search results", async () => {
 });
 
 it("creates, reads, changes, and deletes Bluesky lists", async () => {
-  const requests: Array<{ url: URL; body?: Record<string, unknown> }> = [];
+  const requests: Array<{ url: URL; body?: JsonObject }> = [];
   let create = 0;
 
   const social = socialWith(async (input, init) => {
     const url = new URL(String(input));
 
-    const body =
-      init?.body === undefined
-        ? undefined
-        : (JSON.parse(String(init.body)) as Record<string, unknown>);
+    const body = requestBody(init?.body);
 
-    requests.push({ url, ...(body === undefined ? {} : { body }) });
+    requests.push({ url, ...definedFields({ body }) });
 
     if (url.pathname.endsWith("createRecord")) {
       create++;
@@ -240,18 +249,15 @@ it("creates, reads, changes, and deletes Bluesky lists", async () => {
 });
 
 it("pages list-block records before unblocking and creates moderation reports", async () => {
-  const requests: Array<{ url: URL; body?: Record<string, unknown> }> = [];
+  const requests: Array<{ url: URL; body?: JsonObject }> = [];
   const listUri = "at://did:plc:list/app.bsky.graph.list/l1";
 
   const social = socialWith(async (input, init) => {
     const url = new URL(String(input));
 
-    const body =
-      init?.body === undefined
-        ? undefined
-        : (JSON.parse(String(init.body)) as Record<string, unknown>);
+    const body = requestBody(init?.body);
 
-    requests.push({ url, ...(body === undefined ? {} : { body }) });
+    requests.push({ url, ...definedFields({ body }) });
 
     if (url.pathname.endsWith("listRecords")) {
       if (!url.searchParams.has("cursor")) return response({ records: [], cursor: "page-2" });
@@ -310,15 +316,13 @@ it("rejects unsupported Bluesky all-search scope before network access", async (
 });
 
 it("deletes a platform post through posts.removeFromPlatform and accepts empty no-output bodies", async () => {
-  const requests: Array<{ url: URL; headers: Headers; body?: Record<string, unknown> }> = [];
+  const requests: Array<{ url: URL; headers: Headers; body?: JsonObject }> = [];
 
   const social = socialWith(async (input, init) => {
     requests.push({
       url: new URL(String(input)),
       headers: new Headers(init?.headers),
-      ...(init?.body === undefined
-        ? {}
-        : { body: JSON.parse(String(init.body)) as Record<string, unknown> }),
+      ...definedFields({ body: requestBody(init?.body) }),
     });
 
     return new Response(null, { status: 200 });
