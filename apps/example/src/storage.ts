@@ -97,6 +97,37 @@ function keyFromSecret(secret: string): Buffer {
   return createHash("sha256").update(secret).digest();
 }
 
+function isStringValue(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every(isStringValue);
+}
+
+function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every(isStringValue)
+  );
+}
+
+/** Proves a decrypted plaintext matches `StoredCredential`, including every optional field present. */
+export function isStoredCredential(value: unknown): value is StoredCredential {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+
+  return (
+    "accessToken" in value &&
+    typeof value.accessToken === "string" &&
+    (!("refreshToken" in value) || typeof value.refreshToken === "string") &&
+    (!("expiresAt" in value) || typeof value.expiresAt === "string") &&
+    (!("scopes" in value) || isStringArray(value.scopes)) &&
+    (!("metadata" in value) || isStringRecord(value.metadata))
+  );
+}
+
 export class EncryptedPostgresCredentialStore implements CredentialStore<StoredCredential> {
   private readonly key: Buffer;
   constructor(
@@ -117,13 +148,14 @@ export class EncryptedPostgresCredentialStore implements CredentialStore<StoredC
     decipher.setAAD(Buffer.from(key));
     decipher.setAuthTag(row.tag);
 
-    return {
-      revision: row.revision,
-      // SAFETY: AES-GCM authenticated this plaintext, which only compareAndSet writes from a StoredCredential.
-      value: JSON.parse(
-        Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString("utf8"),
-      ) as StoredCredential,
-    };
+    const plaintext: unknown = JSON.parse(
+      Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString("utf8"),
+    );
+
+    if (!isStoredCredential(plaintext))
+      throw new Error("Decrypted credential does not match the StoredCredential shape");
+
+    return { revision: row.revision, value: plaintext };
   }
   async compareAndSet(input: {
     readonly key: string;

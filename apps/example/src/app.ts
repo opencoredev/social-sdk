@@ -15,7 +15,7 @@ import {
 import type { ConnectionManager, ConnectionProvider } from "@opencoredev/social-sdk/server";
 import {
   mockBackend,
-  type MockSocialAdapter,
+  type MockController,
   type MockScenario,
 } from "@opencoredev/social-sdk/testing";
 import {
@@ -72,6 +72,39 @@ function list(value: JsonField): value is readonly JsonValue[] {
 
 function isString(value: JsonField): value is string {
   return typeof value === "string";
+}
+
+const exampleMockScenarios = [
+  "immediate-text-success",
+  "mixed-success-failure",
+  "media-processing-then-success",
+  "accepted-response-lost",
+] as const satisfies readonly MockScenario[];
+
+type ExampleMockScenario = (typeof exampleMockScenarios)[number];
+
+function isExampleMockScenario(value: string): value is ExampleMockScenario {
+  return exampleMockScenarios.some((scenario) => scenario === value);
+}
+
+type MockControls = Pick<MockController, "advanceProcessing" | "setScenario">;
+
+function isMockControls(value: unknown): value is MockControls {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "advanceProcessing" in value &&
+    typeof value.advanceProcessing === "function" &&
+    "setScenario" in value &&
+    typeof value.setScenario === "function"
+  );
+}
+
+/** Returns the mock controller of a simulated backend, or `undefined` for any other adapter. */
+function mockControls(adapter: SocialAdapter<unknown>): MockControls | undefined {
+  if (adapter.id !== "mock" || !("testing" in adapter)) return undefined;
+
+  return isMockControls(adapter.testing) ? adapter.testing : undefined;
 }
 
 function parseJson(text: string): JsonValue {
@@ -143,6 +176,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
   const backendName = options.backendName ?? "default";
   const backend = options.backend ?? mockBackend({ backendInstance: backendName });
   const simulated = backend.id === "mock";
+  const mock = mockControls(backend);
   const session = options.session ?? { principal: "demo-user", tenantId: "demo-tenant" };
 
   if (!simulated && (!options.session || !options.membership))
@@ -332,30 +366,18 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         );
 
       if (request.method === "POST" && path === "/api/mock/advance") {
-        if (!simulated || !("testing" in backend))
-          return fail("Mock controls are unavailable", 404);
-        // SAFETY: The `testing` capability check above narrows this adapter to the mock implementation.
-        (backend as MockSocialAdapter).testing.advanceProcessing();
+        if (!mock) return fail("Mock controls are unavailable", 404);
+        mock.advanceProcessing();
 
         return Response.json({ simulated: true, advanced: true });
       }
 
       if (request.method === "POST" && path === "/api/mock/scenario") {
-        if (!simulated || !("testing" in backend))
-          return fail("Mock controls are unavailable", 404);
+        if (!mock) return fail("Mock controls are unavailable", 404);
         const scenario = required(await body(request), "scenario");
 
-        if (
-          ![
-            "immediate-text-success",
-            "mixed-success-failure",
-            "media-processing-then-success",
-            "accepted-response-lost",
-          ].includes(scenario)
-        )
-          return fail("Unsupported mock scenario");
-        // SAFETY: The scenario allowlist above proves this value is a supported mock scenario.
-        (backend as MockSocialAdapter).testing.setScenario(scenario as MockScenario);
+        if (!isExampleMockScenario(scenario)) return fail("Unsupported mock scenario");
+        mock.setScenario(scenario);
 
         return Response.json({ simulated: true });
       }
