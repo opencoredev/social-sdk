@@ -222,7 +222,8 @@ references and reconcile explicitly. Bluesky chat consent and moderation require
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.
 - The built-in OAuth transport does not refresh tokens on its own. Refresh with `refreshBlueskyOAuthSession`, or let the official client's session handle it if you use that client.
-- The OAuth helper does not revoke tokens. If identity verification fails after a token exchange, the tokens are discarded without calling the revocation endpoint.
+- If identity verification fails after a token exchange or refresh, the helper tries once to revoke the new tokens at the authorization server's `revocation_endpoint`, when the server advertises one. It revokes the refresh token, or the access token if no refresh token was issued. This is a single best-effort request with no retry. A failed revocation is ignored, and the original verification error is thrown. The helper does not revoke tokens in any other case, such as when an account disconnects.
+- Handle resolution through `https://<handle>/.well-known/atproto-did` follows HTTP redirects, as the handle specification allows, but only to HTTPS URLs. OAuth metadata requests do not follow redirects.
 - Public clients get sessions of about two weeks and must reconnect after that. Confidential clients can refresh for longer, as set by the authorization server.
 - App-password policy and application account membership remain application responsibilities.
 - These are fixture-tested protocol operations, including the OAuth flow against mocked servers. No live account verification is recorded in this repository.

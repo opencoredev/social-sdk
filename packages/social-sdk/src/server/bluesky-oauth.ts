@@ -158,12 +158,14 @@ interface AuthorizationServer {
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
   readonly parEndpoint: string;
+  readonly revocationEndpoint?: string;
 }
 
 interface ProviderState {
   readonly version: 1;
   readonly issuer: string;
   readonly tokenEndpoint: string;
+  readonly revocationEndpoint?: string;
   readonly dpopKey: JsonWebKey;
   readonly dpopNonce?: string;
   readonly did?: string;
@@ -172,6 +174,8 @@ interface ProviderState {
 
 interface HttpResult {
   readonly status: number;
+  /** Final URL after any redirects; empty when the fetch implementation does not report it. */
+  readonly url: string;
   readonly headers: Headers;
   readonly text: string;
 }
@@ -373,7 +377,11 @@ async function send(
 
   try {
     const response = await Promise.race([
-      fetcher(url.toString(), { ...init, redirect: "error", signal: controller.signal }),
+      fetcher(url.toString(), {
+        ...init,
+        redirect: init.redirect ?? "error",
+        signal: controller.signal,
+      }),
       timeout,
     ]);
 
@@ -382,7 +390,7 @@ async function send(
       timeout,
     ]);
 
-    return { status: response.status, headers: response.headers, text };
+    return { status: response.status, url: response.url, headers: response.headers, text };
   } catch (error) {
     if (error instanceof SocialError) throw error;
 
@@ -581,14 +589,20 @@ async function resolveHandle(handle: string, options: BlueskyOAuthRequestOptions
 
   const result = await send(
     new URL(`https://${handle}/.well-known/atproto-did`),
-    { headers: { accept: "text/plain" } },
+    // The handle spec allows redirects here. Metadata documents must not redirect.
+    { headers: { accept: "text/plain" }, redirect: "follow" },
     operation,
     options,
   );
 
   const did = result.text.trim();
 
-  if (result.status < 200 || result.status > 299 || !validDid(did))
+  if (
+    result.status < 200 ||
+    result.status > 299 ||
+    (result.url !== "" && !result.url.startsWith("https://")) ||
+    !validDid(did)
+  )
     fail(operation, "Bluesky handle could not be resolved");
 
   return did;
@@ -728,6 +742,15 @@ async function authorizationServerMetadata(
       operation,
       "pushed_authorization_request_endpoint",
     ),
+    ...(metadata["revocation_endpoint"] === undefined
+      ? {}
+      : {
+          revocationEndpoint: httpsUrl(
+            metadata["revocation_endpoint"],
+            operation,
+            "revocation_endpoint",
+          ),
+        }),
   };
 }
 
@@ -915,6 +938,71 @@ async function authorizationServerPost(input: {
   }
 }
 
+/**
+ * Best-effort revocation after tokens were issued but then rejected, for example
+ * when identity verification fails. It sends one request and never retries,
+ * including on a DPoP nonce challenge. It revokes the refresh token when there is
+ * one, which ends the whole grant, and otherwise the access token. Every failure
+ * is swallowed so the caller can throw its original error; the tokens never
+ * appear in an error or log.
+ */
+async function revokeRejectedTokens(input: {
+  readonly endpoint: string | undefined;
+  readonly issuer: string;
+  readonly token: TokenResponse;
+  readonly dpopKey: JsonWebKey;
+  readonly nonce: string | undefined;
+  readonly options: BlueskyOAuthClientOptions;
+}): Promise<void> {
+  if (input.endpoint === undefined) return;
+
+  try {
+    const url = new URL(input.endpoint);
+    const form =
+      input.token.refreshToken === undefined
+        ? { token: input.token.accessToken, token_type_hint: "access_token" }
+        : { token: input.token.refreshToken, token_type_hint: "refresh_token" };
+
+    await send(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          accept: "application/json",
+          DPoP: await dpopProof({
+            key: input.dpopKey,
+            method: "POST",
+            url,
+            nonce: input.nonce,
+          }),
+        },
+        body: new URLSearchParams({
+          ...form,
+          ...(await clientAuthentication(input.options, input.issuer)),
+        }),
+      },
+      "bluesky.oauth.revoke",
+      input.options,
+    );
+  } catch {
+    // Best effort only. The original verification error is what the caller reports.
+  }
+}
+
+/** Run post-exchange checks; if any fails, revoke the new tokens once and rethrow. */
+async function verifyOrRevoke<T>(
+  check: () => Promise<T>,
+  revoke: Parameters<typeof revokeRejectedTokens>[0],
+): Promise<T> {
+  try {
+    return await check();
+  } catch (error) {
+    await revokeRejectedTokens(revoke);
+    throw error;
+  }
+}
+
 interface TokenResponse {
   readonly did: string;
   readonly accessToken: string;
@@ -990,6 +1078,8 @@ function decodeProviderState(value: string | undefined): ProviderState {
     parsed["version"] !== 1 ||
     typeof parsed["issuer"] !== "string" ||
     typeof parsed["tokenEndpoint"] !== "string" ||
+    (parsed["revocationEndpoint"] !== undefined &&
+      typeof parsed["revocationEndpoint"] !== "string") ||
     !isPrivateEcJwk(parsed["dpopKey"]) ||
     (parsed["dpopNonce"] !== undefined && typeof parsed["dpopNonce"] !== "string") ||
     (parsed["did"] !== undefined && typeof parsed["did"] !== "string") ||
@@ -1001,6 +1091,9 @@ function decodeProviderState(value: string | undefined): ProviderState {
     version: 1,
     issuer: parsed["issuer"],
     tokenEndpoint: parsed["tokenEndpoint"],
+    ...(typeof parsed["revocationEndpoint"] === "string"
+      ? { revocationEndpoint: parsed["revocationEndpoint"] }
+      : {}),
     dpopKey: parsed["dpopKey"],
     ...(typeof parsed["dpopNonce"] === "string" ? { dpopNonce: parsed["dpopNonce"] } : {}),
     ...(typeof parsed["did"] === "string" ? { did: parsed["did"] } : {}),
@@ -1130,6 +1223,9 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
           version: 1,
           issuer,
           tokenEndpoint: server.tokenEndpoint,
+          ...(server.revocationEndpoint === undefined
+            ? {}
+            : { revocationEndpoint: server.revocationEndpoint }),
           dpopKey,
           ...(par.nonce === undefined ? {} : { dpopNonce: par.nonce }),
           ...(did === undefined ? {} : { did }),
@@ -1192,14 +1288,26 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
 
       const token = tokenResponse(exchanged.json, "bluesky.oauth.token");
 
-      if (state.did !== undefined && token.did !== state.did)
-        fail(
-          "bluesky.oauth.identity",
-          "Token subject does not match the requested account",
-          "unauthorized",
-        );
+      const doc = await verifyOrRevoke(
+        async () => {
+          if (state.did !== undefined && token.did !== state.did)
+            fail(
+              "bluesky.oauth.identity",
+              "Token subject does not match the requested account",
+              "unauthorized",
+            );
 
-      const doc = await verifyIssuerForDid(token.did, state.issuer, options);
+          return verifyIssuerForDid(token.did, state.issuer, options);
+        },
+        {
+          endpoint: state.revocationEndpoint,
+          issuer: state.issuer,
+          token,
+          dpopKey: state.dpopKey,
+          nonce: exchanged.nonce,
+          options,
+        },
+      );
       const handle = await verifiedHandle(token.did, doc.handle, state.handle, options);
 
       const account: ConnectionAccount = {
@@ -1426,8 +1534,20 @@ export async function refreshBlueskyOAuthSession(
 
   const token = tokenResponse(refreshed.json, operation);
 
-  if (token.did !== current.did)
-    fail(operation, "Refreshed token belongs to a different account", "unauthorized");
+  await verifyOrRevoke(
+    async () => {
+      if (token.did !== current.did)
+        fail(operation, "Refreshed token belongs to a different account", "unauthorized");
+    },
+    {
+      endpoint: server.revocationEndpoint,
+      issuer: current.issuer,
+      token,
+      dpopKey: current.dpopKey,
+      nonce: refreshed.nonce,
+      options,
+    },
+  );
 
   const { refreshToken: _previousRefresh, expiresAt: _previousExpiry, ...rest } = current;
 

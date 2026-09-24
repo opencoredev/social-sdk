@@ -40,6 +40,7 @@ interface Captured {
   readonly method: string;
   readonly headers: Headers;
   readonly form: URLSearchParams;
+  readonly redirect: RequestRedirect | undefined;
   readonly dpop?: Jwt;
 }
 
@@ -131,6 +132,11 @@ interface WorldOptions {
   readonly tokenScope?: string | null;
   readonly asMetadata?: Record<string, unknown>;
   readonly entryway?: boolean;
+  /** Advertise a revocation endpoint that answers this way. */
+  readonly revocation?: "ok" | "server-error" | "nonce-challenge" | "network-error";
+  /** Subject returned only for refresh grants. */
+  readonly refreshSub?: string;
+  readonly noRefreshToken?: boolean;
 }
 
 /**
@@ -158,7 +164,14 @@ function world(options: WorldOptions = {}) {
     );
     const proof = headers.get("DPoP");
     const dpop = proof === null ? undefined : await verifyJwt(proof);
-    requests.push({ url, method, headers, form, ...(dpop === undefined ? {} : { dpop }) });
+    requests.push({
+      url,
+      method,
+      headers,
+      form,
+      redirect: init?.redirect,
+      ...(dpop === undefined ? {} : { dpop }),
+    });
 
     if (url.origin === PLC) {
       if (url.pathname === `/${DID}`) return json(didDocument(DID, PDS));
@@ -195,7 +208,14 @@ function world(options: WorldOptions = {}) {
     if (url.origin === ISSUER) {
       if (url.pathname === "/.well-known/oauth-protected-resource") return json({}, 404);
       if (url.pathname === "/.well-known/oauth-authorization-server")
-        return json(options.asMetadata ?? asMetadata());
+        return json(
+          options.asMetadata ??
+            asMetadata(
+              options.revocation === undefined
+                ? {}
+                : { revocation_endpoint: `${ISSUER}/oauth/revoke` },
+            ),
+        );
 
       assert.ok(dpop, "authorization server request carries a DPoP proof");
       assert.equal(dpop.header["typ"], "dpop+jwt");
@@ -203,6 +223,14 @@ function world(options: WorldOptions = {}) {
       assert.equal(dpop.payload["htm"], "POST");
       assert.equal(dpop.payload["htu"], `${url.origin}${url.pathname}`);
       assert.equal("ath" in dpop.payload, false);
+      if (url.pathname === "/oauth/revoke") {
+        if (options.revocation === "network-error") throw new TypeError("connection reset");
+        if (options.revocation === "server-error") return json({ error: "server_error" }, 500);
+        if (options.revocation === "nonce-challenge")
+          return json({ error: "use_dpop_nonce" }, 400, { "DPoP-Nonce": "as-nonce-2" });
+        return new Response(null, { status: 200 });
+      }
+
       if (dpop.payload["nonce"] !== asNonce)
         return json({ error: "use_dpop_nonce" }, 400, { "DPoP-Nonce": asNonce });
 
@@ -230,9 +258,12 @@ function world(options: WorldOptions = {}) {
           {
             access_token: `at-${issued}`,
             token_type: "DPoP",
-            refresh_token: `rt-${issued + 1}`,
+            ...(options.noRefreshToken ? {} : { refresh_token: `rt-${issued + 1}` }),
             expires_in: 900,
-            sub: options.tokenSub ?? DID,
+            sub:
+              grant === "refresh_token"
+                ? (options.refreshSub ?? options.tokenSub ?? DID)
+                : (options.tokenSub ?? DID),
             ...(options.tokenScope === null
               ? {}
               : { scope: options.tokenScope ?? "atproto transition:generic" }),
@@ -842,5 +873,164 @@ describe("Bluesky AT Protocol OAuth", () => {
       SocialError,
     );
     assert.doesNotThrow(() => blueskyOAuth({ clientId: loopback.toString() }));
+  });
+  it("follows redirects only for the HTTPS handle method", async () => {
+    const mock = world();
+    const handleRequests: (RequestRedirect | undefined)[] = [];
+    const provider = blueskyOAuth({
+      clientId: CLIENT_ID,
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/.well-known/atproto-did") {
+          handleRequests.push(init?.redirect);
+          return new Response(`${DID}\n`, { status: 200 });
+        }
+        return mock.fetch(input, init);
+      },
+      plcDirectoryUrl: PLC,
+      resolveTxt: async () => [],
+    });
+    await provider.start(startInput(HANDLE));
+    assert.deepEqual(handleRequests, ["follow"]);
+    for (const request of mock.requests) assert.equal(request.redirect, "error");
+  });
+
+  describe("revocation after failed identity verification", () => {
+    const callbackUrl = `${REDIRECT}?state=state-1&iss=${encodeURIComponent(ISSUER)}&code=code-1`;
+
+    async function rejected(
+      options: WorldOptions,
+      hint: string,
+      clientKey?: BlueskyOAuthSigningKey,
+    ) {
+      const mock = world(options);
+      const saved: BlueskyOAuthSession[] = [];
+      const provider = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: mock.fetch,
+        plcDirectoryUrl: PLC,
+        ...(clientKey === undefined ? {} : { clientKey }),
+        sessionSink: { save: async ({ session }) => void saved.push(session) },
+      });
+      const started = await provider.start(startInput(hint));
+      let caught: unknown;
+      try {
+        await provider.complete({ callbackUrl, attempt: attemptFor(started.providerState) });
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof SocialError, "complete rejects");
+      assert.equal(caught.code, "unauthorized");
+      assert.doesNotMatch(
+        `${caught.message} ${String(caught.stack)} ${JSON.stringify(caught)}`,
+        /at-1|rt-2|code-1/,
+      );
+      assert.equal(saved.length, 0);
+      const token = mock.requests.find((request) => request.url.pathname === "/oauth/token");
+      const revokes = mock.requests.filter((request) => request.url.pathname === "/oauth/revoke");
+      return { token, revokes };
+    }
+
+    it("revokes the refresh token with the session DPoP key on a subject mismatch", async () => {
+      const key = await signingKey();
+      const { token, revokes } = await rejected(
+        { tokenSub: OTHER_DID, revocation: "ok" },
+        DID,
+        key,
+      );
+      assert.equal(revokes.length, 1);
+      const revoke = revokes[0];
+      assert.equal(revoke?.method, "POST");
+      assert.equal(revoke?.form.get("token"), "rt-2");
+      assert.equal(revoke?.form.get("token_type_hint"), "refresh_token");
+      assert.equal(revoke?.form.get("client_id"), CLIENT_ID);
+      const assertion = await verifyJwt(
+        revoke?.form.get("client_assertion") ?? "",
+        blueskyOAuthPublicJwk(key),
+      );
+      assert.equal(assertion.payload["aud"], ISSUER);
+      assert.deepEqual(revoke?.dpop?.header["jwk"], token?.dpop?.header["jwk"]);
+      assert.equal(revoke?.dpop?.payload["nonce"], "as-nonce-1");
+      assert.equal(revoke?.dpop?.payload["htu"], `${ISSUER}/oauth/revoke`);
+    });
+
+    it("revokes when the account's PDS names a different authorization server", async () => {
+      // Server-hint flow: OTHER_DID's PDS points at https://evil-auth.test.
+      const { token, revokes } = await rejected({ tokenSub: OTHER_DID, revocation: "ok" }, PDS);
+      assert.equal(revokes.length, 1);
+      assert.equal(revokes[0]?.form.get("token"), "rt-2");
+      assert.equal(revokes[0]?.form.get("client_id"), CLIENT_ID);
+      assert.equal(revokes[0]?.form.has("client_assertion"), false);
+      assert.deepEqual(revokes[0]?.dpop?.header["jwk"], token?.dpop?.header["jwk"]);
+    });
+
+    it("revokes the access token when no refresh token was issued", async () => {
+      const { revokes } = await rejected(
+        { tokenSub: OTHER_DID, revocation: "ok", noRefreshToken: true },
+        DID,
+      );
+      assert.equal(revokes.length, 1);
+      assert.equal(revokes[0]?.form.get("token"), "at-1");
+      assert.equal(revokes[0]?.form.get("token_type_hint"), "access_token");
+    });
+
+    it("does not revoke when the server advertises no revocation endpoint", async () => {
+      const { revokes } = await rejected({ tokenSub: OTHER_DID }, DID);
+      assert.equal(revokes.length, 0);
+    });
+
+    it("keeps the original error and sends one request when revocation fails", async () => {
+      for (const revocation of ["server-error", "nonce-challenge", "network-error"] as const) {
+        const { revokes } = await rejected({ tokenSub: OTHER_DID, revocation }, DID);
+        assert.equal(revokes.length, 1, `${revocation}: no retry`);
+      }
+    });
+
+    it("does not revoke after a successful connection", async () => {
+      const mock = world({ revocation: "ok" });
+      const provider = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: mock.fetch,
+        plcDirectoryUrl: PLC,
+      });
+      const started = await provider.start(startInput(DID));
+      await provider.complete({ callbackUrl, attempt: attemptFor(started.providerState) });
+      assert.equal(
+        mock.requests.some((request) => request.url.pathname === "/oauth/revoke"),
+        false,
+      );
+    });
+
+    it("revokes a refreshed token that names a different account", async () => {
+      const mock = world({ revocation: "ok", refreshSub: OTHER_DID });
+      const saved: BlueskyOAuthSession[] = [];
+      const provider = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: mock.fetch,
+        plcDirectoryUrl: PLC,
+        sessionSink: { save: async ({ session }) => void saved.push(session) },
+      });
+      const started = await provider.start(startInput(DID));
+      await provider.complete({ callbackUrl, attempt: attemptFor(started.providerState) });
+      const session = saved[0];
+      assert.ok(session);
+      const code = await codeFor(
+        refreshBlueskyOAuthSession(session, {
+          clientId: CLIENT_ID,
+          fetch: mock.fetch,
+          plcDirectoryUrl: PLC,
+        }),
+      );
+      assert.equal(code, "unauthorized");
+      const refresh = mock.requests.find(
+        (request) =>
+          request.url.pathname === "/oauth/token" &&
+          request.form.get("grant_type") === "refresh_token",
+      );
+      const revokes = mock.requests.filter((request) => request.url.pathname === "/oauth/revoke");
+      assert.equal(revokes.length, 1);
+      assert.equal(revokes[0]?.form.get("token"), "rt-3");
+      assert.deepEqual(revokes[0]?.dpop?.header["jwk"], refresh?.dpop?.header["jwk"]);
+    });
   });
 });
