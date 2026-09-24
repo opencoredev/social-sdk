@@ -11,8 +11,9 @@ The direct YouTube adapter accepts an existing OAuth access token and channel ID
   <Step title="Configure Google OAuth">
     Request `https://www.googleapis.com/auth/youtube.upload` when the connected workflow uploads
     videos. Add `https://www.googleapis.com/auth/youtube.force-ssl` for captions and playlist
-    mutations, and `https://www.googleapis.com/auth/yt-analytics.readonly` for Analytics API
-    reports. Refresh with `refreshOAuthToken("youtube", ...)` and persist any rotated refresh token.
+    mutations, `https://www.googleapis.com/auth/youtube` to cancel a scheduled video, and
+    `https://www.googleapis.com/auth/yt-analytics.readonly` for Analytics API reports. Refresh with
+    `refreshOAuthToken("youtube", ...)` and persist any rotated refresh token.
   </Step>
   <Step title="Store credentials server-side">
     Set `YOUTUBE_ACCESS_TOKEN` and `YOUTUBE_CHANNEL_ID` in server configuration. Upload bytes and
@@ -85,9 +86,26 @@ const result = await social.posts.publish({
 });
 ```
 
+While the video waits for its publish time, the outcome is `scheduled` and carries a `job` reference whose `jobId` is the video ID. After the time passes and YouTube publishes the video, `getDelivery` reports it as `published`.
+
+### Cancel a scheduled video
+
+`posts.cancelScheduled(job)` stops YouTube from publishing the video at the scheduled time. It does not delete the video. The adapter reads the video, checks that it belongs to the configured channel, is still `private`, and has a `publishAt` in the future, then calls `videos.update` with `part=status`. The result is `{ state: "cancelled", backendRecord: "retained" }`: the video stays uploaded and private with no scheduled time.
+
+```ts
+const outcome = result.outcomes[0];
+if (outcome?.state === "scheduled") {
+  await social.posts.cancelScheduled(outcome.job);
+}
+```
+
+`videos.update` replaces the whole `status` part and resets any field left out, so the adapter resends the status fields it just read (`license`, `embeddable`, `publicStatsViewable`, `selfDeclaredMadeForKids`, and `containsSyntheticMedia`) and leaves out only `publishAt`. If YouTube does not return the made-for-kids declaration, the adapter stops before writing rather than risk clearing it.
+
+Cancellation needs the `https://www.googleapis.com/auth/youtube` scope; `youtube.upload` alone cannot call `videos.update`. It costs 51 quota units: 1 for `videos.list` and 50 for `videos.update`. A video that is public, already past its publish time, or has no schedule is rejected with `invalid_input` and nothing is written. The update is sent once. If the response is lost or does not show a private video without `publishAt`, the call raises `ambiguous_outcome` with `reconcile-first`; read the video before trying again. To remove the video entirely, use `posts.removeFromPlatform` instead.
+
 ### Track upload and processing separately
 
-YouTube separates upload completion from processing. `uploaded` maps to `processing`, `processed` maps to `published`, and `failed`/`rejected` maps to a confirmed media failure. The returned watch URL is produced only with a verified video ID.
+YouTube separates upload completion from processing. A private video with a future `publishAt` maps to `scheduled`. Otherwise `uploaded` maps to `processing`, `processed` maps to `published`, and `failed`/`rejected` maps to a confirmed media failure. The returned watch URL is produced only with a verified video ID.
 
 ```ts
 const outcome = result.outcomes[0];
@@ -149,9 +167,9 @@ Unverified Google projects may be restricted to private uploads. The adapter doe
 :::
 
 - Quota, channel eligibility, scopes, and API audit status remain upstream conditions.
-- Data API quota costs are method-specific: list/search/get operations generally cost 1 unit; playlist and video mutations cost 50; `thumbnails.set` costs approximately 50; captions list/delete cost 50, insert 400, update 450, and download 200; subscriptions mutations cost 50; comment moderation mutations cost 50. `search.list` is also subject to Google's documented 100-calls-per-day Search Queries limit.
+- Data API quota costs are method-specific: list/search/get operations generally cost 1 unit; playlist and video mutations cost 50, so schedule cancellation costs 51 including its read; `thumbnails.set` costs approximately 50; captions list/delete cost 50, insert 400, update 450, and download 200; subscriptions mutations cost 50; comment moderation mutations cost 50. `search.list` is also subject to Google's documented 100-calls-per-day Search Queries limit.
 - Playlist and video management generally uses `youtube` or `youtube.readonly`; ratings and captions use `youtube.force-ssl`; uploads use `youtube.upload`. Google OAuth verification, channel ownership, and project quota remain approval or account conditions.
 - Video uploads get at least 15 minutes, even when `retryBudget.maxElapsedMs` is shorter, because the default 30-second budget cannot fit a real upload. Pass a longer budget for very large files, and pass `signal` to cancel an upload early.
 - Current evidence is contract coverage, not a live channel verification.
 
-See YouTube's [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) documentation for current audit and quota rules.
+See YouTube's [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) documentation for current audit and quota rules, and [videos.update](https://developers.google.com/youtube/v3/docs/videos/update) and the [videos resource](https://developers.google.com/youtube/v3/docs/videos#status.publishAt) for `status.publishAt` rules.

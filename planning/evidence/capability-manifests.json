@@ -2322,6 +2322,15 @@
           "notes": "Scheduled videos are uploaded private with a future ISO publishAt timestamp."
         },
         {
+          "operation": "posts.cancelScheduled",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Clears status.publishAt with videos.update and keeps the video private. The video is not deleted. Costs 51 quota units (videos.list + videos.update)."
+        },
+        {
           "operation": "posts.removeFromPlatform",
           "platform": "youtube",
           "availability": "available",

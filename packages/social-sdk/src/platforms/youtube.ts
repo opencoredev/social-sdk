@@ -17,6 +17,8 @@ import type {
   Page,
   PlatformPostRef,
   PreparedPublishTarget,
+  ScheduleCancellation,
+  ScheduledJobRef,
   SearchPostsInput,
 } from "../core/types.js";
 import { managedHttp, publicFields } from "../cloud/common.js";
@@ -211,6 +213,19 @@ export function youtube(
     return video;
   };
 
+  /** Returns the publishAt time only while the video is private and still waiting to publish. */
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
+  const scheduledAt = (status: Record<string, unknown>): string | undefined => {
+    const publishAt = status["publishAt"];
+
+    if (status["privacyStatus"] !== "private" || typeof publishAt !== "string") return undefined;
+    const time = Date.parse(publishAt);
+
+    return Number.isFinite(time) && time > (options.clock?.() ?? new Date()).getTime()
+      ? publishAt
+      : undefined;
+  };
+
   const outcome = (
     // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
     video: Record<string, unknown>,
@@ -234,6 +249,31 @@ export function youtube(
       },
     };
 
+    if (uploaded === "failed" || uploaded === "rejected")
+      return {
+        ...base,
+        state: "failed",
+        code: "media_error",
+        message:
+          "YouTube rejected or failed to process the video. Inspect channel eligibility and upload requirements.",
+        retryDisposition: { kind: "never" },
+      };
+
+    // A private video with a future publishAt is waiting for YouTube to publish it.
+    if (scheduledAt(status) !== undefined)
+      return {
+        ...base,
+        state: "scheduled",
+        job: {
+          kind: "scheduled-job",
+          version: 1,
+          backend: target.account.backend,
+          platform: "youtube",
+          accountId: target.account.accountId,
+          jobId: id,
+        },
+      };
+
     if (uploaded === "processed")
       return {
         ...base,
@@ -250,16 +290,6 @@ export function youtube(
       };
 
     if (uploaded === "uploaded") return { ...base, state: "processing" };
-
-    if (uploaded === "failed" || uploaded === "rejected")
-      return {
-        ...base,
-        state: "failed",
-        code: "media_error",
-        message:
-          "YouTube rejected or failed to process the video. Inspect channel eligibility and upload requirements.",
-        retryDisposition: { kind: "never" },
-      };
 
     return {
       ...base,
@@ -401,6 +431,14 @@ export function youtube(
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube.upload"],
           notes: "Scheduled videos are uploaded private with a future ISO publishAt timestamp.",
+        },
+        {
+          operation: "posts.cancelScheduled",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Clears status.publishAt with videos.update and keeps the video private. The video is not deleted. Costs 51 quota units (videos.list + videos.update).",
         },
         {
           operation: "posts.removeFromPlatform",
@@ -781,6 +819,105 @@ export function youtube(
         );
 
         return outcome(video, { account, targetIndex: 0 });
+      },
+      async cancelScheduled(
+        ref: ScheduledJobRef,
+        context: AdapterOperationContext,
+      ): Promise<ScheduleCancellation> {
+        authorize(ref, context);
+
+        if (!ref.jobId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.cancelScheduled",
+            message: "jobId must be the scheduled video's ID.",
+          });
+
+        const video = await get(
+          {
+            kind: "platform-post",
+            version: 1,
+            backend: ref.backend,
+            platform: "youtube",
+            accountId: ref.accountId,
+            postId: ref.jobId,
+          },
+          context,
+        );
+        const status = object(video["status"]);
+
+        if (scheduledAt(status) === undefined)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.cancelScheduled",
+            message:
+              "Only a private video with a future publishAt can be cancelled. Reconcile a due or published video.",
+          });
+
+        // videos.update replaces the whole status part: an omitted field is reset. Resend every
+        // writable field read above, set privacyStatus to private, and omit publishAt to clear it.
+        const flag = (key: string): boolean | undefined => {
+          const value = status[key];
+
+          if (value === undefined || typeof value === "boolean") return value;
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "posts.cancelScheduled",
+            message: `YouTube returned an invalid status.${key} value.`,
+          });
+        };
+
+        const selfDeclaredMadeForKids = flag("selfDeclaredMadeForKids");
+
+        if (selfDeclaredMadeForKids === undefined)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "posts.cancelScheduled",
+            message:
+              "YouTube did not return the made-for-kids declaration, so the update could not preserve it. Nothing was changed.",
+          });
+
+        const license = optionalString(status["license"]);
+        const embeddable = flag("embeddable");
+        const publicStatsViewable = flag("publicStatsViewable");
+        const containsSyntheticMedia = flag("containsSyntheticMedia");
+
+        const next = {
+          privacyStatus: "private",
+          ...(license === undefined ? {} : { license }),
+          ...(embeddable === undefined ? {} : { embeddable }),
+          ...(publicStatsViewable === undefined ? {} : { publicStatsViewable }),
+          selfDeclaredMadeForKids,
+          ...(containsSyntheticMedia === undefined ? {} : { containsSyntheticMedia }),
+        } satisfies JsonObject;
+
+        const result = object(
+          await request(
+            "/youtube/v3/videos",
+            context,
+            { id: ref.jobId, status: next },
+            { part: "status" },
+            "PUT",
+          ),
+        );
+        const written = result["status"] === undefined ? undefined : object(result["status"]);
+
+        if (
+          result["id"] !== ref.jobId ||
+          written?.["privacyStatus"] !== "private" ||
+          (written["publishAt"] !== undefined && written["publishAt"] !== null)
+        )
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "posts.cancelScheduled",
+            backend: context.backendInstance,
+            correlationId: context.correlationId,
+            message:
+              "YouTube did not confirm that the schedule was cleared. Read the video before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        return { state: "cancelled", backendRecord: "retained" };
       },
       async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
         authorize(ref, context);

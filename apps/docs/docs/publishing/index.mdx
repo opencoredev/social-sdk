@@ -44,13 +44,15 @@ These sources were checked on 2026-09-24. Because none of these platforms holds 
 
 Use the operation that matches the resource you intend to change. These methods authorize the reference's account before network access and check backend ownership before writing.
 
-| Method                              | Reference                                                 | Implemented behavior                                                                                                          |
-| ----------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `posts.cancelScheduled(job)`        | Account-scoped `ScheduledJobRef` from a scheduled outcome | Zernio deletes the future scheduled record. Post for Me retains the record as a draft, preserving its timestamp and content.  |
-| `posts.deleteBackendRecord(record)` | `BackendPostRef` with `recordId`                          | Deletes a draft provider record on Zernio or Post for Me. Scheduled and dispatched records are rejected.                      |
-| `posts.removeFromPlatform(post)`    | `PlatformPostRef` from publication                        | Zernio unpublishes a native post while retaining the backend record, on X, Threads, Bluesky, YouTube, LinkedIn, and Facebook. |
+| Method                              | Reference                                                 | Implemented behavior                                                                                                                                                                        |
+| ----------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posts.cancelScheduled(job)`        | Account-scoped `ScheduledJobRef` from a scheduled outcome | Zernio deletes the future scheduled record. Post for Me retains the record as a draft, preserving its timestamp and content. Direct YouTube clears `publishAt` and keeps the video private. |
+| `posts.deleteBackendRecord(record)` | `BackendPostRef` with `recordId`                          | Deletes a draft provider record on Zernio or Post for Me. Scheduled and dispatched records are rejected.                                                                                    |
+| `posts.removeFromPlatform(post)`    | `PlatformPostRef` from publication                        | Zernio unpublishes a native post while retaining the backend record, on X, Threads, Bluesky, YouTube, LinkedIn, and Facebook.                                                               |
 
-Direct adapters also implement `posts.removeFromPlatform` for X, Bluesky, LinkedIn, and Instagram with Facebook Login. They delete the native post with the connected account credentials. The direct YouTube and TikTok adapters do not implement it.
+Direct adapters also implement `posts.removeFromPlatform` for X, Threads, Bluesky, LinkedIn, YouTube, and Instagram with Facebook Login. They delete the native post with the connected account credentials. The direct TikTok adapter does not implement it.
+
+The direct YouTube adapter implements `posts.cancelScheduled` for videos uploaded with `schedule`. It clears the scheduled publish time and leaves the video uploaded and private; it never deletes the video. See [YouTube](/platforms/youtube#cancel-a-scheduled-video) for the quota cost and scope.
 
 On Zernio, native removal needs the backend record ID preserved in `post.native.backendRecordId`. A native post ID alone cannot identify that provider record. Post for Me does not advertise native removal because its record deletion endpoint does not establish that it removes live platform content.
 
