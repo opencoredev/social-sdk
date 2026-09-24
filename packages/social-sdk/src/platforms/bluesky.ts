@@ -525,7 +525,9 @@ function serviceDid(value: string, operation: string): string {
 /** Validates a processed video blob before it is written into a post record. */
 function videoBlob(value: JsonField): JsonObject {
   const blob = object(value);
+
   const link = object(blob["ref"])["$link"];
+
   const size = blob["size"];
 
   if (
@@ -551,6 +553,7 @@ function videoBlob(value: JsonField): JsonObject {
 /** Parses app.bsky.video.defs#jobStatus and binds it to the configured DID. */
 function videoJob(value: JsonField, did: string): BlueskyVideoJob {
   const job = object(value);
+
   const owner = string(job["did"]);
 
   if (owner !== did)
@@ -561,8 +564,11 @@ function videoJob(value: JsonField, did: string): BlueskyVideoJob {
     });
 
   const progress = optionalNumber(job["progress"]);
+
   const failureCode = optionalString(job["failureCode"]);
+
   const error = optionalString(job["error"]);
+
   const message = optionalString(job["message"]);
 
   return {
@@ -592,15 +598,20 @@ interface MentionInput {
 
 function linkFacets(text: string): RichTextFacet[] {
   const facets: RichTextFacet[] = [];
+
   const urlPattern = /https?:\/\/[^\s<>]+/g;
 
   for (const match of text.matchAll(urlPattern)) {
     const value = match[0]?.replace(/[.,;:!?)]*$/u, "");
+
     const start = match.index;
 
     if (start === undefined || value === undefined) continue;
+
     const end = start + value.length;
+
     const byteStart = new TextEncoder().encode(text.slice(0, start)).byteLength;
+
     const byteEnd = new TextEncoder().encode(text.slice(0, end)).byteLength;
     facets.push({
       index: { byteStart, byteEnd },
@@ -653,11 +664,14 @@ function richTextOptions(text: string, target: PreparedPublishTarget): JsonObjec
 
   if (options !== undefined && !isOptionBag(options))
     invalidRichText("Bluesky options must be an object.");
+
   const config = options ?? {};
 
   if (Object.keys(config).some((key) => key !== "languages" && key !== "mentions"))
     invalidRichText("A supplied Bluesky option is not supported.");
+
   let langs: string[] | undefined;
+
   const languages = "languages" in config ? config.languages : undefined;
 
   if (languages !== undefined) {
@@ -672,11 +686,14 @@ function richTextOptions(text: string, target: PreparedPublishTarget): JsonObjec
   }
 
   const facets = linkFacets(text);
+
   const bytes = new TextEncoder().encode(text);
+
   const mentions = ("mentions" in config ? config.mentions : undefined) ?? [];
 
   if (!isOptionList(mentions) || mentions.length > 100)
     invalidRichText("Bluesky mentions must be an array of at most 100 DID references.");
+
   const spans: { start: number; end: number }[] = [];
 
   for (const value of mentions) {
@@ -730,11 +747,14 @@ async function readMedia(
   allowMediaHost: (hostname: string) => boolean,
 ): Promise<{ readonly bytes: Uint8Array; readonly mimeType: string }> {
   const duration = remainingBudget(context);
+
   const controller = new AbortController();
+
   const abort = () => controller.abort(context.signal?.reason);
 
   if (context.signal?.aborted) abort();
   context.signal?.addEventListener("abort", abort, { once: true });
+
   const timer = setTimeout(() => controller.abort(new Error("Media deadline exceeded")), duration);
 
   try {
@@ -769,6 +789,7 @@ async function readMedia(
           operation: "bluesky.uploadBlob",
           message: "Remote image host is outside the configured egress policy.",
         });
+
       const pending = fetcher(url, { redirect: "error", signal: controller.signal });
       void pending.then(
         (response) => {
@@ -776,6 +797,7 @@ async function readMedia(
         },
         () => undefined,
       );
+
       const response = await abortable(pending, controller.signal);
 
       if (
@@ -784,6 +806,7 @@ async function readMedia(
         Number(response.headers.get("content-length")) > MAX_IMAGE_BYTES
       ) {
         void response.body?.cancel().catch(() => undefined);
+
         throw new SocialError({
           code: "media_error",
           operation: "bluesky.uploadBlob",
@@ -810,6 +833,7 @@ async function readMedia(
         message: "Image preparation was interrupted before publication.",
         retryDisposition: { kind: "never" },
       });
+
     throw error;
   } finally {
     clearTimeout(timer);
@@ -819,7 +843,9 @@ async function readMedia(
 
 export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   const backend = options.backend ?? "default";
+
   const fetcher = options.fetch ?? globalThis.fetch;
+
   const allowMediaHost = options.allowMediaHost ?? (() => false);
 
   const http = createHttp({
@@ -860,6 +886,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   }
 
   const service = auth.service;
+
   const account = connectedAccountRef({ backend, platform: "bluesky", accountId: auth.did });
 
   const capabilities: CapabilityManifest = {
@@ -1083,7 +1110,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   }
 
   const videoOrigin = videoServiceOrigin(options.videoService);
+
   const timeout = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
+
   const videoHttp = createHttp({ fetch: fetcher, ...timeout });
 
   // Bluesky's video guide notes that a video the service already processed is reported as
@@ -1148,7 +1177,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   /** Resolves the PDS service DID that the video service stores the processed blob with. */
   async function pdsAudience(context: AdapterOperationContext): Promise<string> {
     if (options.pdsDid !== undefined) return serviceDid(options.pdsDid, "bluesky.video.upload");
+
     const session = object(await xrpc("com.atproto.server.getSession", context));
+
     const didDoc = session["didDoc"];
 
     if (session["did"] !== auth.did || didDoc === undefined)
@@ -1158,6 +1189,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         message:
           "The session did not include a DID document for this account. Configure pdsDid for video uploads.",
       });
+
     const document = object(didDoc);
 
     const pds = array(document["service"] ?? []).find((entry) => {
@@ -1172,6 +1204,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         operation: "bluesky.video.upload",
         message: "The DID document does not name a PDS for this account. Configure pdsDid.",
       });
+
     let host: string;
 
     try {
@@ -1246,6 +1279,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
   const recordKey = (uri: string, collection: string): string => {
     const prefix = `at://${auth.did}/${collection}/`;
+
     const key = uri.startsWith(prefix) ? uri.slice(prefix.length) : "";
 
     if (!/^[A-Za-z0-9._~:-]{1,512}$/.test(key) || key === "." || key === "..")
@@ -1272,8 +1306,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       };
 
       const query = new URLSearchParams({ uris: input.uri });
+
       const response = object(await xrpc(`app.bsky.feed.getPosts?${query.toString()}`, context));
+
       const posts = array(response["posts"]);
+
       const post = posts.find((value) => object(value)["uri"] === input.uri);
 
       if (post === undefined)
@@ -1368,6 +1405,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const response = object(await xrpc(`app.bsky.feed.searchPosts?${query}`, context));
 
       const posts = array(response["posts"]).map((post) => object(post));
+
       const hitsTotal = optionalNumber(response["hitsTotal"]);
 
       return {
@@ -1461,6 +1499,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       };
 
       const prefix = `at://${auth.did}/app.bsky.feed.like/`;
+
       const recordKey = input.likeUri.startsWith(prefix) ? input.likeUri.slice(prefix.length) : "";
 
       if (!/^[A-Za-z0-9._~:-]{1,512}$/.test(recordKey) || recordKey === "." || recordKey === "..")
@@ -1469,6 +1508,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.reactions.unlike",
           message: "Like record must belong to this Bluesky account.",
         });
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({ repo: auth.did, collection: "app.bsky.feed.like", rkey: recordKey }),
       });
@@ -1524,7 +1564,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async deletePost(input) {
       const context = nativeContext(input.context, "bluesky.delete");
       assertNativeAccount(input.account, context, "bluesky.delete");
+
       const prefix = `at://${auth.did}/app.bsky.feed.post/`;
+
       const rkey = input.post.uri.startsWith(prefix) ? input.post.uri.slice(prefix.length) : "";
 
       if (!rkey)
@@ -1533,6 +1575,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.delete",
           message: "Post URI does not belong to this account.",
         });
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({ repo: auth.did, collection: "app.bsky.feed.post", rkey }),
       });
@@ -1541,6 +1584,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       // https://docs.bsky.app/docs/tutorials/video (recommended method)
       const context = nativeContext(input.context, "bluesky.video.upload");
       assertNativeAccount(input.account, context, "bluesky.video.upload");
+
       const name = input.name ?? "video.mp4";
 
       if (
@@ -1633,9 +1677,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           new HttpError("Upload limits are missing canUpload.", "invalid-response", true),
           false,
         );
+
       const videos = optionalNumber(response["remainingDailyVideos"]);
+
       const bytes = optionalNumber(response["remainingDailyBytes"]);
+
       const message = optionalString(response["message"]);
+
       const error = optionalString(response["error"]);
 
       return {
@@ -1669,6 +1717,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unfollow(input) {
       const context = nativeContext(input.context, "bluesky.unfollow");
       assertNativeAccount(input.account, context, "bluesky.unfollow");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1698,6 +1747,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unblock(input) {
       const context = nativeContext(input.context, "bluesky.unblock");
       assertNativeAccount(input.account, context, "bluesky.unblock");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1717,6 +1767,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unmute(input) {
       const context = nativeContext(input.context, "bluesky.unmute");
       assertNativeAccount(input.account, context, "bluesky.unmute");
+
       await xrpc("app.bsky.graph.unmuteActor", context, {
         body: JSON.stringify({ actor: input.did }),
       });
@@ -1724,6 +1775,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getFollowers(input) {
       const context = nativeContext(input.context, "bluesky.graph.followers");
       assertNativeAccount(input.account, context, "bluesky.graph.followers");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
 
@@ -1735,6 +1787,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getFollows(input) {
       const context = nativeContext(input.context, "bluesky.graph.follows");
       assertNativeAccount(input.account, context, "bluesky.graph.follows");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
 
@@ -1761,10 +1814,12 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getLikes(input) {
       const context = nativeContext(input.context, "bluesky.likes.read");
       assertNativeAccount(input.account, context, "bluesky.likes.read");
+
       const q = pageQuery(input);
       q.set("uri", input.uri);
 
       if (input.cid) q.set("cid", input.cid);
+
       const value = object(await xrpc(`app.bsky.feed.getLikes?${q}`, context));
 
       return {
@@ -1775,8 +1830,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getActorLikes(input) {
       const context = nativeContext(input.context, "bluesky.likes.actor");
       assertNativeAccount(input.account, context, "bluesky.likes.actor");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
+
       const value = object(await xrpc(`app.bsky.feed.getActorLikes?${q}`, context));
 
       return {
@@ -1794,6 +1851,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.profiles.search",
           message: "Actor search query is required.",
         });
+
       const q = pageQuery(input);
       q.set("q", input.query.trim());
 
@@ -1809,6 +1867,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.profiles.search",
           message: "Actor search query is required.",
         });
+
       const limit = input.limit ?? 8;
 
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -1817,6 +1876,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.profiles.search",
           message: "Page size must be between 1 and 100.",
         });
+
       const q = new URLSearchParams({ q: input.query.trim(), limit: String(limit) });
 
       return actorPage(
@@ -1874,6 +1934,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async deleteList(input) {
       const context = nativeContext(input.context, "bluesky.lists.delete");
       assertNativeAccount(input.account, context, "bluesky.lists.delete");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1904,6 +1965,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async removeListItem(input) {
       const context = nativeContext(input.context, "bluesky.lists.items.remove");
       assertNativeAccount(input.account, context, "bluesky.lists.items.remove");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1915,6 +1977,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getList(input) {
       const context = nativeContext(input.context, "bluesky.lists.get");
       assertNativeAccount(input.account, context, "bluesky.lists.get");
+
       const q = pageQuery(input);
       q.set("list", input.listUri);
 
@@ -1923,6 +1986,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getLists(input) {
       const context = nativeContext(input.context, "bluesky.lists.list");
       assertNativeAccount(input.account, context, "bluesky.lists.list");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
 
@@ -1931,6 +1995,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async muteList(input) {
       const context = nativeContext(input.context, "bluesky.lists.mute");
       assertNativeAccount(input.account, context, "bluesky.lists.mute");
+
       await xrpc("app.bsky.graph.muteActorList", context, {
         body: JSON.stringify({ list: input.listUri }),
       });
@@ -1938,6 +2003,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unmuteList(input) {
       const context = nativeContext(input.context, "bluesky.lists.unmute");
       assertNativeAccount(input.account, context, "bluesky.lists.unmute");
+
       await xrpc("app.bsky.graph.unmuteActorList", context, {
         body: JSON.stringify({ list: input.listUri }),
       });
@@ -1945,6 +2011,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async blockList(input) {
       const context = nativeContext(input.context, "bluesky.lists.block");
       assertNativeAccount(input.account, context, "bluesky.lists.block");
+
       await xrpc("com.atproto.repo.createRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1960,7 +2027,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unblockList(input) {
       const context = nativeContext(input.context, "bluesky.lists.unblock");
       assertNativeAccount(input.account, context, "bluesky.lists.unblock");
+
       let cursor: string | undefined;
+
       let record: JsonObject | undefined;
 
       do {
@@ -1987,6 +2056,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.lists.unblock",
           message: "No list block record was found for this list.",
         });
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -2012,6 +2082,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async listNotifications(input) {
       const context = nativeContext(input.context, "bluesky.notifications.list");
       assertNativeAccount(input.account, context, "bluesky.notifications.list");
+
       const limit = input.limit ?? 50;
 
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -2031,6 +2102,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async markNotificationsSeen(input) {
       const context = nativeContext(input.context, "bluesky.notifications.seen");
       assertNativeAccount(input.account, context, "bluesky.notifications.seen");
+
       await xrpc("app.bsky.notification.updateSeen", context, {
         body: JSON.stringify({ seenAt: input.seenAt ?? new Date().toISOString() }),
       });
@@ -2049,6 +2121,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async updateProfile(input) {
       const context = nativeContext(input.context, "bluesky.profile.update");
       assertNativeAccount(input.account, context, "bluesky.profile.update");
+
       await xrpc("com.atproto.repo.putRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -2061,6 +2134,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async listFeeds(input) {
       const context = nativeContext(input.context, "bluesky.feeds.list");
       assertNativeAccount(input.account, context, "bluesky.feeds.list");
+
       const limit = input.limit ?? 50;
 
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -2080,6 +2154,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async listConversations(input) {
       const context = nativeContext(input.context, "bluesky.chat.list");
       assertNativeAccount(input.account, context, "bluesky.chat.list");
+
       const limit = input.limit ?? 50;
 
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -2099,6 +2174,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async listMessages(input) {
       const context = nativeContext(input.context, "bluesky.chat.messages");
       assertNativeAccount(input.account, context, "bluesky.chat.messages");
+
       const limit = input.limit ?? 50;
 
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -2298,6 +2374,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         });
 
         const actor = object(value);
+
         const id = string(actor["did"]);
 
         return {
@@ -2347,6 +2424,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         return {
           items: result.actors.map((actor) => {
             const value = object(actor);
+
             const id = string(value["did"]);
 
             return {
@@ -2378,6 +2456,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         );
 
         const viewer = object(profile["viewer"] ?? {});
+
         const uri = viewer["following"];
 
         if (!isString(uri) || !uri)
@@ -2386,6 +2465,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "graph.unfollow",
             message: "A follow record URI is required to unfollow.",
           });
+
         await native.unfollow({ account, followUri: uri, context });
       },
       async block(target, context): Promise<RelationshipRecord> {
@@ -2399,6 +2479,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         );
 
         const viewer = object(profile["viewer"] ?? {});
+
         const uri = viewer["blocking"];
 
         if (!isString(uri) || !uri)
@@ -2407,6 +2488,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "graph.unblock",
             message: "A block record URI is required to unblock.",
           });
+
         await native.unblock({ account, blockUri: uri, context });
       },
       async mute(target, context): Promise<RelationshipRecord> {
@@ -2441,6 +2523,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             message: "The account reference does not belong to this Bluesky adapter.",
             account: ref,
           });
+
         const session = await verifiedSession(context);
 
         return {
@@ -2504,6 +2587,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         });
 
         const values = response["notifications"];
+
         const items = values === undefined ? [] : array(values).map((value) => object(value));
 
         return {
@@ -2523,6 +2607,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             message: "The account reference does not belong to this adapter.",
             account,
           });
+
         await native.markNotificationsSeen({
           account,
           ...definedFields({ seenAt: input.seenAt }),
@@ -2542,6 +2627,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "bluesky.posts.list",
             message: "The account reference does not belong to this adapter.",
           });
+
         const limit = input.limit ?? 50;
 
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -2563,6 +2649,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const feed = array(response["feed"]).map((value): JsonObject => {
           const entry = object(value);
+
           const post = object(entry["post"]);
 
           const safePost = {
@@ -2617,6 +2704,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       },
       prepareTarget(target) {
         const issues = [];
+
         const text = target.content.text ?? "";
 
         try {
@@ -2651,6 +2739,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           });
 
         const media = target.content.media ?? [];
+
         const videos = media.filter((item) => item.kind === "video");
 
         if (videos.length > 0 && media.length !== 1)
@@ -2715,10 +2804,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         try {
           const content = target.content;
+
           const text = content.text ?? "";
+
           const createdAt = new Date().toISOString();
+
           const richText = richTextOptions(text, target);
+
           let reply: JsonObject | undefined;
+
           let embed: JsonObject | undefined;
 
           if (target.replyTo !== undefined) {
@@ -2745,6 +2839,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                   };
 
             const rootValue = parentRecord["reply"];
+
             const root = rootValue === undefined ? parentRef : object(object(rootValue)["root"]);
             reply = { root, parent: parentRef };
           }
@@ -2759,6 +2854,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                 message: "Bluesky video posts require exactly one uploaded video reference.",
                 retryDisposition: { kind: "never" },
               });
+
             const ref = video.source.ref;
 
             if (ref.backend !== backend || ref.platform !== "bluesky" || ref.accountId !== auth.did)
@@ -2907,6 +3003,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "posts.removeFromPlatform",
             message: "The post reference does not belong to this Bluesky adapter.",
           });
+
         await native.deletePost({
           account,
           post: {
@@ -2925,7 +3022,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "comments.read",
             message: "This adapter does not expose upstream comment pagination.",
           });
+
         const thread = await native.getPostThread({ uri: post.postId, context });
+
         const replies = array(object(thread["thread"])["replies"] ?? []);
 
         return { items: replies.map((reply) => object(reply)) };
@@ -2972,8 +3071,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     analytics: {
       async getPostMetrics(post, context): Promise<readonly MetricValue[]> {
         const value = await native.getPost({ uri: post.postId, context });
+
         const record = object(value);
+
         const fetchedAt = new Date().toISOString();
+
         const metrics: MetricValue[] = [];
 
         for (const [name, field] of [
@@ -3017,6 +3119,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "bluesky.analytics.account",
             message: "Bluesky profile identity does not match the requested DID.",
           });
+
         const fetchedAt = new Date().toISOString();
 
         return (
