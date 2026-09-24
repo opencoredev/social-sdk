@@ -2128,6 +2128,12 @@
         },
         {
           "platform": "x",
+          "operation": "notifications.read",
+          "availability": "unsupported-by-platform",
+          "notes": "X API v2 has no notifications list endpoint. Use mentions.read, or the Account Activity or X Activity API webhooks and streams."
+        },
+        {
+          "platform": "x",
           "operation": "messages.write",
           "availability": "available",
           "requiredScopes": [
@@ -2354,6 +2360,12 @@
           "platform": "threads",
           "availability": "unsupported-by-platform",
           "notes": "Threads does not expose messaging APIs to standard apps."
+        },
+        {
+          "operation": "notifications.read",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "The Threads API has no notifications endpoint. Use mentions.read, reply reads, or webhooks instead."
         }
       ]
     }
@@ -2444,6 +2456,12 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ]
+        },
+        {
+          "operation": "notifications.read",
+          "platform": "youtube",
+          "availability": "unsupported-by-platform",
+          "notes": "The YouTube Data API has no notifications resource. activities.list reports actions a channel took, not notifications it received."
         },
         {
           "operation": "playlists.read",
@@ -2686,6 +2704,12 @@
         },
         {
           "platform": "tiktok",
+          "operation": "notifications.read",
+          "availability": "unsupported-by-platform",
+          "notes": "TikTok for Developers APIs do not expose a user notification inbox."
+        },
+        {
+          "platform": "tiktok",
           "operation": "accounts.read",
           "availability": "available",
           "requiredScopes": [
@@ -2868,6 +2892,12 @@
           "operation": "webhooks.verify",
           "availability": "available",
           "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
+        },
+        {
+          "platform": "instagram",
+          "operation": "notifications.read",
+          "availability": "unsupported-by-platform",
+          "notes": "The Instagram API has no notifications edge. Use mentions.read, tags, comments, or webhooks instead."
         }
       ]
     }
@@ -3003,6 +3033,21 @@
             "rw_organization_admin"
           ],
           "notes": "LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "notifications.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Organization social-action notifications from the last 60 days, pulled with offset paging. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "notifications.seen",
+          "availability": "unsupported-by-platform",
+          "notes": "LinkedIn does not expose a seen or read state for notifications."
         },
         {
           "platform": "linkedin",

@@ -4,8 +4,6 @@ import { createSocial, connectedAccountRef } from "../src/index.js";
 import { SocialError } from "../src/core/errors.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 
-/* oxlint-disable anti-slop/require-readable-spacing -- Keep fixture branches compact. */
-
 const nativeContext = {
   backendInstance: "default",
   correlationId: "test",
@@ -56,6 +54,7 @@ it("LinkedIn member accounts read OpenID Connect userinfo without versioned head
   assert.deepEqual(record, { ref: member, displayName: "John Doe", status: "connected" });
 
   assert.equal(requests.length, 2);
+
   for (const request of requests) {
     assert.equal(request.url, "https://api.linkedin.com/v2/userinfo");
     assert.equal(request.headers.get("Authorization"), "Bearer secret");
@@ -106,6 +105,7 @@ it("LinkedIn reports missing openid/profile scopes as missing_permission", async
     assert.match(error.message, /openid and profile/);
     assert.equal(error.upstreamStatus, 403);
     assert.ok(!error.message.includes("secret"));
+
     return true;
   });
 });
@@ -157,6 +157,7 @@ it("LinkedIn organization accounts read the administered organization with versi
   assert.deepEqual(await social.accounts.get(organization), page.items[0]);
 
   assert.equal(requests.length, 2);
+
   for (const request of requests) {
     assert.equal(request.url, "https://api.linkedin.com/rest/organizations/79988552");
     assert.equal(request.headers.get("Linkedin-Version"), "202609");
@@ -184,6 +185,7 @@ it("LinkedIn organization accounts require administrator access and a matching o
     assert.equal(error.code, "missing_permission");
     assert.match(error.message, /rw_organization_admin/);
     assert.match(error.message, /ADMINISTRATOR/);
+
     return true;
   });
 
@@ -201,11 +203,13 @@ it("LinkedIn organization accounts require administrator access and a matching o
 
 it("LinkedIn accounts.get rejects references for another author before any request", async () => {
   let calls = 0;
+
   const adapter = linkedin({
     auth: { accessToken: "secret", author: "urn:li:person:782bbtaQ" },
     apiVersion: "202609",
     fetch: async () => {
       calls++;
+
       return Response.json({ sub: "782bbtaQ", name: "John Doe" });
     },
   });
@@ -235,6 +239,7 @@ it("LinkedIn declares accounts.read scopes per author type", () => {
 
 it("LinkedIn lists administered organizations from organizationAcls with offset pagination", async () => {
   const urls: URL[] = [];
+
   const adapter = linkedin({
     auth: { accessToken: "secret", author: "urn:li:person:782bbtaQ" },
     apiVersion: "202609",
@@ -293,6 +298,7 @@ it("LinkedIn lists administered organizations from organizationAcls with offset 
     limit: 3,
     context: nativeContext,
   });
+
   assert.deepEqual(second.items, []);
   assert.equal(second.nextCursor, undefined);
 
@@ -307,11 +313,13 @@ it("LinkedIn lists administered organizations from organizationAcls with offset 
 
 it("LinkedIn administered organization lookup validates input and reports missing scopes", async () => {
   let calls = 0;
+
   const adapter = linkedin({
     auth: { accessToken: "secret", author: "urn:li:person:782bbtaQ" },
     apiVersion: "202609",
     fetch: async () => {
       calls++;
+
       return new Response(null, { status: 403 });
     },
   });
@@ -333,6 +341,7 @@ it("LinkedIn administered organization lookup validates input and reports missin
       assert.ok(error instanceof SocialError);
       assert.equal(error.code, "missing_permission");
       assert.match(error.message, /rw_organization_admin or r_organization_admin/);
+
       return true;
     },
   );
@@ -350,6 +359,7 @@ it("LinkedIn administered organization lookup validates input and reports missin
     apiVersion: "202609",
     fetch: async () => Response.json({ elements: [] }),
   });
+
   await assert.rejects(
     organizationAdapter.native!.listAdministeredOrganizations({
       account: organization,

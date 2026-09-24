@@ -636,18 +636,23 @@ it("LinkedIn uses literal Rest.li timeIntervals and preserves documented time bu
 });
 
 it("LinkedIn pulls organization notifications with offset paging and documented fields", async () => {
+  const author = "urn:li:organization:12345" as const;
+
   const organization = connectedAccountRef({
     backend: "default",
     platform: "linkedin",
-    accountId: "urn:li:organization:12345",
+    accountId: author,
   });
+
   const urls: string[] = [];
+
   const adapter = linkedin({
-    auth: { accessToken: "secret", author: organization.accountId },
+    auth: { accessToken: "secret", author },
     apiVersion: "202609",
     fetch: async (input, init) => {
       urls.push(String(input));
       assert.equal(init?.method, "GET");
+
       if (urls.length === 1)
         return Response.json({
           elements: [
@@ -667,6 +672,7 @@ it("LinkedIn pulls organization notifications with offset paging and documented 
             links: [{ rel: "next", href: "/organizationalEntityNotifications?start=1" }],
           },
         });
+
       return Response.json({ elements: [], paging: { count: 1, start: 1, links: [] } });
     },
   });
@@ -685,11 +691,13 @@ it("LinkedIn pulls organization notifications with offset paging and documented 
     ],
     nextCursor: "1",
   });
+
   const second = await adapter.notifications!.list(
     organization,
     { cursor: first.nextCursor!, limit: 1 },
     nativeContext,
   );
+
   assert.deepEqual(second, { items: [] });
   assert.deepEqual(urls, [
     "https://api.linkedin.com/rest/organizationalEntityNotifications?q=criteria&actions=List(LIKE,COMMENT,SHARE,SHARE_MENTION,ADMIN_COMMENT,COMMENT_EDIT,COMMENT_DELETE)&organizationalEntity=urn%3Ali%3Aorganization%3A12345&start=0&count=1",
@@ -698,17 +706,22 @@ it("LinkedIn pulls organization notifications with offset paging and documented 
 });
 
 it("LinkedIn notifications reject other organizations, bad paging, members, and seen state", async () => {
+  const author = "urn:li:organization:12345" as const;
+
   const organization = connectedAccountRef({
     backend: "default",
     platform: "linkedin",
-    accountId: "urn:li:organization:12345",
+    accountId: author,
   });
+
   let calls = 0;
+
   const adapter = linkedin({
-    auth: { accessToken: "secret", author: organization.accountId },
+    auth: { accessToken: "secret", author },
     apiVersion: "202609",
     fetch: async () => {
       calls++;
+
       return Response.json({
         elements: [
           { notificationId: 1, organizationalEntity: "urn:li:organization:999", action: "LIKE" },
@@ -721,6 +734,7 @@ it("LinkedIn notifications reject other organizations, bad paging, members, and 
     adapter.notifications!.list(organization, {}, nativeContext),
     /another organization/,
   );
+
   for (const input of [{ cursor: "-1" }, { cursor: "" }, { limit: 0 }, { limit: 101 }])
     await assert.rejects(
       adapter.notifications!.list(organization, input, nativeContext),
@@ -737,14 +751,17 @@ it("LinkedIn notifications reject other organizations, bad paging, members, and 
   assert.equal(calls, 1);
 
   let memberCalls = 0;
+
   const memberAdapter = linkedin({
     auth,
     apiVersion: "202609",
     fetch: async () => {
       memberCalls++;
+
       return Response.json({});
     },
   });
+
   assert.equal(
     memberAdapter.capabilities.capabilities.find(
       (declaration) => declaration.operation === "notifications.read",

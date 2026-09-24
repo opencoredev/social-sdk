@@ -361,6 +361,7 @@ export function linkedin(
           "the openid and profile scopes (Sign In with LinkedIn using OpenID Connect)",
         ),
       );
+
       const sub = optionalString(user["sub"]);
 
       if (sub === undefined || `urn:li:person:${sub}` !== options.auth.author)
@@ -380,6 +381,7 @@ export function linkedin(
     }
 
     const organizationId = options.auth.author.slice("urn:li:organization:".length);
+
     const organization = object(
       await accountRequest(
         `/rest/organizations/${encodeURIComponent(organizationId)}`,
@@ -387,6 +389,7 @@ export function linkedin(
         "rw_organization_admin and an approved ADMINISTRATOR role for the organization",
       ),
     );
+
     const returnedId = optionalNumber(organization["id"]);
 
     if (returnedId === undefined || String(returnedId) !== organizationId)
@@ -398,13 +401,14 @@ export function linkedin(
 
     const vanityName = optionalString(organization["vanityName"]);
 
-    return {
-      ref,
-      displayName: optionalString(organization["localizedName"]) || options.auth.author,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-      ...(vanityName ? { handle: vanityName } : {}),
-      status: "connected",
-    };
+    return Object.assign(
+      {
+        ref,
+        displayName: optionalString(organization["localizedName"]) || options.auth.author,
+        status: "connected" as const,
+      },
+      vanityName === undefined ? {} : { handle: vanityName },
+    );
   }
 
   async function listAdministeredOrganizations(
@@ -429,6 +433,7 @@ export function linkedin(
       });
 
     const memberUrn = options.auth.author;
+
     if (!memberUrn.startsWith("urn:li:person:"))
       throw new SocialError({
         code: "unauthorized",
@@ -452,6 +457,7 @@ export function linkedin(
       // LinkedIn documents both `organization` and `organizationTarget` for this field.
       const organization =
         optionalString(row["organization"]) ?? optionalString(row["organizationTarget"]);
+
       if (
         organization === undefined ||
         !/^urn:li:organization:[0-9]+$/.test(organization) ||
@@ -470,13 +476,12 @@ export function linkedin(
     const total = optionalNumber(paging["total"]);
     const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
 
-    return {
-      items,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-      ...(rows.length > 0 && (hasNext || (total !== undefined && start + rows.length < total))
+    return Object.assign(
+      { items },
+      rows.length > 0 && (hasNext || (total !== undefined && start + rows.length < total))
         ? { nextCursor: String(start + rows.length) }
-        : {}),
-    };
+        : {},
+    );
   }
 
   async function uploadImage(
@@ -1435,13 +1440,12 @@ export function linkedin(
         const total = optionalNumber(paging["total"]);
         const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
 
-        return {
-          items,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
+        return Object.assign(
+          { items },
+          items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
             ? { nextCursor: String(start + items.length) }
-            : {}),
-        };
+            : {},
+        );
       },
       async markSeen(
         account: ConnectedAccountRef,
@@ -1544,6 +1548,7 @@ export function linkedin(
     native: {
       async listAdministeredOrganizations({ account, cursor, limit, context }) {
         authorize(account, context);
+
         if (!account.accountId.startsWith("urn:li:person:"))
           throw new SocialError({
             code: "unauthorized",
@@ -1553,12 +1558,11 @@ export function linkedin(
           });
 
         return listAdministeredOrganizations(
-          {
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- optional pagination input.
-            ...(cursor === undefined ? {} : { cursor }),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- optional pagination input.
-            ...(limit === undefined ? {} : { limit }),
-          },
+          Object.assign(
+            {},
+            cursor === undefined ? {} : { cursor },
+            limit === undefined ? {} : { limit },
+          ),
           context,
         );
       },
