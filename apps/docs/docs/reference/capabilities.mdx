@@ -268,6 +268,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | bluesky | bluesky | search.posts | available | None declared | See adapter setup |
 | bluesky | bluesky | chat.read | available | None declared | See adapter setup |
 | bluesky | bluesky | chat.write | available | None declared | See adapter setup |
+| x | x | webhooks.verify | available | None declared | See adapter setup |
 | x | x | posts.publish | available | text, image, video | tweet.read, tweet.write, users.read, media.write |
 | x | x | accounts.read | available | None declared | See adapter setup |
 | x | x | posts.list | available | None declared | tweet.read, users.read |
@@ -308,6 +309,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | x | x | messages.write | available | None declared | dm.write, dm.read, users.read, tweet.read |
 | x | x | streams.read | not-implemented-by-adapter | None declared | See adapter setup |
 | threads | threads | accounts.read | available | None declared | See adapter setup |
+| threads | threads | webhooks.verify | available | None declared | See adapter setup |
 | threads | threads | posts.publish | available | text, image, video, carousel | threads_basic, threads_content_publish |
 | threads | threads | posts.read | available | None declared | See adapter setup |
 | threads | threads | posts.list | available | None declared | See adapter setup |
@@ -327,6 +329,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | threads | threads | search.posts | available | None declared | threads_basic, threads_keyword_search |
 | threads | threads | mentions.read | available | None declared | threads_basic, threads_manage_mentions |
 | threads | threads | messages.read | unsupported-by-platform | None declared | See adapter setup |
+| youtube | youtube | webhooks.verify | available | None declared | See adapter setup |
 | youtube | youtube | accounts.read | available | None declared | See adapter setup |
 | youtube | youtube | posts.read | available | None declared | See adapter setup |
 | youtube | youtube | posts.list | available | None declared | See adapter setup |
@@ -356,6 +359,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | youtube | youtube | analytics.youtube.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly |
 | youtube | youtube | analytics.report.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly |
 | youtube | youtube | live.broadcasts | available | None declared | https://www.googleapis.com/auth/youtube |
+| tiktok | tiktok | webhooks.verify | available | None declared | See adapter setup |
 | tiktok | tiktok | posts.publish | available | image, video, carousel | video.publish |
 | tiktok | tiktok | posts.status | available | None declared | See adapter setup |
 | tiktok | tiktok | posts.read | available | None declared | video.list |
@@ -388,6 +392,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | instagram | instagram | mentions.read | not-implemented-by-adapter | None declared | See adapter setup |
 | instagram | instagram | product.tagging | approval-dependent | None declared | See adapter setup |
 | instagram | instagram | messages.read | approval-dependent | None declared | See adapter setup |
+| instagram | instagram | webhooks.verify | available | None declared | See adapter setup |
 | linkedin | linkedin | posts.publish | available | text, image | w_member_social |
 | linkedin | linkedin | posts.read | available | None declared | r_member_social |
 | linkedin | linkedin | posts.multi-image | not-implemented-by-adapter | carousel | See adapter setup |

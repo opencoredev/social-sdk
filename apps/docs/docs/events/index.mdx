@@ -1,6 +1,6 @@
 ---
 title: Process webhooks
-description: Verify raw webhook requests, quarantine unmapped tenants, deduplicate events, and process them through a durable inbox worker.
+description: Verify raw webhooks from managed backends and direct platforms, quarantine unmapped tenants, deduplicate events, and process them durably.
 ---
 
 Verify before parsing. Zernio uses an `X-Zernio-Signature` HMAC-SHA256 digest over the untouched request bytes. Post for Me uses its `Post-For-Me-Webhook-Secret` shared-secret header; its verification does not authenticate the body. Both checks require the endpoint secret on the server and bound the body size.
@@ -49,6 +49,81 @@ export async function receiveEvent(request: Request): Promise<Response> {
 Only the verify call sits inside the `try`, so a failure in decoding or in your inbox is not reported as an authentication error.
 
 Persist the inbox state and the application effect together where possible. A worker may crash after acceptance; replay pending events and make the effect idempotent. Never trust a payload tenant field, assign an unmapped account to a default tenant, or log credentials, signatures, message content, or private account data. See the [authentication guide](/authentication), [capability matrix](/reference/capabilities), and [integration checklist](/agents/integration-checklist).
+
+## Verify direct platform webhooks
+
+Instagram, Threads, X, YouTube, and TikTok deliver their own webhooks when you use a direct adapter. `@opencoredev/social-sdk/server` exports a verifier for each signed POST and a helper for each GET handshake. Every verifier checks the untouched request bytes with Web Crypto, compares signatures in constant time, bounds the body at 1 MiB by default, and throws `SocialError` with code `unauthorized` on any failure. The handshake helpers throw `unauthorized`, or `not_found` for YouTube, with operation `webhooks.challenge`.
+
+| Platform           | Handshake                                                                                | Signature header                                                                  | Secret                                               | Timestamp check                      |
+| ------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------ |
+| Instagram, Threads | `answerMetaWebhookChallenge` echoes `hub.challenge` after matching `hub.verify_token`    | `X-Hub-Signature-256: sha256=<hex>`                                               | Meta app secret                                      | None; Meta does not sign a timestamp |
+| X                  | `answerXWebhookChallenge` returns `{"response_token":"sha256=<base64>"}` for `crc_token` | `X-Twitter-Webhooks-Signature-OAuth2`, then legacy `X-Twitter-Webhooks-Signature` | OAuth 2.0 client secret or OAuth 1.0 consumer secret | None; X does not sign a timestamp    |
+| YouTube            | `answerYouTubeWebhookChallenge` echoes `hub.challenge` for a topic you list              | `X-Hub-Signature: sha1=<hex>` (sha256, sha384, and sha512 are also accepted)      | The `hub.secret` you subscribed with                 | None; WebSub defines no timestamp    |
+| TikTok             | None                                                                                     | `TikTok-Signature: t=<seconds>,s=<hex>` over `<t>.<body>`                         | App client secret                                    | 300 seconds by default               |
+
+```ts
+import { SocialError } from "@opencoredev/social-sdk";
+import {
+  acceptWebhook,
+  answerMetaWebhookChallenge,
+  decodePlatformWebhook,
+  verifyMetaWebhook,
+} from "@opencoredev/social-sdk/server";
+
+export async function instagramWebhook(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+
+  try {
+    if (request.method === "GET") {
+      const answer = await answerMetaWebhookChallenge({
+        verifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN!,
+        query: url.searchParams,
+      });
+      return new Response(answer.body, { status: answer.status, headers: answer.headers });
+    }
+
+    const body = new Uint8Array(await request.arrayBuffer());
+    await verifyMetaWebhook({
+      secret: process.env.META_APP_SECRET!,
+      headers: request.headers,
+      body,
+    });
+    const event = await decodePlatformWebhook({ platform: "instagram", backend: "default", body });
+    const result = await acceptWebhook({ event, endpointId, inbox, resolveTenants });
+    return new Response(result.state, { status: 200 });
+  } catch (error) {
+    if (error instanceof SocialError && error.code === "unauthorized") {
+      return new Response("unauthorized", { status: 401 });
+    }
+    throw error;
+  }
+}
+```
+
+The direct adapters expose the same POST check as `adapter.webhooks.verify({ headers, body }, context)` when you pass `webhookSecret`, and `adapter.webhooks.decode` returns the decoded event. Without `webhookSecret`, verification always fails. The handshakes are not part of the adapter interface because they need the query string, so call the helpers directly.
+
+`decodePlatformWebhook` turns one verified delivery into one `SocialEvent`. None of these platforms sends a delivery ID, so `identity` is `body-digest` and `id` is the SHA-256 of the body. Meta can batch many updates into one delivery. The event keeps all of them in `data`, and `type` is specific only when every update maps to the same type; otherwise it is `unknown` and `originalType` lists the source types. Keys that look like credentials are redacted. A body that does not match the documented shape throws `invalid_input`.
+
+| Platform  | Mapped types                                                                                                                     | Account IDs                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Instagram | `comments` and `live_comments` to `comment.received`; incoming `messages` to `message.received`                                  | `entry[].id`                                                                  |
+| Threads   | `replies` to `comment.received`; `delete` to `post.removed`; `mentions` and `publish` stay `unknown`                             | Root post owner for replies, post owner for deletes, `target_id` for mentions |
+| X         | `direct_message_events` to `message.received`; `tweet_delete_events` to `post.removed`; `user_event.revoke` to `account.updated` | `for_user_id`, or the revoking user                                           |
+| YouTube   | New and updated videos stay `unknown` with `data.videos`; an Atom tombstone maps to `post.removed`                               | `yt:channelId`                                                                |
+| TikTok    | `post.publish.*` and the older `video.*` events to `publication.updated`; `authorization.removed` to `account.updated`           | `user_openid`                                                                 |
+
+For TikTok `post.publish.*` events, `backendRecordId` is the `publish_id`, so you can match the event to the delivery reference returned by `posts.publish`. `occurredAt` comes from `create_time`. Events that stay `unknown` still carry their payload in `data`; route them by `originalType`.
+
+Platform behavior to plan for:
+
+- Meta retries failed deliveries for up to 36 hours and TikTok for up to 72 hours. Both can deliver the same update twice, so keep the inbox deduplication.
+- Meta's Threads documentation does not say whether Threads signs with the Threads app secret or the Meta app secret. Configure the secret your app dashboard shows for Threads webhooks and test it with a real delivery before relying on it.
+- YouTube only signs deliveries when you subscribe with `hub.secret`. Without a secret there is nothing to verify, so treat the notification as a hint and read the video through the API. WebSub asks subscribers to answer a signature mismatch with a 2xx status and drop the delivery, so return 200 after a failed YouTube check instead of 401. YouTube's guide does not document deletion notices; the decoder handles a standard Atom tombstone if the hub sends one.
+- X is replacing the Account Activity API with X Activity API. Deliveries use the same signature, but X Activity payloads that do not match the Account Activity shape decode as `unknown`.
+- TikTok does not publish a replay window. The SDK rejects signatures more than 300 seconds from the current time; pass `toleranceSeconds` to `verifyTikTokWebhook` or `webhookToleranceSeconds` to the adapter to change it.
+- LinkedIn and Bluesky have no webhook verification in the SDK.
+
+Sources, accessed 2026-09-24: [Meta Webhooks getting started](https://developers.facebook.com/docs/graph-api/webhooks/getting-started), [Instagram webhooks](https://developers.facebook.com/docs/instagram-platform/webhooks), [Threads webhooks](https://developers.facebook.com/docs/threads/webhooks), [X webhooks](https://docs.x.com/x-api/webhooks/introduction), [X webhooks quickstart](https://docs.x.com/x-api/webhooks/quickstart), [X Account Activity API](https://docs.x.com/x-api/account-activity/introduction), [YouTube push notifications](https://developers.google.com/youtube/v3/guides/push_notifications), [WebSub](https://www.w3.org/TR/websub/), [PubSubHubbub 0.4](https://pubsubhubbub.github.io/PubSubHubbub/pubsubhubbub-core-0.4.html), [TikTok webhook verification](https://developers.tiktok.com/doc/webhooks-verification), [TikTok webhooks overview](https://developers.tiktok.com/doc/webhooks-overview), and [TikTok webhook events](https://developers.tiktok.com/doc/webhooks-events).
 
 ## Run the example worker
 

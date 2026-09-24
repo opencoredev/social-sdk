@@ -141,6 +141,10 @@ if (outcome?.delivery) {
 
 Draft/inbox and public posting have different upstream review and audit requirements; the SDK does not claim approval or silently change privacy.
 
+### Receive webhooks
+
+Pass the app client secret as `webhookSecret`. `adapter.webhooks.verify` checks `TikTok-Signature` and rejects timestamps more than 300 seconds old; set `webhookToleranceSeconds` to change the window, because TikTok does not publish one. Publish events decode to `publication.updated` with the `publish_id` as `backendRecordId`, and `authorization.removed` decodes to `account.updated`. See [Process webhooks](/events).
+
 ## Native operations
 
 The typed native module adds the inbox/draft upload path, own-video listing with display fields, and an explicit publish-status query. Post metrics from `social.analytics.getPostMetrics` read like, comment, share, and view counts through the Display API video query and require `video.list`; account metrics require `user.info.stats`. Polling is caller initiated and bounded; the SDK does not run background polling. Comments and direct messages remain platform limits for standard Content Posting and Display API apps.

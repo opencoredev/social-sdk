@@ -1709,6 +1709,12 @@
       "capabilities": [
         {
           "platform": "x",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge."
+        },
+        {
+          "platform": "x",
           "operation": "posts.publish",
           "availability": "available",
           "formats": [
@@ -2069,6 +2075,12 @@
           "availability": "available"
         },
         {
+          "platform": "threads",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
+        },
+        {
           "operation": "posts.publish",
           "platform": "threads",
           "availability": "available",
@@ -2242,6 +2254,12 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "youtube",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies the PubSubHubbub X-Hub-Signature for subscriptions created with hub.secret and decodes the Atom feed. Answer the GET verification with answerYouTubeWebhookChallenge."
+        },
         {
           "operation": "accounts.read",
           "platform": "youtube",
@@ -2472,6 +2490,12 @@
       "capabilities": [
         {
           "platform": "tiktok",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.publish",
           "availability": "available",
           "formats": [
@@ -2699,6 +2723,12 @@
           "platform": "instagram",
           "operation": "messages.read",
           "availability": "approval-dependent"
+        },
+        {
+          "platform": "instagram",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
         }
       ]
     }

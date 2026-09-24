@@ -13,6 +13,8 @@ import type {
 import { managedHttp, publicFields } from "../cloud/common.js";
 import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { verifyTikTokWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
 export interface TikTokOptions {
   readonly auth: { readonly accessToken: string; readonly openId: string };
@@ -20,6 +22,10 @@ export interface TikTokOptions {
   readonly verifiedMediaOrigins: readonly string[];
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
+  /** App client secret that TikTok uses to sign webhook deliveries (`TikTok-Signature`). */
+  readonly webhookSecret?: string;
+  /** Accepted age of a signed webhook timestamp, in seconds. Defaults to 300. */
+  readonly webhookToleranceSeconds?: number;
 }
 
 export interface TikTokNative {
@@ -306,6 +312,10 @@ export function tiktok(
       apiRevision: "Content Posting API v2",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        webhookCapability(
+          "tiktok",
+          "Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event.",
+        ),
         {
           platform: "tiktok",
           operation: "posts.publish",
@@ -366,6 +376,20 @@ export function tiktok(
         },
       ],
     },
+    webhooks: directWebhooks(
+      "tiktok",
+      (input) =>
+        verifyTikTokWebhook({
+          ...input,
+          secret: options.webhookSecret ?? "",
+          now: () => options.clock?.() ?? new Date(),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- optional setting stays absent when unset.
+          ...(options.webhookToleranceSeconds === undefined
+            ? {}
+            : { toleranceSeconds: options.webhookToleranceSeconds }),
+        }),
+      now,
+    ),
     accounts: {
       async list(_input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         const response = data(

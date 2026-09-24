@@ -101,6 +101,10 @@ if (outcome?.state === "processing" && outcome.delivery) {
 
 Resumable upload sessions can be persisted with `saveUploadSession`. A non-complete upload is `unknown` and must be resumed or reconciled explicitly; the adapter does not resume in the background.
 
+### Receive push notifications
+
+YouTube sends new and updated videos through the PubSubHubbub hub. Subscribe with a `hub.secret` and pass the same value as `webhookSecret`; the hub then signs each delivery with `X-Hub-Signature`, and `adapter.webhooks.verify` checks it. Without a secret the hub sends unsigned notifications, so read the video through the API before acting on one. Answer the hub's GET verification with `answerYouTubeWebhookChallenge`, listing the topics you subscribed to. The decoded event lists the videos in `data.videos` with type `unknown`. See [Process webhooks](/events).
+
 ## Native operations
 
 Provider-shaped operations are available on `social.native`:
