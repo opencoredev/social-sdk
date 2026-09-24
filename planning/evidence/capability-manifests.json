@@ -2239,6 +2239,18 @@
           "notes": "The profile endpoint reads the authorized app-scoped user; profile lookup requires threads_profile_discovery."
         },
         {
+          "operation": "profiles.search",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "Threads has no profile search endpoint. Profile discovery only looks up an exact username, which profiles.read covers."
+        },
+        {
+          "operation": "graph.read",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "Threads does not expose follower or following lists. The followers_count metric is available through analytics.account.read."
+        },
+        {
           "operation": "search.posts",
           "platform": "threads",
           "availability": "available",

@@ -110,8 +110,14 @@ const adapter = threads({ auth: { userId, accessToken } });
 ```
 
 The adapter returns profile ID, username, name, profile picture, biography, and verification data
-where present. Relationship reads and mutations raise `unsupported_capability`, and so can a
-profile lookup outside the authorized user.
+where present. Handle lookup calls `GET /profile_lookup`, which needs an exact username match and
+only returns public profiles with at least 100 followers. Its `follower_count` and seven-day
+engagement counts stay in `native`.
+
+Threads has no endpoint that lists followers or followed accounts, so the manifest declares
+`graph.read` as `unsupported-by-platform`, and `listRelationships` raises `unsupported_capability`
+before any request. Mutations raise the same error. For the authorized user's total follower
+count, read the `followers_count` metric with `social.analytics.getAccountMetrics`.
 
 </PlatformTab>
 <PlatformTab platform="instagram">

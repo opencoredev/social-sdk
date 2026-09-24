@@ -2,7 +2,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { threads, MemoryThreadsWorkflowStore } from "../src/platforms/threads.js";
-import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
+import {
+  connectedAccountRef,
+  createSocial,
+  type AdapterOperationContext,
+} from "../src/core/index.js";
 import { SocialError } from "../src/core/errors.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "threads", accountId: "u1" });
@@ -392,4 +396,33 @@ test("stops Threads search paging when Graph omits paging.next", async () => {
 
   const page = await adapter.search!.posts(account, { query: "hello" }, context);
   assert.equal(page.nextCursor, undefined);
+});
+
+test("Threads declares profile search and relationship reads as unsupported by the platform", async () => {
+  let requests = 0;
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async () => {
+      requests += 1;
+      return Response.json({});
+    },
+  });
+
+  for (const operation of ["profiles.search", "graph.read"]) {
+    const declaration = adapter.capabilities.capabilities.find(
+      (candidate) => candidate.operation === operation,
+    );
+    assert.equal(declaration?.availability, "unsupported-by-platform");
+    assert.ok(declaration?.notes);
+  }
+
+  assert.equal(adapter.graph?.listRelationships, undefined);
+
+  const social = createSocial({ backend: adapter });
+  for (const kind of ["followers", "following"] as const)
+    await assert.rejects(social.graph.listRelationships(account, { kind }), {
+      name: SocialError.name,
+      code: "unsupported_capability",
+    });
+  assert.equal(requests, 0);
 });

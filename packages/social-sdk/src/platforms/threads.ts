@@ -800,6 +800,26 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           "The profile endpoint reads the authorized app-scoped user; profile lookup requires threads_profile_discovery.",
       },
       {
+        // https://developers.facebook.com/docs/threads/threads-profiles and
+        // https://developers.facebook.com/docs/threads/reference/user (accessed 2026-09-24):
+        // profile_lookup requires an exact username match; there is no profile search endpoint.
+        operation: "profiles.search",
+        platform: "threads",
+        availability: "unsupported-by-platform",
+        notes:
+          "Threads has no profile search endpoint. Profile discovery only looks up an exact username, which profiles.read covers.",
+      },
+      {
+        // https://developers.facebook.com/docs/threads/reference/user and
+        // https://developers.facebook.com/docs/threads/insights (accessed 2026-09-24): the user
+        // node has no followers or following edge; follower data is aggregate counts only.
+        operation: "graph.read",
+        platform: "threads",
+        availability: "unsupported-by-platform",
+        notes:
+          "Threads does not expose follower or following lists. The followers_count metric is available through analytics.account.read.",
+      },
+      {
         operation: "search.posts",
         platform: "threads",
         availability: "available",
