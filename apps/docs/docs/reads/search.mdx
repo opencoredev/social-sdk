@@ -61,6 +61,12 @@ const page = await native.searchRecentPosts({
 });
 ```
 
+For posts as they are published, the native `stream` method reads X's filtered
+stream, and `addStreamRules`, `listStreamRules`, and `deleteStreamRules` manage
+the matching rules. Both use `appBearerToken` and need pay-per-use or
+Enterprise access. The stream opens one connection per iteration and never
+reconnects on its own. See [X filtered stream](/platforms/x#filtered-stream).
+
 </PlatformTab>
 <PlatformTab platform="bluesky">
 

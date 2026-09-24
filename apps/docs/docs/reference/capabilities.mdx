@@ -318,7 +318,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | x | x | messages.read | available | None declared | dm.read, users.read, tweet.read |
 | x | x | messages.write | available | None declared | dm.write, dm.read, users.read, tweet.read |
 | x | x | comments.moderate | available | None declared | tweet.moderate.write, tweet.read, users.read |
-| x | x | streams.read | not-implemented-by-adapter | None declared | See adapter setup |
+| x | x | streams.read | available | None declared | See adapter setup |
 | x | x | posts.schedule | not-implemented-by-adapter | None declared | See adapter setup |
 | x | x | profile.update | unsupported-by-platform | None declared | See adapter setup |
 | threads | threads | accounts.read | available | None declared | See adapter setup |
@@ -417,7 +417,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | instagram | instagram | posts.delete | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | posts.removeFromPlatform | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | publishing.limit.read | available | None declared | See adapter setup |
-| instagram | instagram | mentions.read | not-implemented-by-adapter | None declared | See adapter setup |
+| instagram | instagram | mentions.read | available | None declared | instagram_business_basic, instagram_business_manage_comments |
 | instagram | instagram | product.tagging | approval-dependent | None declared | See adapter setup |
 | instagram | instagram | messages.read | approval-dependent | None declared | See adapter setup |
 | instagram | instagram | webhooks.verify | available | None declared | See adapter setup |

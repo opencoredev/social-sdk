@@ -254,6 +254,24 @@ export function instagram(
       });
   };
 
+  // Meta's Instagram Login mentions guide lists only GET /{ig-user-id}/tags and
+  // POST /{ig-user-id}/mentions. The mentioned_media and mentioned_comment field
+  // expansions are documented for Facebook Login only. Sources, accessed 2026-09-24
+  // against Graph API v25.0:
+  // https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/mentions
+  // https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/mentions
+  // https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/tags
+  // https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/mentioned_media
+  const requireFacebookLoginForMentionLookup = (field: "mentioned_media" | "mentioned_comment") => {
+    if (flavor !== "facebook-login")
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation: "instagram.mentions.read",
+        message: `Instagram ${field} lookups require a Facebook Login Graph API access token. Instagram Login supports only the /{ig-user-id}/tags mentions edge.`,
+        retryDisposition: { kind: "never" },
+      });
+  };
+
   // Meta documents `DELETE /{ig-media-id}` for Instagram API with Facebook Login only.
   // Source: https://developers.facebook.com/docs/instagram-platform/reference/instagram-media
   // (accessed 2026-09-24, Graph API v25.0).
@@ -683,8 +701,8 @@ export function instagram(
     context,
   }) => {
     authorize(account, context);
-    requireFacebookLogin("instagram.mentions.read");
 
+    // Both login flavors expose GET /{ig-user-id}/tags; only the host and scopes differ.
     const query = {
       fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
       limit: String(pageLimit(limit)),
@@ -854,27 +872,19 @@ export function instagram(
           operation: "publishing.limit.read",
           availability: "available" as const,
         },
-        ...(flavor === "facebook-login"
-          ? [
-              {
-                platform: "instagram",
-                operation: "mentions.read",
-                availability: "available" as const,
-                requiredScopes: [
-                  "instagram_basic",
-                  "instagram_manage_comments",
-                  "pages_read_engagement",
-                ],
-                notes: "Reads the paginated /{ig-user-id}/tags edge.",
-              },
-            ]
-          : [
-              {
-                platform: "instagram",
-                operation: "mentions.read",
-                availability: "not-implemented-by-adapter" as const,
-              },
-            ]),
+        {
+          platform: "instagram",
+          operation: "mentions.read",
+          availability: "available" as const,
+          requiredScopes:
+            flavor === "facebook-login"
+              ? ["instagram_basic", "instagram_manage_comments", "pages_read_engagement"]
+              : ["instagram_business_basic", "instagram_business_manage_comments"],
+          notes:
+            flavor === "facebook-login"
+              ? "Reads the paginated /{ig-user-id}/tags edge. Native mentionedMedia and mentionedComment look up single @mentions. Story mentions and private media are not returned."
+              : "Reads the paginated /{ig-user-id}/tags edge on graph.instagram.com. mentionedMedia and mentionedComment require Facebook Login. Story mentions and private media are not returned.",
+        },
         {
           platform: "instagram",
           operation: "product.tagging",
@@ -1380,7 +1390,7 @@ export function instagram(
       listMentions,
       async mentionedMedia({ account, mediaId, context }) {
         authorize(account, context);
-        requireFacebookLogin("instagram.mentions.read");
+        requireFacebookLoginForMentionLookup("mentioned_media");
 
         return validatedObject(
           await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
@@ -1391,7 +1401,7 @@ export function instagram(
       },
       async mentionedComment({ account, commentId, context }) {
         authorize(account, context);
-        requireFacebookLogin("instagram.mentions.read");
+        requireFacebookLoginForMentionLookup("mentioned_comment");
 
         return validatedObject(
           await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
@@ -1402,7 +1412,6 @@ export function instagram(
       },
       async listTaggedMedia({ account, cursor, limit, context }) {
         authorize(account, context);
-        requireFacebookLogin("instagram.mentions.read");
 
         const query = {
           fields: "id,caption,media_type,permalink,timestamp,username",
