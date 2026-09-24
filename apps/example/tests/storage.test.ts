@@ -8,9 +8,36 @@ import {
   EncryptedPostgresCredentialStore,
   DrizzleEventInbox,
   PostgresIdempotencyStore,
+  isStoredCredential,
 } from "../src/storage.js";
 
 describe("durable example storage", () => {
+  test("accepts only plaintext that matches StoredCredential", () => {
+    const full = {
+      accessToken: "token",
+      refreshToken: "refresh",
+      expiresAt: "2026-01-01T00:00:00.000Z",
+      scopes: ["read", "write"],
+      metadata: { region: "eu" },
+    };
+
+    assert.equal(isStoredCredential(full), true);
+    assert.equal(isStoredCredential({ accessToken: "token" }), true);
+
+    for (const malformed of [
+      null,
+      [],
+      "token",
+      {},
+      { accessToken: 1 },
+      { accessToken: "token", refreshToken: null },
+      { accessToken: "token", scopes: ["read", 2] },
+      { accessToken: "token", metadata: { region: 1 } },
+      { accessToken: "token", metadata: [] },
+    ])
+      assert.equal(isStoredCredential(malformed), false);
+  });
+
   test("encrypts credentials and supports CAS", async () => {
     const { db, close } = await openExampleDatabase();
     const store = new EncryptedPostgresCredentialStore(db, "test-only-key-from-environment");

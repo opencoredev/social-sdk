@@ -20,6 +20,10 @@ Merge a version pull request only when the owner asks for a release. A green bui
 
 Default checks must be offline and deterministic. Live provider checks require dedicated credentials and explicit per-run authorization. Missing credentials are a blocked live-verification result, never a pass.
 
+## Lint rules
+
+Fix lint errors in the code. Never add `oxlint-disable` or `eslint-disable` comments, turn a rule off or down, add overrides or ignore patterns, pass weakening flags to `oxlint`, or edit `.oxlintrc.json`, `scripts/check-lint-policy.ts`, or `tools/oxlint/` to make a check pass. `bun run lint` runs `scripts/check-lint-policy.ts`, which fails CI on any of these, and CODEOWNERS requires the owner's review for the lint setup. Prove types with a type guard or decoder instead of a type assertion; the codebase has none. If one is truly unavoidable, it needs a `// SAFETY:` comment that states the specific invariant it relies on. If a rule seems wrong for a case, stop and ask the owner instead of working around it.
+
 ## Changes and checks
 
 User-visible SDK or CLI changes require a Changeset. Use an honest patch, minor, or major bump and include migration notes for breaking changes.

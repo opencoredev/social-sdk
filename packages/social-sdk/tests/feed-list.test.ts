@@ -4,6 +4,7 @@ import { connectedAccountRef } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { zernio } from "../src/cloud/zernio.js";
 import { bluesky } from "../src/platforms/bluesky.js";
+import { object } from "../src/transport/validation.js";
 
 const context = {
   backendInstance: "default",
@@ -156,9 +157,9 @@ it("Bluesky lists author-feed entries with safe post and repost reason fields", 
 
   const page = await adapter.posts!.list!(account, { limit: 1 }, context);
   assert.equal(page.nextCursor, "next");
-  assert.equal(page.items[0]?.["post"]["uri"], "at://post/1");
-  assert.equal(page.items[0]?.["reason"]["$type"], "app.bsky.feed.defs#reasonRepost");
-  assert.equal(page.items[0]?.["post"]["secret"], undefined);
+  assert.equal(object(page.items[0]?.["post"])["uri"], "at://post/1");
+  assert.equal(object(page.items[0]?.["reason"])["$type"], "app.bsky.feed.defs#reasonRepost");
+  assert.equal(object(page.items[0]?.["post"])["secret"], undefined);
   await assert.rejects(
     adapter.posts!.list!({ ...account, accountId: "did:plc:other" }, {}, context),
     /does not belong/,

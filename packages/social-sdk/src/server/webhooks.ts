@@ -1,7 +1,17 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- webhook bodies are unknown until validated by the decoder. */
 import { parseJson } from "../transport/json.js";
 import { SocialError } from "../core/errors.js";
-import { array, object, optionalString, string } from "../transport/validation.js";
+import { definedFields } from "../core/fields.js";
+import {
+  array,
+  isFiniteNumber,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  object,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 import type { JsonObject, JsonValue } from "../core/types.js";
 
 export type WebhookVerificationMethod =
@@ -127,27 +137,42 @@ export interface SocialEvent {
 const sensitive =
   /^(access.?token|refresh.?token|authorization|cookie|secret|signature|code|password|signed.?url|upload.?url)$/i;
 
-function clean(value: unknown, depth = 0): JsonValue {
+/** Objects and arrays: the values a truthy `typeof value === "object"` check admits. */
+function isStructured(value: JsonField): value is JsonObject | readonly JsonValue[] {
+  return isJsonObject(value) || isJsonArray(value);
+}
+
+function checkDepth(depth: number): void {
   if (depth > 32)
     throw new SocialError({
       code: "invalid_input",
       operation: "webhooks.decode",
       message: "Webhook payload nesting exceeds the limit.",
     });
+}
 
-  if (value === null || typeof value === "boolean" || typeof value === "number") return value;
+function clean(value: JsonValue, depth: number): JsonValue {
+  checkDepth(depth);
 
-  if (typeof value === "string") {
+  if (isString(value)) {
     if (/https:\/\//i.test(value) && /[?&](x-amz-|signature|token|sig|key)=?/i.test(value))
       return "[redacted URL]";
 
     return value;
   }
 
-  if (Array.isArray(value)) return value.map((item) => clean(item, depth + 1));
+  if (isJsonArray(value)) return value.map((item) => clean(item, depth + 1));
+
+  if (isJsonObject(value)) return cleanObject(value, depth);
+
+  return value;
+}
+
+function cleanObject(value: JsonObject, depth = 0): JsonObject {
+  checkDepth(depth);
   const result: Record<string, JsonValue> = {};
 
-  for (const [key, entry] of Object.entries(object(value)))
+  for (const [key, entry] of Object.entries(value))
     result[key] = sensitive.test(key) ? "[redacted]" : clean(entry, depth + 1);
 
   return result;
@@ -160,7 +185,7 @@ export async function decodeWebhook(input: {
   receivedAt?: string;
 }): Promise<SocialEvent> {
   const bytes = checkedBytes(input.body, 1024 * 1024);
-  let parsed: unknown;
+  let parsed: JsonValue;
 
   try {
     parsed = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
@@ -206,10 +231,7 @@ export async function decodeWebhook(input: {
   else if (originalType === "message.received") type = "message.received";
   else if (originalType === "comment.received") type = "comment.received";
   const dataValue = input.provider === "zernio" ? payload : object(payload["data"]);
-  const cleaned = clean(dataValue);
-
-  if (typeof cleaned !== "object" || cleaned === null || Array.isArray(cleaned))
-    throw new Error("Expected normalized object");
+  const cleaned = cleanObject(dataValue);
   // IDs only locate application mappings; they never grant tenant ownership.
   const accountIds: string[] = [];
 
@@ -218,8 +240,10 @@ export async function decodeWebhook(input: {
 
   if (direct) accountIds.push(direct);
 
-  if (dataValue["account"] && typeof dataValue["account"] === "object") {
-    const account = object(dataValue["account"]);
+  const accountValue = dataValue["account"];
+
+  if (isStructured(accountValue)) {
+    const account = object(accountValue);
 
     const accountId =
       optionalString(account["accountId"]) ??
@@ -232,8 +256,10 @@ export async function decodeWebhook(input: {
   if (input.provider === "post-for-me" && originalType.startsWith("social.account."))
     accountIds.push(string(dataValue["id"]));
 
-  if (dataValue["post"] && typeof dataValue["post"] === "object") {
-    const post = object(dataValue["post"]);
+  const postValue = dataValue["post"];
+
+  if (isStructured(postValue)) {
+    const post = object(postValue);
 
     if (post["platforms"])
       for (const value of array(post["platforms"])) {
@@ -246,16 +272,13 @@ export async function decodeWebhook(input: {
 
   if (input.provider === "post-for-me" && Array.isArray(dataValue["social_accounts"])) {
     for (const item of dataValue["social_accounts"]) {
-      const id = typeof item === "string" ? item : optionalString(object(item)["id"]);
+      const id = isString(item) ? item : optionalString(object(item)["id"]);
 
       if (id) accountIds.push(id);
     }
   }
 
-  const post =
-    dataValue["post"] && typeof dataValue["post"] === "object"
-      ? object(dataValue["post"])
-      : undefined;
+  const post = isStructured(postValue) ? object(postValue) : undefined;
 
   const backendRecordId =
     input.provider === "zernio"
@@ -278,7 +301,7 @@ export async function decodeWebhook(input: {
     originalType,
     receivedAt: input.receivedAt ?? new Date().toISOString(),
     accountIds: [...new Set(accountIds)],
-    data: cleaned as JsonObject,
+    data: cleaned,
   };
 
   const event: SocialEvent =
@@ -831,7 +854,7 @@ interface DecodedItem {
 interface DecodedDelivery {
   readonly items: readonly DecodedItem[];
   readonly accountIds: readonly string[];
-  readonly data: unknown;
+  readonly data: JsonObject;
   readonly backendRecordId?: string | undefined;
   readonly occurredAt?: string | undefined;
 }
@@ -848,7 +871,7 @@ function instagramFieldType(field: string): SocialEvent["type"] {
   return field === "comments" || field === "live_comments" ? "comment.received" : "unknown";
 }
 
-function decodeInstagram(payload: Record<string, unknown>): DecodedDelivery {
+function decodeInstagram(payload: JsonObject): DecodedDelivery {
   const entries = array(payload["entry"]);
 
   // A delivery without a documented container is malformed. A well-formed entry with
@@ -900,11 +923,11 @@ function decodeInstagram(payload: Record<string, unknown>): DecodedDelivery {
   return { items, accountIds, data: payload };
 }
 
-function nestedString(value: unknown, key: string): string | undefined {
+function nestedString(value: JsonField, key: string): string | undefined {
   return value === undefined ? undefined : optionalString(object(value)[key]);
 }
 
-function decodeThreads(payload: Record<string, unknown>): DecodedDelivery {
+function decodeThreads(payload: JsonObject): DecodedDelivery {
   const values = object(payload["values"]);
   const field = string(values["field"]);
   const value = object(values["value"]);
@@ -938,7 +961,7 @@ function xEventType(key: string): SocialEvent["type"] {
   return "unknown";
 }
 
-function decodeX(payload: Record<string, unknown>): DecodedDelivery {
+function decodeX(payload: JsonObject): DecodedDelivery {
   const items: DecodedItem[] = [];
   const accountIds: string[] = [];
   const forUser = optionalString(payload["for_user_id"]);
@@ -946,17 +969,13 @@ function decodeX(payload: Record<string, unknown>): DecodedDelivery {
   if (forUser) accountIds.push(forUser);
 
   for (const [key, value] of Object.entries(payload))
-    if (key.endsWith("_events") && Array.isArray(value))
+    if (key.endsWith("_events") && isJsonArray(value))
       items.push({ originalType: key, type: xEventType(key) });
 
   // X Activity API wraps each event in `data` with an `event_type`. It is a documented
   // container, but its event types are not mapped, so it decodes as `unknown`.
   const activity = payload["data"];
-
-  const activityType =
-    typeof activity === "object" && activity !== null && !Array.isArray(activity)
-      ? optionalString(object(activity)["event_type"])
-      : undefined;
+  const activityType = isJsonObject(activity) ? optionalString(activity["event_type"]) : undefined;
 
   if (activityType) items.push({ originalType: activityType, type: "unknown" });
 
@@ -1038,15 +1057,11 @@ function decodeYouTube(text: string): DecodedDelivery {
     const published = xmlElement(block, "published");
     const updated = xmlElement(block, "updated");
 
+    // Absent Atom fields stay absent rather than becoming undefined.
     const video: JsonObject = {
       videoId,
       channelId,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- absent Atom fields stay absent.
-      ...(title === undefined ? {} : { title }),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- absent Atom fields stay absent.
-      ...(published === undefined ? {} : { published }),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- absent Atom fields stay absent.
-      ...(updated === undefined ? {} : { updated }),
+      ...definedFields({ title, published, updated }),
     };
 
     accountIds.push(channelId);
@@ -1072,10 +1087,7 @@ function decodeYouTube(text: string): DecodedDelivery {
 
     deleted.push({
       videoId,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- absent tombstone fields stay absent.
-      ...(when ? { deletedAt: when } : {}),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- absent tombstone fields stay absent.
-      ...(channelId ? { channelId } : {}),
+      ...definedFields({ deletedAt: when || undefined, channelId: channelId || undefined }),
     });
     items.push({ originalType: "at:deleted-entry", type: "post.removed" });
   }
@@ -1085,7 +1097,7 @@ function decodeYouTube(text: string): DecodedDelivery {
   return { items, accountIds, data: { videos, deleted } };
 }
 
-function decodeLinkedIn(payload: Record<string, unknown>): DecodedDelivery {
+function decodeLinkedIn(payload: JsonObject): DecodedDelivery {
   const kind = string(payload["type"]);
   const items: DecodedItem[] = [];
   const accountIds: string[] = [];
@@ -1100,7 +1112,7 @@ function decodeLinkedIn(payload: Record<string, unknown>): DecodedDelivery {
 
       if (organization) accountIds.push(organization);
 
-      if (typeof modified === "number" && Number.isSafeInteger(modified) && modified > 0)
+      if (isFiniteNumber(modified) && Number.isSafeInteger(modified) && modified > 0)
         lastModifiedAt = Math.max(lastModifiedAt ?? 0, modified);
 
       // Only a member comment is clearly an inbound comment. ADMIN_COMMENT is the
@@ -1135,7 +1147,7 @@ function tiktokEventType(event: string): SocialEvent["type"] {
   return "unknown";
 }
 
-function decodeTikTok(payload: Record<string, unknown>): DecodedDelivery {
+function decodeTikTok(payload: JsonObject): DecodedDelivery {
   const event = string(payload["event"]);
   const createTime = payload["create_time"];
   const rawContent = payload["content"];
@@ -1153,14 +1165,10 @@ function decodeTikTok(payload: Record<string, unknown>): DecodedDelivery {
     data: content === undefined ? payload : { ...payload, content },
     backendRecordId: event.startsWith("post.publish.") ? publishId : undefined,
     occurredAt:
-      typeof createTime === "number" && Number.isSafeInteger(createTime) && createTime > 0
+      isFiniteNumber(createTime) && Number.isSafeInteger(createTime) && createTime > 0
         ? new Date(createTime * 1000).toISOString()
         : undefined,
   };
-}
-
-function isJsonObject(value: JsonValue): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function decodeDelivery(platform: DirectWebhookPlatform, text: string): DecodedDelivery {
@@ -1207,9 +1215,7 @@ export async function decodePlatformWebhook(input: {
 
   const types = [...new Set(delivery.items.map((item) => item.type))];
   const originalTypes = [...new Set(delivery.items.map((item) => item.originalType))];
-  const cleaned = clean(delivery.data);
-
-  if (!isJsonObject(cleaned)) malformed(input.platform);
+  const cleaned = cleanObject(delivery.data);
 
   const id = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) =>
     byte.toString(16).padStart(2, "0"),

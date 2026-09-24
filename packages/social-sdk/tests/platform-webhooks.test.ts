@@ -13,7 +13,12 @@ import {
   verifyXWebhook,
   verifyYouTubeWebhook,
 } from "../src/server/webhooks.js";
-import { SocialError, type AdapterOperationContext } from "../src/core/index.js";
+import {
+  SocialError,
+  type AdapterOperationContext,
+  type SocialAdapter,
+} from "../src/core/index.js";
+import type { JsonValue } from "../src/core/types.js";
 import { instagram } from "../src/platforms/instagram.js";
 import { threads } from "../src/platforms/threads.js";
 import { x } from "../src/platforms/x.js";
@@ -26,8 +31,7 @@ const secret = "test-webhook-secret";
 
 const encode = (value: string) => new TextEncoder().encode(value);
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- fixture serializer.
-const json = (value: unknown) => encode(JSON.stringify(value));
+const json = (value: JsonValue) => encode(JSON.stringify(value));
 
 const hmac = (algorithm: string, body: Uint8Array | string, key = secret) =>
   createHmac(algorithm, key).update(body);
@@ -1026,7 +1030,12 @@ it("wires webhook verification into each direct adapter", async () => {
 
   const clock = () => new Date(1_790_000_100_000);
 
-  const cases = [
+  const cases: {
+    adapter: SocialAdapter<unknown>;
+    headers: Headers;
+    body: Uint8Array;
+    provider: string;
+  }[] = [
     {
       adapter: instagram({
         auth: { accountId: "ig1", accessToken: "token" },
