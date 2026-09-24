@@ -1,0 +1,172 @@
+---
+title: PostFast
+description: Configure PostFast with a workspace API key, scheduled publishing, key-based media uploads, post analytics, and hosted connect links.
+---
+
+[PostFast](https://postfa.st/docs?utm_source=social-sdk&utm_medium=sponsor&utm_campaign=hosted-backend) is an optional managed backend. It holds the connected accounts in your PostFast workspace and publishes posts at the time you schedule. PostFast sponsors Social SDK; the adapter follows PostFast's public API the same way the other hosted adapters follow theirs.
+
+```ts
+import { createSocial } from "@opencoredev/social-sdk";
+import { postfast } from "@opencoredev/social-sdk/cloud/postfast";
+
+const social = createSocial({ backend: postfast({ apiKey: process.env.POSTFAST_API_KEY! }) });
+const accounts = await social.accounts.list({
+  backend: "default",
+  authorization: { tenantId: "tenant-from-session" },
+});
+```
+
+The API key belongs to one PostFast workspace. Keep it on your server; the adapter sends it in the `pf-api-key` header.
+
+## Every post is scheduled
+
+PostFast's API has no publish-now call. Each target needs a `schedule.at` in the future, and `prepare` reports `schedule.required` or `schedule.past` otherwise:
+
+```ts
+const result = await social.posts.publish(
+  {
+    targets: [{ account }],
+    content: { text: "Launching next week." },
+    schedule: { at: "2026-10-01T09:00:00.000Z" },
+  },
+  { authorization: { tenantId: "tenant-from-session" } },
+);
+```
+
+A successful submission returns a `scheduled` outcome whose job ID is the PostFast post ID. If your workspace requires post approval, the outcome is `accepted` with backend state `SCHEDULED/PENDING_APPROVAL` until someone approves it in PostFast. Call `getDelivery` later to see `published`, `failed`, or the approval state. PostFast has no webhooks, so poll for status.
+
+The remaining examples pass `authorization` the same way. Full, type-checked versions are in `examples/snippets/backend-postfast.ts`.
+
+## Poll for status
+
+Store the outcome's `delivery` reference and poll it from a job. Keep polling while the post is scheduled, waiting for approval, or processing, and stop on any other state.
+
+```ts
+import { setTimeout as sleep } from "node:timers/promises";
+
+let outcome = await social.posts.getDelivery(delivery, { authorization });
+
+for (let check = 1; check < 30 && isWaiting(outcome); check++) {
+  await sleep(60_000);
+  outcome = await social.posts.getDelivery(delivery, { authorization });
+}
+
+function isWaiting(outcome: DeliveryOutcome): boolean {
+  switch (outcome.state) {
+    case "scheduled": // due later
+    case "accepted": // SCHEDULED/PENDING_APPROVAL: waiting for approval in PostFast
+    case "processing":
+      return true;
+    case "published":
+    case "failed":
+    case "cancelled":
+    case "not-submitted":
+    case "unknown": // reconcile in PostFast before retrying
+      return false;
+  }
+}
+```
+
+If the submission itself was ambiguous, the outcome is `unknown` with no `delivery`. Check PostFast before you publish again.
+
+## Media
+
+PostFast references media by storage key, not by URL. The adapter asks PostFast for a signed upload URL, uploads the bytes there without your API key, and sends the key with the post. HTTPS media URLs are rejected at preparation, because the SDK does not fetch remote files for you. Supported types are JPEG, PNG, GIF, and WebP images up to 10 MB, and MP4, WebM, and MOV (QuickTime) videos up to 250 MB. PostFast's schema has no alt text field, so attachments with `altText` are rejected.
+
+Pass a `Blob` in the post, or upload it first with `media.upload` and publish the returned reference. The reference resolves through the adapter's `mediaStore`, which is in memory by default, so upload and publish with the same adapter instance or configure a shared store.
+
+```ts
+const media = await social.media.upload(
+  {
+    kind: "video",
+    source: { kind: "blob", blob: video, fingerprint: "product-demo-v1" },
+    mimeType: "video/mp4",
+    filename: "product-demo.mp4",
+  },
+  youtubeAccount,
+  { authorization },
+);
+
+await social.posts.publish(
+  {
+    targets: [
+      {
+        account: youtubeAccount,
+        options: { title: "Product demo", visibility: "public", madeForKids: false },
+      },
+    ],
+    content: {
+      text: "A short demo of the new editor.",
+      media: [{ kind: "video", source: { kind: "media-ref", ref: media }, mimeType: "video/mp4" }],
+    },
+    schedule: { at },
+  },
+  { authorization },
+);
+```
+
+PostFast documents Bluesky support for text and images only, so a Bluesky target with a video is rejected at preparation.
+
+## Supported operations
+
+The adapter supports account listing, scheduled publishing, delivery status, cancelling a future scheduled post, deleting a failed backend record, media upload, and post analytics. Cancelling deletes the PostFast record. Neither operation removes a post that already published.
+
+```ts
+if (outcome.state === "scheduled") {
+  const { backendRecord } = await social.posts.cancelScheduled(outcome.job, { authorization });
+}
+
+if (outcome.state === "failed" && outcome.delivery) {
+  const record: BackendPostRef = {
+    kind: "backend-post",
+    version: 1,
+    backend: outcome.delivery.backend,
+    platform: outcome.delivery.platform,
+    accountId: outcome.delivery.accountId,
+    recordId: outcome.delivery.deliveryId,
+  };
+  await social.posts.deleteBackendRecord(record, { authorization });
+}
+```
+
+Post analytics need the platform post reference from a `published` outcome, because it carries the PostFast record ID. Metrics include likes, comments, shares, impressions, reach, interactions, and video views where the platform reports them, plus watch time and Instagram save rate.
+
+```ts
+if (outcome.state === "published") {
+  const metrics = await social.analytics.getPostMetrics(outcome.post, { authorization });
+}
+```
+
+PostFast also supports Pinterest, Telegram, and Google Business Profile. The adapter skips those accounts because they are outside Social SDK's platform list. Comments, messages, and post feeds are not part of this adapter.
+
+## Platform options
+
+| Platform  | Social SDK option                                    | PostFast control                                                            |
+| --------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| YouTube   | `title`, `visibility`, `madeForKids`                 | `youtubeTitle`, `youtubePrivacy`, `youtubeMadeForKids`                      |
+| Instagram | `shareToFeed`                                        | `instagramPostToGrid`                                                       |
+| TikTok    | `disableComments`, `disableDuet`, `disableStitch`    | `tiktokAllowComments`, `tiktokAllowDuet`, `tiktokAllowStitch`               |
+| TikTok    | `ownBrand`, `brandedContent`, `aiGenerated`, `draft` | `tiktokBrandOrganic`, `tiktokBrandContent`, `tiktokIsAigc`, `tiktokIsDraft` |
+
+PostFast publishes TikTok videos with the account's default privacy. For a TikTok video, the adapter accepts only `PUBLIC_TO_EVERYONE` and adds a warning; to keep a video private, set `draft: true`. X reply settings other than `everyone` have no PostFast mapping and are rejected.
+
+## Connect links
+
+`native.createConnectLink` creates a hosted page where someone connects social accounts to your workspace without a PostFast account. The URL carries a signed token, so send it only to the intended person. Call it on the adapter with an operation context:
+
+```ts
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: crypto.randomUUID(),
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+  authorization: { tenantId: "tenant-from-session" },
+};
+
+const adapter = postfast({ apiKey: process.env.POSTFAST_API_KEY! });
+const { url } = await adapter.native.createConnectLink(
+  { platforms: ["X", "LINKEDIN"], expiryDays: 7, externalId: "customer-42" },
+  context,
+);
+```
+
+Map the new accounts to tenants in your own database before you use them. See [capabilities](/reference/capabilities) for the generated matrix.

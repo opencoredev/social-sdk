@@ -28,8 +28,8 @@ export const about: InfoPage = {
           <p>
             One typed client covers publishing, reads, analytics, comments, messages, and webhooks
             across Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube. You can call each
-            platform directly, or route work through an optional managed backend such as Zernio or
-            Post for Me. Each destination returns its own outcome, so a post that is still
+            platform directly, or route work through an optional managed backend such as Zernio,
+            Post for Me, or PostFast. Each destination returns its own outcome, so a post that is still
             processing or whose result is uncertain is never reported as published.
           </p>
           <p>
@@ -109,7 +109,7 @@ export const contact: InfoPage = {
           <p>
             Social SDK doesn't issue platform credentials, approve app reviews, or run the managed
             backends. Questions about API access, rate limits, or account eligibility belong with
-            the platform (for example X, Meta, TikTok, or Google) or with Zernio or Post for Me.
+            the platform (for example X, Meta, TikTok, or Google) or with Zernio, Post for Me, or PostFast.
           </p>
         </section>
         <section>

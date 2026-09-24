@@ -1431,6 +1431,399 @@
     }
   },
   {
+    "adapter": "postfast",
+    "manifest": {
+      "schemaVersion": 1,
+      "backend": "postfast",
+      "apiRevision": "REST API, docs fetched 2026-09-24",
+      "runtime": [
+        "node22",
+        "node24",
+        "bun"
+      ],
+      "capabilities": [
+        {
+          "platform": "x",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "text",
+            "image",
+            "carousel"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "image",
+            "video",
+            "carousel"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "image",
+            "video",
+            "carousel"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "accounts.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.status",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.deleteBackendRecord",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "analytics.read",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "media.upload",
+          "availability": "available",
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        }
+      ]
+    }
+  },
+  {
     "adapter": "bluesky",
     "manifest": {
       "schemaVersion": 1,

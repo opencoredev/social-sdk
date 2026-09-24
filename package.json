@@ -26,7 +26,7 @@
     "pack:check": "bun scripts/check-package.ts",
     "benchmark": "bun scripts/benchmark.ts",
     "benchmark:media": "node --expose-gc scripts/benchmark-media.mjs",
-    "recipes:check": "tsc -p skills/integrate-social-sdk/tsconfig.json && tsc -p examples/tsconfig.json && node --import tsx --test skills/integrate-social-sdk/references/integration.test.ts && node --import tsx examples/snippets/pagination.ts",
+    "recipes:check": "tsc -p skills/integrate-social-sdk/tsconfig.json && tsc -p examples/tsconfig.json && node --import tsx --test skills/integrate-social-sdk/references/integration.test.ts examples/snippets/managed-backends.test.ts && node --import tsx examples/snippets/pagination.ts",
     "release:ci": "bun run release:gate"
   },
   "devDependencies": {

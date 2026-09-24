@@ -171,3 +171,15 @@ article [data-blume-card] img[src^="/integrations/"] {
 :root[data-theme="dark"] [data-blume-card] img[src$="/restate.svg"] {
   filter: invert(1);
 }
+
+/* Line the header megaphone up with the sidebar icon column below it. */
+a:has(> img[src^="/brand/social-sdk-nav"]) {
+  margin-left: 3px;
+}
+
+/* PostFast's mark is blue with black parts. Flip its lightness in dark mode
+   so the black parts stay visible while the blue stays blue. */
+:root[data-theme="dark"] .blume-nav-link img[src$="/postfast.png"],
+:root[data-theme="dark"] article img[src$="/postfast.png"] {
+  filter: invert(1) hue-rotate(180deg);
+}

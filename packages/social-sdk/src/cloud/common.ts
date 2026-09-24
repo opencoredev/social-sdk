@@ -59,7 +59,16 @@ export function platform(value: JsonField): Platform {
   return slug;
 }
 
-export function managedHttp(origin: string, options: ManagedOptions) {
+/** How a provider expects its server-side API key. Defaults to a bearer token. */
+export type ManagedAuthHeader = (apiKey: string) => readonly [name: string, value: string];
+
+const bearer: ManagedAuthHeader = (apiKey) => ["Authorization", `Bearer ${apiKey}`];
+
+export function managedHttp(
+  origin: string,
+  options: ManagedOptions,
+  authHeader: ManagedAuthHeader = bearer,
+) {
   if (!options.apiKey.trim())
     throw new SocialError({
       code: "invalid_config",
@@ -79,10 +88,9 @@ export function managedHttp(origin: string, options: ManagedOptions) {
 
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
 
-    const headers = new Headers({
-      Authorization: `Bearer ${options.apiKey}`,
-      "Content-Type": "application/json",
-    });
+    const headers = new Headers({ "Content-Type": "application/json" });
+
+    headers.set(...authHeader(options.apiKey));
 
     if (context.targetIdempotencyKey && origin.includes("zernio.com"))
       headers.set(
@@ -149,20 +157,23 @@ export function managedHttp(origin: string, options: ManagedOptions) {
   };
 }
 
-function publishFormats(
+export type PublishFormats = (
   platform: (typeof selectedPlatforms)[number],
-): CapabilityDeclaration["formats"] {
+) => CapabilityDeclaration["formats"];
+
+export const publishFormats: PublishFormats = (platform) => {
   if (platform === "youtube") return ["video"];
 
   if (platform === "instagram" || platform === "tiktok") return ["image", "video", "carousel"];
 
   return ["text", "image", "video", "carousel"];
-}
+};
 
 export function capabilityManifest(
   backend: string,
   apiRevision: string,
   operations: readonly string[],
+  formats: PublishFormats = publishFormats,
 ): CapabilityManifest {
   return {
     schemaVersion: 1,
@@ -175,7 +186,7 @@ export function capabilityManifest(
         operation,
         availability: "available" as const,
         ...definedFields({
-          formats: operation === "posts.publish" ? publishFormats(platform) : undefined,
+          formats: operation === "posts.publish" ? formats(platform) : undefined,
         }),
         notes:
           "Contract implementation; live account verification and provider/platform eligibility are separate.",
@@ -199,7 +210,7 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
 /** Every accepted normalized option has an intentional provider mapping. */
 export function managedOptionIssues(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me",
+  provider: "zernio" | "post-for-me" | "postfast",
 ): PreparationIssue[] {
   const config = optionsObject(target);
 

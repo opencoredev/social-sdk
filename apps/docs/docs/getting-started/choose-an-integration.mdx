@@ -10,6 +10,7 @@ The integration route owns authentication, limits, lifecycle mapping, and the ne
 | Direct      | You want to call a platform API yourself and can satisfy its account, scope, review, and token requirements. | The platform application, authorization state, storage hooks where needed, and any upstream charges. |
 | Zernio      | You want to use Zernio's supported connection and operation surface.                                         | A Zernio account and key, tenant mapping, and provider charges.                                      |
 | Post for Me | You want to use Post for Me's supported connection and operation surface.                                    | A Post for Me account and key, tenant mapping, and provider charges.                                 |
+| PostFast    | You want PostFast's connection links and scheduled posting. Every PostFast post needs a future schedule.     | A PostFast account and key, tenant mapping, and provider charges.                                    |
 | Mixed       | Different accounts deliberately use different configured backends.                                           | A named backend registry and an account-to-backend assignment known before dispatch.                 |
 
 Mixed mode does not provide failover. An X failure cannot authorize a Bluesky post, and a managed-provider failure cannot move a connected account to another provider. Account authorizations and provider records do not migrate when application code changes adapters.

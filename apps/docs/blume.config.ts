@@ -9,8 +9,8 @@ export default defineConfig({
     "Typed social platform integrations for TypeScript applications, with direct routes, optional managed backends, and deterministic testing.",
   logo: {
     image: {
-      light: "/brand/social-sdk-mark.svg",
-      dark: "/brand/social-sdk-mark-cream.svg",
+      light: "/brand/social-sdk-nav.svg",
+      dark: "/brand/social-sdk-nav-cream.svg",
       alt: "Social SDK megaphone mark",
     },
     text: "Social SDK",
@@ -70,6 +70,11 @@ export default defineConfig({
                   label: "Post for Me",
                   root: "/backends/post-for-me",
                   icon: "/integrations/post-for-me.webp",
+                },
+                {
+                  label: "PostFast",
+                  root: "/backends/postfast",
+                  icon: "/integrations/postfast.png",
                 },
               ],
             },
