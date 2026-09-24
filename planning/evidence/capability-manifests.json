@@ -2046,8 +2046,8 @@
         {
           "platform": "x",
           "operation": "streams.read",
-          "availability": "not-implemented-by-adapter",
-          "notes": "Filtered stream rules and streaming transport are not implemented by this adapter."
+          "availability": "available",
+          "notes": "Filtered stream via native stream, listStreamRules, addStreamRules, and deleteStreamRules with the app-only appBearerToken. Needs X API pay-per-use (1 connection, 1,000 rules of up to 1,024 characters) or Enterprise (multiple connections, 25,000+ rules of up to 2,048 characters). backfillMinutes and startTime/endTime recovery need Enterprise. One caller-controlled connection per iteration; no automatic reconnect."
         }
       ]
     }

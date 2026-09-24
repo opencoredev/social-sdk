@@ -32,7 +32,7 @@ import { x } from "@opencoredev/social-sdk/x";
 const social = createSocial({
   backend: x({
     auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
-    // Required for full-archive search.
+    // Required for full-archive search and the filtered stream.
     appBearerToken: process.env.X_APP_BEARER_TOKEN,
   }),
 });
@@ -258,9 +258,101 @@ still depends on the X API tier and Direct Messages access for the app.
 
 ## Native operations
 
-The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, deletion, and bookmarks. Filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
+The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, deletion, bookmarks, and the filtered stream. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
 
 Full-archive search (`searchAllPosts`) requires an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
+
+### Filtered stream
+
+The filtered stream delivers posts that match rules stored on your X app. Rules and the stream
+connection both use the app-only `appBearerToken`, so they belong to the app rather than to the
+connected account. The `account` argument still passes through your authorization policy.
+
+Manage rules with `listStreamRules`, `addStreamRules`, and `deleteStreamRules`. Pass
+`dryRun: true` to have X validate rules without saving them. X reports rejected rules, such as
+duplicates or invalid syntax, in `errors` while accepting the rest, so check both `rules` and
+`errors` in the result:
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+
+const update = await native.addStreamRules({
+  account,
+  rules: [{ value: "from:opencoredev -is:retweet", tag: "announcements" }],
+  context,
+});
+for (const error of update.errors) console.warn(error["title"], error["value"]);
+
+const rules = await native.listStreamRules({ account, context });
+await native.deleteStreamRules({ account, ids: rules.items.map((rule) => rule.id), context });
+```
+
+`stream` returns an async iterable. Nothing connects until you start iterating, and each iteration
+opens exactly one connection. Every event has a `kind`:
+
+- `post` carries the post, the `matchingRules` that selected it, and any `includes` for requested
+  expansions.
+- `error` carries an error-only message from X, such as an operational disconnect notice.
+- `other` carries any other JSON object X sends, unchanged.
+
+Stop the stream with `break` or by aborting `context.signal`. Both close the HTTP connection. An
+abort raises a `cancelled` `SocialError`. X sends a keep-alive at least every 20 seconds, so if
+no data or keep-alive arrives within `stallTimeoutMs` (default 20,000), the iterator raises a
+`timeout` error. When X ends the connection, the loop finishes normally.
+
+The adapter never reconnects on its own. If you want a long-running consumer, write the reconnect
+loop yourself and follow X's backoff guidance: after network errors, back off linearly by 250 ms up
+to 16 seconds; after HTTP errors, back off exponentially from 5 seconds up to 320 seconds; after a
+`rate_limited` error, wait exponentially from 1 minute. Use a fresh operation context for each
+connection attempt, because the retry budget's deadline applies to the whole context.
+
+```ts
+import { SocialError } from "@opencoredev/social-sdk";
+
+const controller = new AbortController();
+let delayMs = 0;
+
+while (!controller.signal.aborted) {
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  const context = {
+    backendInstance: "default",
+    correlationId: `x-stream-${Date.now()}`,
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+    signal: controller.signal,
+  };
+
+  try {
+    for await (const event of native.stream({
+      account,
+      context,
+      tweetFields: ["created_at", "author_id"],
+      expansions: ["author_id"],
+    })) {
+      delayMs = 0;
+      if (event.kind === "post") console.log(event.matchingRules, event.post["text"]);
+    }
+  } catch (error) {
+    if (!(error instanceof SocialError) || error.code === "cancelled") throw error;
+    if (error.code === "reconnect_required" || error.code === "missing_permission") throw error;
+    if (error.code === "rate_limited") delayMs = Math.max(60_000, delayMs * 2);
+    else if (error.code === "timeout" || error.upstreamStatus === undefined)
+      delayMs = Math.min(16_000, delayMs + 250);
+    else delayMs = Math.min(320_000, Math.max(5_000, delayMs * 2));
+  }
+}
+```
+
+The stream needs X API pay-per-use or Enterprise access. Pay-per-use allows one connection and
+1,000 rules of up to 1,024 characters each. Enterprise allows more connections and 25,000 or more
+rules of up to 2,048 characters. A second connection on pay-per-use is rejected by X. The
+`backfillMinutes` option (1 to 5) and the `startTime` and `endTime` recovery window (within the last
+24 hours) require Enterprise access. Streamed posts count toward your monthly post read usage. The
+SDK does not reconnect, deduplicate across reconnects, or recover missed posts for you.
+
+See the X documentation for the [filtered stream](https://docs.x.com/x-api/posts/filtered-stream/introduction),
+[rule management](https://docs.x.com/x-api/stream/update-stream-rules),
+[disconnections and backoff](https://docs.x.com/x-api/fundamentals/handling-disconnections), and
+[recovery and redundancy](https://docs.x.com/x-api/fundamentals/recovery-and-redundancy).
 
 ## Limits and requirements
 
