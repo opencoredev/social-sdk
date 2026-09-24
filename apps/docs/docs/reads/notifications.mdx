@@ -63,20 +63,24 @@ Pass `page.nextCursor` back as `cursor`. A missing user token or scope raises
 </PlatformTab>
 <PlatformTab platform="instagram">
 
-**Native** `listMentions` (also exposed as `mentions`). Needs Facebook Login
-scopes `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`.
+**Native** `listMentions` (also exposed as `mentions`). Works with Instagram
+Login and Facebook Login. Instagram Login needs `instagram_business_basic` and
+`instagram_business_manage_comments`. Facebook Login needs `instagram_basic`,
+`instagram_manage_comments`, and `pages_read_engagement`.
 
-Configure `instagram({ auth: { accountId, accessToken, flavor: "facebook-login" } })`.
-The adapter reads the `/{ig-user-id}/tags` edge and returns tagged-media objects
-with a cursor.
+Configure `instagram({ auth: { accountId, accessToken } })` for Instagram Login,
+or add `flavor: "facebook-login"`. The adapter reads the `/{ig-user-id}/tags`
+edge on the matching Graph host and returns tagged-media objects with a cursor.
+Meta does not return private media or Story mentions.
 
 ```ts
 const native = social.native("default", { acknowledgeUnsafe: true });
 const page = await native.listMentions({ account, limit: 50, context });
 ```
 
-`mentionedMedia` and `mentionedComment` also need Facebook Login. With Instagram
-Login all three methods raise `unsupported_capability`.
+`mentionedMedia` and `mentionedComment` look up one caption or comment mention
+by ID and need Facebook Login. Meta documents no Instagram Login equivalent, so
+with Instagram Login they raise `unsupported_capability` before any request.
 
 </PlatformTab>
 <PlatformTab platform="threads">

@@ -2688,7 +2688,12 @@
         {
           "platform": "instagram",
           "operation": "mentions.read",
-          "availability": "not-implemented-by-adapter"
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_comments"
+          ],
+          "notes": "Reads the paginated /{ig-user-id}/tags edge on graph.instagram.com. mentionedMedia and mentionedComment require Facebook Login. Story mentions and private media are not returned."
         },
         {
           "platform": "instagram",
