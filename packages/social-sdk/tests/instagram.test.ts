@@ -9,6 +9,7 @@ import {
   connectedAccountRef,
   createSocial,
   type AdapterOperationContext,
+  type MediaAttachment,
 } from "../src/core/index.js";
 
 const context = (backend = "instagram"): AdapterOperationContext => ({
@@ -19,10 +20,10 @@ const context = (backend = "instagram"): AdapterOperationContext => ({
 
 const target = (
   account: ReturnType<typeof connectedAccountRef>,
-  media = [
+  media: readonly MediaAttachment[] = [
     {
-      kind: "image" as const,
-      source: { kind: "https-url" as const, url: "https://cdn.example/image.jpg" },
+      kind: "image",
+      source: { kind: "https-url", url: "https://cdn.example/image.jpg" },
       mimeType: "image/jpeg",
       width: 1080,
       height: 1080,
@@ -116,7 +117,8 @@ it("normalizes the authorized Instagram profile without a selector", async () =>
     accountId: "ig1",
   });
 
-  const profile = await adapter.graph?.getProfile(account, {}, context("default"));
+  assert.ok(adapter.graph?.getProfile);
+  const profile = await adapter.graph.getProfile(account, {}, context("default"));
   assert.equal(profile.ref.profileId, "ig1");
   assert.equal(profile.displayName, "Owner");
   assert.equal(profile.handle, "owner");
@@ -208,8 +210,8 @@ it("returns processing for a continuation handle and rejects cross-account refer
 
   const result = await adapter.native?.publishContainer(account, "container", context());
   assert.equal(result?.state, "processing");
-  await assert.rejects(() =>
-    adapter.posts?.get(
+  await assert.rejects(async () =>
+    adapter.posts?.get?.(
       {
         kind: "platform-post",
         version: 1,
@@ -329,8 +331,10 @@ it("reconstructs a carousel workflow and resumes without recreating children", a
     workflowStore: store,
   });
 
-  const resumed = await second.posts?.getDelivery(
+  const resumed = await second.posts?.getDelivery?.(
     {
+      kind: "delivery",
+      version: 1,
       backend: "instagram",
       platform: "instagram",
       accountId: "ig1",
@@ -388,8 +392,15 @@ it("polls a single video workflow through getDelivery and publishes after FINISH
   assert.equal(deliveryId, [...store.rows.keys()][0]);
   statusCode = "FINISHED";
 
-  const result = await adapter.posts?.getDelivery(
-    { backend: "instagram", platform: "instagram", accountId: "ig1", deliveryId },
+  const result = await adapter.posts?.getDelivery?.(
+    {
+      kind: "delivery",
+      version: 1,
+      backend: "instagram",
+      platform: "instagram",
+      accountId: "ig1",
+      deliveryId,
+    },
     context(),
   );
 
@@ -412,7 +423,7 @@ it("serializes concurrent carousel resumes and rejects unauthorized handles", as
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     workflowStore: store,
-    fetch: async (input, init) =>
+    fetch: async (_input, init) =>
       init?.method === "POST"
         ? new Response(JSON.stringify({ id: "parent" }))
         : new Response(JSON.stringify({ status_code: "FINISHED" })),
@@ -433,7 +444,7 @@ it("serializes concurrent carousel resumes and rejects unauthorized handles", as
 
   assert.equal([a?.state, b?.state].filter((state) => state === "published").length, 1);
   assert.equal([a?.state, b?.state].filter((state) => state === "processing").length, 1);
-  await assert.rejects(() =>
+  await assert.rejects(async () =>
     adapter.native?.resumePublication(
       connectedAccountRef({ backend: "instagram", platform: "instagram", accountId: "other" }),
       workflow.id,
@@ -473,7 +484,7 @@ it("reconstructs a single media workflow and never replays an uncertain publish"
     workflowStore: store,
   });
 
-  await assert.rejects(() => first.posts?.publishTarget(target(account), context()));
+  await assert.rejects(async () => first.posts?.publishTarget(target(account), context()));
   const workflowId = [...store.rows.keys()][0];
   assert.ok(workflowId);
 
@@ -525,8 +536,9 @@ it("keeps an ambiguous marker when persistence fails after accepted publish", as
     workflowStore: store,
   });
 
-  await assert.rejects(() => adapter.posts?.publishTarget(target(account), context()));
+  await assert.rejects(async () => adapter.posts?.publishTarget(target(account), context()));
   const id = [...store.rows.keys()][0];
+  assert.ok(id);
   const resumed = await adapter.native?.resumePublication(account, id, context());
   assert.equal(resumed?.state, "unknown");
   assert.equal(postCalls, 2);
@@ -617,6 +629,8 @@ it("lists comment replies across cursors and keeps an empty page empty", async (
     context: context(),
   });
 
+  assert.ok(first?.nextCursor);
+
   const second = await adapter.native?.listCommentReplies({
     account,
     commentId: "comment-1",
@@ -666,6 +680,8 @@ it("lists tagged media mentions with cursor pagination and handles an empty data
     context: context(),
   });
 
+  assert.ok(first?.nextCursor);
+
   const second = await adapter.native?.listTaggedMedia({
     account,
     cursor: first?.nextCursor,
@@ -694,7 +710,7 @@ it("requires Facebook Login for business discovery and specific mention lookups"
   });
 
   await assert.rejects(
-    () =>
+    async () =>
       adapter.native?.businessDiscovery({
         account,
         username: "other",
@@ -703,7 +719,7 @@ it("requires Facebook Login for business discovery and specific mention lookups"
     /Facebook Login/,
   );
   await assert.rejects(
-    () => adapter.native?.mentionedMedia({ account, mediaId: "media-1", context: context() }),
+    async () => adapter.native?.mentionedMedia({ account, mediaId: "media-1", context: context() }),
     /Facebook Login/,
   );
 });
@@ -758,7 +774,7 @@ it("rejects tags mentions with Instagram Login through the public native facade"
 
   const native = social.native("default", { acknowledgeUnsafe: true });
   await assert.rejects(
-    () => native?.listMentions({ account, context: context("default") }),
+    async () => native?.listMentions({ account, context: context("default") }),
     /Facebook Login/,
   );
   assert.equal(requests, 0);
@@ -811,7 +827,7 @@ it("searches hashtags, validates identifiers, and rejects empty names", async ()
     { data: [{ id: "tag-1" }] },
   );
   await assert.rejects(
-    () => native?.hashtagSearch({ account, hashtag: "#", context: context("default") }),
+    async () => native?.hashtagSearch({ account, hashtag: "#", context: context("default") }),
     /non-empty hashtag/,
   );
 });
@@ -829,7 +845,7 @@ it("maps malformed Instagram responses to an upstream SocialError", async () => 
   });
 
   await assert.rejects(
-    () => adapter.native?.listMentions({ account, context: context("instagram") }),
+    async () => adapter.native?.listMentions({ account, context: context("instagram") }),
     { code: "upstream_failure" },
   );
 });

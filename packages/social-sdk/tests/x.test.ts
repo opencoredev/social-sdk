@@ -319,6 +319,7 @@ it("X native pinned lists, conversation DMs, and group DMs use v2 endpoints", as
   });
 
   const native = social.native("default", { acknowledgeUnsafe: true });
+  assert.ok(native);
   await native.pinList({ account, listId: "l1", context: operationContext });
   await native.unpinList({ account, listId: "l1", context: operationContext });
   const page = await native.pinnedLists({ account, context: operationContext });

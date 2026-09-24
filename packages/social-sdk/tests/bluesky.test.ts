@@ -9,7 +9,7 @@ import {
   type PreparedPublishTarget,
 } from "../src/core/index.js";
 import { definedFields } from "../src/core/fields.js";
-import { isJsonValue } from "../src/transport/json.js";
+import { isJsonValue, parseJson } from "../src/transport/json.js";
 import { array, object } from "../src/transport/validation.js";
 
 function response(value: JsonValue, status = 200): Response {
@@ -92,12 +92,13 @@ describe("Bluesky adapter", () => {
       accountId: "did:plc:test",
     });
 
+    assert.ok(adapter.native);
     await assert.rejects(
-      adapter.native?.searchPosts({ account, query: "   ", context: context() }),
+      adapter.native.searchPosts({ account, query: "   ", context: context() }),
       /search query is required/,
     );
     await assert.rejects(
-      adapter.native?.searchPosts({ account, query: "hello", limit: 101, context: context() }),
+      adapter.native.searchPosts({ account, query: "hello", limit: 101, context: context() }),
       /page size must be between 1 and 100/,
     );
     assert.equal(requests, 0);
@@ -138,7 +139,7 @@ describe("Bluesky adapter", () => {
     assert.equal(requests[0]?.headers?.get("content-type"), "application/json");
     await adapter.native?.unlikePost({ account, likeUri: like?.uri ?? "", context: context() });
     assert.match(requests[1]?.url ?? "", /com\.atproto\.repo\.deleteRecord/);
-    await assert.rejects(() =>
+    await assert.rejects(async () =>
       adapter.native?.likePost({
         account: connectedAccountRef({
           backend: "direct",
@@ -324,7 +325,7 @@ describe("Bluesky adapter", () => {
       fetch: async () => response({ did: "did:plc:other", handle: "other.example" }),
     });
 
-    await assert.rejects(() =>
+    await assert.rejects(async () =>
       adapter.accounts?.get(
         connectedAccountRef({ backend: "direct", platform: "bluesky", accountId: "did:plc:test" }),
         context(),
@@ -417,7 +418,7 @@ it("Bluesky reactions validate owned like URIs and never replay ambiguous writes
       post: { uri: "at://did:plc:someone/app.bsky.feed.post/r1", cid: "cid" },
       context: { ...context(), retryBudget: { maxAttempts: 5, maxElapsedMs: 1000 } },
     }),
-    (error: any) => error.code === "ambiguous_outcome",
+    { code: "ambiguous_outcome" },
   );
   assert.equal(
     calls,
@@ -433,13 +434,13 @@ it("serializes language tags and explicit DID mentions at UTF-8 boundaries witho
     accountId: "did:plc:test",
   });
 
-  const requests: { url: string; body: any }[] = [];
+  const requests: { url: string; body: JsonObject }[] = [];
 
   const adapter = bluesky({
     backend: "direct",
     auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
     fetch: async (url, init) => {
-      requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      requests.push({ url: String(url), body: object(parseJson(String(init?.body))) });
 
       return response({ uri: "at://did:plc:test/app.bsky.feed.post/result", cid: "cid" });
     },
@@ -461,13 +462,15 @@ it("serializes language tags and explicit DID mentions at UTF-8 boundaries witho
   assert.equal((await adapter.posts!.publishTarget(target, context())).state, "published");
   assert.equal(requests.length, 1);
   assert.match(requests[0]!.url, /createRecord$/);
-  assert.deepEqual(requests[0]!.body.record.langs, ["en-US"]);
-  assert.deepEqual(requests[0]!.body.record.facets[0], {
+  const record = object(requests[0]?.body["record"]);
+  const facets = array(record["facets"]);
+  assert.deepEqual(record["langs"], ["en-US"]);
+  assert.deepEqual(facets[0], {
     index: { byteStart: 5, byteEnd: 19 },
     features: [{ $type: "app.bsky.richtext.facet#mention", did: "did:plc:alice" }],
   });
   assert.equal(
-    requests[0]!.body.record.facets[1].features[0].$type,
+    object(array(object(facets[1])["features"])[0])["$type"],
     "app.bsky.richtext.facet#link",
   );
 

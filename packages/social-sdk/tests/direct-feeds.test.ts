@@ -100,7 +100,7 @@ test("Threads account feeds use the after cursor and enforce account authorizati
   assert.equal(requested?.searchParams.get("after"), "cursor-threads");
   assert.equal(requested?.searchParams.get("limit"), "4");
   assert.equal(page.nextCursor, "next-threads");
-  assert.equal(page.items[0]?.id, "thread-1");
+  assert.equal(page.items[0]?.["id"], "thread-1");
   assert.equal("secret" in (page.items[0] ?? {}), false);
   await assert.rejects(
     adapter.posts!.list!({ ...account, accountId: "other" }, {}, threadsContext),

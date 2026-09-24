@@ -44,7 +44,7 @@ it("reads Bluesky profile counts and omits absent metrics", async () => {
       ["posts", 0],
     ],
   );
-  await assert.rejects(() =>
+  await assert.rejects(async () =>
     adapter.analytics?.getAccountMetrics?.(
       connectedAccountRef({ backend: "direct", platform: "bluesky", accountId: "did:plc:b" }),
       context("direct"),

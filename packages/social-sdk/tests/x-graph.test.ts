@@ -58,6 +58,7 @@ it("normalizes X profiles and paginated graph reads through the client facade", 
   assert.ok(page.nextCursor?.startsWith("social-v1."));
   assert.equal(urls[1]?.searchParams.get("max_results"), "25");
 
+  assert.ok(page.nextCursor);
   await social.graph.listRelationships(account, {
     kind: "following",
     cursor: page.nextCursor,

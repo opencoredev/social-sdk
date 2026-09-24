@@ -7,6 +7,7 @@ import {
   type CapabilityManifest,
   type SocialAdapter,
 } from "../src/index.js";
+import { definedFields } from "../src/core/fields.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "me" });
 
@@ -31,7 +32,7 @@ function adapter(): SocialAdapter {
     capabilities,
     graph: {
       async getProfile(_account, input) {
-        return { ref: target, displayName: input.profileId ?? input.handle };
+        return { ref: target, ...definedFields({ displayName: input.profileId ?? input.handle }) };
       },
       async listRelationships(_account, input) {
         return {

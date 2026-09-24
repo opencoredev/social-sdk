@@ -447,7 +447,7 @@ it("X processing wait reports cancellation as cancelled", async () => {
   const blob = videoBlob(10);
 
   await assert.rejects(
-    () =>
+    async () =>
       adapter.posts?.publishTarget(
         { targetIndex: 0, targetKey: "x", account, content: videoContent(blob) },
         {
@@ -535,6 +535,7 @@ it("X native uploadVideo and uploadGif return attachable media IDs", async () =>
     retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
   };
 
+  assert.ok(adapter.native);
   assert.deepEqual(await adapter.native.uploadVideo({ account, video: videoBlob(10), context }), {
     mediaId: "native1",
   });

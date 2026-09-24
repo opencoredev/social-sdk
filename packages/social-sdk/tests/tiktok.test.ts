@@ -2,7 +2,12 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { tiktok } from "../src/platforms/tiktok.js";
-import type { AdapterOperationContext, JsonValue, PublishRequest } from "../src/core/types.js";
+import type {
+  AdapterOperationContext,
+  JsonValue,
+  PublishRequest,
+  TikTokPublishOptions,
+} from "../src/core/types.js";
 
 const account = connectedAccountRef({
   backend: "default",
@@ -23,24 +28,20 @@ const creator = {
   maxVideoDurationSeconds: 60,
 };
 
+const options: TikTokPublishOptions = {
+  privacy: "SELF_ONLY",
+  consentGiven: true,
+  disableComments: true,
+  disableDuet: true,
+  disableStitch: true,
+  brandedContent: false,
+  ownBrand: false,
+  aiGenerated: false,
+  draft: false,
+};
+
 const request: PublishRequest = {
-  targets: [
-    {
-      account,
-      options: {
-        privacy: "SELF_ONLY",
-        consentGiven: true,
-        disableComments: true,
-        disableDuet: true,
-        disableStitch: true,
-        brandedContent: false,
-        ownBrand: false,
-        aiGenerated: false,
-        draft: false,
-        creatorInfo: creator,
-      },
-    },
-  ],
+  targets: [{ account, options: { ...options, creatorInfo: creator } }],
   content: {
     text: "caption",
     media: [
@@ -179,6 +180,7 @@ it("TikTok draft inbox remains accepted and large native IDs retain their exact 
     deliveryId: "p1",
   };
 
+  assert.ok(adapter.posts?.getDelivery);
   assert.equal((await adapter.posts.getDelivery(ref, context)).state, "accepted");
   state = "PUBLISH_COMPLETE";
   const result = await adapter.posts.getDelivery(ref, context);
@@ -193,6 +195,8 @@ it("TikTok SELF_ONLY completion is published even without a public post id", asy
     verifiedMediaOrigins: [],
     fetch: async () => response({ status: "PUBLISH_COMPLETE", publicaly_available_post_id: [] }),
   });
+
+  assert.ok(adapter.posts?.getDelivery);
 
   const result = await adapter.posts.getDelivery(
     {
@@ -232,11 +236,7 @@ it("TikTok draft initialization skips creator info and uses the inbox endpoint",
     targets: [
       {
         account,
-        options: {
-          ...request.targets[0]!.options,
-          draft: true,
-          creatorInfo: undefined,
-        },
+        options: { ...options, draft: true },
       },
     ],
   };

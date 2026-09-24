@@ -121,7 +121,7 @@ test("Threads profile lookup maps current fields without treating the handle as 
   assert.equal(profile.avatarUrl, "https://img");
   assert.equal(profile.bio, "Bio");
   assert.notEqual(profile.ref.profileId, "alice");
-  assert.equal(profile.native?._profileIdUnavailable, true);
+  assert.equal(profile.native?.["_profileIdUnavailable"], true);
 });
 
 test("Threads native reply management routes preserve fields and cursors", async () => {
