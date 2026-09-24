@@ -13,7 +13,7 @@ import type {
   Page,
   ProfileRecord,
 } from "../core/types.js";
-import { managedHttp, publicFields } from "../cloud/common.js";
+import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { HttpError } from "../transport/http.js";
 import { definedFields } from "../core/fields.js";
 import {
@@ -930,7 +930,7 @@ export function instagram(
                 operation: "posts.publish",
                 message: "Public HTTPS media required.",
               });
-            const config = target.options === undefined ? {} : object(target.options);
+            const config = optionsObject(target);
             const shareToFeed = config["shareToFeed"];
             await workflows.update(workflow.id, { stage: "unknown" });
 

@@ -18,7 +18,7 @@ import {
   type SearchPostsInput,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
-import { managedHttp, publicFields } from "../cloud/common.js";
+import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { definedFields } from "../core/fields.js";
 import {
   object,
@@ -1096,7 +1096,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         }
 
         if (target.options !== undefined) {
-          const o = object(target.options);
+          const o = optionsObject(target);
 
           if (Object.keys(o).some((key) => key !== "replyControl"))
             add("options.unmapped", "A supplied option has no Threads mapping.");
@@ -1134,7 +1134,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         const singleSource = item?.source.kind === "https-url" ? item.source : undefined;
 
         const opts: JsonObject = {
-          ...object(target.options ?? {}),
+          ...optionsObject(target),
           ...definedFields({
             _replyToId: target.replyTo?.postId,
             _mediaItems: mediaItems,

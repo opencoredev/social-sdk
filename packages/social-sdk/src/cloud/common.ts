@@ -187,7 +187,7 @@ export function capabilityManifest(
  * True when every member of `value` is a JSON primitive, array, or object. Object
  * properties set to `undefined` pass because reading them matches an absent key.
  */
-function isJsonTree(value: unknown): value is JsonValue {
+function isJsonTree(value: unknown, ancestors = new Set<object>()): value is JsonValue {
   if (
     value === null ||
     typeof value === "string" ||
@@ -196,11 +196,18 @@ function isJsonTree(value: unknown): value is JsonValue {
   )
     return true;
 
-  if (Array.isArray(value)) return value.every(isJsonTree);
+  // A cycle is not JSON; reject it instead of recursing forever.
+  if (typeof value !== "object" || ancestors.has(value)) return false;
 
-  if (typeof value !== "object") return false;
+  ancestors.add(value);
 
-  return Object.values(value).every((item) => item === undefined || isJsonTree(item));
+  const valid = Array.isArray(value)
+    ? value.every((item) => isJsonTree(item, ancestors))
+    : Object.values(value).every((item) => item === undefined || isJsonTree(item, ancestors));
+
+  ancestors.delete(value);
+
+  return valid;
 }
 
 export function optionsObject(target: PreparedPublishTarget): JsonObject {
