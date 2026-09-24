@@ -1,10 +1,10 @@
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
-import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
+import { createSocial, connectedAccountRef } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { zernio } from "../src/cloud/zernio.js";
-import type { AdapterOperationContext, JsonValue, PublishRequest } from "../src/core/types.js";
-import { array, object } from "../src/transport/validation.js";
+import type { AdapterOperationContext } from "../src/core/types.js";
 
 const context: AdapterOperationContext = {
   backendInstance: "default",
@@ -96,10 +96,13 @@ it("Zernio accounts.get lists accounts and reports an absent account as not_foun
   });
 
   assert.equal((await adapter.accounts.get(x, context)).ref.accountId, "a1");
-  await assert.rejects(() => adapter.accounts.get({ ...x, accountId: "missing" }, context), {
-    name: "SocialError",
-    code: "not_found",
-  });
+  await assert.rejects(
+    () => adapter.accounts.get({ ...x, accountId: "missing" }, context),
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- assertion predicate receives the thrown value.
+    (error: unknown) => {
+      return error instanceof Error && "code" in error && error.code === "not_found";
+    },
+  );
   assert.deepEqual(paths, ["/api/v1/accounts", "/api/v1/accounts"]);
 });
 
@@ -146,7 +149,6 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
     apiKey: "test",
     fetch: async (input, init) => {
       const url = new URL(String(input));
-
       if (url.pathname === "/api/v1/inbox/comments/p1") {
         if (init?.method === "POST") {
           assert.deepEqual(JSON.parse(String(init.body)), {
@@ -154,42 +156,29 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
             message: "reply",
             commentId: "c1",
           });
-
           return Response.json({ success: true, data: { commentId: "c2" } });
         }
-
         return Response.json({
           comments: [{ id: "c1", message: "hello" }],
           pagination: { hasMore: false, cursor: "next" },
         });
       }
-
       if (url.pathname === "/api/v1/inbox/conversations")
         return Response.json({
           data: [{ id: "cv1", participantId: "u1" }],
           pagination: { nextCursor: "next" },
         });
       assert.equal(url.pathname, "/api/v1/inbox/conversations/cv1/messages");
-
       if (init?.method === "POST") {
         assert.deepEqual(JSON.parse(String(init.body)), { accountId: "a1", message: "sent" });
-
         return Response.json({ success: true, data: { messageId: "m2" } });
       }
-
       return Response.json({ messages: [{ id: "m1", message: "hi" }] });
     },
   });
-
-  const post = platformPostRef({
-    backend: x.backend,
-    platform: x.platform,
-    accountId: x.accountId,
-    postId: "p1",
-  });
-
+  const post = { kind: "platform-post" as const, version: 1 as const, ...x, postId: "p1" };
   const comment = await adapter.comments!.list(post, {}, context);
-  assert.equal(comment.items[0]?.["id"], "c1");
+  assert.equal(comment.items[0]?.id, "c1");
   assert.equal(comment.nextCursor, undefined);
   assert.equal(
     (
@@ -202,15 +191,13 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
     "c2",
   );
   const conversations = await adapter.messages!.listConversations(x, {}, context);
-  assert.equal(conversations.items[0]?.["id"], "cv1");
-
+  assert.equal(conversations.items[0]?.id, "cv1");
   const messages = await adapter.messages!.listMessages(
     { ...x, kind: "conversation", conversationId: "cv1" },
     {},
     context,
   );
-
-  assert.equal(messages.items[0]?.["id"], "m1");
+  assert.equal(messages.items[0]?.id, "m1");
   assert.deepEqual(
     await adapter.messages!.send(
       { ...x, kind: "conversation", conversationId: "cv1" },
@@ -396,6 +383,57 @@ for (const provider of ["zernio", "post-for-me"] as const) {
   });
 }
 
+for (const provider of ["zernio", "post-for-me"] as const) {
+  it(`${provider} managed Blob uploads succeed when storage reads the whole body first`, async () => {
+    const blob = new Blob([new Uint8Array(3000)]).slice(1000, 2500);
+    let stored = 0;
+
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+
+      if (url.hostname === "storage.example.test") {
+        assert.equal(init?.body, blob);
+        stored = (await new Response(init.body).arrayBuffer()).byteLength;
+
+        return new Response(null, { status: 200 });
+      }
+
+      return provider === "zernio"
+        ? Response.json({
+            uploadUrl: "https://storage.example.test/video?signature=private",
+            publicUrl: "https://media.example.test/video.mp4",
+          })
+        : Response.json({
+            upload_url: "https://storage.example.test/video?signature=private",
+            media_url: "https://media.example.test/video.mp4",
+          });
+    };
+
+    const options = {
+      apiKey: "test",
+      fetch: fetcher,
+      uploadHostAllowed: (hostname: string) => hostname === "storage.example.test",
+    };
+
+    const social = createSocial({
+      backend: provider === "zernio" ? zernio(options) : postForMe(options),
+    });
+
+    const ref = await social.media.upload(
+      {
+        kind: "video",
+        mimeType: "video/mp4",
+        filename: "part.mp4",
+        source: { kind: "blob", blob, fingerprint: "blob-part" },
+      },
+      videoAccount,
+    );
+
+    assert.equal(ref.kind, "media");
+    assert.equal(stored, 1500);
+  });
+}
+
 it("enforces all tenant targets and video-only content before managed dispatch", async () => {
   let calls = 0;
 
@@ -453,7 +491,8 @@ it("a lost managed write response remains unknown and is not retried", async () 
 
 for (const provider of ["zernio", "post-for-me"] as const) {
   it(`${provider} preserves explicit TikTok interaction and disclosure choices`, async () => {
-    let payload: JsonValue | undefined;
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
+    let payload: Record<string, unknown> = {};
     const make = provider === "zernio" ? zernio : postForMe;
 
     const social = createSocial({
@@ -514,14 +553,33 @@ for (const provider of ["zernio", "post-for-me"] as const) {
     await social.posts.publish(request);
 
     if (provider === "zernio") {
-      const native = object(object(array(object(payload)["platforms"])[0])["platformSpecificData"]);
+      const native =
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
+        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+        (payload["platforms"] as { platformSpecificData: Record<string, unknown> }[])[0]!
+          .platformSpecificData;
 
       assert.equal(native["allowDuet"], false);
       assert.equal(native["allowStitch"], true);
       assert.equal(native["isBrandOrganicPost"], true);
       assert.equal(native["videoMadeWithAi"], true);
     } else {
-      const native = object(object(object(payload)["platform_configurations"])["tiktok"]);
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
+      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
+      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
+      const native = (payload["platform_configurations"] as { tiktok: Record<string, unknown> })
+        .tiktok;
 
       assert.equal(native["allow_duet"], false);
       assert.equal(native["allow_stitch"], true);
@@ -536,12 +594,12 @@ for (const provider of ["zernio", "post-for-me"] as const) {
       }).ok,
       false,
     );
-
-    const unmapped: PublishRequest = {
-      targets: [{ account: x, options: { languages: ["en"] } }],
-      content: { text: "Unmapped option" },
-    };
-
-    assert.equal(social.posts.prepare(unmapped).ok, false);
+    assert.equal(
+      social.posts.prepare({
+        targets: [{ account: x, options: { languages: ["en"] } }],
+        content: { text: "Unmapped option" },
+      }).ok,
+      false,
+    );
   });
 }

@@ -849,3 +849,96 @@ it("maps malformed Instagram responses to an upstream SocialError", async () => 
     { code: "upstream_failure" },
   );
 });
+
+it("deletes media with Facebook Login and confirms Meta's success response", async () => {
+  const calls: Array<{ method: string; url: URL }> = [];
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
+    fetch: async (input, init) => {
+      calls.push({ method: init?.method ?? "GET", url: new URL(String(input)) });
+      return new Response(JSON.stringify({ success: true, deleted_id: "media/1" }));
+    },
+  });
+  const account = connectedAccountRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+
+  await adapter.posts!.removeFromPlatform!(
+    { ...account, kind: "platform-post", postId: "media/1" },
+    context(),
+  );
+  await adapter.native?.deletePost({ account, postId: "media-2", context: context() });
+
+  assert.deepEqual(
+    calls.map(({ method, url }) => [method, url.origin, url.pathname]),
+    [
+      ["DELETE", "https://graph.facebook.com", "/v25.0/media%2F1"],
+      ["DELETE", "https://graph.facebook.com", "/v25.0/media-2"],
+    ],
+  );
+  for (const operation of ["posts.delete", "posts.removeFromPlatform"])
+    assert.deepEqual(
+      adapter.capabilities.capabilities.find((entry) => entry.operation === operation)
+        ?.requiredScopes,
+      ["instagram_basic", "instagram_manage_contents"],
+    );
+});
+
+it("treats an unconfirmed Instagram media deletion as ambiguous", async () => {
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
+    fetch: async () => new Response(JSON.stringify({ success: false })),
+  });
+  const account = connectedAccountRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+
+  await assert.rejects(
+    () => adapter.native!.deletePost({ account, postId: "media-1", context: context() }),
+    {
+      code: "ambiguous_outcome",
+      operation: "instagram.posts.delete",
+      retryDisposition: { kind: "reconcile-first" },
+    },
+  );
+});
+
+it("rejects media deletion on Instagram Login without a network request", async () => {
+  let fetches = 0;
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1" },
+    fetch: async () => {
+      fetches++;
+      return new Response(JSON.stringify({ success: true }));
+    },
+  });
+  const account = connectedAccountRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+
+  await assert.rejects(
+    () =>
+      adapter.posts!.removeFromPlatform!(
+        { ...account, kind: "platform-post", postId: "media-1" },
+        context(),
+      ),
+    { code: "unsupported_capability", operation: "instagram.posts.removeFromPlatform" },
+  );
+  await assert.rejects(
+    () => adapter.native!.deletePost({ account, postId: "media-1", context: context() }),
+    { code: "unsupported_capability", operation: "instagram.posts.delete" },
+  );
+  assert.equal(fetches, 0);
+  for (const operation of ["posts.delete", "posts.removeFromPlatform"])
+    assert.equal(
+      adapter.capabilities.capabilities.find((entry) => entry.operation === operation)
+        ?.availability,
+      "unsupported-by-platform",
+    );
+});

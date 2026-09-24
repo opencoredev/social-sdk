@@ -1,10 +1,12 @@
 import { abortable, HttpError } from "./http.js";
 
+/* oxlint-disable anti-slop/require-readable-spacing -- stream pull branches stay compact. */
+
 export interface UploadSource {
   mimeType: string;
   size?: number;
   body?: Blob;
-  /** Called exactly once per explicit upload. Return a fresh stream each time. */
+  /** Called at most once per explicit upload, and not at all when `body` is set. Return a fresh stream each time. */
   open: () => ReadableStream<Uint8Array>;
 }
 
@@ -136,69 +138,73 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
   let dispatched = false;
 
   try {
-    reader = source.open().getReader();
-    const sourceReader = reader;
+    // fetch sends a Blob body itself. Open and count the source only when streaming, so an
+    // unused counting stream cannot pre-read source bytes into the consumed total.
+    const openCountingStream = (): ReadableStream<Uint8Array> => {
+      reader = source.open().getReader();
+      const sourceReader = reader;
 
-    const bodyStream = new ReadableStream<Uint8Array>(
-      {
-        async pull(output) {
-          try {
-            controller.signal.throwIfAborted();
+      return new ReadableStream<Uint8Array>(
+        {
+          async pull(output) {
+            try {
+              controller.signal.throwIfAborted();
 
-            if (buffered === undefined || bufferedOffset >= buffered.byteLength) {
-              const next = await abortable(sourceReader.read(), controller.signal);
+              if (buffered === undefined || bufferedOffset >= buffered.byteLength) {
+                const next = await abortable(sourceReader.read(), controller.signal);
 
-              if (next.done) {
-                if (source.size !== undefined && bytes !== source.size)
+                if (next.done) {
+                  if (source.size !== undefined && bytes !== source.size)
+                    throw new HttpError(
+                      "Upload stream length does not match declared size.",
+                      "invalid-input",
+                      dispatched,
+                    );
+                  output.close();
+
+                  return;
+                }
+                if (bytes + next.value.byteLength > options.maxBytes) {
+                  // oxlint-disable-next-line anti-slop/require-readable-spacing -- compact guarded error construction.
                   throw new HttpError(
-                    "Upload stream length does not match declared size.",
+                    "Upload stream exceeds its total byte limit.",
                     "invalid-input",
                     dispatched,
                   );
-                output.close();
+                }
 
-                return;
+                buffered = next.value;
+                bufferedOffset = 0;
               }
 
-              if (bytes + next.value.byteLength > options.maxBytes) {
-                throw new HttpError(
-                  "Upload stream exceeds its total byte limit.",
-                  "invalid-input",
-                  dispatched,
-                );
+              const chunk = buffered!.subarray(
+                bufferedOffset,
+                Math.min(buffered!.byteLength, bufferedOffset + maxChunkBytes),
+              );
+
+              bufferedOffset += chunk.byteLength;
+              bytes += chunk.byteLength;
+              output.enqueue(chunk);
+
+              try {
+                options.onProgress?.(bytes);
+              } catch {
+                /* diagnostics cannot alter upload */
               }
-
-              buffered = next.value;
-              bufferedOffset = 0;
+            } catch (error) {
+              void sourceReader.cancel().catch(() => undefined);
+              output.error(error);
             }
-
-            const chunk = buffered!.subarray(
-              bufferedOffset,
-              Math.min(buffered!.byteLength, bufferedOffset + maxChunkBytes),
-            );
-
-            bufferedOffset += chunk.byteLength;
-            bytes += chunk.byteLength;
-            output.enqueue(chunk);
-
-            try {
-              options.onProgress?.(bytes);
-            } catch {
-              /* diagnostics cannot alter upload */
-            }
-          } catch (error) {
-            void sourceReader.cancel().catch(() => undefined);
-            output.error(error);
-          }
+          },
+          cancel(reason) {
+            void sourceReader.cancel(reason).catch(() => undefined);
+          },
         },
-        cancel(reason) {
-          void sourceReader.cancel(reason).catch(() => undefined);
-        },
-      },
-      { highWaterMark: 1 },
-    );
+        { highWaterMark: 1 },
+      );
+    };
 
-    const requestBody = source.body ?? bodyStream;
+    const requestBody = source.body ?? openCountingStream();
 
     if (source.body !== undefined) bytes = source.body.size;
     const headers = new Headers({ "Content-Type": source.mimeType });
