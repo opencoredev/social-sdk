@@ -1732,12 +1732,6 @@
         },
         {
           "platform": "x",
-          "operation": "posts.schedule",
-          "availability": "not-implemented-by-adapter",
-          "notes": "X API v2 POST /2/tweets has no publish-time field. X schedules posts only through the separate Ads API scheduled_tweets endpoint, which needs Ads API access, an ads account ID and OAuth 1.0a; this adapter does not implement it."
-        },
-        {
-          "platform": "x",
           "operation": "accounts.read",
           "availability": "available"
         },
