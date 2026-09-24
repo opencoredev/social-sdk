@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-object-parameters, anti-slop/require-readable-spacing -- shared OAuth boundary helpers keep the existing call shapes. */
 import { SocialError } from "../core/errors.js";
 import type { ConnectionAttempt } from "./connections.js";
 

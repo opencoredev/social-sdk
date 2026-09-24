@@ -1,6 +1,14 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing, anti-slop/no-object-parameters, anti-slop/no-conditional-empty-object-spread, anti-slop/no-known-value-widening -- AT Protocol OAuth responses, identity documents, and stored sessions are unknown by contract and validated at this boundary. */
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
-import { connectedAccountRef } from "../core/types.js";
+import { definedFields } from "../core/fields.js";
+import { connectedAccountRef, type JsonObject, type JsonValue } from "../core/types.js";
+import { isJsonValue } from "../transport/json.js";
+import {
+  isFiniteNumber,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  type JsonField,
+} from "../transport/validation.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
 import { egressBlockReason } from "./egress.js";
 import { readBounded, validateCallback } from "./oauth-internal.js";
@@ -152,8 +160,11 @@ export interface BlueskyOAuthClientMetadataInput {
   readonly policyUri?: string;
   /** Confidential clients publish exactly one of `jwksUri` or `jwks`. */
   readonly jwksUri?: string;
-  readonly jwks?: { readonly keys: readonly JsonWebKey[] };
+  readonly jwks?: { readonly keys: readonly BlueskyOAuthPublishedJwk[] };
 }
+
+/** A public signing key in the client metadata `jwks` document. */
+export type BlueskyOAuthPublishedJwk = JsonWebKey & { readonly kid?: string };
 
 export interface BlueskyOAuthClientMetadata {
   readonly client_id: string;
@@ -217,14 +228,24 @@ function fail(
   throw new SocialError({ code, operation, message });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isOptionalString(value: JsonField): value is string | undefined {
+  return value === undefined || isString(value);
 }
 
-function stringList(value: unknown): readonly string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
+function stringList(value: JsonField): readonly string[] {
+  return isJsonArray(value) ? value.filter(isString) : [];
+}
+
+/**
+ * Plain `JSON.parse`, checked against the JSON grammar. Throws a `SyntaxError`
+ * for malformed text; callers map it to their own error.
+ */
+function parseJsonValue(text: string): JsonValue {
+  const parsed: unknown = JSON.parse(text);
+
+  if (!isJsonValue(parsed)) throw new SyntaxError("Expected a JSON value");
+
+  return parsed;
 }
 
 function scopeTokens(scope: string): readonly string[] {
@@ -254,7 +275,7 @@ function base64Url(bytes: Uint8Array): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-function base64UrlJson(value: Readonly<Record<string, unknown>>): string {
+function base64UrlJson(value: JsonObject): string {
   return base64Url(new TextEncoder().encode(JSON.stringify(value)));
 }
 
@@ -271,18 +292,33 @@ async function sha256Base64Url(value: string): Promise<string> {
   return base64Url(new Uint8Array(digest));
 }
 
-function isPrivateEcJwk(value: unknown): value is JsonWebKey {
+/** Public members of a P-256 key, as published in JWT headers and `jwks`. */
+type PublicEcJwk = {
+  readonly kty: "EC";
+  readonly crv: "P-256";
+  readonly x: string;
+  readonly y: string;
+};
+
+function isPrivateEcJwk(value: JsonWebKey | JsonField): value is JsonWebKey {
   return (
-    isRecord(value) &&
-    value["kty"] === "EC" &&
-    value["crv"] === "P-256" &&
-    typeof value["x"] === "string" &&
-    typeof value["y"] === "string" &&
-    typeof value["d"] === "string"
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "kty" in value &&
+    value.kty === "EC" &&
+    "crv" in value &&
+    value.crv === "P-256" &&
+    "x" in value &&
+    typeof value.x === "string" &&
+    "y" in value &&
+    typeof value.y === "string" &&
+    "d" in value &&
+    typeof value.d === "string"
   );
 }
 
-function publicPart(jwk: JsonWebKey): JsonWebKey {
+function publicPart(jwk: JsonWebKey): PublicEcJwk {
   return { kty: "EC", crv: "P-256", x: jwk.x ?? "", y: jwk.y ?? "" };
 }
 
@@ -304,8 +340,8 @@ async function importPrivateKey(jwk: JsonWebKey, operation: string): Promise<Cry
 }
 
 async function signJwt(
-  header: Readonly<Record<string, unknown>>,
-  payload: Readonly<Record<string, unknown>>,
+  header: JsonObject,
+  payload: JsonObject,
   jwk: JsonWebKey,
   operation: string,
 ): Promise<string> {
@@ -335,16 +371,16 @@ async function dpopProof(input: {
   readonly nonce: string | undefined;
   readonly accessToken?: string;
 }): Promise<string> {
-  const payload: Record<string, unknown> = {
+  const ath =
+    input.accessToken === undefined ? undefined : await sha256Base64Url(input.accessToken);
+
+  const payload = {
     jti: randomId(),
     htm: input.method.toUpperCase(),
     htu: htu(input.url),
     iat: Math.floor(Date.now() / 1000),
+    ...definedFields({ nonce: input.nonce, ath }),
   };
-
-  if (input.nonce !== undefined) payload["nonce"] = input.nonce;
-
-  if (input.accessToken !== undefined) payload["ath"] = await sha256Base64Url(input.accessToken);
 
   return signJwt(
     { typ: "dpop+jwt", alg: "ES256", jwk: publicPart(input.key) },
@@ -479,16 +515,16 @@ async function send(
   }
 }
 
-function parseJson(text: string, operation: string): Record<string, unknown> {
-  let parsed: unknown;
+function parseJson(text: string, operation: string): JsonObject {
+  let parsed: JsonValue;
 
   try {
-    parsed = JSON.parse(text);
+    parsed = parseJsonValue(text);
   } catch {
     fail(operation, "Bluesky OAuth server returned malformed JSON");
   }
 
-  if (!isRecord(parsed)) fail(operation, "Bluesky OAuth server returned an invalid response");
+  if (!isJsonObject(parsed)) fail(operation, "Bluesky OAuth server returned an invalid response");
 
   return parsed;
 }
@@ -498,7 +534,7 @@ async function getJson(
   url: URL,
   operation: string,
   options: BlueskyOAuthRequestOptions,
-): Promise<Record<string, unknown>> {
+): Promise<JsonObject> {
   const result = await send(url, { headers: { accept: "application/json" } }, operation, options);
 
   if (result.status !== 200)
@@ -512,8 +548,8 @@ async function getJson(
   return parseJson(result.text, operation);
 }
 
-function httpsOrigin(value: unknown, operation: string, message: string): string {
-  if (typeof value !== "string") fail(operation, message);
+function httpsOrigin(value: JsonField, operation: string, message: string): string {
+  if (!isString(value)) fail(operation, message);
   let url: URL;
 
   try {
@@ -529,9 +565,8 @@ function httpsOrigin(value: unknown, operation: string, message: string): string
   return url.origin;
 }
 
-function httpsUrl(value: unknown, operation: string, field: string): string {
-  if (typeof value !== "string")
-    fail(operation, `Authorization server metadata is missing ${field}`);
+function httpsUrl(value: JsonField, operation: string, field: string): string {
+  if (!isString(value)) fail(operation, `Authorization server metadata is missing ${field}`);
   let url: URL;
 
   try {
@@ -676,7 +711,7 @@ async function resolveHandle(handle: string, options: BlueskyOAuthRequestOptions
   return did;
 }
 
-function matchesFragment(id: unknown, did: string, fragment: string): boolean {
+function matchesFragment(id: JsonField, did: string, fragment: string): boolean {
   return id === fragment || id === `${did}${fragment}`;
 }
 
@@ -704,20 +739,22 @@ async function resolveDidDocument(
   if (doc["id"] !== did)
     fail(operation, "DID document does not match the requested DID", "unauthorized");
 
-  const services = Array.isArray(doc["service"]) ? doc["service"] : [];
+  const services = doc["service"];
 
-  const service = services.find(
-    (entry): entry is Record<string, unknown> =>
-      isRecord(entry) &&
-      matchesFragment(entry["id"], did, "#atproto_pds") &&
-      entry["type"] === "AtprotoPersonalDataServer",
-  );
+  const service = (isJsonArray(services) ? services : [])
+    .filter(isJsonObject)
+    .find(
+      (entry) =>
+        matchesFragment(entry["id"], did, "#atproto_pds") &&
+        entry["type"] === "AtprotoPersonalDataServer",
+    );
 
   if (service === undefined) fail(operation, "DID document does not name a PDS");
 
   const endpoint = service["serviceEndpoint"];
+
   const pds = httpsOrigin(
-    typeof endpoint === "string" ? endpoint.replace(/\/$/, "") : endpoint,
+    isString(endpoint) ? endpoint.replace(/\/$/, "") : endpoint,
     operation,
     "DID document has an invalid PDS endpoint",
   );
@@ -736,17 +773,16 @@ async function authorizationServerForPds(
   options: BlueskyOAuthRequestOptions,
 ): Promise<string> {
   const operation = "bluesky.oauth.discovery";
+
   const metadata = await getJson(
     new URL("/.well-known/oauth-protected-resource", pds),
     operation,
     options,
   );
+
   const resource = metadata["resource"];
 
-  if (
-    resource !== undefined &&
-    (typeof resource !== "string" || resource.replace(/\/$/, "") !== pds)
-  )
+  if (resource !== undefined && (!isString(resource) || resource.replace(/\/$/, "") !== pds))
     fail(operation, "Protected resource metadata does not match the PDS", "unauthorized");
 
   const servers = metadata["authorization_servers"];
@@ -757,7 +793,7 @@ async function authorizationServerForPds(
   return httpsOrigin(servers[0], operation, "Protected resource metadata has an invalid issuer");
 }
 
-function includes(metadata: Record<string, unknown>, field: string, value: string): boolean {
+function includes(metadata: JsonObject, field: string, value: string): boolean {
   return stringList(metadata[field]).includes(value);
 }
 
@@ -767,6 +803,7 @@ async function authorizationServerMetadata(
   options: BlueskyOAuthRequestOptions,
 ): Promise<AuthorizationServer> {
   const operation = "bluesky.oauth.discovery";
+
   const metadata = await getJson(
     new URL("/.well-known/oauth-authorization-server", issuer),
     operation,
@@ -797,6 +834,8 @@ async function authorizationServerMetadata(
   if (!compliant)
     fail(operation, "Authorization server metadata does not meet the AT Protocol OAuth profile");
 
+  const revocationEndpoint = metadata["revocation_endpoint"];
+
   return {
     issuer,
     authorizationEndpoint: httpsUrl(
@@ -810,15 +849,12 @@ async function authorizationServerMetadata(
       operation,
       "pushed_authorization_request_endpoint",
     ),
-    ...(metadata["revocation_endpoint"] === undefined
-      ? {}
-      : {
-          revocationEndpoint: httpsUrl(
-            metadata["revocation_endpoint"],
-            operation,
-            "revocation_endpoint",
-          ),
-        }),
+    ...definedFields({
+      revocationEndpoint:
+        revocationEndpoint === undefined
+          ? undefined
+          : httpsUrl(revocationEndpoint, operation, "revocation_endpoint"),
+    }),
   };
 }
 
@@ -908,10 +944,10 @@ function oauthError(status: number, text: string, operation: string): never {
   let upstreamCode: string | undefined;
 
   try {
-    const parsed: unknown = JSON.parse(text);
+    const parsed = parseJsonValue(text);
+    const error = isJsonObject(parsed) ? parsed["error"] : undefined;
 
-    if (isRecord(parsed) && typeof parsed["error"] === "string" && parsed["error"].length <= 64)
-      upstreamCode = parsed["error"];
+    if (isString(error) && error.length <= 64) upstreamCode = error;
   } catch {
     // Keep the HTTP classification when the error body is not JSON.
   }
@@ -929,15 +965,24 @@ function oauthError(status: number, text: string, operation: string): never {
               ? "rate_limited"
               : "upstream_failure";
 
+  const message = "Bluesky authorization server rejected the request";
+
+  if (code === "rate_limited")
+    throw new SocialError({
+      code,
+      operation,
+      message,
+      upstreamStatus: status,
+      ...definedFields({ upstreamCode }),
+      retryDisposition: { kind: "after-delay", delayMs: 1000 },
+    });
+
   throw new SocialError({
     code,
     operation,
-    message: "Bluesky authorization server rejected the request",
+    message,
     upstreamStatus: status,
-    ...(upstreamCode === undefined ? {} : { upstreamCode }),
-    ...(code === "rate_limited"
-      ? { retryDisposition: { kind: "after-delay", delayMs: 1000 } }
-      : {}),
+    ...definedFields({ upstreamCode }),
   });
 }
 
@@ -945,16 +990,16 @@ function isUseDpopNonce(result: HttpResult): boolean {
   if (result.status !== 400) return false;
 
   try {
-    const parsed: unknown = JSON.parse(result.text);
+    const parsed = parseJsonValue(result.text);
 
-    return isRecord(parsed) && parsed["error"] === "use_dpop_nonce";
+    return isJsonObject(parsed) && parsed["error"] === "use_dpop_nonce";
   } catch {
     return false;
   }
 }
 
 interface AuthorizationServerResponse {
-  readonly json: Record<string, unknown>;
+  readonly json: JsonObject;
   /** Latest server nonce, carried over from earlier responses when this one has none. */
   readonly nonce: string | undefined;
   /** Whether the successful response itself carried a `DPoP-Nonce` header. */
@@ -1051,6 +1096,7 @@ async function revokeRejectedTokens(input: {
 
   try {
     const url = new URL(input.endpoint);
+
     const form =
       refreshToken === undefined
         ? { token: accessToken ?? "", token_type_hint: "access_token" }
@@ -1105,14 +1151,15 @@ interface IssuedTokens {
   readonly refreshToken?: string;
 }
 
-function issuedTokens(data: Record<string, unknown>): IssuedTokens {
-  const accessToken = data["access_token"];
-  const refreshToken = data["refresh_token"];
+function nonEmptyString(value: JsonField): string | undefined {
+  return isString(value) && value.length > 0 ? value : undefined;
+}
 
-  return {
-    ...(typeof accessToken === "string" && accessToken.length > 0 ? { accessToken } : {}),
-    ...(typeof refreshToken === "string" && refreshToken.length > 0 ? { refreshToken } : {}),
-  };
+function issuedTokens(data: JsonObject): IssuedTokens {
+  return definedFields({
+    accessToken: nonEmptyString(data["access_token"]),
+    refreshToken: nonEmptyString(data["refresh_token"]),
+  });
 }
 
 interface TokenResponse {
@@ -1123,37 +1170,34 @@ interface TokenResponse {
   readonly scopes: readonly string[];
 }
 
-function tokenResponse(data: Record<string, unknown>, operation: string): TokenResponse {
+function tokenResponse(data: JsonObject, operation: string): TokenResponse {
   const accessToken = data["access_token"];
   const tokenType = data["token_type"];
   const sub = data["sub"];
   const scope = data["scope"];
 
-  if (typeof accessToken !== "string" || accessToken.length === 0 || accessToken.length > 16_384)
+  if (!isString(accessToken) || accessToken.length === 0 || accessToken.length > 16_384)
     fail(operation, "Token response is missing access_token");
 
-  if (typeof tokenType !== "string" || tokenType.toLowerCase() !== "dpop")
+  if (!isString(tokenType) || tokenType.toLowerCase() !== "dpop")
     fail(operation, "Token response is not DPoP-bound", "unauthorized");
 
-  if (typeof sub !== "string" || !validDid(sub))
+  if (!isString(sub) || !validDid(sub))
     fail(operation, "Token response does not name a valid account DID", "unauthorized");
 
-  if (typeof scope !== "string" || !scopeTokens(scope).includes("atproto"))
+  if (!isString(scope) || !scopeTokens(scope).includes("atproto"))
     fail(operation, "Token response does not grant the atproto scope", "unauthorized");
 
   const refreshToken = data["refresh_token"];
 
-  if (refreshToken !== undefined && (typeof refreshToken !== "string" || refreshToken.length === 0))
+  if (refreshToken !== undefined && (!isString(refreshToken) || refreshToken.length === 0))
     fail(operation, "Token response has an invalid refresh_token");
 
   const expiresIn = data["expires_in"];
 
   if (
     expiresIn !== undefined &&
-    (typeof expiresIn !== "number" ||
-      !Number.isFinite(expiresIn) ||
-      expiresIn < 0 ||
-      expiresIn > 31_536_000)
+    (!isFiniteNumber(expiresIn) || expiresIn < 0 || expiresIn > 31_536_000)
   )
     fail(operation, "Token response has an invalid lifetime");
 
@@ -1161,10 +1205,11 @@ function tokenResponse(data: Record<string, unknown>, operation: string): TokenR
     did: sub,
     accessToken,
     scopes: scopeTokens(scope),
-    ...(refreshToken === undefined ? {} : { refreshToken }),
-    ...(expiresIn === undefined
-      ? {}
-      : { expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString() }),
+    ...definedFields({
+      refreshToken,
+      expiresAt:
+        expiresIn === undefined ? undefined : new Date(Date.now() + expiresIn * 1000).toISOString(),
+    }),
   };
 }
 
@@ -1177,39 +1222,43 @@ function decodeProviderState(value: string | undefined): ProviderState {
 
   if (value === undefined)
     fail(operation, "Bluesky OAuth attempt has no provider state", "invalid_input");
-  let parsed: unknown;
+  let parsed: JsonValue;
 
   try {
-    parsed = JSON.parse(value);
+    parsed = parseJsonValue(value);
   } catch {
     fail(operation, "Bluesky OAuth provider state is malformed", "invalid_input");
   }
 
+  if (!isJsonObject(parsed))
+    fail(operation, "Bluesky OAuth provider state is malformed", "invalid_input");
+
+  const issuer = parsed["issuer"];
+  const tokenEndpoint = parsed["tokenEndpoint"];
+  const revocationEndpoint = parsed["revocationEndpoint"];
+  const dpopKey = parsed["dpopKey"];
+  const dpopNonce = parsed["dpopNonce"];
+  const did = parsed["did"];
+  const handle = parsed["handle"];
+
   if (
-    !isRecord(parsed) ||
     parsed["version"] !== 1 ||
-    typeof parsed["issuer"] !== "string" ||
-    typeof parsed["tokenEndpoint"] !== "string" ||
-    (parsed["revocationEndpoint"] !== undefined &&
-      typeof parsed["revocationEndpoint"] !== "string") ||
-    !isPrivateEcJwk(parsed["dpopKey"]) ||
-    (parsed["dpopNonce"] !== undefined && typeof parsed["dpopNonce"] !== "string") ||
-    (parsed["did"] !== undefined && typeof parsed["did"] !== "string") ||
-    (parsed["handle"] !== undefined && typeof parsed["handle"] !== "string")
+    !isString(issuer) ||
+    !isString(tokenEndpoint) ||
+    !isOptionalString(revocationEndpoint) ||
+    !isPrivateEcJwk(dpopKey) ||
+    !isOptionalString(dpopNonce) ||
+    !isOptionalString(did) ||
+    !isOptionalString(handle)
   )
     fail(operation, "Bluesky OAuth provider state is malformed", "invalid_input");
 
   return {
     version: 1,
-    issuer: parsed["issuer"],
-    tokenEndpoint: parsed["tokenEndpoint"],
-    ...(typeof parsed["revocationEndpoint"] === "string"
-      ? { revocationEndpoint: parsed["revocationEndpoint"] }
-      : {}),
-    dpopKey: parsed["dpopKey"],
-    ...(typeof parsed["dpopNonce"] === "string" ? { dpopNonce: parsed["dpopNonce"] } : {}),
-    ...(typeof parsed["did"] === "string" ? { did: parsed["did"] } : {}),
-    ...(typeof parsed["handle"] === "string" ? { handle: parsed["handle"] } : {}),
+    issuer,
+    tokenEndpoint,
+    dpopKey,
+    ...definedFields({ revocationEndpoint, dpopNonce, did, handle }),
   };
 }
 
@@ -1312,7 +1361,7 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
           state: input.state,
           redirect_uri: input.redirectUri,
           scope,
-          ...(target.kind === "server" ? {} : { login_hint: target.hint }),
+          ...definedFields({ login_hint: target.kind === "server" ? undefined : target.hint }),
         },
         dpopKey,
         nonce: undefined,
@@ -1323,7 +1372,7 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
       requireServerNonce(par, "bluesky.oauth.par");
       const requestUri = par.json["request_uri"];
 
-      if (typeof requestUri !== "string" || requestUri.length === 0)
+      if (!isString(requestUri) || requestUri.length === 0)
         fail("bluesky.oauth.par", "Pushed authorization response is missing request_uri");
 
       const url = new URL(server.authorizationEndpoint);
@@ -1336,13 +1385,13 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
           version: 1,
           issuer,
           tokenEndpoint: server.tokenEndpoint,
-          ...(server.revocationEndpoint === undefined
-            ? {}
-            : { revocationEndpoint: server.revocationEndpoint }),
           dpopKey,
-          ...(par.nonce === undefined ? {} : { dpopNonce: par.nonce }),
-          ...(did === undefined ? {} : { did }),
-          ...(handle === undefined ? {} : { handle }),
+          ...definedFields({
+            revocationEndpoint: server.revocationEndpoint,
+            dpopNonce: par.nonce,
+            did,
+            handle,
+          }),
         }),
         // Holds the DPoP private key, so it never leaves the connection store.
         providerStateSecret: true,
@@ -1427,6 +1476,7 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
           options,
         },
       );
+
       const handle = await verifiedHandle(token.did, doc.handle, state.handle, options);
 
       const account: ConnectionAccount = {
@@ -1442,17 +1492,19 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
         const session: BlueskyOAuthSession = {
           version: 1,
           did: token.did,
-          ...(handle === undefined ? {} : { handle }),
           pdsUrl: doc.pds,
           issuer: state.issuer,
           clientId: options.clientId,
           authMethod,
-          ...(options.clientKey === undefined ? {} : { clientKeyId: options.clientKey.kid }),
           accessToken: token.accessToken,
-          ...(token.refreshToken === undefined ? {} : { refreshToken: token.refreshToken }),
-          ...(token.expiresAt === undefined ? {} : { expiresAt: token.expiresAt }),
           scopes: token.scopes,
           dpopKey: state.dpopKey,
+          ...definedFields({
+            handle,
+            clientKeyId: options.clientKey?.kid,
+            refreshToken: token.refreshToken,
+            expiresAt: token.expiresAt,
+          }),
         };
 
         await options.sessionSink.save({ account, session, attempt: input.attempt });
@@ -1463,13 +1515,19 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
   };
 }
 
-/** Validate a session loaded from storage before using it. */
-export function parseBlueskyOAuthSession(value: unknown): BlueskyOAuthSession {
+/**
+ * Validate a session loaded from storage before using it. Pass the decoded JSON
+ * document, for example the result of `JSON.parse` on the decrypted session.
+ */
+export function parseBlueskyOAuthSession(
+  value: BlueskyOAuthSession | JsonValue,
+): BlueskyOAuthSession {
   const operation = "bluesky.oauth.session";
+
   const invalid = (): never =>
     fail(operation, "Stored Bluesky OAuth session is invalid", "invalid_config");
 
-  if (!isRecord(value) || value["version"] !== 1) return invalid();
+  if (!isJsonValue(value) || !isJsonObject(value) || value["version"] !== 1) return invalid();
   const did = value["did"];
   const handle = value["handle"];
   const pdsUrl = value["pdsUrl"];
@@ -1484,21 +1542,19 @@ export function parseBlueskyOAuthSession(value: unknown): BlueskyOAuthSession {
   const dpopKey = value["dpopKey"];
 
   if (
-    typeof did !== "string" ||
+    !isString(did) ||
     !validDid(did) ||
-    (handle !== undefined && (typeof handle !== "string" || !isHandle(handle))) ||
-    typeof clientId !== "string" ||
+    (handle !== undefined && (!isString(handle) || !isHandle(handle))) ||
+    !isString(clientId) ||
     (authMethod !== "none" && authMethod !== "private_key_jwt") ||
-    (authMethod === "private_key_jwt") !== (typeof clientKeyId === "string") ||
-    (clientKeyId !== undefined && typeof clientKeyId !== "string") ||
-    typeof accessToken !== "string" ||
+    (authMethod === "private_key_jwt") !== isString(clientKeyId) ||
+    !isOptionalString(clientKeyId) ||
+    !isString(accessToken) ||
     accessToken.length === 0 ||
-    (refreshToken !== undefined &&
-      (typeof refreshToken !== "string" || refreshToken.length === 0)) ||
-    (expiresAt !== undefined &&
-      (typeof expiresAt !== "string" || Number.isNaN(Date.parse(expiresAt)))) ||
-    !Array.isArray(scopes) ||
-    !scopes.every((item) => typeof item === "string") ||
+    (refreshToken !== undefined && (!isString(refreshToken) || refreshToken.length === 0)) ||
+    (expiresAt !== undefined && (!isString(expiresAt) || Number.isNaN(Date.parse(expiresAt)))) ||
+    !isJsonArray(scopes) ||
+    !scopes.every(isString) ||
     !scopes.includes("atproto") ||
     !isPrivateEcJwk(dpopKey)
   )
@@ -1507,15 +1563,12 @@ export function parseBlueskyOAuthSession(value: unknown): BlueskyOAuthSession {
   return {
     version: 1,
     did,
-    ...(typeof handle === "string" ? { handle } : {}),
     pdsUrl: httpsOrigin(pdsUrl, operation, "Stored Bluesky OAuth session is invalid"),
     issuer: httpsOrigin(issuer, operation, "Stored Bluesky OAuth session is invalid"),
     clientId,
     authMethod,
-    ...(typeof clientKeyId === "string" ? { clientKeyId } : {}),
     accessToken,
-    ...(typeof refreshToken === "string" ? { refreshToken } : {}),
-    ...(typeof expiresAt === "string" ? { expiresAt } : {}),
+    ...definedFields({ handle, clientKeyId, refreshToken, expiresAt }),
     scopes: stringList(scopes),
     dpopKey: {
       kty: "EC",
@@ -1682,8 +1735,7 @@ export async function refreshBlueskyOAuthSession(
     ...rest,
     pdsUrl: doc.pds,
     accessToken: token.accessToken,
-    ...(token.refreshToken === undefined ? {} : { refreshToken: token.refreshToken }),
-    ...(token.expiresAt === undefined ? {} : { expiresAt: token.expiresAt }),
+    ...definedFields({ refreshToken: token.refreshToken, expiresAt: token.expiresAt }),
     scopes: token.scopes,
   };
 }
@@ -1756,8 +1808,18 @@ function checkRedirect(value: string, clientId: URL, applicationType: "web" | "n
  * member, including an `oct` key's `k`, is rejected rather than stripped so that
  * a misplaced secret is noticed.
  */
-function publishableJwk(value: unknown, operation: string): JsonWebKey & { readonly kid?: string } {
-  if (!isRecord(value)) fail(operation, "jwks entries must be JWK objects", "invalid_config");
+/** Any non-array object is structurally a JWK, since every JWK member is optional. */
+function isJwkObject(
+  value: BlueskyOAuthPublishedJwk | JsonField,
+): value is BlueskyOAuthPublishedJwk {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function publishableJwk(
+  value: BlueskyOAuthPublishedJwk,
+  operation: string,
+): BlueskyOAuthPublishedJwk {
+  if (!isJwkObject(value)) fail(operation, "jwks entries must be JWK objects", "invalid_config");
 
   if (SECRET_JWK_MEMBERS.some((member) => member in value))
     fail(operation, "jwks must contain public keys only", "invalid_config");
@@ -1767,15 +1829,15 @@ function publishableJwk(value: unknown, operation: string): JsonWebKey & { reado
   if (
     kty !== "EC" ||
     crv !== "P-256" ||
-    typeof x !== "string" ||
-    typeof y !== "string" ||
+    !isString(x) ||
+    !isString(y) ||
     !P256_COORDINATE.test(x) ||
     !P256_COORDINATE.test(y)
   )
     fail(operation, "jwks keys must be EC P-256 public keys", "invalid_config");
 
   if (
-    (kid !== undefined && (typeof kid !== "string" || kid.length === 0)) ||
+    (kid !== undefined && (!isString(kid) || kid.length === 0)) ||
     (alg !== undefined && alg !== "ES256") ||
     (use !== undefined && use !== "sig")
   )
@@ -1786,9 +1848,7 @@ function publishableJwk(value: unknown, operation: string): JsonWebKey & { reado
     crv,
     x,
     y,
-    ...(typeof kid === "string" ? { kid } : {}),
-    ...(alg === undefined ? {} : { alg }),
-    ...(use === undefined ? {} : { use }),
+    ...definedFields({ kid, alg, use }),
   };
 }
 
@@ -1813,9 +1873,11 @@ export function blueskyOAuthClientMetadata(
 
   if (input.redirectUris.length === 0)
     fail(operation, "At least one redirect URI is required", "invalid_config");
+
   const redirectUris = input.redirectUris.map((uri) =>
     checkRedirect(uri, clientId, applicationType),
   );
+
   const scope = checkScope(input.scope, operation);
 
   if (input.jwks !== undefined && input.jwksUri !== undefined)
@@ -1840,7 +1902,9 @@ export function blueskyOAuthClientMetadata(
 
   const jwksUri =
     input.jwksUri === undefined ? undefined : metadataUrl(input.jwksUri, "jwks_uri").toString();
+
   const confidential = input.jwks !== undefined || jwksUri !== undefined;
+  const signingAlg: "ES256" | undefined = confidential ? "ES256" : undefined;
 
   return {
     client_id: input.clientId,
@@ -1851,14 +1915,16 @@ export function blueskyOAuthClientMetadata(
     redirect_uris: redirectUris,
     dpop_bound_access_tokens: true,
     token_endpoint_auth_method: confidential ? "private_key_jwt" : "none",
-    ...(confidential ? { token_endpoint_auth_signing_alg: "ES256" as const } : {}),
-    ...(jwksUri === undefined ? {} : { jwks_uri: jwksUri }),
-    ...(jwks === undefined ? {} : { jwks: { keys: jwks } }),
-    ...(input.clientName === undefined ? {} : { client_name: input.clientName }),
-    ...(input.clientUri === undefined ? {} : { client_uri: input.clientUri }),
-    ...(input.logoUri === undefined ? {} : { logo_uri: input.logoUri }),
-    ...(input.tosUri === undefined ? {} : { tos_uri: input.tosUri }),
-    ...(input.policyUri === undefined ? {} : { policy_uri: input.policyUri }),
+    ...definedFields({
+      token_endpoint_auth_signing_alg: signingAlg,
+      jwks_uri: jwksUri,
+      jwks: jwks === undefined ? undefined : { keys: jwks },
+      client_name: input.clientName,
+      client_uri: input.clientUri,
+      logo_uri: input.logoUri,
+      tos_uri: input.tosUri,
+      policy_uri: input.policyUri,
+    }),
   };
 }
 
