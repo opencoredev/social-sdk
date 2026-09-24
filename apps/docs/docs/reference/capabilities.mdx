@@ -426,13 +426,13 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | instagram | instagram | messages.read | approval-dependent | None declared | See adapter setup |
 | instagram | instagram | webhooks.verify | available | None declared | See adapter setup |
 | instagram | instagram | notifications.read | unsupported-by-platform | None declared | See adapter setup |
-| linkedin | linkedin | posts.publish | available | text, image | w_member_social |
+| linkedin | linkedin | posts.publish | available | text, image, carousel, video, document | w_member_social |
 | linkedin | linkedin | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
 | linkedin | linkedin | posts.read | available | None declared | r_member_social |
 | linkedin | linkedin | accounts.read | available | None declared | openid, profile |
-| linkedin | linkedin | posts.multi-image | not-implemented-by-adapter | carousel | See adapter setup |
-| linkedin | linkedin | posts.video | not-implemented-by-adapter | video | See adapter setup |
-| linkedin | linkedin | posts.document | not-implemented-by-adapter | None declared | See adapter setup |
+| linkedin | linkedin | posts.multi-image | available | carousel | w_member_social |
+| linkedin | linkedin | posts.video | available | video | w_member_social |
+| linkedin | linkedin | posts.document | available | document | w_member_social |
 | linkedin | linkedin | polls.create | available | None declared | See adapter setup |
 | linkedin | linkedin | reactions.write | available | None declared | See adapter setup |
 | linkedin | linkedin | reshares.write | available | None declared | See adapter setup |
@@ -452,7 +452,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | linkedin | linkedin | analytics.page.read | account-ineligible | None declared | rw_organization_admin |
 | linkedin | linkedin | analytics.shares.read | account-ineligible | None declared | rw_organization_admin |
 | linkedin | linkedin | posts.list | available | None declared | r_member_social |
-| linkedin | linkedin | media.upload | available | image | See adapter setup |
+| linkedin | linkedin | media.upload | available | image, video, document | See adapter setup |
 | linkedin | linkedin | comments.read | available | None declared | w_member_social, r_member_social |
 | linkedin | linkedin | comments.write | available | None declared | w_member_social, r_member_social |
 | linkedin | linkedin | analytics.read | available | None declared | r_member_social |

@@ -2749,6 +2749,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const videos = media.filter((item) => item.kind === "video");
 
+        if (media.some((item) => item.kind === "document"))
+          issues.push({
+            code: "media.unsupported_kind",
+            message: "Bluesky posts accept image and video media only.",
+            severity: "error" as const,
+          });
+
         if (videos.length > 0 && media.length !== 1)
           issues.push({
             code: "media.mixed",

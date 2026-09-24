@@ -1,13 +1,13 @@
 ---
 title: Media
-description: Attach images and video through URLs, blobs, streams, and uploaded references with bounded memory and explicit processing states.
+description: Attach images, video, and documents through URLs, blobs, streams, and uploaded references with bounded memory and explicit processing states.
 ---
 
 Media attachments describe real bytes and where they come from. The SDK bounds what it buffers, validates what each platform accepts, and keeps processing states explicit.
 
 ## Four media sources
 
-Every attachment names a `kind` (image or video) and a `source`:
+Every attachment names a `kind` (image, video, or document) and a `source`. Document attachments cover paged files such as PDF, PPTX, or DOCX, and only adapters that declare the `document` format accept them.
 
 ```ts
 // A public HTTPS URL the platform fetches itself
@@ -31,7 +31,7 @@ Uploads read streams with bounded buffering, so a large video does not sit fully
 
 ## Platforms differ, loudly
 
-Each adapter validates media against its platform's real rules during local preparation: which sources it accepts, size ceilings, item counts, required fields. TikTok accepts verified HTTPS origins only. The X adapter uploads images up to 5 MiB each; video and GIF uploads are not supported yet. Bluesky posts take up to four images or one MP4 video that was uploaded first with `media.upload`. YouTube requires exactly one video with explicit visibility. Nothing is silently cropped, converted, or dropped; unsupported input fails preparation with a structured issue. The platform pages document each rule set.
+Each adapter validates media against its platform's real rules during local preparation: which sources it accepts, size ceilings, item counts, required fields. TikTok accepts verified HTTPS origins only. The X adapter uploads images up to 5 MiB each; video and GIF uploads are not supported yet. LinkedIn accepts one MP4 video per post, uploaded from a Blob of 75 KB to 500 MB, and publishes it only after LinkedIn reports it `AVAILABLE`. LinkedIn also accepts one uploaded PDF, PPT, PPTX, DOC, or DOCX document per post, up to 100 MB, with a required title. Bluesky posts take up to four images or one MP4 video that was uploaded first with `media.upload`. YouTube requires exactly one video with explicit visibility. Nothing is silently cropped, converted, or dropped; unsupported input fails preparation with a structured issue. The platform pages document each rule set.
 
 ## Upload once, reference later
 

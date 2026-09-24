@@ -2,6 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { httpsUrl, upload } from "../src/transport/upload.js";
 import { HttpError } from "../src/transport/http.js";
+import { definedFields } from "../src/core/fields.js";
 
 it("uploads incrementally with bounded demand, no auth, no redirect, and no replay", async () => {
   let produced = 0;
@@ -77,11 +78,40 @@ it("splits oversized chunks and never reopens a failed stream", async () => {
       const reader = init.body.getReader();
       assert.equal((await reader.read()).value?.byteLength, 10);
       assert.equal((await reader.read()).value?.byteLength, 1);
+      assert.equal((await reader.read()).done, true);
 
       return new Response(null);
     },
   });
   assert.equal(opened, 1);
+});
+
+it("rejects storage that accepts an undeclared-size stream before it ends", async () => {
+  await assert.rejects(
+    upload({
+      url: "https://storage.example.test/document",
+      allowHost: () => true,
+      maxBytes: 100,
+      maxChunkBytes: 10,
+      source: {
+        mimeType: "application/pdf",
+        open: () =>
+          new ReadableStream({
+            start(c) {
+              c.enqueue(new Uint8Array(25));
+              c.close();
+            },
+          }),
+      },
+      fetch: async (_url, init) => {
+        assert.ok(init?.body instanceof ReadableStream);
+        await init.body.getReader().read();
+
+        return new Response(null, { status: 201 });
+      },
+    }),
+    { name: "HttpError", kind: "invalid-response" },
+  );
 });
 
 it("uploads large Blobs with Content-Length and without chunked streaming", async () => {
@@ -190,4 +220,126 @@ it("upload cleanup cannot hang on an uncooperative source cancellation hook", as
   } finally {
     clearTimeout(timer);
   }
+});
+
+async function uploadBlob(body: Blob, onProgress?: (bytes: number) => void) {
+  let opened = 0;
+  let received = 0;
+
+  const result = await upload({
+    url: "https://storage.example.test/part?signature=private",
+    allowHost: () => true,
+    maxBytes: 1024 * 1024,
+    source: {
+      mimeType: "video/mp4",
+      size: body.size,
+      body,
+      open: () => {
+        opened++;
+
+        return body.stream();
+      },
+    },
+    ...definedFields({ onProgress }),
+    // Storage reads the whole body before it answers, as a real presigned PUT does.
+    fetch: async (_url, init) => {
+      assert.equal(init?.body, body);
+      received = (await new Response(init.body).arrayBuffer()).byteLength;
+
+      return new Response(null, { headers: { etag: "part-etag" } });
+    },
+  });
+
+  return { result, opened, received };
+}
+
+it("Blob bodies are sent as-is without opening or pre-reading the source stream", async () => {
+  const progress: number[] = [];
+  const blob = new Blob([new Uint8Array(4096)], { type: "video/mp4" });
+  const { result, opened, received } = await uploadBlob(blob, (bytes) => progress.push(bytes));
+
+  assert.deepEqual(result, { bytes: 4096, etag: "part-etag" });
+  assert.equal(opened, 0);
+  assert.equal(received, 4096);
+  assert.deepEqual(progress, []);
+});
+
+it("every Blob slice of a multipart upload is accepted, including later parts", async () => {
+  const partSize = 1000;
+  const whole = new Blob([new Uint8Array(2 * partSize + 123)], { type: "video/mp4" });
+
+  for (let start = 0; start < whole.size; start += partSize) {
+    const part = whole.slice(start, Math.min(whole.size, start + partSize));
+    const { result, opened, received } = await uploadBlob(part);
+
+    assert.equal(result.bytes, part.size);
+    assert.equal(received, part.size);
+    assert.equal(opened, 0);
+  }
+});
+
+it("Blobs built from ArrayBuffer and Uint8Array bytes upload in full", async () => {
+  const bytes = new Uint8Array(777).fill(7);
+
+  for (const body of [new Blob([bytes.buffer]), new Blob([bytes]), new Blob([bytes.subarray(7)])]) {
+    const { result, received } = await uploadBlob(body);
+
+    assert.equal(result.bytes, body.size);
+    assert.equal(received, body.size);
+  }
+});
+
+it("streamed Uint8Array bodies count every byte that storage consumed", async () => {
+  const bytes = new Uint8Array(2500);
+  const progress: number[] = [];
+
+  const result = await upload({
+    url: "https://storage.example.test/video",
+    allowHost: () => true,
+    maxBytes: 10_000,
+    maxChunkBytes: 1000,
+    source: {
+      mimeType: "video/mp4",
+      size: bytes.byteLength,
+      open: () => new Blob([bytes]).stream(),
+    },
+    onProgress: (value) => progress.push(value),
+    fetch: async (_url, init) => {
+      assert.ok(init?.body instanceof ReadableStream);
+      assert.ok("duplex" in init && init.duplex === "half");
+      assert.equal((await new Response(init.body).arrayBuffer()).byteLength, 2500);
+
+      return new Response(null);
+    },
+  });
+
+  assert.equal(result.bytes, 2500);
+  assert.equal(progress.at(-1), 2500);
+});
+
+it("storage acceptance before a streamed body is fully consumed stays an error", async () => {
+  await assert.rejects(
+    upload({
+      url: "https://storage.example.test/video?signature=private",
+      allowHost: () => true,
+      maxBytes: 10_000,
+      maxChunkBytes: 1000,
+      source: {
+        mimeType: "video/mp4",
+        size: 5000,
+        open: () => new Blob([new Uint8Array(5000)]).stream(),
+      },
+      fetch: async (_url, init) => {
+        assert.ok(init?.body instanceof ReadableStream);
+        await init.body.getReader().read();
+
+        return new Response(null);
+      },
+    }),
+    (error) =>
+      error instanceof HttpError &&
+      error.kind === "invalid-response" &&
+      error.message === "Storage accepted before the full declared upload was consumed." &&
+      !error.message.includes("signature"),
+  );
 });

@@ -136,7 +136,8 @@ export type MediaInput =
     };
 
 export interface MediaAttachment {
-  readonly kind: "image" | "video";
+  /** `document` covers paged files such as PDF, PPTX or DOCX where a platform accepts them. */
+  readonly kind: "image" | "video" | "document";
   readonly source: MediaInput;
   readonly mimeType?: string;
   readonly filename?: string;
@@ -423,7 +424,7 @@ export interface CapabilityDeclaration {
   readonly operation: string;
   readonly platform: Platform | "*";
   readonly availability: CapabilityAvailability;
-  readonly formats?: readonly ("text" | "image" | "video" | "carousel" | "sequence")[];
+  readonly formats?: readonly ("text" | "image" | "video" | "carousel" | "sequence" | "document")[];
   readonly requiredScopes?: readonly string[];
   readonly notes?: string;
 }

@@ -3009,12 +3009,15 @@
           "availability": "available",
           "formats": [
             "text",
-            "image"
+            "image",
+            "carousel",
+            "video",
+            "document"
           ],
           "requiredScopes": [
             "w_member_social"
           ],
-          "notes": "Explicit author URN and public visibility. Organization role and app product approval required. Registered images must be AVAILABLE before creating a post."
+          "notes": "Explicit author URN and public visibility. Organization role and app product approval required. One registered image, 2 to 20 images, one MP4 video, or one document per post; every asset must be AVAILABLE before creating a post."
         },
         {
           "platform": "linkedin",
@@ -3044,23 +3047,38 @@
         {
           "platform": "linkedin",
           "operation": "posts.multi-image",
-          "availability": "not-implemented-by-adapter",
+          "availability": "available",
           "formats": [
             "carousel"
-          ]
+          ],
+          "requiredScopes": [
+            "w_member_social"
+          ],
+          "notes": "Publishes 2 to 20 registered images through posts.publish as organic MultiImage content. Every image must be owned by the author and AVAILABLE. Sponsored multi-image posts are not supported."
         },
         {
           "platform": "linkedin",
           "operation": "posts.video",
-          "availability": "not-implemented-by-adapter",
+          "availability": "available",
           "formats": [
             "video"
-          ]
+          ],
+          "requiredScopes": [
+            "w_member_social"
+          ],
+          "notes": "Upload one MP4 Blob (75 KB to 500 MB, 3 seconds to 30 minutes) with media.upload, then publish the video URN once it is AVAILABLE. Check processing with native videoStatus (one read) or the opt-in native waitForVideo (bounded reads within the operation budget). Publishing reads the status once and never waits; a processing video fails with no post created. The attachment caption becomes the optional video title."
         },
         {
           "platform": "linkedin",
           "operation": "posts.document",
-          "availability": "not-implemented-by-adapter"
+          "availability": "available",
+          "formats": [
+            "document"
+          ],
+          "requiredScopes": [
+            "w_member_social"
+          ],
+          "notes": "One PDF, PPT, PPTX, DOC or DOCX file up to 100 MB and 300 pages, uploaded through the Documents API. LinkedIn enforces the page limit during processing. Requires a title and AVAILABLE status."
         },
         {
           "platform": "linkedin",
@@ -3200,7 +3218,9 @@
           "operation": "media.upload",
           "availability": "available",
           "formats": [
-            "image"
+            "image",
+            "video",
+            "document"
           ]
         },
         {

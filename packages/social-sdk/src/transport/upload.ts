@@ -133,6 +133,7 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
   let buffered: Uint8Array | undefined;
   let bufferedOffset = 0;
   let bytes = 0;
+  let sourceEnded = false;
   let dispatched = false;
 
   try {
@@ -158,6 +159,7 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
                       "invalid-input",
                       dispatched,
                     );
+                  sourceEnded = true;
                   output.close();
 
                   return;
@@ -241,6 +243,14 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
     if (source.size !== undefined && bytes !== source.size)
       throw new HttpError(
         "Storage accepted before the full declared upload was consumed.",
+        "invalid-response",
+        true,
+      );
+
+    // Without a declared size, only the end of the source proves every byte was sent.
+    if (source.body === undefined && source.size === undefined && !sourceEnded)
+      throw new HttpError(
+        "Storage accepted before the upload stream ended.",
         "invalid-response",
         true,
       );
