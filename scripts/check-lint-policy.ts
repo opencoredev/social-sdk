@@ -47,6 +47,17 @@ const ALLOWED_RULE_OPTIONS = new Map([
 
 const ALLOWED_IGNORE_PATTERNS = ["tools/oxlint/anti-slop/**"];
 
+const REQUIRED_PLUGINS = ["typescript", "unicorn", "oxc"];
+
+const REQUIRED_JS_PLUGINS = ["./tools/oxlint/anti-slop/index.js"];
+
+// Steps in .github/workflows/lint.yml that must stay, so the checks cannot be skipped in CI.
+const REQUIRED_WORKFLOW_STEPS = [
+  "run: bun run lint",
+  "run: bun scripts/check-anti-slop-bundle.ts",
+  "run: bun run format:check",
+];
+
 const failures: string[] = [];
 
 const tracked = (
@@ -99,6 +110,8 @@ for (const [comment, places] of safetyComments) {
 // SAFETY: .oxlintrc.json is validated against oxlint's schema by oxlint itself,
 // which runs before this script in `bun run lint`.
 const config = JSON.parse(await readFile(".oxlintrc.json", "utf8")) as {
+  plugins?: string[];
+  categories?: Record<string, string>;
   rules?: Record<string, string | [string, object]>;
   overrides?: object[];
   ignorePatterns?: string[];
@@ -112,8 +125,38 @@ for (const pattern of config.ignorePatterns ?? []) {
     failures.push(`.oxlintrc.json: ignore pattern "${pattern}" is not allowed`);
 }
 
-if (!config.jsPlugins?.includes("./tools/oxlint/anti-slop/index.js"))
-  failures.push(".oxlintrc.json: the anti-slop plugin must stay enabled");
+for (const plugin of REQUIRED_PLUGINS) {
+  if (!config.plugins?.includes(plugin))
+    failures.push(`.oxlintrc.json: the ${plugin} plugin must stay enabled`);
+}
+
+for (const plugin of REQUIRED_JS_PLUGINS) {
+  if (!config.jsPlugins?.includes(plugin))
+    failures.push(`.oxlintrc.json: the ${plugin} plugin must stay enabled`);
+}
+
+if (config.categories?.["correctness"] !== "error")
+  failures.push('.oxlintrc.json: the correctness category must be "error"');
+
+for (const [category, severity] of Object.entries(config.categories ?? {})) {
+  if (severity !== "error")
+    failures.push(`.oxlintrc.json: category "${category}" may only be raised to "error"`);
+}
+
+for (const [rule, setting] of Object.entries(config.rules ?? {})) {
+  const severity = Array.isArray(setting) ? setting[0] : setting;
+
+  // Oxlint also accepts numeric severities: 0 is off, 1 is warn.
+  if (["off", "allow", "warn", "0", "1"].includes(String(severity)))
+    failures.push(`.oxlintrc.json: ${rule} may not be turned off or down to a warning`);
+}
+
+const workflow = await readFile(".github/workflows/lint.yml", "utf8");
+
+for (const step of REQUIRED_WORKFLOW_STEPS) {
+  if (!workflow.includes(step))
+    failures.push(`.github/workflows/lint.yml: the "${step}" step must stay`);
+}
 
 for (const rule of REQUIRED_RULES) {
   const setting = config.rules?.[rule];

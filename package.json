@@ -35,7 +35,6 @@
     "@changesets/cli": "^2.31.1",
     "@opencoredev/social-sdk": "workspace:*",
     "@oxlint/plugins": "1.83.0",
-    "@shadcn/lint": "0.2.0",
     "@social-sdk/config": "workspace:*",
     "@types/node": "^24.0.0",
     "oxfmt": "^0.46.0",
