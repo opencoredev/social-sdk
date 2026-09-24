@@ -8,7 +8,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
-import type { DeliveryOutcome, PublishResult } from "@opencoredev/social-sdk";
+import type { DeliveryOutcome, JsonValue, PublishResult } from "@opencoredev/social-sdk";
 
 const bytea = customType<{ data: Buffer; driverData: Uint8Array }>({
   dataType: () => "bytea",
@@ -17,7 +17,7 @@ const bytea = customType<{ data: Buffer; driverData: Uint8Array }>({
 });
 
 // Provider payloads are stored as JSON text: jsonb rejects strings containing U+0000.
-const jsonText = customType<{ data: unknown; driverData: string }>({
+const jsonText = customType<{ data: JsonValue; driverData: string }>({
   dataType: () => "text",
   toDriver: (value) => JSON.stringify(value),
   fromDriver: (value) => JSON.parse(value),

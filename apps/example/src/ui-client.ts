@@ -4,21 +4,35 @@ import type {
   PublishResult,
   PlatformPostRef,
   PublishPreparation,
+  JsonObject,
+  JsonValue,
 } from "@opencoredev/social-sdk";
 
-function element<T extends HTMLElement>(id: string): T {
+function element(id: string): HTMLElement;
+function element<T extends HTMLElement>(id: string, type: abstract new () => T): T;
+function element(id: string, type: abstract new () => HTMLElement = HTMLElement): HTMLElement {
   const found = document.getElementById(id);
 
   if (!found) throw new Error(`Missing element ${id}`);
 
-  return found as T;
+  if (!(found instanceof type)) throw new Error(`Element ${id} is not a ${type.name}`);
+
+  return found;
 }
 
-const text = element<HTMLTextAreaElement>("text");
+function parseJson(raw: string): JsonValue {
+  return JSON.parse(raw);
+}
 
-const format = element<HTMLSelectElement>("format");
+function isJsonObject(value: JsonValue): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-const publish = element<HTMLButtonElement>("publish");
+const text = element("text", HTMLTextAreaElement);
+
+const format = element("format", HTMLSelectElement);
+
+const publish = element("publish", HTMLButtonElement);
 
 const notice = element("notice");
 
@@ -36,9 +50,12 @@ let current: PublishResult | undefined;
 
 let selectedPost: PlatformPostRef | undefined;
 
+/** JSON bodies the UI posts: plain JSON objects, drafts, and SDK post references. */
+type RequestBody = JsonObject | Draft | PlatformPostRef;
+
 async function api<T>(
   path: string,
-  value?: unknown,
+  value?: RequestBody,
   headers: Record<string, string> = {},
 ): Promise<T> {
   const response = await fetch(
@@ -53,21 +70,23 @@ async function api<T>(
   );
 
   const raw = await response.text();
-  let data: unknown;
+  let data: JsonValue;
 
   try {
-    data = JSON.parse(raw);
+    data = parseJson(raw);
   } catch {
     data = { message: raw };
   }
 
   if (!response.ok)
     throw new Error(
-      typeof data === "object" && data && "message" in data
-        ? String(data.message)
+      isJsonObject(data) && "message" in data
+        ? String(data["message"])
         : `Request failed (${response.status})`,
     );
 
+  // SAFETY: `response.ok` means the same-origin example handler in app.ts answered this route,
+  // and each call site's `T` mirrors the `json(...)` payload that route returns.
   return data as T;
 }
 
@@ -83,22 +102,34 @@ function selectedIds(): string[] {
   );
 }
 
-function draft() {
-  const options = element<HTMLTextAreaElement>("platform-options").value.trim();
+type Draft = {
+  accountIds: string[];
+  text: string;
+  format: string;
+  idempotencyKey: string;
+  mediaUrl?: string;
+  mediaMime?: string;
+  optionsByAccount?: JsonValue;
+};
 
-  return {
+function draft(): Draft {
+  const options = element("platform-options", HTMLTextAreaElement).value.trim();
+
+  const submitted: Draft = {
     accountIds: selectedIds(),
     text: text.value,
     format: format.value,
     idempotencyKey: key,
-    ...(format.value === "video"
-      ? {
-          mediaUrl: element<HTMLInputElement>("media-url").value,
-          mediaMime: element<HTMLInputElement>("media-mime").value,
-        }
-      : {}),
-    ...(options ? { optionsByAccount: JSON.parse(options) as unknown } : {}),
   };
+
+  if (format.value === "video") {
+    submitted.mediaUrl = element("media-url", HTMLInputElement).value;
+    submitted.mediaMime = element("media-mime", HTMLInputElement).value;
+  }
+
+  if (options) submitted.optionsByAccount = parseJson(options);
+
+  return submitted;
 }
 
 function invalidate() {
@@ -107,7 +138,7 @@ function invalidate() {
   key = uniqueKey();
   publish.disabled = true;
   element("video-fields").hidden = format.value !== "video";
-  element<HTMLInputElement>("media-url").required = format.value === "video";
+  element("media-url", HTMLInputElement).required = format.value === "video";
 }
 
 async function act(work: () => Promise<void>) {
@@ -160,7 +191,7 @@ function outcomeLine(outcome: DeliveryOutcome): HTMLElement {
     metrics.onclick = () =>
       void act(async () => {
         selectedPost = outcome.post;
-        element<HTMLButtonElement>("reply").disabled = false;
+        element("reply", HTMLButtonElement).disabled = false;
 
         const result = await api<{
           metrics: readonly { name: string; value: number; unit: string }[];
@@ -181,7 +212,7 @@ function outcomeLine(outcome: DeliveryOutcome): HTMLElement {
           const first = comments.items[0];
 
           if (first?.id) {
-            element<HTMLInputElement>("comment-id").value = first.id;
+            element("comment-id", HTMLInputElement).value = first.id;
             element("comment-status").textContent = first.text ?? "Parent comment loaded.";
           }
         } catch {
@@ -209,7 +240,7 @@ function render(result: PublishResult) {
 
   element("reconcile").hidden = !pending;
   element("advance").hidden = !simulated || !pending;
-  element<HTMLButtonElement>("replay").disabled = !simulated || !result.outcomes.length;
+  element("replay", HTMLButtonElement).disabled = !simulated || !result.outcomes.length;
 }
 
 async function reconcile() {
@@ -220,13 +251,13 @@ async function reconcile() {
   render(response.result);
 }
 
-const composer = element<HTMLFormElement>("composer");
+const composer = element("composer", HTMLFormElement);
 
 composer.addEventListener("input", invalidate);
 
 format.addEventListener("change", invalidate);
 
-element<HTMLButtonElement>("prepare").onclick = () =>
+element("prepare", HTMLButtonElement).onclick = () =>
   void act(async () => {
     if (!selectedIds().length) throw new Error("Select at least one destination.");
 
@@ -257,7 +288,7 @@ composer.onsubmit = (event) => {
   if (!prepared) return;
   publish.disabled = true;
   const submitted = draft();
-  const scenario = element<HTMLSelectElement>("scenario").value;
+  const scenario = element("scenario", HTMLSelectElement).value;
   void act(async () => {
     if (simulated) await api("/api/mock/scenario", { scenario });
     const response = await api<{ result: PublishResult }>("/api/publish", submitted);
@@ -267,20 +298,20 @@ composer.onsubmit = (event) => {
   });
 };
 
-element<HTMLButtonElement>("reconcile").onclick = () =>
+element("reconcile", HTMLButtonElement).onclick = () =>
   void act(async () => {
     await reconcile();
     notice.textContent = "Delivery status checked.";
   });
 
-element<HTMLButtonElement>("advance").onclick = () =>
+element("advance", HTMLButtonElement).onclick = () =>
   void act(async () => {
     await api("/api/mock/advance", {});
     await reconcile();
     notice.textContent = "Simulated processing advanced and status checked.";
   });
 
-element<HTMLButtonElement>("replay").onclick = () =>
+element("replay", HTMLButtonElement).onclick = () =>
   void act(async () => {
     if (!current?.outcomes[0]) return;
 
@@ -303,7 +334,7 @@ element<HTMLButtonElement>("replay").onclick = () =>
     notice.textContent = "Webhook replay accepted. Processing remains explicit.";
   });
 
-element<HTMLButtonElement>("process").onclick = () =>
+element("process", HTMLButtonElement).onclick = () =>
   void act(async () => {
     const result = await api<{ applied: number; pending: number }>("/api/events/process", {});
     element("events-status").textContent =
@@ -313,15 +344,15 @@ element<HTMLButtonElement>("process").onclick = () =>
     notice.textContent = "Pending event processing finished.";
   });
 
-element<HTMLFormElement>("comment-form").onsubmit = (event) => {
+element("comment-form", HTMLFormElement).onsubmit = (event) => {
   event.preventDefault();
 
   if (!selectedPost) return;
   void act(async () => {
     await api("/api/comments/reply", {
       ...selectedPost,
-      commentId: element<HTMLInputElement>("comment-id").value,
-      text: element<HTMLInputElement>("reply-text").value,
+      commentId: element("comment-id", HTMLInputElement).value,
+      text: element("reply-text", HTMLInputElement).value,
     });
     element("comment-status").textContent = "Reply accepted by the backend.";
     notice.textContent = "Comment reply completed.";

@@ -6,15 +6,13 @@ import {
   type DeliveryOutcome,
   type PlatformPostRef,
   type JsonObject,
+  type JsonValue,
   type PublishResult,
+  type PublishTarget,
   type SocialAdapter,
   type SocialClient,
 } from "@opencoredev/social-sdk";
-import type {
-  ConnectionManager,
-  ConnectionProvider,
-  SocialEvent,
-} from "@opencoredev/social-sdk/server";
+import type { ConnectionManager, ConnectionProvider } from "@opencoredev/social-sdk/server";
 import {
   mockBackend,
   type MockSocialAdapter,
@@ -62,17 +60,33 @@ export interface ExampleHandler {
   close(): Promise<void>;
 }
 
-const record = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+type JsonField = JsonValue | undefined;
 
-const json = (value: unknown, status = 200) => Response.json(value, { status });
+function record(value: JsonField): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function list(value: JsonField): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
+function isString(value: JsonField): value is string {
+  return typeof value === "string";
+}
+
+function parseJson(text: string): JsonValue {
+  return JSON.parse(text);
+}
 
 const fail = (message: string, status = 400): never => {
   throw new Response(message, { status });
 };
 
-const required = (input: Record<string, unknown>, key: string): string =>
-  typeof input[key] === "string" && input[key].length > 0 ? input[key] : fail(`${key} is required`);
+function required(input: JsonObject, key: string): string {
+  const value = input[key];
+
+  return isString(value) && value.length > 0 ? value : fail(`${key} is required`);
+}
 
 async function bytes(request: Request, limit = 1_000_000): Promise<Uint8Array> {
   const declared = Number(request.headers.get("content-length"));
@@ -112,12 +126,12 @@ async function bytes(request: Request, limit = 1_000_000): Promise<Uint8Array> {
   return result;
 }
 
-async function body(request: Request): Promise<Record<string, unknown>> {
+async function body(request: Request): Promise<JsonObject> {
   const raw = await bytes(request);
-  let value: unknown;
+  let value: JsonValue;
 
   try {
-    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw));
+    value = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(raw));
   } catch {
     return fail("Malformed JSON");
   }
@@ -147,21 +161,28 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
 
     if (!options.database) owned = database;
 
-    const opening = database.then(
-      ({ db }) => ({
-        idempotency: new PostgresIdempotencyStore(db),
-        inbox: new DrizzleEventInbox(db),
-        publications: new DrizzlePublicationStore(db),
-      }),
-      (error: unknown) => {
+    const load = async (): Promise<Stores> => {
+      let db: ExampleDatabase["db"];
+
+      try {
+        ({ db } = await database);
+      } catch (error) {
         // Let the next request retry a failed open, unless a newer attempt already replaced this one.
         if (opened === opening) opened = undefined;
 
         if (owned === database) owned = undefined;
 
         throw error;
-      },
-    );
+      }
+
+      return {
+        idempotency: new PostgresIdempotencyStore(db),
+        inbox: new DrizzleEventInbox(db),
+        publications: new DrizzlePublicationStore(db),
+      };
+    };
+
+    const opening = load();
 
     opened = opening;
 
@@ -228,7 +249,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
     return account?.ref ?? fail("Account is not authorized for this tenant", 403);
   }
 
-  async function post(input: Record<string, unknown>): Promise<PlatformPostRef> {
+  async function post(input: JsonObject): Promise<PlatformPostRef> {
     const account = await authorizedAccount(
       required(input, "accountId"),
       required(input, "platform"),
@@ -316,7 +337,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         // SAFETY: The `testing` capability check above narrows this adapter to the mock implementation.
         (backend as MockSocialAdapter).testing.advanceProcessing();
 
-        return json({ simulated: true, advanced: true });
+        return Response.json({ simulated: true, advanced: true });
       }
 
       if (request.method === "POST" && path === "/api/mock/scenario") {
@@ -336,14 +357,14 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         // SAFETY: The scenario allowlist above proves this value is a supported mock scenario.
         (backend as MockSocialAdapter).testing.setScenario(scenario as MockScenario);
 
-        return json({ simulated: true });
+        return Response.json({ simulated: true });
       }
 
       // Static assets and mock controls work without the database.
       const { inbox, publications } = await stores();
 
       if (request.method === "GET" && path === "/api/accounts")
-        return json({
+        return Response.json({
           authenticatedPrincipal: session.principal,
           accounts: await accounts(),
           simulated,
@@ -353,9 +374,13 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         const connection = options.connection;
 
         if (!connection)
-          return json({ simulated, accounts: await accounts(), mode: "select-existing-account" });
+          return Response.json({
+            simulated,
+            accounts: await accounts(),
+            mode: "select-existing-account",
+          });
 
-        return json(
+        return Response.json(
           await connection.manager.begin({
             backend: backendName,
             tenantId: session.tenantId,
@@ -373,13 +398,13 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         const connection = options.connection;
 
         if (!connection)
-          return json({
+          return Response.json({
             simulated,
             selected: await authorizedAccount(required(input, "accountId")),
             mode: "select-existing-account",
           });
 
-        return json({
+        return Response.json({
           accounts: await connection.manager.discover({
             attemptId: required(input, "attemptId"),
             callbackUrl: required(input, "callbackUrl"),
@@ -398,10 +423,9 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         if (!options.connection) return fail("OAuth is not configured", 501);
         const ids = input["accountIds"];
 
-        if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string"))
-          return fail("accountIds must be strings");
+        if (!list(ids) || !ids.every(isString)) return fail("accountIds must be strings");
 
-        return json({
+        return Response.json({
           grants: await options.connection.manager.select({
             attemptId: required(input, "attemptId"),
             tenantId: session.tenantId,
@@ -417,10 +441,10 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         const ids = input["accountIds"];
 
         if (
-          !Array.isArray(ids) ||
+          !list(ids) ||
           !ids.length ||
           ids.length > 20 ||
-          !ids.every((id) => typeof id === "string") ||
+          !ids.every(isString) ||
           new Set(ids).size !== ids.length
         )
           return fail("Choose 1-20 distinct accounts from /api/accounts");
@@ -428,7 +452,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
 
         if (optionsByAccount !== undefined && !record(optionsByAccount))
           return fail("optionsByAccount must be an object");
-        const targets = [];
+        const targets: PublishTarget[] = [];
 
         for (const id of ids) {
           const choices = record(optionsByAccount) ? optionsByAccount[id] : undefined;
@@ -436,13 +460,9 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           if (choices !== undefined && !record(choices))
             return fail("Per-account options must be objects");
 
-          // SAFETY: `choices` passed the record boundary check immediately above.
-          const options = choices as JsonObject | undefined;
+          const account = await authorizedAccount(id);
 
-          targets.push({
-            account: await authorizedAccount(id),
-            ...(options === undefined ? {} : { options }),
-          });
+          targets.push(choices === undefined ? { account } : { account, options: choices });
         }
 
         if (input["format"] !== undefined && !["text", "video"].includes(String(input["format"])))
@@ -463,7 +483,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
             : { text };
 
         if (path === "/api/prepare")
-          return json({ preparation: social.posts.prepare({ targets, content }) });
+          return Response.json({ preparation: social.posts.prepare({ targets, content }) });
         const key = required(input, "idempotencyKey");
 
         if (key.length > 200) return fail("idempotencyKey must be at most 200 characters");
@@ -481,12 +501,12 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
               outcome.state === "not-submitted" && outcome.reason === "idempotency-conflict",
           )
         )
-          return json({ idempotencyKey: key, result }, 409);
+          return Response.json({ idempotencyKey: key, result }, { status: 409 });
         const saved = await publications.get(session.tenantId, key);
 
         if (!saved) await publications.save(session.tenantId, key, result);
 
-        return json({ simulated, idempotencyKey: key, result: saved ?? result });
+        return Response.json({ simulated, idempotencyKey: key, result: saved ?? result });
       }
 
       if (request.method === "POST" && path === "/api/reconcile") {
@@ -498,7 +518,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         const result = await reconcile(previous);
         await publications.save(session.tenantId, key, result);
 
-        return json({
+        return Response.json({
           idempotencyKey: key,
           result: (await publications.get(session.tenantId, key)) ?? result,
         });
@@ -510,18 +530,20 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         if (!(await publications.get(session.tenantId, key)))
           return fail("Unknown publication", 404);
 
-        return json({ reports: await publications.removalReports(session.tenantId, key) });
+        return Response.json({ reports: await publications.removalReports(session.tenantId, key) });
       }
 
       if (request.method === "POST" && path === "/api/metrics")
-        return json({
+        return Response.json({
           metrics: await social.analytics.getPostMetrics(await post(await body(request)), {
             authorization,
           }),
         });
 
       if (request.method === "POST" && path === "/api/comments/list")
-        return json(await social.comments.list(await post(await body(request)), { authorization }));
+        return Response.json(
+          await social.comments.list(await post(await body(request)), { authorization }),
+        );
 
       if (request.method === "POST" && path === "/api/comments/reply") {
         const input = await body(request);
@@ -530,7 +552,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         if (!backend.comments)
           return fail("Comment replies are not supported by this backend", 501);
 
-        return json({
+        return Response.json({
           comment: await social.comments.reply(
             { ...parent, kind: "comment", commentId: required(input, "commentId") },
             { text: required(input, "text") },
@@ -563,40 +585,44 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         );
 
         if (!simulated) {
-          // SAFETY: The selected backend decoder returns the normalized event contract for non-simulated requests.
-          const event = decoded as unknown as SocialEvent;
+          // Normalized events follow the SocialEvent contract from @opencoredev/social-sdk/server.
+          const accountIds = decoded["accountIds"];
+          const backendRecordId = decoded["backendRecordId"];
+          const type = decoded["type"];
 
           if (
-            event.version !== 1 ||
-            event.backend !== backendName ||
-            !Array.isArray(event.accountIds)
+            decoded["version"] !== 1 ||
+            decoded["backend"] !== backendName ||
+            !list(accountIds) ||
+            !accountIds.every(isString)
           )
             return fail("Malformed normalized event");
 
           const mapped =
-            event.accountIds.length > 0 &&
-            (await Promise.all(event.accountIds.map((id) => membership(session, id)))).every(
-              Boolean,
-            );
+            accountIds.length > 0 &&
+            (await Promise.all(accountIds.map((id) => membership(session, id)))).every(Boolean);
 
           const key =
-            mapped && event.backendRecordId
+            mapped && isString(backendRecordId) && backendRecordId
               ? await publications.findByDelivery(
                   session.tenantId,
                   backendName,
-                  event.backendRecordId,
-                  event.accountIds,
+                  backendRecordId,
+                  accountIds,
                 )
               : undefined;
 
           const quarantined =
             !key ||
-            !["publication.updated", "post.removed", "backend-record.deleted"].includes(event.type);
+            !isString(type) ||
+            !["publication.updated", "post.removed", "backend-record.deleted"].includes(type);
 
-          return json({
+          return Response.json({
             state: await inbox.accept(
-              JSON.stringify([1, event.provider, backendName, "/api/events", event.id]),
-              { tenantId: session.tenantId, publicationKey: key, event },
+              JSON.stringify([1, decoded["provider"], backendName, "/api/events", decoded["id"]]),
+              key === undefined
+                ? { tenantId: session.tenantId, event: decoded }
+                : { tenantId: session.tenantId, publicationKey: key, event: decoded },
               quarantined,
             ),
             quarantined,
@@ -604,8 +630,10 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
         }
 
         const eventId = required(decoded, "eventId");
-        const key = typeof decoded["publicationKey"] === "string" ? decoded["publicationKey"] : "";
-        const accountId = typeof decoded["accountId"] === "string" ? decoded["accountId"] : "";
+        const publicationKey = decoded["publicationKey"];
+        const decodedAccountId = decoded["accountId"];
+        const key = isString(publicationKey) ? publicationKey : "";
+        const accountId = isString(decodedAccountId) ? decodedAccountId : "";
         const publication = await publications.get(session.tenantId, key);
 
         const quarantined =
@@ -613,7 +641,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           !(await membership(session, accountId)) ||
           !publication.outcomes.some((outcome) => outcome.account.accountId === accountId);
 
-        return json({
+        return Response.json({
           state: await inbox.accept(
             JSON.stringify([backendName, eventId]),
             { tenantId: session.tenantId, publicationKey: key, event: decoded },
@@ -630,7 +658,7 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           if (
             !record(entry.payload) ||
             entry.payload["tenantId"] !== session.tenantId ||
-            typeof entry.payload["publicationKey"] !== "string"
+            !isString(entry.payload["publicationKey"])
           )
             continue;
           const key = entry.payload["publicationKey"];
@@ -669,11 +697,11 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
             applied++;
         }
 
-        return json({ applied, pending: await inbox.pendingCount() });
+        return Response.json({ applied, pending: await inbox.pendingCount() });
       }
 
       if (request.method === "POST" && path === "/api/events/replay")
-        return json({ pending: await inbox.pendingCount() });
+        return Response.json({ pending: await inbox.pendingCount() });
 
       return new Response("Not found", { status: 404 });
     } catch (error) {
@@ -688,18 +716,21 @@ export function createExampleHandler(options: ExampleOptions = {}): ExampleHandl
           invalid_input: 400,
         };
 
-        return json(
+        return Response.json(
           { error: error.code, message: error.message },
-          statusByCode[error.code] ??
-            (error.code === "unauthorized"
-              ? 403
-              : error.code === "idempotency_conflict"
-                ? 409
-                : 400),
+          {
+            status:
+              statusByCode[error.code] ??
+              (error.code === "unauthorized"
+                ? 403
+                : error.code === "idempotency_conflict"
+                  ? 409
+                  : 400),
+          },
         );
       }
 
-      return json({ error: "Request failed" }, 500);
+      return Response.json({ error: "Request failed" }, { status: 500 });
     }
   }
 

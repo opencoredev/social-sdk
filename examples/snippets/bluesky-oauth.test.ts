@@ -1,19 +1,19 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import type { OAuthSession } from "@atproto/oauth-client-node";
 import {
   createBlueskyOAuthFlow,
   mapBackedBlueskyStores,
   type BlueskyOAuthClientLike,
+  type BlueskyOAuthSessionLike,
 } from "./bluesky-oauth.js";
 
-const session = { did: "did:plc:fixture" } as unknown as OAuthSession;
+const session: BlueskyOAuthSessionLike = { did: "did:plc:fixture" };
 
 describe("Bluesky OAuth recipe boundaries", () => {
   it("preserves state through authorize/callback and restores by DID", async () => {
     let callbackParams = "";
 
-    const client: BlueskyOAuthClientLike = {
+    const client: BlueskyOAuthClientLike<BlueskyOAuthSessionLike> = {
       async authorize(handle, options) {
         assert.equal(handle, "alice.test");
         assert.equal(options.state, "app-attempt");
@@ -49,7 +49,7 @@ describe("Bluesky OAuth recipe boundaries", () => {
   });
 
   it("rejects callback strings that are not absolute URLs", async () => {
-    const client: BlueskyOAuthClientLike = {
+    const client: BlueskyOAuthClientLike<BlueskyOAuthSessionLike> = {
       async authorize() {
         return new URL("https://pds.example/authorize");
       },

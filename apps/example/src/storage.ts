@@ -7,6 +7,8 @@ import type {
   IdempotencyClaim,
   IdempotencyClaimInput,
   IdempotencyStore,
+  JsonObject,
+  JsonValue,
   PublishResult,
 } from "@opencoredev/social-sdk";
 import type { Database } from "./db/client.js";
@@ -167,7 +169,7 @@ export class DrizzleEventInbox {
   constructor(private readonly db: Database) {}
   async accept(
     eventKey: string,
-    payload: unknown,
+    payload: JsonValue,
     quarantined: boolean,
   ): Promise<"accepted" | "duplicate"> {
     const inserted = await this.db
@@ -178,7 +180,7 @@ export class DrizzleEventInbox {
 
     return inserted.length === 0 ? "duplicate" : "accepted";
   }
-  async pending(limit = 100): Promise<readonly { eventKey: string; payload: unknown }[]> {
+  async pending(limit = 100): Promise<readonly { eventKey: string; payload: JsonValue }[]> {
     return this.db
       .select({ eventKey: events.eventKey, payload: events.payload })
       .from(events)
@@ -330,7 +332,7 @@ export class DrizzlePublicationStore {
 
     return keys.length === 1 ? keys[0] : undefined;
   }
-  async removalReports(tenantId: string, key: string): Promise<readonly unknown[]> {
+  async removalReports(tenantId: string, key: string): Promise<readonly JsonValue[]> {
     const rows = await this.db
       .select({ payload: removalReports.payload })
       .from(removalReports)
@@ -345,7 +347,7 @@ export class DrizzlePublicationStore {
     key: string,
     result: PublishResult,
     eventKey: string,
-    removalReport?: unknown,
+    removalReport?: JsonObject,
   ): Promise<boolean> {
     return this.db.transaction(async (tx) => {
       const [row] = await tx
