@@ -328,6 +328,51 @@ describe("Bluesky video job status and limits", () => {
     assert.equal(seen[1]!.url.pathname, "/xrpc/app.bsky.video.getUploadLimits");
     assert.equal(seen[1]!.headers.get("authorization"), "Bearer limits-token");
   });
+
+  it("requests service tokens through an OAuth session's fetchHandler", async () => {
+    const pds: { readonly pathname: string; readonly authorization: string | null }[] = [];
+    const { adapter, seen } = harness(
+      ({ url }) =>
+        url.pathname.endsWith("getUploadLimits")
+          ? json({ canUpload: true })
+          : json(job("JOB_STATE_CREATED")),
+      {
+        auth: { service: "https://untrusted-configured-service.example", did },
+        session: {
+          did,
+          fetchHandler: async (pathname, init) => {
+            pds.push({ pathname, authorization: new Headers(init?.headers).get("authorization") });
+            return json({ token: "session-service-token" });
+          },
+        },
+        pdsDid: "did:web:pds.example",
+      },
+    );
+
+    await adapter.native!.getVideoUploadLimits({ account, context: context() });
+    await adapter.native!.uploadVideo({
+      account,
+      video: mp4(),
+      name: "clip.mp4",
+      context: context(),
+    });
+
+    assert.deepEqual(
+      pds.map(({ pathname }) => new URL(pathname, "https://pds.invalid").pathname),
+      ["/xrpc/com.atproto.server.getServiceAuth", "/xrpc/com.atproto.server.getServiceAuth"],
+    );
+    assert.ok(pds.every(({ authorization }) => authorization === null));
+    assert.deepEqual(
+      seen.map(({ url }) => `${url.host}${url.pathname}`),
+      [
+        "video.bsky.app/xrpc/app.bsky.video.getUploadLimits",
+        "video.bsky.app/xrpc/app.bsky.video.uploadVideo",
+      ],
+    );
+    assert.ok(
+      seen.every(({ headers }) => headers.get("authorization") === "Bearer session-service-token"),
+    );
+  });
 });
 
 describe("Bluesky video publishing", () => {
