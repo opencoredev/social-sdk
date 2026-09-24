@@ -6,6 +6,7 @@ import {
   type CommentRef,
   type CapabilityManifest,
   type DeliveryOutcome,
+  type DeliveryRef,
   type JsonObject,
   type MetricValue,
   type SocialAdapter,
@@ -18,7 +19,19 @@ import {
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
 import { managedHttp, publicFields } from "../cloud/common.js";
-import { object, array, optionalNumber, optionalString } from "../transport/validation.js";
+import { definedFields } from "../core/fields.js";
+import {
+  object,
+  array,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  optionalArray,
+  optionalNumber,
+  optionalObject,
+  optionalString,
+  type JsonField,
+} from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
 
 export interface ThreadsAuthorization {
@@ -191,7 +204,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
   const http = managedHttp(`https://graph.threads.net/${version}`, {
     apiKey: auth.accessToken,
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...definedFields({ fetch: options.fetch }),
   });
 
   async function request(
@@ -214,7 +227,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             ? init.method
             : "GET",
         ),
-      ) as JsonObject;
+      );
     } catch (e) {
       if (e instanceof SocialError) throw e;
       fail(operation, "Threads API request failed.");
@@ -229,21 +242,18 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   const account = accountRef(backend, auth.userId);
 
   function pageFrom(result: JsonObject): Page<JsonObject> {
-    const items = array(result["data"]).map((entry) => {
-      // SAFETY: object() validates each provider data entry as a JSON object.
-      return object(entry) as JsonObject;
-    });
+    const items = array(result["data"]).map((entry) => object(entry));
 
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
 
     // Graph omits paging.next on the last page even when cursors.after is present.
     const nextCursor =
-      typeof paging["next"] === "string" && paging["next"].length > 0
+      isString(paging["next"]) && paging["next"].length > 0
         ? optionalString(cursors["after"])
         : undefined;
 
-    return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
+    return { items, ...definedFields({ nextCursor }) };
   }
 
   async function readAccount(context: AdapterOperationContext) {
@@ -257,13 +267,13 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     const id = v["id"],
       username = v["username"];
 
-    if (typeof id !== "string" || id !== auth.userId)
+    if (!isString(id) || id !== auth.userId)
       fail("threads.accounts.read", "Threads returned an unauthorized account.", "unauthorized");
 
     return {
       ref: account,
-      displayName: typeof username === "string" ? username : (auth.handle ?? auth.userId),
-      ...(typeof username === "string" ? { handle: username } : {}),
+      displayName: optionalString(username) ?? auth.handle ?? auth.userId,
+      ...definedFields({ handle: optionalString(username) }),
       status: "connected" as const,
     };
   }
@@ -306,14 +316,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
-    const hasNext = typeof paging["next"] === "string" && paging["next"].length > 0;
-
-    const nextCursor =
-      hasNext && typeof cursors["after"] === "string" ? cursors["after"] : undefined;
+    const hasNext = isString(paging["next"]) && paging["next"].length > 0;
+    const nextCursor = hasNext ? optionalString(cursors["after"]) : undefined;
 
     return {
       items,
-      ...(nextCursor === undefined ? {} : { nextCursor }),
+      ...definedFields({ nextCursor }),
     };
   }
 
@@ -344,7 +352,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     return array(result["data"]).flatMap((entry) => {
       const row = object(entry);
-      const name = typeof row["name"] === "string" ? row["name"] : undefined;
+      const name = optionalString(row["name"]);
 
       if (name === undefined || !allowed.has(name)) return [];
       const total = row["total_value"] === undefined ? undefined : object(row["total_value"]);
@@ -384,7 +392,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           value,
           unit: "count" as const,
           period,
-          ...(totalValue === undefined && latestEnd !== undefined ? { measuredAt: latestEnd } : {}),
+          ...definedFields({ measuredAt: totalValue === undefined ? latestEnd : undefined }),
           fetchedAt: now(),
           freshness: "unknown" as const,
           source: `threads:${version}`,
@@ -396,141 +404,160 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   async function status(id: string, c: AdapterOperationContext) {
     return request(
       `${encodeURIComponent(id)}?fields=id,status,error_message`,
-      { method: "GET", ...(c.signal ? { signal: c.signal } : {}) },
+      { method: "GET", ...definedFields({ signal: c.signal }) },
       "threads.container.status",
       c,
     );
   }
 
-  const base = (
-    a: ConnectedAccountRef,
-    id: string,
-    state: DeliveryOutcome["state"],
-    backendState?: string,
-  ) =>
-    ({
-      state,
+  function outcomeFields(a: ConnectedAccountRef, id: string, backendState?: string) {
+    const delivery: DeliveryRef = {
+      kind: "delivery",
+      version: 1,
+      backend: a.backend,
+      platform: "threads",
+      accountId: a.accountId,
+      deliveryId: id,
+    };
+
+    return {
       targetIndex: 0,
       account: a,
       observedAt: now(),
-      ...(backendState ? { backendState } : {}),
-      delivery: {
-        kind: "delivery" as const,
-        version: 1 as const,
-        backend: a.backend,
-        platform: "threads" as const,
-        accountId: a.accountId,
-        deliveryId: id,
-      },
-    }) as unknown as DeliveryOutcome;
+      ...definedFields({ backendState: backendState === "" ? undefined : backendState }),
+      delivery,
+    };
+  }
 
-  const terminalFailure = (a: ConnectedAccountRef, id: string, state: string): DeliveryOutcome =>
-    ({
-      ...base(a, id, "failed", state),
-      code: "media_error",
-      message: "Threads container failed or expired before publication.",
-      retryDisposition: { kind: "never" },
-    }) as DeliveryOutcome;
+  const processing = (
+    a: ConnectedAccountRef,
+    id: string,
+    backendState: string,
+  ): DeliveryOutcome => ({
+    state: "processing",
+    ...outcomeFields(a, id, backendState),
+  });
+
+  const published = (a: ConnectedAccountRef, id: string, postId: string): DeliveryOutcome => ({
+    state: "published",
+    ...outcomeFields(a, id, "PUBLISHED"),
+    post: platformPostRef({ backend, platform: "threads", accountId: a.accountId, postId }),
+  });
+
+  const ambiguous = (
+    a: ConnectedAccountRef,
+    id: string,
+    backendState: string | undefined,
+    diagnostic?: string,
+  ): DeliveryOutcome => ({
+    state: "unknown",
+    ...outcomeFields(a, id, backendState),
+    reason: "ambiguous-submission",
+    ...definedFields({ diagnostic }),
+  });
+
+  const terminalFailure = (a: ConnectedAccountRef, id: string, state: string): DeliveryOutcome => ({
+    state: "failed",
+    ...outcomeFields(a, id, state),
+    code: "media_error",
+    message: "Threads container failed or expired before publication.",
+    retryDisposition: { kind: "never" },
+  });
+
+  function replyControlParam(value: string): string {
+    if (value === "accountsYouFollow") return "accounts_you_follow";
+
+    if (value === "mentionedOnly") return "mentioned_only";
+
+    return "everyone";
+  }
+
+  function parentMediaType(childCount: number, singleKind: JsonField): string {
+    if (childCount) return "CAROUSEL";
+
+    if (singleKind === "video") return "VIDEO";
+
+    if (singleKind === "image") return "IMAGE";
+
+    return "TEXT";
+  }
 
   async function resume(
     w: ThreadsWorkflow,
     a: ConnectedAccountRef,
     c: AdapterOperationContext,
   ): Promise<DeliveryOutcome> {
-    if (w.nativeId)
-      return {
-        ...base(a, w.id, "published", "PUBLISHED"),
-        post: platformPostRef({
-          backend,
-          platform: "threads",
-          accountId: a.accountId,
-          postId: w.nativeId,
-        }),
-      } as DeliveryOutcome;
+    if (w.nativeId) return published(a, w.id, w.nativeId);
 
     if (w.stage === "unknown")
-      return {
-        ...base(a, w.id, "unknown", w.backendState),
-        reason: "ambiguous-submission",
-        diagnostic: "Threads publish acceptance is unknown; no replay was attempted.",
-      } as DeliveryOutcome;
+      return ambiguous(
+        a,
+        w.id,
+        w.backendState,
+        "Threads publish acceptance is unknown; no replay was attempted.",
+      );
     let cur = w;
-    const items = Array.isArray(cur.options["_mediaItems"]) ? cur.options["_mediaItems"] : [];
+    const items = optionalArray(cur.options["_mediaItems"]) ?? [];
 
     while (cur.childIds.length < items.length) {
       const item = object(items[cur.childIds.length]);
+      const url = String(item["url"]);
+      const isVideo = item["kind"] === "video";
 
       const p = new URLSearchParams({
-        media_type: item["kind"] === "video" ? "VIDEO" : "IMAGE",
+        media_type: isVideo ? "VIDEO" : "IMAGE",
         is_carousel_item: "true",
-        ...(item["kind"] === "video"
-          ? { video_url: String(item["url"]) }
-          : { image_url: String(item["url"]) }),
-        ...(typeof item["altText"] === "string" ? { alt_text: item["altText"] } : {}),
+        ...definedFields({
+          video_url: isVideo ? url : undefined,
+          image_url: isVideo ? undefined : url,
+          alt_text: optionalString(item["altText"]),
+        }),
       });
 
       await store.update(cur.id, { stage: "unknown", backendState: "CREATING_CHILD" });
 
       const child = await request(
         `${a.accountId}/threads?${p}`,
-        { method: "POST", ...(c.signal ? { signal: c.signal } : {}) },
+        { method: "POST", ...definedFields({ signal: c.signal }) },
         "threads.container.child",
         c,
       );
 
-      if (typeof child["id"] !== "string")
+      const childId = optionalString(child["id"]);
+
+      if (childId === undefined)
         fail("threads.container.child", "Threads did not return a child container ID.");
       cur = await store.update(cur.id, {
-        childIds: [...cur.childIds, child["id"]],
+        childIds: [...cur.childIds, childId],
         stage: "children",
       });
     }
 
     for (const id of cur.childIds) {
       const s = await status(id, c);
-      const st = typeof s["status"] === "string" ? s["status"] : "";
+      const st = optionalString(s["status"]) ?? "";
 
       if (st === "ERROR" || st === "EXPIRED") return terminalFailure(a, w.id, st);
 
-      if (st !== "FINISHED" && st !== "PUBLISHED")
-        return base(a, w.id, "processing", st || "PROCESSING");
+      if (st !== "FINISHED" && st !== "PUBLISHED") return processing(a, w.id, st || "PROCESSING");
     }
 
     if (!cur.parentId) {
       const singleKind = cur.options["_mediaKind"];
-      const singleUrl = cur.options["_mediaUrl"];
+      const singleUrl = optionalString(cur.options["_mediaUrl"]);
+      const replyControl = optionalString(cur.options["replyControl"]);
 
       const p = new URLSearchParams({
-        media_type: cur.childIds.length
-          ? "CAROUSEL"
-          : singleKind === "video"
-            ? "VIDEO"
-            : singleKind === "image"
-              ? "IMAGE"
-              : "TEXT",
-        ...(cur.childIds.length ? { children: cur.childIds.join(",") } : {}),
-        ...(typeof singleUrl === "string"
-          ? singleKind === "video"
-            ? { video_url: singleUrl }
-            : { image_url: singleUrl }
-          : {}),
-        ...(typeof cur.options["_altText"] === "string"
-          ? { alt_text: cur.options["_altText"] }
-          : {}),
-        ...(cur.caption ? { text: cur.caption } : {}),
-        ...(typeof cur.options["replyControl"] === "string"
-          ? {
-              reply_control:
-                cur.options["replyControl"] === "accountsYouFollow"
-                  ? "accounts_you_follow"
-                  : cur.options["replyControl"] === "mentionedOnly"
-                    ? "mentioned_only"
-                    : "everyone",
-            }
-          : {}),
-        ...(typeof cur.options["_replyToId"] === "string"
-          ? { reply_to_id: cur.options["_replyToId"] }
-          : {}),
+        media_type: parentMediaType(cur.childIds.length, singleKind),
+        ...definedFields({
+          children: cur.childIds.length ? cur.childIds.join(",") : undefined,
+          video_url: singleKind === "video" ? singleUrl : undefined,
+          image_url: singleKind === "video" ? undefined : singleUrl,
+          alt_text: optionalString(cur.options["_altText"]),
+          text: cur.caption === "" ? undefined : cur.caption,
+          reply_control: replyControl === undefined ? undefined : replyControlParam(replyControl),
+          reply_to_id: optionalString(cur.options["_replyToId"]),
+        }),
       });
 
       // Persist ambiguity before dispatch so a process crash cannot recreate a
@@ -539,14 +566,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const parent = await request(
         `${a.accountId}/threads?${p}`,
-        { method: "POST", ...(c.signal ? { signal: c.signal } : {}) },
+        { method: "POST", ...definedFields({ signal: c.signal }) },
         "threads.container.create",
         c,
       );
 
-      const parentId = parent["id"];
+      const parentId = optionalString(parent["id"]);
 
-      if (typeof parentId !== "string")
+      if (parentId === undefined)
         fail("threads.container.create", "Threads did not return a container ID.");
       cur = await store.update(cur.id, { parentId, stage: "parent" });
     }
@@ -555,62 +582,47 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     if (!parentId) fail("threads.container.create", "Missing parent container ID.");
     const ps = await status(parentId, c);
-    const pst = typeof ps["status"] === "string" ? ps["status"] : "";
+    const pst = optionalString(ps["status"]) ?? "";
 
     if (pst === "ERROR" || pst === "EXPIRED") return terminalFailure(a, cur.id, pst);
 
     if (pst === "PUBLISHED") {
       await store.update(cur.id, { stage: "unknown", backendState: "PUBLISHED_WITHOUT_NATIVE_ID" });
 
-      return {
-        ...base(a, cur.id, "unknown", pst),
-        reason: "ambiguous-submission",
-      } as DeliveryOutcome;
+      return ambiguous(a, cur.id, pst);
     }
 
-    if (pst !== "FINISHED") return base(a, cur.id, "processing", pst || "PROCESSING");
+    if (pst !== "FINISHED") return processing(a, cur.id, pst || "PROCESSING");
     await store.update(cur.id, { stage: "unknown", backendState: "PUBLISHING" });
 
     try {
       const pub = await request(
         `${a.accountId}/threads_publish?creation_id=${encodeURIComponent(parentId)}`,
-        { method: "POST", ...(c.signal ? { signal: c.signal } : {}) },
+        { method: "POST", ...definedFields({ signal: c.signal }) },
         "threads.publish",
         c,
       );
 
-      const nativeId = pub["id"];
+      const nativeId = optionalString(pub["id"]);
 
-      if (typeof nativeId !== "string") {
+      if (nativeId === undefined) {
         await store.update(cur.id, { stage: "unknown", backendState: "MISSING_ID" });
 
-        return {
-          ...base(a, cur.id, "unknown", "MISSING_ID"),
-          reason: "ambiguous-submission",
-          diagnostic: "Threads accepted publish without a native post ID.",
-        } as DeliveryOutcome;
+        return ambiguous(
+          a,
+          cur.id,
+          "MISSING_ID",
+          "Threads accepted publish without a native post ID.",
+        );
       }
 
       await store.update(cur.id, { nativeId, stage: "published", backendState: "PUBLISHED" });
 
-      return {
-        ...base(a, cur.id, "published", "PUBLISHED"),
-        post: platformPostRef({
-          backend,
-          platform: "threads",
-          accountId: a.accountId,
-          postId: nativeId,
-        }),
-      } as DeliveryOutcome;
+      return published(a, cur.id, nativeId);
     } catch (e) {
       await store.update(cur.id, { stage: "unknown", backendState: "AMBIGUOUS" });
 
-      if (e instanceof SocialError)
-        return {
-          ...base(a, cur.id, "unknown", "AMBIGUOUS"),
-          reason: "ambiguous-submission",
-          diagnostic: e.message,
-        } as DeliveryOutcome;
+      if (e instanceof SocialError) return ambiguous(a, cur.id, "AMBIGUOUS", e.message);
       throw e;
     }
   }
@@ -730,7 +742,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     getPost: (id, c) =>
       request(
         `${encodeURIComponent(id)}?fields=id,text,username,media_type,permalink`,
-        { method: "GET", ...(c.signal ? { signal: c.signal } : {}) },
+        { method: "GET", ...definedFields({ signal: c.signal }) },
         "threads.posts.get",
         c,
       ),
@@ -746,7 +758,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           "unauthorized",
         );
 
-      if (!(await store.claim(id))) return base(a, id, "processing", "CLAIMED");
+      if (!(await store.claim(id))) return processing(a, id, "CLAIMED");
 
       try {
         return await resume((await store.get(id)) ?? w, a, c);
@@ -986,10 +998,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             accountId: account.accountId,
             profileId,
           }),
-          ...(displayName === undefined ? {} : { displayName }),
-          ...(handle === undefined ? {} : { handle }),
-          ...(avatarUrl === undefined ? {} : { avatarUrl }),
-          ...(bio === undefined ? {} : { bio }),
+          ...definedFields({ displayName, handle, avatarUrl, bio }),
           native:
             returnedProfileId === undefined ? { ...result, _profileIdUnavailable: true } : result,
         };
@@ -1113,26 +1122,28 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const item = media.length === 1 ? media[0] : undefined;
 
-        const opts = {
-          ...(object(target.options ?? {}) as JsonObject),
-          ...(target.replyTo ? { _replyToId: target.replyTo.postId } : {}),
-          ...(media.length > 1
-            ? {
-                _mediaItems: media.map((entry) => ({
-                  kind: entry.kind,
-                  url: entry.source.kind === "https-url" ? entry.source.url : "",
-                  ...(entry.altText ? { altText: entry.altText } : {}),
-                })),
-              }
-            : {}),
-          ...(item?.source.kind === "https-url"
-            ? {
-                _mediaKind: item.kind,
-                _mediaUrl: item.source.url,
-                ...(item.altText ? { _altText: item.altText } : {}),
-              }
-            : {}),
-        } as JsonObject;
+        const mediaItems =
+          media.length > 1
+            ? media.map((entry) => ({
+                kind: entry.kind,
+                url: entry.source.kind === "https-url" ? entry.source.url : "",
+                ...definedFields({ altText: entry.altText === "" ? undefined : entry.altText }),
+              }))
+            : undefined;
+
+        const singleSource = item?.source.kind === "https-url" ? item.source : undefined;
+
+        const opts: JsonObject = {
+          ...object(target.options ?? {}),
+          ...definedFields({
+            _replyToId: target.replyTo?.postId,
+            _mediaItems: mediaItems,
+            _mediaKind: singleSource === undefined ? undefined : item?.kind,
+            _mediaUrl: singleSource?.url,
+            _altText:
+              singleSource === undefined || item?.altText === "" ? undefined : item?.altText,
+          }),
+        };
 
         const w = await store.create({
           backend,
@@ -1143,21 +1154,19 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           stage: "children",
         });
 
-        if (!(await store.claim(w.id))) return base(target.account, w.id, "processing", "CLAIMED");
+        if (!(await store.claim(w.id))) return processing(target.account, w.id, "CLAIMED");
 
         try {
           try {
             const outcome = await resume((await store.get(w.id)) ?? w, target.account, context);
 
-            return { ...outcome, targetIndex: target.targetIndex } as DeliveryOutcome;
+            return { ...outcome, targetIndex: target.targetIndex };
           } catch (error) {
             if (error instanceof SocialError && error.code === "ambiguous_outcome")
               return {
-                ...base(target.account, w.id, "unknown", "AMBIGUOUS"),
+                ...ambiguous(target.account, w.id, "AMBIGUOUS", error.message),
                 targetIndex: target.targetIndex,
-                reason: "ambiguous-submission",
-                diagnostic: error.message,
-              } as DeliveryOutcome;
+              };
             throw error;
           }
         } finally {
@@ -1189,29 +1198,17 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             "unauthorized",
           );
 
-        if (w.nativeId)
-          return {
-            ...base(accountRef(backend, ref.accountId), w.id, "published", "PUBLISHED"),
-            post: platformPostRef({
-              backend,
-              platform: "threads",
-              accountId: ref.accountId,
-              postId: w.nativeId,
-            }),
-          } as DeliveryOutcome;
+        const owner = accountRef(backend, ref.accountId);
+
+        if (w.nativeId) return published(owner, w.id, w.nativeId);
 
         if (w.stage === "unknown")
-          return {
-            ...base(accountRef(backend, ref.accountId), w.id, "unknown", w.backendState),
-            reason: "ambiguous-submission",
-            diagnostic: "Explicit resumePublication is required.",
-          } as DeliveryOutcome;
+          return ambiguous(owner, w.id, w.backendState, "Explicit resumePublication is required.");
 
-        if (!(await store.claim(w.id)))
-          return base(accountRef(backend, ref.accountId), w.id, "processing", "CLAIMED");
+        if (!(await store.claim(w.id))) return processing(owner, w.id, "CLAIMED");
 
         try {
-          return await resume((await store.get(w.id)) ?? w, accountRef(backend, ref.accountId), c);
+          return await resume((await store.get(w.id)) ?? w, owner, c);
         } finally {
           await store.release?.(w.id);
         }
@@ -1228,21 +1225,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           context,
         );
 
-        const rows = Array.isArray(result["data"]) ? (result["data"] as JsonObject[]) : [];
+        const rows = (optionalArray(result["data"]) ?? []).filter(isJsonObject);
+        const cursors = optionalObject(optionalObject(result["paging"])?.["cursors"]);
 
         return {
           items: rows,
-          ...(typeof result["paging"] === "object" &&
-          result["paging"] &&
-          typeof (result["paging"] as JsonObject)["cursors"] === "object" &&
-          (result["paging"] as JsonObject)["cursors"] !== null &&
-          typeof ((result["paging"] as JsonObject)["cursors"] as JsonObject)["after"] === "string"
-            ? {
-                nextCursor: String(
-                  ((result["paging"] as JsonObject)["cursors"] as JsonObject)["after"],
-                ),
-              }
-            : {}),
+          ...definedFields({ nextCursor: optionalString(cursors?.["after"]) }),
         };
       },
       async reply(comment: CommentRef, content: { text: string }, context): Promise<CommentRef> {
@@ -1280,24 +1268,24 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const r = await request(
           `${encodeURIComponent(post.postId)}/insights?metric=views,likes,replies,reposts,quotes,shares,link_total_values`,
-          { method: "GET", ...(c.signal ? { signal: c.signal } : {}) },
+          { method: "GET", ...definedFields({ signal: c.signal }) },
           "threads.analytics",
           c,
         );
 
         return array(r["data"]).flatMap((x) => {
           const row = object(x);
-          const first = Array.isArray(row["values"]) ? row["values"][0] : undefined;
+          const first = optionalArray(row["values"])?.[0];
 
           const value =
-            first && typeof first === "object"
+            isJsonObject(first) || isJsonArray(first)
               ? optionalNumber(object(first)["value"])
               : optionalNumber(row["value"]);
 
-          const rawName = row["name"];
+          const rawName = optionalString(row["name"]);
           const name = rawName === "link_total_values" ? "clicks" : rawName;
 
-          return value === undefined || typeof name !== "string"
+          return value === undefined || name === undefined
             ? []
             : [
                 {

@@ -15,7 +15,17 @@ import type {
 } from "../core/types.js";
 import { managedHttp, publicFields } from "../cloud/common.js";
 import { HttpError } from "../transport/http.js";
-import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
+import { definedFields } from "../core/fields.js";
+import {
+  array,
+  isBoolean,
+  isString,
+  object,
+  optionalNumber,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
 
 export interface InstagramOptions {
@@ -208,13 +218,13 @@ export function instagram(
 
   const request = managedHttp(origin, {
     apiKey: options.auth.accessToken,
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...definedFields({ fetch: options.fetch }),
   });
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
   const workflows = options.workflowStore ?? new MemoryInstagramWorkflowStore();
 
-  const validatedObject = (value: unknown, operation: string): Record<string, unknown> => {
+  const validatedObject = (value: JsonField, operation: string): JsonObject => {
     try {
       return object(value);
     } catch (error) {
@@ -252,20 +262,18 @@ export function instagram(
     return value;
   };
 
-  const page = (result: Record<string, unknown>, fields: readonly string[]): Page<JsonObject> => {
+  const page = (result: JsonObject, fields: readonly string[]): Page<JsonObject> => {
     const items = array(result["data"]).map((entry) => publicFields(entry, fields));
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
 
     // Graph API omits `paging.next` on the last page even when `cursors.after` is present.
     const nextCursor =
-      typeof paging["next"] === "string" &&
-      typeof cursors["after"] === "string" &&
-      cursors["after"].length > 0
+      isString(paging["next"]) && isString(cursors["after"]) && cursors["after"].length > 0
         ? cursors["after"]
         : undefined;
 
-    return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
+    return { items, ...definedFields({ nextCursor }) };
   };
 
   const authorize = (
@@ -308,13 +316,13 @@ export function instagram(
         message: "Instagram feed limit must be an integer from 1 through 100.",
       });
 
-    const query: Record<string, string> = {
+    const query = {
       fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
+      ...definedFields({
+        after: input.cursor,
+        limit: input.limit === undefined ? undefined : String(input.limit),
+      }),
     };
-
-    if (input.cursor !== undefined) query["after"] = input.cursor;
-
-    if (input.limit !== undefined) query["limit"] = String(input.limit);
 
     const result = object(
       await request(`/${encodeURIComponent(selected.accountId)}/media`, context, undefined, query),
@@ -334,14 +342,12 @@ export function instagram(
 
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
-    const hasNext = typeof paging["next"] === "string" && paging["next"].length > 0;
-
-    const nextCursor =
-      hasNext && typeof cursors["after"] === "string" ? cursors["after"] : undefined;
+    const hasNext = isString(paging["next"]) && paging["next"].length > 0;
+    const nextCursor = hasNext ? optionalString(cursors["after"]) : undefined;
 
     return {
       items,
-      ...(nextCursor === undefined ? {} : { nextCursor }),
+      ...definedFields({ nextCursor }),
     };
   };
 
@@ -474,7 +480,7 @@ export function instagram(
         await request(`/${encodeURIComponent(account.accountId)}/media_publish`, context, {
           creation_id: containerId,
         }),
-      ) as JsonObject;
+      );
     } catch (error) {
       if (workflowId) await workflows.update(workflowId, { stage: "unknown" });
       throw error;
@@ -636,12 +642,11 @@ export function instagram(
     authorize(account, context);
     requireFacebookLogin("instagram.mentions.read");
 
-    const query: Record<string, string> = {
+    const query = {
       fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
       limit: String(pageLimit(limit)),
+      ...definedFields({ after: cursor }),
     };
-
-    if (cursor !== undefined) query["after"] = cursor;
 
     const result = validatedObject(
       await request(`/${encodeURIComponent(account.accountId)}/tags`, context, undefined, query),
@@ -757,9 +762,12 @@ export function instagram(
             flavor === "facebook-login"
               ? ("available" as const)
               : ("not-implemented-by-adapter" as const),
-          ...(flavor === "facebook-login"
-            ? { requiredScopes: ["instagram_basic", "pages_read_engagement"] }
-            : {}),
+          ...definedFields({
+            requiredScopes:
+              flavor === "facebook-login"
+                ? ["instagram_basic", "pages_read_engagement"]
+                : undefined,
+          }),
         },
         {
           platform: "instagram",
@@ -923,6 +931,7 @@ export function instagram(
                 message: "Public HTTPS media required.",
               });
             const config = target.options === undefined ? {} : object(target.options);
+            const shareToFeed = config["shareToFeed"];
             await workflows.update(workflow.id, { stage: "unknown" });
 
             const created = object(
@@ -930,14 +939,14 @@ export function instagram(
                 ...(item.kind === "image"
                   ? {
                       image_url: item.source.url,
-                      ...(item.altText === undefined ? {} : { alt_text: item.altText }),
+                      ...definedFields({ alt_text: item.altText }),
                     }
                   : {
                       video_url: item.source.url,
                       media_type: media.length > 1 ? "VIDEO" : "REELS",
-                      ...(typeof config["shareToFeed"] === "boolean"
-                        ? { share_to_feed: config["shareToFeed"] }
-                        : {}),
+                      ...definedFields({
+                        share_to_feed: isBoolean(shareToFeed) ? shareToFeed : undefined,
+                      }),
                     }),
                 ...(media.length > 1
                   ? { is_carousel_item: true }
@@ -1096,12 +1105,11 @@ export function instagram(
       ) {
         authorize(ref, context);
 
-        const query: Record<string, string> = {
+        const query = {
           fields: "id,text,timestamp,username",
           limit: String(pageLimit(input.limit)),
+          ...definedFields({ after: input.cursor }),
         };
-
-        if (input.cursor !== undefined) query["after"] = input.cursor;
 
         const result = validatedObject(
           await request(`/${encodeURIComponent(ref.postId)}/comments`, context, undefined, query),
@@ -1249,12 +1257,12 @@ export function instagram(
             accountId: account.accountId,
             profileId: id,
           }),
-          ...(typeof profile["name"] === "string" ? { displayName: profile["name"] } : {}),
-          ...(typeof profile["username"] === "string" ? { handle: profile["username"] } : {}),
-          ...(typeof profile["profile_picture_url"] === "string"
-            ? { avatarUrl: profile["profile_picture_url"] }
-            : {}),
-          ...(typeof profile["biography"] === "string" ? { bio: profile["biography"] } : {}),
+          ...definedFields({
+            displayName: optionalString(profile["name"]),
+            handle: optionalString(profile["username"]),
+            avatarUrl: optionalString(profile["profile_picture_url"]),
+            bio: optionalString(profile["biography"]),
+          }),
           native: profile,
         };
       },
@@ -1287,12 +1295,11 @@ export function instagram(
       async listCommentReplies({ account, commentId, cursor, limit, context }) {
         authorize(account, context);
 
-        const query: Record<string, string> = {
+        const query = {
           fields: "id,text,timestamp,username",
           limit: String(pageLimit(limit)),
+          ...definedFields({ after: cursor }),
         };
-
-        if (cursor !== undefined) query["after"] = cursor;
 
         return page(
           validatedObject(
@@ -1312,7 +1319,7 @@ export function instagram(
             fields: `mentioned_media.media_id(${encodeURIComponent(mediaId)}){id,caption,media_type,media_url,timestamp,username,comments_count,like_count}`,
           }),
           "instagram.mentions.read",
-        ) as JsonObject;
+        );
       },
       async mentionedComment({ account, commentId, context }) {
         authorize(account, context);
@@ -1323,18 +1330,17 @@ export function instagram(
             fields: `mentioned_comment.comment_id(${encodeURIComponent(commentId)}){id,text,timestamp,like_count,media}`,
           }),
           "instagram.mentions.read",
-        ) as JsonObject;
+        );
       },
       async listTaggedMedia({ account, cursor, limit, context }) {
         authorize(account, context);
         requireFacebookLogin("instagram.mentions.read");
 
-        const query: Record<string, string> = {
+        const query = {
           fields: "id,caption,media_type,permalink,timestamp,username",
           limit: String(pageLimit(limit)),
+          ...definedFields({ after: cursor }),
         };
-
-        if (cursor !== undefined) query["after"] = cursor;
 
         return page(
           validatedObject(
@@ -1353,12 +1359,11 @@ export function instagram(
         authorize(account, context);
         requireFacebookLogin("instagram.hashtags.search");
 
-        const query: Record<string, string> = {
+        const query = {
           fields: "id,caption,media_type,permalink,timestamp,username",
           limit: String(pageLimit(limit, 50)),
+          ...definedFields({ after: cursor }),
         };
-
-        if (cursor !== undefined) query["after"] = cursor;
 
         return page(
           validatedObject(
@@ -1393,7 +1398,7 @@ export function instagram(
           await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
             fields: selectedFields,
           }),
-        ) as JsonObject;
+        );
       },
       publishContainer,
       async publishCarousel(
@@ -1442,7 +1447,7 @@ export function instagram(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
             media_type: "REELS",
             video_url: videoUrl,
-            ...(caption ? { caption } : {}),
+            ...definedFields({ caption: caption === "" ? undefined : caption }),
           }),
         );
 
@@ -1496,8 +1501,6 @@ export function instagram(
       async publishingLimit({ account, context }) {
         authorize(account, context);
 
-        // SAFETY: object() establishes an object response; this native method intentionally
-        // preserves Meta's provider-specific config object after validating its outer shape.
         return object(
           await request(
             `/${encodeURIComponent(account.accountId)}/content_publishing_limit`,
@@ -1505,13 +1508,12 @@ export function instagram(
             undefined,
             { fields: "config,quota_usage" },
           ),
-        ) as JsonObject;
+        );
       },
       async mentions({ account, cursor, limit, context }) {
         return listMentions({
           account,
-          ...(cursor === undefined ? {} : { cursor }),
-          ...(limit === undefined ? {} : { limit }),
+          ...definedFields({ cursor, limit }),
           context,
         });
       },
