@@ -16,9 +16,16 @@ import {
   type IdempotencyClaimInput,
   type IdempotencyStore,
   type JsonPrimitive,
+  type JsonValue,
   type ProfileRecord,
   type SocialAdapter,
 } from "../core/index.js";
+import { definedFields } from "../core/fields.js";
+import { isJsonObject } from "../transport/validation.js";
+
+function isJsonPrimitive(value: JsonValue): value is JsonPrimitive {
+  return value === null || typeof value !== "object";
+}
 
 export type MockScenario =
   | "immediate-text-success"
@@ -180,10 +187,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       sequence: ++sequence,
       operation,
       backend: context.backendInstance,
-      ...(account === undefined ? {} : { account }),
-      ...(context.targetIdempotencyKey === undefined
-        ? {}
-        : { idempotencyKey: context.targetIdempotencyKey }),
+      ...definedFields({ account, idempotencyKey: context.targetIdempotencyKey }),
     });
   }
 
@@ -625,19 +629,19 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       async verify(input, context) {
         record("webhooks.verify", context);
 
+        const valid = input.headers.get("x-mock-signature") === "valid";
+
         return {
-          valid: input.headers.get("x-mock-signature") === "valid",
+          valid,
           method: "mock",
-          ...(input.headers.get("x-mock-signature") === "valid"
-            ? {}
-            : { reason: "Invalid mock signature" }),
+          ...definedFields({ reason: valid ? undefined : "Invalid mock signature" }),
         };
       },
       async decode(input, context) {
         record("webhooks.decode", context);
-        const parsed: unknown = JSON.parse(decoder.decode(input.body));
+        const parsed: JsonValue = JSON.parse(decoder.decode(input.body));
 
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        if (!isJsonObject(parsed)) {
           throw new SocialError({
             code: "invalid_input",
             operation: "webhooks.decode",
@@ -648,14 +652,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
         const entries: [string, JsonPrimitive][] = [];
 
         for (const [key, value] of Object.entries(parsed)) {
-          if (
-            typeof value === "string" ||
-            typeof value === "number" ||
-            typeof value === "boolean" ||
-            value === null
-          ) {
-            entries.push([key, value]);
-          }
+          if (isJsonPrimitive(value)) entries.push([key, value]);
         }
 
         return Object.fromEntries(entries);
@@ -745,7 +742,7 @@ export function mockSharedAccountAuthorization(input: {
         account,
         allowed:
           tenant !== undefined && (input.memberships[tenant]?.includes(account.accountId) ?? false),
-        ...(tenant === undefined ? { reason: "A tenant is required" } : {}),
+        ...definedFields({ reason: tenant === undefined ? "A tenant is required" : undefined }),
       }));
     },
   };

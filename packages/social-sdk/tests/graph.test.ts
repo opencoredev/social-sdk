@@ -66,7 +66,7 @@ it("rejects graph calls whose capability is unavailable before dispatch", async 
   const social = createSocial({ backend: adapter() });
   await assert.rejects(
     social.graph.block(target),
-    (error: unknown) =>
+    (error: unknown): error is Error =>
       error instanceof Error && "code" in error && error.code === "unsupported_capability",
   );
 });

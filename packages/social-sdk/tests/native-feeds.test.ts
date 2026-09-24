@@ -1,9 +1,14 @@
 import { strict as assert } from "node:assert";
 import { it } from "node:test";
+import { definedFields } from "../src/core/fields.js";
 import { youtube } from "../src/platforms/youtube.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import { tiktok } from "../src/platforms/tiktok.js";
-import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
+import {
+  connectedAccountRef,
+  type AdapterOperationContext,
+  type JsonValue,
+} from "../src/core/index.js";
 
 const context = (backend: string): AdapterOperationContext => ({
   backendInstance: backend,
@@ -11,7 +16,7 @@ const context = (backend: string): AdapterOperationContext => ({
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 });
 
-const json = (data: unknown) =>
+const json = (data: JsonValue) =>
   new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } });
 
 it("LinkedIn sends plain author URN and ends paging without a next link or remaining total", async () => {
@@ -142,7 +147,9 @@ it("YouTube resolves channel uploads and returns native video IDs across pages",
             secret: "hidden",
           },
         ],
-        ...(url.searchParams.has("pageToken") ? {} : { nextPageToken: "next" }),
+        ...definedFields({
+          nextPageToken: url.searchParams.has("pageToken") ? undefined : "next",
+        }),
       });
     },
   });

@@ -184,7 +184,8 @@ it("upload cleanup cannot hang on an uncooperative source cancellation hook", as
           timer = setTimeout(() => reject(new Error("cleanup hung")), 1000);
         }),
       ]),
-      (error: unknown) => error instanceof HttpError && error.kind === "network",
+      (error: unknown): error is HttpError =>
+        error instanceof HttpError && error.kind === "network",
     );
   } finally {
     clearTimeout(timer);

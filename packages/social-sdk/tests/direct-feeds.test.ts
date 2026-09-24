@@ -60,7 +60,8 @@ test("X account feeds use pagination_token and return selected fields", async ()
   });
   await assert.rejects(
     adapter.posts!.list!(account, { limit: 101 }, xContext),
-    (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError && error.code === "invalid_input",
   );
 });
 
@@ -116,7 +117,8 @@ test("Threads account feeds use the after cursor and enforce account authorizati
   );
   await assert.rejects(
     adapter.posts!.list!(account, { limit: 101 }, threadsContext),
-    (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError && error.code === "invalid_input",
   );
 });
 
@@ -178,6 +180,7 @@ test("Instagram account feeds use the after cursor and selected media fields", a
   );
   await assert.rejects(
     adapter.posts!.list!(account, { limit: 101 }, instagramContext),
-    (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError && error.code === "invalid_input",
   );
 });

@@ -62,7 +62,7 @@ it("tenant denial prevents analytics, comments, messages, post reads, and accoun
   ])
     await assert.rejects(
       action(),
-      (error: unknown) =>
+      (error: unknown): error is Error =>
         error instanceof Error && "code" in error && error.code === "unauthorized",
     );
   assert.equal(calls, 0);
@@ -154,7 +154,7 @@ it("missing managed messaging is an unsupported capability instead of an empty i
 
   await assert.rejects(
     social.messages.listConversations(account),
-    (error: unknown) =>
+    (error: unknown): error is Error =>
       error instanceof Error && "code" in error && error.code === "unsupported_capability",
   );
   assert.equal(calls, 0);

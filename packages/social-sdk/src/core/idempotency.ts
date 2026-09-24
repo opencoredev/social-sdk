@@ -1,4 +1,4 @@
-import type { DeliveryOutcome } from "./types.js";
+import type { DeliveryOutcome, JsonValue } from "./types.js";
 
 export interface IdempotencyClaimInput {
   readonly scope: string;
@@ -26,25 +26,43 @@ export interface IdempotencyStore {
   }): Promise<void>;
 }
 
-function normalizeForJson(value: unknown, seen: Set<object>): unknown {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+type JsonScalar = string | boolean | null;
 
-  if (typeof value === "number") {
+function isJsonScalar<Value>(value: Value): value is Value & JsonScalar {
+  return value === null || typeof value === "string" || typeof value === "boolean";
+}
+
+function isNumber<Value>(value: Value): value is Value & number {
+  return typeof value === "number";
+}
+
+/** Arrays and plain or class objects; excludes bigints, symbols, and functions. */
+function isWalkableObject<Value>(value: Value): value is Value & object {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * Parses an arbitrary caller value into canonical JSON: object keys are sorted,
+ * undefined properties are dropped, and values JSON cannot represent throw a TypeError.
+ */
+function normalizeForJson<Payload>(value: Payload, seen: Set<object>): JsonValue | undefined {
+  if (isJsonScalar(value)) return value;
+
+  if (isNumber(value)) {
     if (!Number.isFinite(value)) throw new TypeError("Idempotency payload numbers must be finite");
 
     return value;
   }
 
-  if (typeof value === "undefined") return undefined;
+  if (value === undefined) return undefined;
 
-  if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function") {
-    throw new TypeError("Idempotency payload must be JSON-safe");
-  }
+  if (!isWalkableObject(value)) throw new TypeError("Idempotency payload must be JSON-safe");
 
   if (Array.isArray(value)) {
     if (seen.has(value)) throw new TypeError("Idempotency payload must not contain cycles");
     seen.add(value);
-    const result = value.map((entry) => normalizeForJson(entry, seen));
+    // JSON.stringify writes an undefined array entry as null, so mapping it here keeps the output identical.
+    const result = value.map((entry) => normalizeForJson(entry, seen) ?? null);
     seen.delete(value);
 
     return result;
@@ -54,27 +72,28 @@ function normalizeForJson(value: unknown, seen: Set<object>): unknown {
     throw new TypeError("Blob inputs require a caller-provided media fingerprint");
   }
 
-  if (typeof value === "object") {
-    if (seen.has(value)) throw new TypeError("Idempotency payload must not contain cycles");
-    seen.add(value);
-    const entries = Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
-    const result: Record<string, unknown> = {};
+  if (seen.has(value)) throw new TypeError("Idempotency payload must not contain cycles");
+  seen.add(value);
+  const entries = Object.entries(value);
+  entries.sort(([left], [right]) => left.localeCompare(right));
+  const result: { [key: string]: JsonValue } = {};
 
-    for (const [key, entry] of entries) {
-      const normalized = normalizeForJson(entry, seen);
+  for (const [key, entry] of entries) {
+    const normalized = normalizeForJson(entry, seen);
 
-      if (normalized !== undefined) result[key] = normalized;
-    }
-
-    seen.delete(value);
-
-    return result;
+    if (normalized !== undefined) result[key] = normalized;
   }
 
-  throw new TypeError("Unsupported idempotency payload value");
+  seen.delete(value);
+
+  return result;
 }
 
-export function stableSerialize(value: unknown): string {
+/**
+ * Serializes any caller value to canonical JSON. The input is parsed at runtime:
+ * non-finite numbers, bigints, symbols, functions, `Blob`s, and cycles throw a TypeError.
+ */
+export function stableSerialize<Payload>(value: Payload): string {
   return JSON.stringify(normalizeForJson(value, new Set<object>()));
 }
 
@@ -86,7 +105,8 @@ function bytesToHex(bytes: Uint8Array): string {
   return result;
 }
 
-export async function fingerprint(value: unknown): Promise<string> {
+/** SHA-256 hex digest of {@link stableSerialize}. */
+export async function fingerprint<Payload>(value: Payload): Promise<string> {
   const bytes = new TextEncoder().encode(stableSerialize(value));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
 

@@ -27,7 +27,8 @@ describe("HTTP transport", () => {
 
       await assert.rejects(
         http({ url: new URL("https://api.example.test/posts"), method: "POST" }),
-        (error: unknown) => error instanceof HttpError && error.kind === "invalid-response",
+        (error: unknown): error is HttpError =>
+          error instanceof HttpError && error.kind === "invalid-response",
       );
       assert.equal(cancelled, true);
     }
@@ -81,7 +82,7 @@ describe("HTTP transport", () => {
     assert.equal(calls, 0);
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), method: "POST" }),
-      (error: unknown) => {
+      (error: unknown): error is HttpError => {
         assert.ok(error instanceof HttpError);
         assert.equal(error.kind, "network");
         assert.equal(error.dispatched, true);
@@ -137,7 +138,7 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts?token=secret"), maxAttempts: 5 }),
-      (error: unknown) => {
+      (error: unknown): error is HttpError => {
         assert.ok(error instanceof HttpError);
         assert.equal(error.status, 403);
         assert.ok(!JSON.stringify(error).includes("secret"));
@@ -161,7 +162,7 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), maxAttempts: 5, timeoutMs: 1000 }),
-      (error: unknown) =>
+      (error: unknown): error is HttpError =>
         error instanceof HttpError &&
         error.kind === "http" &&
         error.status === 429 &&
@@ -229,7 +230,8 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts") }),
-      (error: unknown) => error instanceof HttpError && error.kind === "invalid-response",
+      (error: unknown): error is HttpError =>
+        error instanceof HttpError && error.kind === "invalid-response",
     );
     assert.equal(cancelled, true);
   });
@@ -246,7 +248,7 @@ describe("HTTP transport", () => {
 
     await assert.rejects(
       http({ url: new URL("https://api.example.test/posts"), signal: pre.signal }),
-      (error: unknown) => error instanceof HttpError && !error.dispatched,
+      (error: unknown): error is HttpError => error instanceof HttpError && !error.dispatched,
     );
     const post = new AbortController();
 
@@ -263,7 +265,7 @@ describe("HTTP transport", () => {
         method: "POST",
         signal: post.signal,
       }),
-      (error: unknown) =>
+      (error: unknown): error is HttpError =>
         error instanceof HttpError && error.dispatched && error.kind === "cancelled",
     );
   });
