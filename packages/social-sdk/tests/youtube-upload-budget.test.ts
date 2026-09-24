@@ -39,6 +39,7 @@ it("uses one deadline across source reads and upload chunks", async () => {
           kind: "video",
           source: {
             kind: "stream",
+            fingerprint: "test-stream",
             open: () =>
               new ReadableStream({
                 pull() {
@@ -46,7 +47,7 @@ it("uses one deadline across source reads and upload chunks", async () => {
                 },
               }),
           },
-        } as never,
+        },
         {
           accessToken: "token",
           timeoutMs: 10,
@@ -113,6 +114,7 @@ it("shares timeout budget across multiple chunks", async () => {
           kind: "video",
           source: {
             kind: "stream",
+            fingerprint: "test-stream",
             open: () =>
               new ReadableStream({
                 start(controller) {
@@ -122,7 +124,7 @@ it("shares timeout budget across multiple chunks", async () => {
                 },
               }),
           },
-        } as never,
+        },
         {
           accessToken: "token",
           // Generous enough that the first chunk always dispatches on a slow
@@ -133,11 +135,9 @@ it("shares timeout budget across multiple chunks", async () => {
             calls++;
             await new Promise((resolve) => setTimeout(resolve, 700));
 
-            const uploaded = lengths.reduce((total, length) => total + length, 0);
-
             return new Response(null, {
               status: 308,
-              headers: { range: `bytes=0-${uploaded - 1}` },
+              headers: { range: `bytes=0-${8 * 1024 * 1024 - 1}` },
             });
           },
         },
@@ -160,13 +160,13 @@ it("splits a single oversized stream chunk into resumable requests", async () =>
   const bytes = new Uint8Array(size);
   const lengths: number[] = [];
 
-  // SAFETY: the uploader only reads `kind` and `source` from the media descriptor.
   const result = await sendYouTubeUpload(
     session,
     {
       kind: "video",
       source: {
         kind: "stream",
+        fingerprint: "test-stream",
         open: () =>
           new ReadableStream({
             start(controller) {
@@ -175,7 +175,7 @@ it("splits a single oversized stream chunk into resumable requests", async () =>
             },
           }),
       },
-    } as never,
+    },
     {
       accessToken: "token",
       fetch: async (_url, init) => {

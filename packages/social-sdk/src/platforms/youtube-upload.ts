@@ -276,7 +276,7 @@ export async function beginYouTubeUpload(
 
 export type YouTubeUploadStatus =
   | { state: "incomplete"; nextByte: number }
-  | { state: "complete"; video: Record<string, unknown> };
+  | { state: "complete"; video: JsonObject };
 
 async function statusFrom(response: Response): Promise<YouTubeUploadStatus> {
   if (response.status !== 308) return { state: "complete", video: object(await response.json()) };
