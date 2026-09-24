@@ -580,3 +580,52 @@ it("PostFast rejects an oversized blob before requesting an upload URL", async (
   );
   assert.equal(calls, 0);
 });
+
+it("PostFast does not submit a schedule that passed during media upload", async () => {
+  let time = clock().getTime();
+  const calls: string[] = [];
+
+  const adapter = postfast({
+    apiKey: "test",
+    clock: () => new Date(time),
+    uploadHostAllowed: (hostname) => hostname === "storage.example.test",
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+
+      calls.push(`${init?.method ?? "GET"} ${url.hostname}${url.pathname}`);
+
+      if (url.hostname === "storage.example.test") {
+        time = Date.parse(future) + 1;
+
+        return new Response(null, { status: 200 });
+      }
+
+      return Response.json(
+        [{ key: "image/i1.png", signedUrl: "https://storage.example.test/image/i1.png?sig=1" }],
+        { status: 201 },
+      );
+    },
+  });
+
+  const result = await createSocial({ backend: adapter }).posts.publish({
+    targets: [{ account: x }],
+    content: {
+      text: "demo",
+      media: [
+        {
+          kind: "image",
+          mimeType: "image/png",
+          filename: "i.png",
+          source: { kind: "blob", blob: new Blob([new Uint8Array(10)]), fingerprint: "i" },
+        },
+      ],
+    },
+    schedule: { at: future },
+  });
+
+  assert.equal(result.outcomes[0]?.state, "failed");
+  assert.deepEqual(calls, [
+    "POST api.postfa.st/file/get-signed-upload-urls",
+    "PUT storage.example.test/image/i1.png",
+  ]);
+});

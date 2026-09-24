@@ -598,6 +598,10 @@ export function postfast(options: ManagedOptions) {
           }
         }
 
+        // Media uploads can outlast a near schedule, and PostFast rejects a past time.
+        if (!(Date.parse(string(at)) > clock().getTime()))
+          reject("posts.publish", "The schedule time passed while media uploaded.");
+
         const response = object(
           await request("/social-posts", context, {
             posts: [
