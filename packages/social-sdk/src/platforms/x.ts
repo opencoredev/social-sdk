@@ -23,6 +23,8 @@ import type {
   SearchPostsInput,
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import { verifyXWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { createHttp, HttpError } from "../transport/http.js";
 import { isJsonValue } from "../transport/json.js";
 import {
@@ -72,6 +74,11 @@ export interface XOptions {
   readonly appBearerToken?: string;
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
+  /**
+   * OAuth 2.0 client secret (or legacy OAuth 1.0 consumer secret) that X uses to sign
+   * webhook deliveries and CRC responses.
+   */
+  readonly webhookSecret?: string;
 }
 
 export type XTweetField =
@@ -1303,6 +1310,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       apiRevision: "X API v2 / OpenAPI 2.168",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        webhookCapability(
+          "x",
+          "Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge.",
+        ),
         {
           platform: "x",
           operation: "posts.publish",
@@ -2009,6 +2020,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         });
       },
     },
+    webhooks: directWebhooks(
+      "x",
+      (input) => verifyXWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     native: (nativeAdapter = {
       async searchRecentPosts({ account, search, context }) {
         return searchPosts(account, { ...search, scope: "recent" }, context, search);

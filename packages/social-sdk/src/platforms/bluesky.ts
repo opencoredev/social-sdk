@@ -850,6 +850,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     runtime: ["node>=22.12", "bun"],
     capabilities: [
       {
+        operation: "webhooks.verify",
+        platform: "bluesky",
+        availability: "unsupported-by-platform",
+        notes:
+          "Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose.",
+      },
+      {
         operation: "accounts.read",
         platform: "bluesky",
         availability: "available",

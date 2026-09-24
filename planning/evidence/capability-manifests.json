@@ -1442,6 +1442,12 @@
       ],
       "capabilities": [
         {
+          "operation": "webhooks.verify",
+          "platform": "bluesky",
+          "availability": "unsupported-by-platform",
+          "notes": "Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose."
+        },
+        {
           "operation": "accounts.read",
           "platform": "bluesky",
           "availability": "available",
@@ -1757,6 +1763,12 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "x",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge."
+        },
         {
           "platform": "x",
           "operation": "posts.publish",
@@ -2133,6 +2145,12 @@
           "availability": "available"
         },
         {
+          "platform": "threads",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
+        },
+        {
           "operation": "posts.publish",
           "platform": "threads",
           "availability": "available",
@@ -2312,6 +2330,12 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "youtube",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies the PubSubHubbub X-Hub-Signature for subscriptions created with hub.secret and decodes the Atom feed. Answer the GET verification with answerYouTubeWebhookChallenge."
+        },
         {
           "operation": "accounts.read",
           "platform": "youtube",
@@ -2540,6 +2564,12 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "tiktok",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event."
+        },
         {
           "platform": "tiktok",
           "operation": "posts.publish",
@@ -2781,6 +2811,12 @@
           "platform": "instagram",
           "operation": "messages.read",
           "availability": "approval-dependent"
+        },
+        {
+          "platform": "instagram",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
         }
       ]
     }
@@ -2888,6 +2924,15 @@
           "platform": "linkedin",
           "operation": "messages.write",
           "availability": "unsupported-by-platform"
+        },
+        {
+          "platform": "linkedin",
+          "operation": "webhooks.verify",
+          "availability": "approval-dependent",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge."
         },
         {
           "platform": "linkedin",

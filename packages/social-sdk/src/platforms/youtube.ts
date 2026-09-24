@@ -20,6 +20,8 @@ import type {
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { definedFields } from "../core/fields.js";
+import { verifyYouTubeWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { createHttp, HttpError } from "../transport/http.js";
 import {
   array,
@@ -45,6 +47,8 @@ export interface YouTubeOptions {
   readonly clock?: () => Date;
   /** Persist secret resumable URI server-side before uploading any video bytes. */
   readonly saveUploadSession?: (session: YouTubeUploadSession) => Promise<void>;
+  /** The `hub.secret` sent when subscribing to push notifications. */
+  readonly webhookSecret?: string;
 }
 
 export interface YouTubeNative {
@@ -387,6 +391,10 @@ export function youtube(
       apiRevision: "YouTube Data API v3",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        webhookCapability(
+          "youtube",
+          "Verifies the PubSubHubbub X-Hub-Signature for subscriptions created with hub.secret and decodes the Atom feed. Answer the GET verification with answerYouTubeWebhookChallenge.",
+        ),
         ...[
           "accounts.read",
           "posts.read",
@@ -532,6 +540,11 @@ export function youtube(
         },
       ],
     },
+    webhooks: directWebhooks(
+      "youtube",
+      (input) => verifyYouTubeWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     accounts: {
       async list(_input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         return { items: [await accountInfo(context)] };

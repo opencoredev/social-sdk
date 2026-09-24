@@ -33,6 +33,8 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { verifyMetaWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
 export interface ThreadsAuthorization {
   readonly userId: string;
@@ -116,6 +118,8 @@ export interface ThreadsOptions {
   readonly graphVersion?: string;
   readonly workflowStore?: ThreadsWorkflowStore;
   readonly clock?: () => Date;
+  /** App secret that Meta uses to sign Threads webhook deliveries (`X-Hub-Signature-256`). */
+  readonly webhookSecret?: string;
 }
 
 export interface ThreadsNative {
@@ -634,6 +638,10 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     runtime: ["node>=22.12", "bun"],
     capabilities: [
       { operation: "accounts.read", platform: "threads", availability: "available" },
+      webhookCapability(
+        "threads",
+        "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
+      ),
       {
         operation: "posts.publish",
         platform: "threads",
@@ -943,6 +951,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     id: backend,
     capabilities,
     native,
+    webhooks: directWebhooks(
+      "threads",
+      (input) => verifyMetaWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     accounts: {
       list: async (_input, context) => ({ items: [await readAccount(context)] }),
       get: async (ref, context) => {

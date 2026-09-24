@@ -27,6 +27,8 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { verifyMetaWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
 export interface InstagramOptions {
   /** Instagram Login by default. Facebook Login is required for business discovery and hashtags. */
@@ -38,6 +40,8 @@ export interface InstagramOptions {
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
   readonly workflowStore?: InstagramWorkflowStore;
+  /** App secret that Meta uses to sign webhook deliveries (`X-Hub-Signature-256`). */
+  readonly webhookSecret?: string;
 }
 
 export interface InstagramNative {
@@ -833,8 +837,17 @@ export function instagram(
           operation: "messages.read",
           availability: "approval-dependent" as const,
         },
+        webhookCapability(
+          "instagram",
+          "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
+        ),
       ],
     },
+    webhooks: directWebhooks(
+      "instagram",
+      (input) => verifyMetaWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     accounts: {
       async list(_input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         return { items: [await readAccount(context)] };

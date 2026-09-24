@@ -279,6 +279,10 @@ uses `POST /2/dm_conversations/{dm_conversation_id}/messages`. These methods req
 token with `dm.read`, `users.read`, and `tweet.read`; sending also requires `dm.write`. Availability
 still depends on the X API tier and Direct Messages access for the app.
 
+### Receive webhooks
+
+Pass the OAuth 2.0 client secret, or the legacy consumer secret, as `webhookSecret`. `adapter.webhooks.verify` checks `X-Twitter-Webhooks-Signature-OAuth2` when X sends it and falls back to `X-Twitter-Webhooks-Signature` only when that header is absent, so use the OAuth 2.0 client secret once your app has one. Answer the CRC GET with `answerXWebhookChallenge` from `@opencoredev/social-sdk/server`, using the same secret. Account Activity direct messages decode to `message.received`, post deletions to `post.removed`, and app revocations to `account.updated`. See [Process webhooks](/events).
+
 ## Native operations
 
 The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, text edits, deletion, and bookmarks. Filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.

@@ -229,6 +229,10 @@ const metrics = await social.analytics.getPostMetrics(postRef);
 for (const metric of metrics) console.log(metric.name, metric.value, metric.unit);
 ```
 
+### Receive webhooks
+
+Pass the Meta app secret as `webhookSecret` to verify `X-Hub-Signature-256` through `adapter.webhooks.verify`. Answer Meta's GET verification with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`. Comments and live comments decode to `comment.received` and incoming messages to `message.received`; other fields stay `unknown`. See [Process webhooks](/events) for the handler and the batching rules.
+
 ## Native operations
 
 The typed native module exposes Reels and Stories container publishing, post deletion, publishing-limit reads, comment moderation, comment replies, tagged and mentioned media reads, business discovery, and hashtag search. Product tagging and messaging are declared approval dependent and require the corresponding Meta products and app review.

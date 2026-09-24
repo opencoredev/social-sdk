@@ -209,6 +209,10 @@ mutes use `app.bsky.graph.muteActorList` and `unmuteActorList`. List blocks are
 Moderation reports call `com.atproto.moderation.createReport` and require an authenticated
 moderation service.
 
+### Receive events
+
+Bluesky has no webhooks, so `webhooks.verify` is `unsupported-by-platform` and the adapter has no `webhooks` member. Subscribe to the relay firehose (`com.atproto.sync.subscribeRepos`) or Jetstream over WebSocket instead. See [Consuming the firehose](https://bsky.network/docs/consuming-the-firehose).
+
 ## Native operations
 
 The typed native module covers reposts and quote posts, deletion, graph relationships,

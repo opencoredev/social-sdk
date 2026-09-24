@@ -160,6 +160,10 @@ Page statistics preserve nested click metrics such as `careersPageClicks` and
 `mobileCareersPageClicks`, as well as nested view counts such as `allPageViews` and
 `uniquePageViews`.
 
+### Receive webhooks
+
+LinkedIn enables webhooks only for apps with an approved webhook use case, so `webhooks.verify` is `approval-dependent`. Organization social action notifications also need the Community Management API and `rw_organization_admin`. Pass the app client secret as `webhookSecret`. `adapter.webhooks.verify` checks `X-LI-Signature`, and `answerLinkedInWebhookChallenge` from `@opencoredev/social-sdk/server` answers the GET validation that LinkedIn repeats every 2 hours. Member `COMMENT` notifications decode to `comment.received`; other actions stay `unknown`. See [Process webhooks](/events).
+
 ## Native operations
 
 The native module covers polls, reactions, reshares, updates, deletion, and organization analytics. Multi-image, video, and document posts are not supported yet. Articles remain approval dependent.
