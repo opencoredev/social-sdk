@@ -4,10 +4,14 @@ import { bluesky } from "../src/platforms/bluesky.js";
 import {
   connectedAccountRef,
   type AdapterOperationContext,
+  type JsonObject,
+  type JsonValue,
   type PreparedPublishTarget,
 } from "../src/core/index.js";
+import { definedFields } from "../src/core/fields.js";
+import { array, object } from "../src/transport/validation.js";
 
-function response(value: unknown, status = 200): Response {
+function response(value: JsonValue, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },
@@ -107,7 +111,7 @@ describe("Bluesky adapter", () => {
       fetch: async (input, init) => {
         requests.push({
           url: String(input),
-          ...(init?.body === undefined ? {} : { body: String(init.body) }),
+          ...definedFields({ body: init?.body === undefined ? undefined : String(init.body) }),
           headers: new Headers(init?.headers),
         });
 
@@ -198,13 +202,13 @@ describe("Bluesky adapter", () => {
   });
 
   it("creates a text post and encodes link facets using UTF-8 byte offsets", async () => {
-    let requestBody: Record<string, unknown> | undefined;
+    let requestBody: JsonObject | undefined;
 
     const adapter = bluesky({
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async (_input, init) => {
-        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        requestBody = object(JSON.parse(String(init?.body)));
 
         return response({ uri: "at://did:plc:test/app.bsky.feed.post/one", cid: "bafyreione" });
       },
@@ -226,11 +230,9 @@ describe("Bluesky adapter", () => {
     const outcome = await adapter.posts?.publishTarget(target, context());
     assert.equal(outcome?.state, "published");
 
-    const record = requestBody?.record as {
-      facets?: readonly { index: { byteStart: number; byteEnd: number } }[];
-    };
+    const facets = array(object(requestBody?.["record"])["facets"]);
 
-    assert.deepEqual(record.facets?.[0]?.index, { byteStart: 5, byteEnd: 24 });
+    assert.deepEqual(object(facets[0])["index"], { byteStart: 5, byteEnd: 24 });
   });
 
   it("uploads images and preserves native uri/cid for a strong reply reference", async () => {
@@ -304,7 +306,7 @@ describe("Bluesky adapter", () => {
         targetKey: "reply",
         account,
         content: { text: "Reply" },
-        ...(first?.state === "published" ? { replyTo: first.post } : {}),
+        ...definedFields({ replyTo: first?.state === "published" ? first.post : undefined }),
       },
       context(),
     );
@@ -495,7 +497,7 @@ it("exposes Bluesky notifications through the normalized paged adapter", async (
     fetch: async (input, init) => {
       requests.push({
         url: String(input),
-        ...(init?.body === undefined ? {} : { body: String(init.body) }),
+        ...definedFields({ body: init?.body === undefined ? undefined : String(init.body) }),
       });
 
       return response({
