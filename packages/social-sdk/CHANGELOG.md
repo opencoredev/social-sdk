@@ -1,5 +1,11 @@
 # @opencoredev/social-sdk
 
+## 0.5.0
+
+### Minor Changes
+
+- 59fd2f7: Add a PostFast managed backend at `@opencoredev/social-sdk/cloud/postfast`. It lists connected accounts, uploads media, schedules posts, reads delivery state, cancels scheduled posts, deletes failed records, reads post analytics, and creates connect links through `native.createConnectLink`. PostFast only accepts scheduled posts, so every target needs a future `schedule`. The offline CLI diagnostics recognize the `postfast` adapter and `POSTFAST_API_KEY`.
+
 ## 0.4.0
 
 ### Minor Changes
