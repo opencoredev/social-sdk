@@ -42,7 +42,12 @@ it("YouTube profile.update merges brandingSettings.channel before channels.updat
     id: "channel1",
     brandingSettings: {
       channel: { title: "Channel", description: "Old", keywords: "a b", country: "US" },
-      image: { bannerExternalUrl: "https://example.test/banner" },
+      image: {
+        bannerExternalUrl: "https://example.test/banner",
+        bannerImageUrl: "https://example.test/deprecated",
+      },
+      watch: { featuredPlaylistId: "PL1" },
+      hints: [{ property: "p", value: "v" }],
     },
   });
   const result = await adapter.native!.updateProfile({
@@ -66,6 +71,22 @@ it("YouTube profile.update merges brandingSettings.channel before channels.updat
       channel: { title: "Channel", description: "New", keywords: "a b" },
       image: { bannerExternalUrl: "https://example.test/banner" },
     },
+  });
+});
+
+it("YouTube profile.update omits image when the channel has no banner", async () => {
+  const { adapter, calls } = channelAdapter({
+    id: "channel1",
+    brandingSettings: { channel: { title: "Channel" }, image: {} },
+  });
+  await adapter.native!.updateProfile({
+    part: "brandingSettings",
+    value: { channel: { description: "New" } },
+    context,
+  });
+  assert.deepEqual(calls[1]!.body, {
+    id: "channel1",
+    brandingSettings: { channel: { title: "Channel", description: "New" } },
   });
 });
 

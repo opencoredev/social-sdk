@@ -1592,9 +1592,20 @@ export function youtube(
         const branding = isJsonObject(channel["brandingSettings"])
           ? channel["brandingSettings"]
           : {};
+        // Resend only documented writable branding: the merged channel object and the current
+        // banner URL, which channels.update would otherwise delete. Deprecated watch, hints, and
+        // image fields are dropped; YouTube rejects some of them on write.
+        const bannerExternalUrl = isJsonObject(branding["image"])
+          ? branding["image"]["bannerExternalUrl"]
+          : undefined;
         const next =
           part === "brandingSettings" && isJsonObject(channelPatch)
-            ? { ...branding, channel: merge(branding["channel"], channelPatch) }
+            ? {
+                channel: merge(branding["channel"], channelPatch),
+                ...(typeof bannerExternalUrl === "string" && bannerExternalUrl !== ""
+                  ? { image: { bannerExternalUrl } }
+                  : {}),
+              }
             : merge(channel["localizations"], value);
         return object(
           await request(
