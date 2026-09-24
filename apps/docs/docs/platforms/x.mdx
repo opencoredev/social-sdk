@@ -258,7 +258,7 @@ still depends on the X API tier and Direct Messages access for the app.
 
 ### Receive webhooks
 
-Pass the OAuth 2.0 client secret, or the legacy consumer secret, as `webhookSecret`. `adapter.webhooks.verify` checks `X-Twitter-Webhooks-Signature-OAuth2` and then `X-Twitter-Webhooks-Signature`. Answer the CRC GET with `answerXWebhookChallenge` from `@opencoredev/social-sdk/server`, using the same secret. Account Activity direct messages decode to `message.received`, post deletions to `post.removed`, and app revocations to `account.updated`. See [Process webhooks](/events).
+Pass the OAuth 2.0 client secret, or the legacy consumer secret, as `webhookSecret`. `adapter.webhooks.verify` checks `X-Twitter-Webhooks-Signature-OAuth2` when X sends it and falls back to `X-Twitter-Webhooks-Signature` only when that header is absent, so use the OAuth 2.0 client secret once your app has one. Answer the CRC GET with `answerXWebhookChallenge` from `@opencoredev/social-sdk/server`, using the same secret. Account Activity direct messages decode to `message.received`, post deletions to `post.removed`, and app revocations to `account.updated`. See [Process webhooks](/events).
 
 ## Native operations
 

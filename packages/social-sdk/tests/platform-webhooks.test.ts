@@ -169,6 +169,54 @@ it("verifies both X signature headers and answers the CRC check", async () => {
     "unauthorized",
   );
 
+  // When the OAuth 2.0 header is present it alone decides.
+  const bad = `sha256=${hmac("sha256", body, "other-secret").digest("base64")}`;
+  await rejects(
+    verifyXWebhook({
+      secret,
+      headers: new Headers({
+        "X-Twitter-Webhooks-Signature-OAuth2": bad,
+        "X-Twitter-Webhooks-Signature": signature,
+      }),
+      body,
+    }),
+    "unauthorized",
+  );
+  await rejects(
+    verifyXWebhook({
+      secret,
+      headers: new Headers({
+        "X-Twitter-Webhooks-Signature-OAuth2": "not-a-signature",
+        "X-Twitter-Webhooks-Signature": signature,
+      }),
+      body,
+    }),
+    "unauthorized",
+  );
+  assert.equal(
+    (
+      await verifyXWebhook({
+        secret,
+        headers: new Headers({
+          "X-Twitter-Webhooks-Signature-OAuth2": signature,
+          "X-Twitter-Webhooks-Signature": bad,
+        }),
+        body,
+      })
+    ).valid,
+    true,
+  );
+  assert.equal(
+    (
+      await verifyXWebhook({
+        secret,
+        headers: new Headers({ "X-Twitter-Webhooks-Signature": signature }),
+        body,
+      })
+    ).valid,
+    true,
+  );
+
   const crc = await answerXWebhookChallenge({
     secret,
     query: new URLSearchParams({ crc_token: "fixture-crc-token" }),
@@ -448,6 +496,30 @@ it("decodes Instagram deliveries and keeps batches as one event", async () => {
     "invalid_input",
     "webhooks.decode",
   );
+
+  for (const body of [
+    {},
+    { object: "instagram" },
+    { object: "instagram", entry: [] },
+    { object: "page", entry: [{ id: "1", changes: [{ field: "comments" }] }] },
+  ])
+    await rejects(
+      decodePlatformWebhook({ platform: "instagram", backend: "direct", body: json(body) }),
+      "invalid_input",
+      "webhooks.decode",
+    );
+
+  const unmapped = await decodePlatformWebhook({
+    platform: "instagram",
+    backend: "direct",
+    body: json({
+      object: "instagram",
+      entry: [{ id: "ig-1", time: 1, changes: [{ field: "future_field", value: {} }] }],
+    }),
+  });
+
+  assert.equal(unmapped.type, "unknown");
+  assert.equal(unmapped.originalType, "future_field");
 });
 
 it("decodes Threads deliveries by field", async () => {
@@ -497,6 +569,19 @@ it("decodes Threads deliveries by field", async () => {
 
   assert.equal(publish.type, "unknown");
   assert.deepEqual(publish.accountIds, []);
+
+  // Threads has no Meta object/entry wrapper; its container is `values`.
+  for (const body of [
+    {},
+    { app_id: "app-1", values: {} },
+    { app_id: "app-1", values: { field: "replies" } },
+    { object: "threads", entry: [] },
+  ])
+    await rejects(
+      decodePlatformWebhook({ platform: "threads", backend: "direct", body: json(body) }),
+      "invalid_input",
+      "webhooks.decode",
+    );
 });
 
 it("decodes X Account Activity deliveries and redacts secret-like fields", async () => {
@@ -540,6 +625,33 @@ it("decodes X Account Activity deliveries and redacts secret-like fields", async
   });
 
   assert.equal(deleted.type, "post.removed");
+
+  const unmapped = await decodePlatformWebhook({
+    platform: "x",
+    backend: "direct",
+    body: json({ for_user_id: "1", future_thing_events: [{ id: "f1" }] }),
+  });
+
+  assert.equal(unmapped.type, "unknown");
+  assert.equal(unmapped.originalType, "future_thing_events");
+
+  const activity = await decodePlatformWebhook({
+    platform: "x",
+    backend: "direct",
+    body: json({
+      data: { event_uuid: "1", filter: { user_id: "1" }, event_type: "post.create", payload: {} },
+    }),
+  });
+
+  assert.equal(activity.type, "unknown");
+  assert.equal(activity.originalType, "post.create");
+
+  for (const body of [{}, { for_user_id: "1" }, { for_user_id: "1", data: { payload: {} } }])
+    await rejects(
+      decodePlatformWebhook({ platform: "x", backend: "direct", body: json(body) }),
+      "invalid_input",
+      "webhooks.decode",
+    );
 });
 
 it("decodes YouTube Atom feeds and tombstones without expanding declarations", async () => {
@@ -630,6 +742,26 @@ it("decodes TikTok events with the publish ID and creation time", async () => {
     }),
     "invalid_input",
   );
+
+  for (const content of ['{"publish_id":', "[1,2]", '"text"', "", 42, { publish_id: "p" }])
+    await rejects(
+      decodePlatformWebhook({
+        platform: "tiktok",
+        backend: "direct",
+        body: json({ event: "post.publish.complete", create_time: 1, content }),
+      }),
+      "invalid_input",
+      "webhooks.decode",
+    );
+
+  const noContent = await decodePlatformWebhook({
+    platform: "tiktok",
+    backend: "direct",
+    body: json({ event: "post.publish.complete", create_time: 1 }),
+  });
+
+  assert.equal(noContent.backendRecordId, undefined);
+  assert.equal(noContent.data["content"], undefined);
 });
 
 const linkedInBody = json({

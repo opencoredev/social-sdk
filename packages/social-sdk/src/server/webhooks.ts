@@ -524,8 +524,9 @@ export async function answerMetaWebhookChallenge(input: {
 /**
  * Verify an X webhook POST. X signs the raw body with HMAC-SHA256 and sends
  * `sha256=<base64>` in `X-Twitter-Webhooks-Signature-OAuth2` (OAuth 2.0 client secret)
- * or the legacy `X-Twitter-Webhooks-Signature` (OAuth 1.0 consumer secret). The
- * OAuth 2.0 header is checked first. Pass the secret that matches your app.
+ * or the legacy `X-Twitter-Webhooks-Signature` (OAuth 1.0 consumer secret). When the
+ * OAuth 2.0 header is present it alone decides; the legacy header is checked only when
+ * the OAuth 2.0 header is absent. Pass the secret that matches the header X sends.
  */
 export async function verifyXWebhook(input: {
   secret: string;
@@ -537,15 +538,19 @@ export async function verifyXWebhook(input: {
 
   if (!input.secret) denied();
 
-  for (const name of ["X-Twitter-Webhooks-Signature-OAuth2", "X-Twitter-Webhooks-Signature"]) {
-    const match = /^sha256=([A-Za-z0-9+/]{43}=)$/.exec(input.headers.get(name) ?? "");
-    const signature = match?.[1] === undefined ? undefined : base64Bytes(match[1], 32);
+  // X says to verify the OAuth 2.0 header when present. The legacy header is only a
+  // fallback when the OAuth 2.0 header is absent, so a bad OAuth 2.0 signature can
+  // never be rescued by a matching legacy one.
+  const header =
+    input.headers.get("X-Twitter-Webhooks-Signature-OAuth2") ??
+    input.headers.get("X-Twitter-Webhooks-Signature");
 
-    if (signature && (await hmacMatches(input.secret, "SHA-256", signature, body)))
-      return bodyVerified("hmac-sha256");
-  }
+  const match = /^sha256=([A-Za-z0-9+/]{43}=)$/.exec(header ?? "");
+  const signature = match?.[1] === undefined ? undefined : base64Bytes(match[1], 32);
 
-  denied();
+  if (!signature || !(await hmacMatches(input.secret, "SHA-256", signature, body))) denied();
+
+  return bodyVerified("hmac-sha256");
 }
 
 /**
@@ -844,11 +849,15 @@ function instagramFieldType(field: string): SocialEvent["type"] {
 }
 
 function decodeInstagram(payload: Record<string, unknown>): DecodedDelivery {
-  if (payload["object"] !== "instagram") malformed("instagram");
+  const entries = array(payload["entry"]);
+
+  // A delivery without a documented container is malformed. A well-formed entry with
+  // a field the SDK does not map still decodes, as an `unknown` event.
+  if (payload["object"] !== "instagram" || entries.length === 0) malformed("instagram");
   const items: DecodedItem[] = [];
   const accountIds: string[] = [];
 
-  for (const value of array(payload["entry"])) {
+  for (const value of entries) {
     const entry = object(value);
     const id = optionalString(entry["id"]);
 
@@ -940,6 +949,17 @@ function decodeX(payload: Record<string, unknown>): DecodedDelivery {
     if (key.endsWith("_events") && Array.isArray(value))
       items.push({ originalType: key, type: xEventType(key) });
 
+  // X Activity API wraps each event in `data` with an `event_type`. It is a documented
+  // container, but its event types are not mapped, so it decodes as `unknown`.
+  const activity = payload["data"];
+
+  const activityType =
+    typeof activity === "object" && activity !== null && !Array.isArray(activity)
+      ? optionalString(object(activity)["event_type"])
+      : undefined;
+
+  if (activityType) items.push({ originalType: activityType, type: "unknown" });
+
   if (payload["user_event"] !== undefined) {
     const userEvent = object(payload["user_event"]);
 
@@ -952,6 +972,9 @@ function decodeX(payload: Record<string, unknown>): DecodedDelivery {
       items.push({ originalType: "user_event.revoke", type: "account.updated" });
     }
   }
+
+  // `{}` or a body with only `for_user_id` carries no documented event container.
+  if (items.length === 0) malformed("x");
 
   return { items, accountIds, data: payload };
 }
@@ -1116,27 +1139,18 @@ function decodeTikTok(payload: Record<string, unknown>): DecodedDelivery {
   const event = string(payload["event"]);
   const createTime = payload["create_time"];
   const rawContent = payload["content"];
-  let content: unknown = rawContent;
 
-  // TikTok sends `content` as a serialized JSON string.
-  if (typeof rawContent === "string")
-    try {
-      content = parseJson(rawContent);
-    } catch {
-      content = rawContent;
-    }
-
-  const publishId =
-    typeof content === "object" && content !== null && !Array.isArray(content)
-      ? optionalString(object(content)["publish_id"])
-      : undefined;
+  // TikTok documents `content` as a serialized JSON object. Anything else is malformed;
+  // parse and object errors fall through to decodePlatformWebhook's invalid_input.
+  const content = rawContent === undefined ? undefined : object(parseJson(string(rawContent)));
+  const publishId = content === undefined ? undefined : optionalString(content["publish_id"]);
 
   const openId = optionalString(payload["user_openid"]);
 
   return {
     items: [{ originalType: event, type: tiktokEventType(event) }],
     accountIds: openId ? [openId] : [],
-    data: { ...payload, content },
+    data: content === undefined ? payload : { ...payload, content },
     backendRecordId: event.startsWith("post.publish.") ? publishId : undefined,
     occurredAt:
       typeof createTime === "number" && Number.isSafeInteger(createTime) && createTime > 0
