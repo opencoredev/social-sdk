@@ -2139,8 +2139,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     },
     async hideReply(input) {
       const operation = "bluesky.comments.moderate";
+
       const context = nativeContext(input.context, operation);
       assertNativeAccount(input.account, context, operation);
+
       const invalid = (message: string) =>
         new SocialError({
           code: "invalid_input",
@@ -2148,36 +2150,47 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message,
           retryDisposition: { kind: "never" },
         });
+
       const postUri =
         /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.feed\.post\/[A-Za-z0-9._~:-]{1,512}$/;
+
       if (!postUri.test(input.replyUri))
         throw invalid("Reply must be an app.bsky.feed.post AT-URI.");
 
       const postView = async (uri: string): Promise<ReturnType<typeof object>> => {
         const query = new URLSearchParams({ uris: uri });
+
         const found = array(
           object(await xrpc(`app.bsky.feed.getPosts?${query.toString()}`, context))["posts"],
         )
           .map((value) => object(value))
           .find((value) => value["uri"] === uri);
+
         if (found === undefined)
           throw new SocialError({
             code: "not_found",
             operation,
             message: "Bluesky post was not found.",
           });
+
         return found;
       };
 
       const reply = object(object((await postView(input.replyUri))["record"]))["reply"];
+
       if (reply === undefined) throw invalid("The URI identifies a root post, not a reply.");
+
       const rootUri = string(object(object(reply)["root"])["uri"]);
+
       if (!rootUri.startsWith(`at://${auth.did}/app.bsky.feed.post/`))
         throw invalid("Only the author of the thread's root post can hide its replies.");
+
       const rkey = recordKey(rootUri, "app.bsky.feed.post");
+
       const threadgateUri = `at://${auth.did}/app.bsky.feed.threadgate/${rkey}`;
 
       const gate = (await postView(rootUri))["threadgate"];
+
       let existing:
         | {
             readonly ref: BlueskyPostRef;
@@ -2185,14 +2198,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             readonly hiddenReplies: readonly string[];
           }
         | undefined;
+
       if (gate !== undefined) {
         const view = object(gate);
+
         if (view["uri"] !== threadgateUri)
           throw new SocialError({
             code: "upstream_failure",
             operation,
             message: "Bluesky returned a threadgate for a different post.",
           });
+
         const record = object(view["record"]);
         existing = {
           ref: postRef(view),
@@ -2205,6 +2221,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       }
 
       const current = existing?.hiddenReplies.includes(input.replyUri) ?? false;
+
       if (current === input.hidden)
         return existing === undefined
           ? { hidden: current }
@@ -2225,6 +2242,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         });
+
         return { hidden: true, threadgate: postRef(created) };
       }
 
@@ -2232,6 +2250,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         ? [...existing.hiddenReplies, input.replyUri]
         : existing.hiddenReplies.filter((uri) => uri !== input.replyUri);
       // swapRecord makes the PDS reject the write if the threadgate changed since it was read.
+
       const updated = await xrpc("com.atproto.repo.putRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -2241,6 +2260,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           swapRecord: existing.ref.cid,
         }),
       });
+
       return { hidden: input.hidden, threadgate: postRef(updated) };
     },
   };

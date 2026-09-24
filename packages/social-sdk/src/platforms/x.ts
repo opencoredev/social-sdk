@@ -31,6 +31,7 @@ import {
   array,
   isString,
   object,
+  optionalBoolean,
   optionalNumber,
   optionalString,
   string,
@@ -798,9 +799,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         {
           query: `conversation_id:${post.postId}`,
           "tweet.fields": replyFields.join(","),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
         },
       ),
@@ -825,23 +824,24 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ? undefined
           : array(row["referenced_tweets"]).map((reference) => {
               const item = object(reference);
+
               return { type: string(item["type"]), id: string(item["id"]) };
             });
+
       const counts =
         row["public_metrics"] === undefined ? undefined : object(row["public_metrics"]);
 
       return [
         {
           ...publicFields(row, replyFields),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(references === undefined ? {} : { referenced_tweets: references }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
           ...(counts === undefined
             ? {}
             : {
                 public_metrics: Object.fromEntries(
                   Object.keys(counts).flatMap((name) => {
                     const value = optionalNumber(counts[name]);
+
                     return value === undefined ? [] : [[name, value]];
                   }),
                 ),
@@ -855,7 +855,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     return {
       items,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       ...(nextCursor === undefined ? {} : { nextCursor }),
     };
   }
@@ -2813,6 +2812,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async hideReply({ account, replyId, hidden, context }) {
         authorize(account, context);
+
         if (!/^[0-9]{1,19}$/.test(replyId))
           throw new SocialError({
             code: "invalid_input",
@@ -2820,6 +2820,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             message: "X reply IDs are numeric strings of 1 to 19 digits.",
             retryDisposition: { kind: "never" },
           });
+
         const result = object(
           await requireUserToken("comments.moderate")(
             `/2/tweets/${encodeURIComponent(replyId)}/hidden`,
@@ -2829,14 +2830,20 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             "PUT",
           ),
         );
-        const state = result["data"] === undefined ? undefined : object(result["data"])["hidden"];
-        if (typeof state !== "boolean")
+
+        const state =
+          result["data"] === undefined
+            ? undefined
+            : optionalBoolean(object(result["data"])["hidden"]);
+
+        if (state === undefined)
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "comments.moderate",
             message: "X did not report the reply's hidden state.",
             retryDisposition: { kind: "reconcile-first" },
           });
+
         return { hidden: state };
       },
     }),
