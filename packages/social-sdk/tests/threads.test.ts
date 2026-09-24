@@ -94,7 +94,7 @@ test("Threads keyword search requests the documented fields", async () => {
   );
 });
 
-test("Threads profile lookup maps current fields without treating the handle as an ID", async () => {
+test("Threads profile lookup requests only documented fields and namespaces the handle", async () => {
   let requested: URL | undefined;
 
   const adapter = threads({
@@ -107,21 +107,94 @@ test("Threads profile lookup maps current fields without treating the handle as 
         name: "Alice",
         profile_picture_url: "https://img",
         biography: "Bio",
+        is_verified: true,
+        follower_count: 120,
       });
     },
   });
 
   const profile = await adapter.graph!.getProfile!(account, { handle: "alice" }, context);
   assert.equal(requested?.pathname, "/v1.0/profile_lookup");
+  assert.equal(requested?.searchParams.get("username"), "alice");
   assert.equal(
     requested?.searchParams.get("fields"),
-    "id,username,name,profile_picture_url,biography,is_verified",
+    "username,name,profile_picture_url,biography,is_verified",
   );
+  assert.equal(profile.ref.profileId, "lookup:alice");
   assert.equal(profile.handle, "alice");
+  assert.equal(profile.displayName, "Alice");
   assert.equal(profile.avatarUrl, "https://img");
   assert.equal(profile.bio, "Bio");
-  assert.notEqual(profile.ref.profileId, "alice");
+
   assert.equal(profile.native?.["_profileIdUnavailable"], true);
+  assert.equal(profile.native?.["follower_count"], 120);
+});
+
+test("Threads profile lookup does not treat an unrequested id as the provider ID", async () => {
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async () => Response.json({ id: "999", username: "alice" }),
+  });
+
+  const profile = await adapter.graph!.getProfile!(account, { handle: "alice" }, context);
+  assert.equal(profile.ref.profileId, "lookup:alice");
+  assert.equal(profile.native?.["_profileIdUnavailable"], true);
+});
+
+test("Threads profile lookup encodes the username and falls back to the requested handle", async () => {
+  let requested: URL | undefined;
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async (input) => {
+      requested = new URL(String(input));
+
+      return Response.json({ name: "No Username" });
+    },
+  });
+
+  const profile = await adapter.graph!.getProfile!(account, { handle: "a&b c" }, context);
+  assert.equal(requested?.searchParams.get("username"), "a&b c");
+  assert.equal(
+    requested?.searchParams.get("fields"),
+    "username,name,profile_picture_url,biography,is_verified",
+  );
+  assert.equal(profile.ref.profileId, "lookup:a&b c");
+  assert.equal(profile.handle, "a&b c");
+  assert.equal(profile.displayName, "No Username");
+});
+
+test("Threads app-scoped profile read requests documented fields and uses the returned id", async () => {
+  let requested: URL | undefined;
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async (input) => {
+      requested = new URL(String(input));
+
+      return Response.json({
+        id: "u1",
+        username: "me",
+        name: "Me",
+        threads_profile_picture_url: "https://me-img",
+        threads_biography: "My bio",
+        is_verified: false,
+      });
+    },
+  });
+
+  const profile = await adapter.graph!.getProfile!(account, {}, context);
+  assert.equal(requested?.pathname, "/v1.0/u1");
+  assert.equal(
+    requested?.searchParams.get("fields"),
+    "id,username,name,threads_profile_picture_url,threads_biography,is_verified",
+  );
+  assert.equal(profile.ref.profileId, "u1");
+  assert.equal(profile.handle, "me");
+  assert.equal(profile.displayName, "Me");
+  assert.equal(profile.avatarUrl, "https://me-img");
+  assert.equal(profile.bio, "My bio");
+  assert.equal(profile.native?.["_profileIdUnavailable"], undefined);
 });
 
 test("Threads native reply management routes preserve fields and cursors", async () => {

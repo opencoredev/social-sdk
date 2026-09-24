@@ -969,9 +969,20 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         authorize(account, "profiles.read");
         let result: JsonObject;
 
+        let returnedProfileId: string | undefined;
+
         if (input.handle !== undefined) {
+          // Profile Discovery fields, per "Retrieve a Threads user's public profile information":
+          // https://developers.facebook.com/documentation/threads/threads-profiles
+          // (v1.0, page updated 2026-04-13, accessed 2026-09-24). `id` is not a documented
+          // profile_lookup field, so it is not requested and the lookup has no provider ID.
+          const params = new URLSearchParams({
+            username: input.handle,
+            fields: "username,name,profile_picture_url,biography,is_verified",
+          });
+
           result = await request(
-            `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=id,username,name,profile_picture_url,biography,is_verified`,
+            `profile_lookup?${params.toString()}`,
             { method: "GET" },
             "profiles.read",
             context,
@@ -985,24 +996,29 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
               "Threads profile reads are limited to the authorized app-scoped user.",
               "unauthorized",
             );
+          // App-scoped profile fields, per "Retrieve a Threads app-scoped user's profile
+          // information" on the same page (accessed 2026-09-24). `id` is documented here.
           result = await request(
             `${encodeURIComponent(profileId)}?fields=id,username,name,threads_profile_picture_url,threads_biography,is_verified`,
             { method: "GET" },
             "profiles.read",
             context,
           );
+
+          returnedProfileId = optionalString(result["id"]);
         }
 
-        const returnedProfileId = optionalString(result["id"]);
+        const handle = optionalString(result["username"]) ?? input.handle;
+        // profile_lookup returns no Threads user ID. The normalized ID is a namespaced
+        // `lookup:<username>` so a username is never presented as a provider user ID.
 
         const profileId =
           returnedProfileId ??
           input.profileId ??
-          (input.handle ? `lookup:${input.handle}` : undefined);
+          (input.handle === undefined ? undefined : `lookup:${handle ?? input.handle}`);
 
         if (profileId === undefined)
           fail("profiles.read", "Threads profile response did not return a profile ID.");
-        const handle = optionalString(result["username"]) ?? input.handle;
         const displayName = optionalString(result["name"]);
 
         const avatarUrl =
