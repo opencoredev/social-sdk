@@ -234,7 +234,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | post-for-me | facebook | media.upload | available | None declared | See adapter setup |
 | post-for-me | facebook | webhooks.verify | available | None declared | See adapter setup |
 | bluesky | bluesky | accounts.read | available | None declared | repo |
-| bluesky | bluesky | posts.publish | available | text, image | repo |
+| bluesky | bluesky | posts.publish | available | text, image, video | repo |
 | bluesky | bluesky | posts.read | available | text, image | See adapter setup |
 | bluesky | bluesky | graph.read | available | None declared | repo |
 | bluesky | bluesky | graph.follow | available | None declared | repo |
@@ -254,7 +254,11 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | bluesky | bluesky | analytics.read | available | text, image | See adapter setup |
 | bluesky | bluesky | analytics.account.read | available | None declared | See adapter setup |
 | bluesky | bluesky | comments.write | available | text | repo |
-| bluesky | bluesky | posts.publish.video | not-implemented-by-adapter | video | repo |
+| bluesky | bluesky | posts.publish.video | available | video | repo |
+| bluesky | bluesky | media.upload | available | video | repo |
+| bluesky | bluesky | media.video | available | video | repo |
+| bluesky | bluesky | media.status | available | video | See adapter setup |
+| bluesky | bluesky | media.limits.read | available | video | See adapter setup |
 | bluesky | bluesky | posts.repost | available | None declared | See adapter setup |
 | bluesky | bluesky | posts.quote | available | None declared | See adapter setup |
 | bluesky | bluesky | posts.delete | available | None declared | See adapter setup |

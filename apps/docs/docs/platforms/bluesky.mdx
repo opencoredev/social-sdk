@@ -80,6 +80,58 @@ const result = await social.posts.publish({
 });
 ```
 
+### Publish a video
+
+Video publishing follows Bluesky's documented video service flow in three explicit steps. The adapter never polls on your behalf.
+
+1. `media.upload` sends one MP4 file to `app.bsky.video.uploadVideo` and returns a media reference. The reference's `mediaId` holds the processing job ID.
+2. Your code calls `native.getVideoJobStatus` until the job reports a blob or fails. You decide the interval, the deadline, and whether to keep waiting.
+3. `posts.publish` with that media reference reads the job status once. It writes an `app.bsky.embed.video` record when the blob is ready. If the job is still processing, the target fails with `media_error` and a one-second `after-delay` retry hint, and no post is created. A failed job returns `media_error` that should not be retried, with the provider's failure code in `upstreamCode`.
+
+```ts
+const adapter = bluesky({ auth: { service, did, accessJwt } });
+const social = createSocial({ backend: adapter });
+
+const video = await social.media.upload(
+  {
+    kind: "video",
+    source: { kind: "blob", blob: file, fingerprint: "launch-clip" },
+    mimeType: "video/mp4",
+    filename: "launch.mp4",
+  },
+  account,
+);
+
+// Poll on your own schedule. Stop at your own deadline.
+let job = await adapter.native!.getVideoJobStatus({ account, jobId: video.mediaId });
+while (!job.blob && job.state !== "JOB_STATE_FAILED") {
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  job = await adapter.native!.getVideoJobStatus({ account, jobId: video.mediaId });
+}
+
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: {
+    text: "Launch clip",
+    media: [
+      {
+        kind: "video",
+        source: { kind: "media-ref", ref: video },
+        altText: "Product walkthrough",
+        width: 1920,
+        height: 1080,
+      },
+    ],
+  },
+});
+```
+
+A post takes exactly one video and no images. The video must be a `video/mp4` blob of at most 300,000,000 bytes, which is the `app.bsky.embed.video` lexicon limit. Other sources, such as HTTPS URLs and streams, are rejected before any request. `width` and `height` are optional but must be supplied together; they become the embed's `aspectRatio`. Captions and the `presentation` hint are not supported yet. Bluesky's own client also rejects videos longer than ten minutes. The adapter does not read video duration, so check it before uploading.
+
+To upload, the adapter first requests a 30-minute service token from `com.atproto.server.getServiceAuth`. The token is scoped to `com.atproto.repo.uploadBlob`, and its audience is the account's PDS. The PDS DID comes from the `didDoc` that `com.atproto.server.getSession` returns. If your session does not return a DID document, set `pdsDid`, for example `did:web:pds.example.com`. `videoService` overrides the default `https://video.bsky.app` origin and must be an HTTPS origin. Job status reads carry no account credentials, and the adapter rejects any job whose DID differs from the configured account.
+
+Accounts hosted by Bluesky need a verified email address to upload video and are subject to daily limits. `native.getVideoUploadLimits` returns `canUpload` and, when the service reports them, the remaining daily video count and byte allowance. The upload is a mutation that is never retried. A lost response is reported as `ambiguous_outcome`, so check the job or the limits before you upload again. If the service already processed the same file, it returns the existing job with its blob, and the adapter passes that job through.
+
 ### Languages and mentions
 
 Set `options.languages` to at most three BCP 47 language tags. The adapter validates and canonicalizes them, then writes the native `langs` field. For a linked mention, supply an already-resolved DID and UTF-8 byte offsets in `options.mentions`. It performs no automatic handle lookup.
@@ -161,8 +213,9 @@ moderation service.
 
 The typed native module covers reposts and quote posts, deletion, graph relationships,
 likes, actor search, lists, moderation reports, notification reads and seen state, profile
-reads/updates, feed discovery, search, and `chat.bsky` conversation/message operations. Video upload
-is not supported yet. Chat responses remain provider-controlled moderation states; persist native
+reads/updates, feed discovery, search, `chat.bsky` conversation/message operations, and video
+upload, job status, and upload limits (`uploadVideo`, `getVideoJobStatus`, and
+`getVideoUploadLimits`). Chat responses remain provider-controlled moderation states; persist native
 references and reconcile explicitly. Bluesky chat consent and moderation requirements still apply.
 
 ## Limits and requirements

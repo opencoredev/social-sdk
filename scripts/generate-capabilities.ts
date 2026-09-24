@@ -70,6 +70,8 @@ const implementationPaths: Record<string, readonly string[]> = {
   "follows.write": ["native.follow", "native.unfollow"],
   "media.video": ["native.uploadVideo"],
   "media.gif": ["native.uploadGif"],
+  "media.status": ["native.getVideoJobStatus"],
+  "media.limits.read": ["native.getVideoUploadLimits"],
   "messages.read": [
     "messages.listConversations|native.listDirectMessages|native.listConversations",
   ],

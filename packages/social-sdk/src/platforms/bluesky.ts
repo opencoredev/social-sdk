@@ -13,7 +13,9 @@ import {
   type ConnectedAccountRef,
   type DeliveryOutcome,
   type JsonObject,
+  type MediaAttachment,
   type MediaInput,
+  type MediaRef,
   type MetricValue,
   type Page,
   type ProfileRecord,
@@ -23,12 +25,20 @@ import {
 import { SocialError } from "../core/errors.js";
 import { abortable, createHttp, HttpError } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
-import { array, object, string } from "../transport/validation.js";
+import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
 import { publicFields } from "../cloud/common.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const MAX_IMAGES = 4;
+
+/** app.bsky.embed.video accepts one MP4 blob of at most 300,000,000 bytes. */
+const MAX_VIDEO_BYTES = 300_000_000;
+
+const DEFAULT_VIDEO_SERVICE = "https://video.bsky.app";
+
+/** Bluesky's video guide recommends a 30 minute upload token lifetime. */
+const VIDEO_UPLOAD_TOKEN_SECONDS = 30 * 60;
 
 export interface BlueskyAuthorization {
   readonly service: string;
@@ -49,6 +59,38 @@ export interface BlueskyOptions {
     readonly did: string;
     readonly fetchHandler: (pathname: string, init?: RequestInit) => Promise<Response>;
   };
+  /** HTTPS origin of the Bluesky video service. Defaults to https://video.bsky.app. */
+  readonly videoService?: string;
+  /**
+   * Service DID of the account's PDS (for example `did:web:pds.example.com`). It is the
+   * audience of the service token that lets the video service store the processed blob.
+   * When omitted, `uploadVideo` reads the `#atproto_pds` endpoint from the DID document
+   * returned by `com.atproto.server.getSession`.
+   */
+  readonly pdsDid?: string;
+}
+
+/** A Bluesky video processing job (`app.bsky.video.defs#jobStatus`). */
+export interface BlueskyVideoJob {
+  readonly jobId: string;
+  readonly did: string;
+  /** `JOB_STATE_COMPLETED`, `JOB_STATE_FAILED`, or an in-progress state. */
+  readonly state: string;
+  readonly progress?: number;
+  /** The processed blob. Present once the video is stored on the PDS. */
+  readonly blob?: JsonObject;
+  readonly failureCode?: string;
+  readonly error?: string;
+  readonly message?: string;
+}
+
+/** Output of `app.bsky.video.getUploadLimits` for the configured account. */
+export interface BlueskyVideoUploadLimits {
+  readonly canUpload: boolean;
+  readonly remainingDailyVideos?: number;
+  readonly remainingDailyBytes?: number;
+  readonly message?: string;
+  readonly error?: string;
 }
 
 export interface BlueskyPostRef {
@@ -117,12 +159,29 @@ export interface BlueskyNative {
     readonly account: ConnectedAccountRef;
     readonly context?: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Sends one MP4 to the video service with a single upload request and returns the
+   * processing job. It does not wait for processing; poll `getVideoJobStatus` explicitly.
+   */
   readonly uploadVideo: (input: {
     readonly account: ConnectedAccountRef;
     readonly video: Blob;
     readonly mimeType?: string;
+    /** File name reported to the video service. Defaults to `video.mp4`. */
+    readonly name?: string;
     readonly context?: AdapterOperationContext;
-  }) => Promise<JsonObject>;
+  }) => Promise<BlueskyVideoJob>;
+  /** Reads a video processing job once. The caller decides when to check again. */
+  readonly getVideoJobStatus: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly jobId: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoJob>;
+  /** Reads the account's daily video upload allowance from the video service. */
+  readonly getVideoUploadLimits: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoUploadLimits>;
   readonly follow: (input: {
     readonly account: ConnectedAccountRef;
     readonly did: string;
@@ -396,6 +455,97 @@ function postRef(value: unknown): BlueskyPostRef {
   const record = object(value);
 
   return { uri: string(record["uri"]), cid: string(record["cid"]) };
+}
+
+function videoServiceOrigin(value: string | undefined): URL {
+  let url: URL;
+
+  try {
+    url = new URL(value ?? DEFAULT_VIDEO_SERVICE);
+  } catch {
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "bluesky.configure",
+      message: "Bluesky video service must be an absolute URL.",
+    });
+  }
+
+  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/")
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "bluesky.configure",
+      message: "Bluesky video service must be an HTTPS origin without credentials or a path.",
+    });
+
+  return url;
+}
+
+function serviceDid(value: string, operation: string): string {
+  if (!/^did:[a-z]+:[A-Za-z0-9._:%-]{1,2000}$/.test(value))
+    throw new SocialError({
+      code: "invalid_config",
+      operation,
+      message: "Bluesky PDS service DID is malformed.",
+    });
+
+  return value;
+}
+
+/** Validates a processed video blob before it is written into a post record. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
+function videoBlob(value: unknown): JsonObject {
+  const blob = object(value);
+  const link = object(blob["ref"])["$link"];
+  const size = blob["size"];
+
+  if (
+    blob["$type"] !== "blob" ||
+    typeof link !== "string" ||
+    !/^[a-z0-9]{8,128}$/i.test(link) ||
+    blob["mimeType"] !== "video/mp4" ||
+    typeof size !== "number" ||
+    !Number.isSafeInteger(size) ||
+    size <= 0 ||
+    size > MAX_VIDEO_BYTES
+  )
+    throw new SocialError({
+      code: "media_error",
+      operation: "bluesky.video.job",
+      message: "Bluesky returned a video blob that cannot be embedded.",
+      retryDisposition: { kind: "never" },
+    });
+
+  return { $type: "blob", ref: { $link: link }, mimeType: "video/mp4", size };
+}
+
+/** Parses app.bsky.video.defs#jobStatus and binds it to the configured DID. */
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
+function videoJob(value: unknown, did: string): BlueskyVideoJob {
+  const job = object(value);
+  const owner = string(job["did"]);
+
+  if (owner !== did)
+    throw new SocialError({
+      code: "unauthorized",
+      operation: "bluesky.video.job",
+      message: "Bluesky video job belongs to a different DID.",
+    });
+
+  const progress = optionalNumber(job["progress"]);
+  const failureCode = optionalString(job["failureCode"]);
+  const error = optionalString(job["error"]);
+  const message = optionalString(job["message"]);
+
+  return {
+    jobId: string(job["jobId"]),
+    did: owner,
+    state: string(job["state"]),
+    ...(progress === undefined ? {} : { progress }),
+    ...(job["blob"] === undefined ? {} : { blob: videoBlob(job["blob"]) }),
+    ...(failureCode === undefined ? {} : { failureCode }),
+    ...(error === undefined ? {} : { error }),
+    ...(message === undefined ? {} : { message }),
+  };
 }
 
 function linkFacets(text: string): readonly JsonObject[] {
@@ -717,7 +867,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         operation: "posts.publish",
         platform: "bluesky",
         availability: "available",
-        formats: ["text", "image"],
+        formats: ["text", "image", "video"],
         requiredScopes: ["repo"],
       },
       {
@@ -775,9 +925,44 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       {
         operation: "posts.publish.video",
         platform: "bluesky",
-        availability: "not-implemented-by-adapter",
+        availability: "available",
         formats: ["video"],
         requiredScopes: ["repo"],
+        notes:
+          "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls.",
+      },
+      {
+        operation: "media.upload",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        requiredScopes: ["repo"],
+        notes:
+          "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference.",
+      },
+      {
+        operation: "media.video",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        requiredScopes: ["repo"],
+        notes:
+          "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job.",
+      },
+      {
+        operation: "media.status",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        notes: "native.getVideoJobStatus reads app.bsky.video.getJobStatus once per call.",
+      },
+      {
+        operation: "media.limits.read",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        notes:
+          "native.getVideoUploadLimits reads the daily video allowance. Uploads do not check it automatically.",
       },
       ...[
         "posts.repost",
@@ -866,6 +1051,128 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
     // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
     return { did, ...(handle === undefined ? {} : { handle }) };
+  }
+
+  const videoOrigin = videoServiceOrigin(options.videoService);
+  const timeout = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
+  const videoHttp = createHttp({ fetch: fetcher, ...timeout });
+
+  // Bluesky's video guide notes that a video the service already processed is reported as
+  // `already_exists` together with the existing job and blob. The upload transport reads that
+  // 409 body as a job status; `videoJob` still validates it and binds it to this DID.
+  const videoUploadHttp = createHttp({
+    fetch: async (input, init) => {
+      const response = await fetcher(input, init);
+
+      return response.status === 409
+        ? new Response(response.body, { status: 200, headers: response.headers })
+        : response;
+    },
+    ...timeout,
+  });
+
+  async function videoRequest(
+    method: string,
+    query: URLSearchParams,
+    context: AdapterOperationContext,
+    init: { readonly token?: string; readonly body?: Blob } = {},
+    // oxlint-disable-next-line anti-slop/no-unknown-returns -- validated boundary or fixture contract.
+  ): Promise<unknown> {
+    const url = new URL(`/xrpc/${method}`, videoOrigin);
+    url.search = query.toString();
+
+    try {
+      return await (init.body === undefined ? videoHttp : videoUploadHttp)({
+        url,
+        timeoutMs: remainingBudget(context),
+        method: init.body === undefined ? "GET" : "POST",
+        headers: {
+          ...(init.token === undefined ? {} : { Authorization: `Bearer ${init.token}` }),
+          ...(init.body === undefined ? {} : { "Content-Type": "video/mp4" }),
+        },
+        ...(init.body === undefined ? {} : { body: init.body }),
+        ...(context.signal === undefined ? {} : { signal: context.signal }),
+        maxAttempts: init.body === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1,
+      });
+    } catch (error) {
+      throw operationError(`bluesky.${method}`, error, init.body !== undefined);
+    }
+  }
+
+  /** Requests a short-lived service token from the account's PDS. The token is never logged. */
+  async function serviceToken(
+    aud: string,
+    lxm: string,
+    expiresInSeconds: number | undefined,
+    context: AdapterOperationContext,
+  ): Promise<string> {
+    const query = new URLSearchParams({ aud, lxm });
+    if (expiresInSeconds !== undefined)
+      query.set("exp", String(Math.floor(Date.now() / 1000) + expiresInSeconds));
+    const response = object(
+      await xrpc(`com.atproto.server.getServiceAuth?${query.toString()}`, context),
+    );
+
+    return string(response["token"]);
+  }
+
+  /** Resolves the PDS service DID that the video service stores the processed blob with. */
+  async function pdsAudience(context: AdapterOperationContext): Promise<string> {
+    if (options.pdsDid !== undefined) return serviceDid(options.pdsDid, "bluesky.video.upload");
+    const session = object(await xrpc("com.atproto.server.getSession", context));
+    const didDoc = session["didDoc"];
+
+    if (session["did"] !== auth.did || didDoc === undefined)
+      throw new SocialError({
+        code: "invalid_config",
+        operation: "bluesky.video.upload",
+        message:
+          "The session did not include a DID document for this account. Configure pdsDid for video uploads.",
+      });
+    const document = object(didDoc);
+    const pds = array(document["service"] ?? []).find((entry) => {
+      const service = object(entry);
+      return typeof service["id"] === "string" && service["id"].endsWith("#atproto_pds");
+    });
+
+    if (document["id"] !== auth.did || pds === undefined)
+      throw new SocialError({
+        code: "invalid_config",
+        operation: "bluesky.video.upload",
+        message: "The DID document does not name a PDS for this account. Configure pdsDid.",
+      });
+    let host: string;
+
+    try {
+      const url = new URL(string(object(pds)["serviceEndpoint"]));
+      if (url.protocol !== "https:") throw new Error("PDS endpoint must use HTTPS");
+      host = url.host;
+    } catch {
+      throw new SocialError({
+        code: "invalid_config",
+        operation: "bluesky.video.upload",
+        message: "The DID document names an invalid PDS endpoint. Configure pdsDid.",
+      });
+    }
+
+    return serviceDid(`did:web:${host.replace(":", "%3A")}`, "bluesky.video.upload");
+  }
+
+  /** Validates a normalized video attachment and returns its MP4 bytes without I/O. */
+  function videoSource(media: MediaAttachment): Blob {
+    const source = media.source;
+    const mimeType =
+      media.mimeType ?? (source.kind === "blob" ? source.blob.type || undefined : undefined);
+
+    if (media.kind !== "video" || source.kind !== "blob" || mimeType !== "video/mp4")
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "Bluesky video upload requires one video/mp4 Blob.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return source.blob;
   }
 
   const nativeContext = (context: AdapterOperationContext | undefined, operation: string) =>
@@ -1200,13 +1507,109 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         body: JSON.stringify({ repo: auth.did, collection: "app.bsky.feed.post", rkey }),
       });
     },
-    async uploadVideo(_input) {
-      throw new SocialError({
-        code: "unsupported_capability",
-        operation: "bluesky.video.upload",
-        message:
-          "Bluesky video upload requires the video service authentication and job polling flow; this adapter does not implement it.",
-      });
+    async uploadVideo(input) {
+      // https://docs.bsky.app/docs/tutorials/video (recommended method)
+      const context = nativeContext(input.context, "bluesky.video.upload");
+      assertNativeAccount(input.account, context, "bluesky.video.upload");
+      const name = input.name ?? "video.mp4";
+
+      if (
+        (input.mimeType ?? input.video.type) !== "video/mp4" ||
+        input.video.size <= 0 ||
+        input.video.size > MAX_VIDEO_BYTES ||
+        name.length > 255 ||
+        [...name].some((char) => char.charCodeAt(0) < 0x20 || char === "/" || char === "\\")
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.video.upload",
+          message: `Bluesky video upload requires a non-empty video/mp4 Blob of at most ${MAX_VIDEO_BYTES} bytes and a plain file name.`,
+          retryDisposition: { kind: "never" },
+        });
+
+      const token = await serviceToken(
+        await pdsAudience(context),
+        "com.atproto.repo.uploadBlob",
+        VIDEO_UPLOAD_TOKEN_SECONDS,
+        context,
+      );
+      const response = object(
+        await videoRequest(
+          "app.bsky.video.uploadVideo",
+          new URLSearchParams({ did: auth.did, name }),
+          context,
+          { token, body: input.video },
+        ),
+      );
+
+      try {
+        // The lexicon wraps the output in `jobStatus`; the video guide reads it unwrapped.
+        return videoJob(response["jobStatus"] ?? response, auth.did);
+      } catch (error) {
+        throw operationError("bluesky.app.bsky.video.uploadVideo", error);
+      }
+    },
+    async getVideoJobStatus(input) {
+      // https://docs.bsky.app/docs/api/app-bsky-video-get-job-status
+      const context = nativeContext(input.context, "bluesky.video.job");
+      assertNativeAccount(input.account, context, "bluesky.video.job");
+
+      if (!/^[\x21-\x7e]{1,256}$/.test(input.jobId))
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.video.job",
+          message: "Bluesky video job ID is malformed.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const response = object(
+        await videoRequest(
+          "app.bsky.video.getJobStatus",
+          new URLSearchParams({ jobId: input.jobId }),
+          context,
+        ),
+      );
+
+      try {
+        return videoJob(response["jobStatus"], auth.did);
+      } catch (error) {
+        throw operationError("bluesky.app.bsky.video.getJobStatus", error, false);
+      }
+    },
+    async getVideoUploadLimits(input) {
+      // https://docs.bsky.app/docs/api/app-bsky-video-get-upload-limits
+      const context = nativeContext(input.context, "bluesky.video.limits");
+      assertNativeAccount(input.account, context, "bluesky.video.limits");
+      const token = await serviceToken(
+        `did:web:${videoOrigin.host.replace(":", "%3A")}`,
+        "app.bsky.video.getUploadLimits",
+        undefined,
+        context,
+      );
+      const response = object(
+        await videoRequest("app.bsky.video.getUploadLimits", new URLSearchParams(), context, {
+          token,
+        }),
+      );
+
+      if (typeof response["canUpload"] !== "boolean")
+        throw operationError(
+          "bluesky.app.bsky.video.getUploadLimits",
+          new HttpError("Upload limits are missing canUpload.", "invalid-response", true),
+          false,
+        );
+      const videos = optionalNumber(response["remainingDailyVideos"]);
+      const bytes = optionalNumber(response["remainingDailyBytes"]);
+      const message = optionalString(response["message"]);
+      const error = optionalString(response["error"]);
+
+      return {
+        canUpload: response["canUpload"],
+        ...(videos === undefined ? {} : { remainingDailyVideos: videos }),
+        ...(bytes === undefined ? {} : { remainingDailyBytes: bytes }),
+        ...(message === undefined ? {} : { message }),
+        ...(error === undefined ? {} : { error }),
+      };
     },
     async follow(input) {
       const context = nativeContext(input.context, "bluesky.follow");
@@ -1698,6 +2101,26 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     id: backend,
     capabilities,
     native,
+    media: {
+      async upload(media, accountRef, context): Promise<MediaRef> {
+        const job = await native.uploadVideo({
+          account: accountRef,
+          video: videoSource(media),
+          mimeType: "video/mp4",
+          ...(media.filename === undefined ? {} : { name: media.filename }),
+          context,
+        });
+
+        return {
+          kind: "media",
+          version: 1,
+          backend,
+          platform: "bluesky",
+          accountId: auth.did,
+          mediaId: job.jobId,
+        };
+      },
+    },
     graph: {
       async getProfile(account, input, context): Promise<ProfileRecord> {
         const value = await native.getProfile({
@@ -2069,14 +2492,52 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             severity: "error" as const,
           });
 
-        if (target.content.media?.some((media) => media.kind !== "image"))
+        const media = target.content.media ?? [];
+        const videos = media.filter((item) => item.kind === "video");
+
+        if (videos.length > 0 && media.length !== 1)
           issues.push({
-            code: "media.unsupported",
-            message: "Bluesky direct publishing supports images, not video.",
+            code: "media.mixed",
+            message: "A Bluesky post carries either up to four images or exactly one video.",
             severity: "error" as const,
           });
 
-        if ((target.content.media?.length ?? 0) > MAX_IMAGES)
+        for (const video of videos) {
+          const ref = video.source.kind === "media-ref" ? video.source.ref : undefined;
+
+          if (ref === undefined)
+            issues.push({
+              code: "media.video_ref_required",
+              message:
+                "Upload the video with media.upload, wait until its job has a blob, then publish the returned media reference.",
+              severity: "error" as const,
+            });
+          else if (
+            ref.backend !== target.account.backend ||
+            ref.platform !== "bluesky" ||
+            ref.accountId !== target.account.accountId ||
+            !/^[\x21-\x7e]{1,256}$/.test(ref.mediaId)
+          )
+            issues.push({
+              code: "media.video_owner",
+              message: "Video reference belongs to another account or backend, or is malformed.",
+              severity: "error" as const,
+            });
+
+          if (
+            (video.width === undefined) !== (video.height === undefined) ||
+            [video.width, video.height].some(
+              (value) => value !== undefined && (!Number.isSafeInteger(value) || value < 1),
+            )
+          )
+            issues.push({
+              code: "media.aspect_ratio",
+              message: "Video width and height must be supplied together as positive integers.",
+              severity: "error" as const,
+            });
+        }
+
+        if (videos.length === 0 && media.length > MAX_IMAGES)
           issues.push({
             code: "media.too_many",
             message: `Bluesky supports at most ${MAX_IMAGES} images per post.`,
@@ -2142,7 +2603,64 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             Object.assign(record, { reply: { root, parent: parentRef } });
           }
 
-          if (content.media !== undefined && content.media.length > 0) {
+          const video = content.media?.find((item) => item.kind === "video");
+
+          if (video !== undefined) {
+            if (video.source.kind !== "media-ref" || content.media?.length !== 1)
+              throw new SocialError({
+                code: "invalid_input",
+                operation: "bluesky.publish",
+                message: "Bluesky video posts require exactly one uploaded video reference.",
+                retryDisposition: { kind: "never" },
+              });
+            const ref = video.source.ref;
+
+            if (ref.backend !== backend || ref.platform !== "bluesky" || ref.accountId !== auth.did)
+              throw new SocialError({
+                code: "unauthorized",
+                operation: "bluesky.publish",
+                message: "The video reference does not belong to this adapter.",
+                account: target.account,
+              });
+
+            // One status read. A job that is still processing fails before any post is created.
+            const job = await native.getVideoJobStatus({
+              account: target.account,
+              jobId: ref.mediaId,
+              context,
+            });
+
+            if (job.blob === undefined)
+              throw new SocialError(
+                job.state === "JOB_STATE_FAILED"
+                  ? {
+                      code: "media_error",
+                      operation: "bluesky.publish",
+                      message: "Bluesky video processing failed. No post was created.",
+                      retryDisposition: { kind: "never" },
+                      ...(job.failureCode === undefined ? {} : { upstreamCode: job.failureCode }),
+                    }
+                  : {
+                      code: "media_error",
+                      operation: "bluesky.publish",
+                      message:
+                        "Bluesky video processing is not complete. No post was created. Check native.getVideoJobStatus, then publish again.",
+                      retryDisposition: { kind: "after-delay", delayMs: 1000 },
+                      upstreamCode: job.state,
+                    },
+              );
+
+            Object.assign(record, {
+              embed: {
+                $type: "app.bsky.embed.video",
+                video: job.blob,
+                ...(video.altText === undefined ? {} : { alt: video.altText }),
+                ...(video.width === undefined || video.height === undefined
+                  ? {}
+                  : { aspectRatio: { width: video.width, height: video.height } }),
+              },
+            });
+          } else if (content.media !== undefined && content.media.length > 0) {
             // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
             const blobs: Record<string, unknown>[] = [];
 
