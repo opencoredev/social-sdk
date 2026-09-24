@@ -1036,7 +1036,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         if (input.handle !== undefined) {
           result = await request(
-            `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=id,username,name,profile_picture_url,biography,is_verified`,
+            `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=username,name,profile_picture_url,biography,is_verified`,
             { method: "GET" },
             "profiles.read",
             context,
@@ -1058,7 +1058,8 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           );
         }
 
-        const returnedProfileId = optionalString(result["id"]);
+        const returnedProfileId =
+          input.handle === undefined ? optionalString(result["id"]) : undefined;
 
         const profileId =
           returnedProfileId ??
