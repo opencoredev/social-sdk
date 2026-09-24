@@ -7,7 +7,7 @@ import {
   profileRef,
   SocialError,
 } from "../src/index.js";
-import type { JsonObject, JsonValue } from "../src/core/index.js";
+import type { JsonObject, JsonValue, PlatformPostRef } from "../src/core/index.js";
 import { definedFields } from "../src/core/fields.js";
 import { bluesky } from "../src/platforms/bluesky.js";
 import { isJsonValue } from "../src/transport/json.js";
@@ -208,7 +208,7 @@ it("creates, reads, changes, and deletes Bluesky lists", async () => {
 
     if (url.pathname.endsWith("createRecord")) {
       create++;
-      const collection = String(body?.collection);
+      const collection = String(body?.["collection"]);
 
       return response({ uri: `at://did:plc:test/${collection}/created-${create}`, cid: "cid" });
     }
@@ -240,8 +240,11 @@ it("creates, reads, changes, and deletes Bluesky lists", async () => {
     purpose: "app.bsky.graph.defs#curatelist",
   });
   const item = await native.addListItem({ account, listUri: list.uri, subject: "did:plc:alice" });
-  assert.equal((await native.getList({ account, listUri: list.uri })).list instanceof Object, true);
-  assert.equal((await native.getLists({ account })).cursor, "lists-next");
+  assert.equal(
+    (await native.getList({ account, listUri: list.uri }))["list"] instanceof Object,
+    true,
+  );
+  assert.equal((await native.getLists({ account }))["cursor"], "lists-next");
   await native.muteList({ account, listUri: list.uri });
   await native.unmuteList({ account, listUri: list.uri });
   await native.blockList({ account, listUri: list.uri });
@@ -333,13 +336,15 @@ it("deletes a platform post through posts.removeFromPlatform and accepts empty n
     return new Response(null, { status: 200 });
   });
 
-  const post = platformPostRef({
-    backend: "default",
-    platform: "bluesky",
-    accountId: account.accountId,
-    postId: "at://did:plc:test/app.bsky.feed.post/r1",
+  const post: PlatformPostRef<"bluesky"> = {
+    ...platformPostRef({
+      backend: "default",
+      platform: "bluesky",
+      accountId: account.accountId,
+      postId: "at://did:plc:test/app.bsky.feed.post/r1",
+    }),
     native: { uri: "at://did:plc:test/app.bsky.feed.post/r1", cid: "cid" },
-  });
+  };
 
   const native = social.native("default", { acknowledgeUnsafe: true })!;
 
@@ -352,5 +357,5 @@ it("deletes a platform post through posts.removeFromPlatform and accepts empty n
 
   assert.equal(requests.at(-1)?.url.pathname.endsWith("deleteRecord"), true);
   assert.equal(requests.at(-1)?.headers.get("content-type"), "application/json");
-  assert.equal(requests.at(-1)?.body?.rkey, "r1");
+  assert.equal(requests.at(-1)?.body?.["rkey"], "r1");
 });

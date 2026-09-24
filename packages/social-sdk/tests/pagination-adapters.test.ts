@@ -48,7 +48,8 @@ test("YouTube comment page tokens are exposed as scoped cursors", async () => {
     authorization: { tenantId: "tenant" },
   });
 
-  assert.match(first.nextCursor ?? "", /^social-v1\./);
+  assert.ok(first.nextCursor);
+  assert.match(first.nextCursor, /^social-v1\./);
   await social.comments.list(post, {
     limit: 1,
     cursor: first.nextCursor,
@@ -135,11 +136,13 @@ test("Zernio comment and message cursors pass through as opaque provider values"
   };
 
   const firstConversation = await social.messages.listConversations(account, { limit: 1 });
+  assert.ok(firstConversation.nextCursor);
   await social.messages.listConversations(account, {
     limit: 1,
     cursor: firstConversation.nextCursor,
   });
   const firstMessages = await social.messages.listMessages(conversation, { limit: 1 });
+  assert.ok(firstMessages.nextCursor);
   await social.messages.listMessages(conversation, { limit: 1, cursor: firstMessages.nextCursor });
   assert.ok(
     urls.some((url) => url.includes("cursor=conversations-next") && url.includes("limit=1")),

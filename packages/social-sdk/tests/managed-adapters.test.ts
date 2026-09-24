@@ -1,9 +1,9 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
-import { createSocial, connectedAccountRef } from "../src/index.js";
+import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { zernio } from "../src/cloud/zernio.js";
-import type { AdapterOperationContext, JsonValue } from "../src/core/types.js";
+import type { AdapterOperationContext, JsonValue, PublishRequest } from "../src/core/types.js";
 import { array, object } from "../src/transport/validation.js";
 
 const context: AdapterOperationContext = {
@@ -181,9 +181,15 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
     },
   });
 
-  const post = { kind: "platform-post" as const, version: 1 as const, ...x, postId: "p1" };
+  const post = platformPostRef({
+    backend: x.backend,
+    platform: x.platform,
+    accountId: x.accountId,
+    postId: "p1",
+  });
+
   const comment = await adapter.comments!.list(post, {}, context);
-  assert.equal(comment.items[0]?.id, "c1");
+  assert.equal(comment.items[0]?.["id"], "c1");
   assert.equal(comment.nextCursor, undefined);
   assert.equal(
     (
@@ -196,7 +202,7 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
     "c2",
   );
   const conversations = await adapter.messages!.listConversations(x, {}, context);
-  assert.equal(conversations.items[0]?.id, "cv1");
+  assert.equal(conversations.items[0]?.["id"], "cv1");
 
   const messages = await adapter.messages!.listMessages(
     { ...x, kind: "conversation", conversationId: "cv1" },
@@ -204,7 +210,7 @@ it("Zernio inbox adapters preserve comment and message request contracts", async
     context,
   );
 
-  assert.equal(messages.items[0]?.id, "m1");
+  assert.equal(messages.items[0]?.["id"], "m1");
   assert.deepEqual(
     await adapter.messages!.send(
       { ...x, kind: "conversation", conversationId: "cv1" },
@@ -530,12 +536,12 @@ for (const provider of ["zernio", "post-for-me"] as const) {
       }).ok,
       false,
     );
-    assert.equal(
-      social.posts.prepare({
-        targets: [{ account: x, options: { languages: ["en"] } }],
-        content: { text: "Unmapped option" },
-      }).ok,
-      false,
-    );
+
+    const unmapped: PublishRequest = {
+      targets: [{ account: x, options: { languages: ["en"] } }],
+      content: { text: "Unmapped option" },
+    };
+
+    assert.equal(social.posts.prepare(unmapped).ok, false);
   });
 }

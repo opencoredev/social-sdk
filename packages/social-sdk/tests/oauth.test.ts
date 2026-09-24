@@ -34,7 +34,7 @@ describe("direct OAuth providers", () => {
     const provider = xOAuth({
       clientId: "client",
       clientSecret: "secret",
-      fetch: async (url, init) => {
+      fetch: async (_url, init) => {
         if (init?.method === "POST") {
           request = init;
 
@@ -87,7 +87,7 @@ describe("direct OAuth providers", () => {
 
     const provider = xOAuth({
       clientId: "client",
-      fetch: async (url, init) => {
+      fetch: async (_url, init) => {
         if (init?.method === "POST")
           return new Response(
             JSON.stringify({ access_token: "at", refresh_token: "rt", expires_in: 3600 }),
@@ -253,7 +253,7 @@ describe("provider-specific OAuth contracts", () => {
     const provider = tiktokOAuth({
       clientId: "client",
       fetch: async (url) =>
-        url.includes("open.tiktokapis")
+        String(url).includes("open.tiktokapis")
           ? response({ data: { user: { open_id: "open", display_name: "Creator" } } })
           : response({ data: { access_token: "at", open_id: "open", expires_in: 60 } }),
     });
@@ -316,7 +316,9 @@ describe("provider-specific OAuth contracts", () => {
     const provider = youtubeOAuth({
       clientId: "client",
       credentialSink: {
-        save: async ({ account }) => saved.push(account.ref.accountId),
+        save: async ({ account }) => {
+          saved.push(account.ref.accountId);
+        },
       },
       selectAccounts: (accounts) => [accounts[1]!.ref.accountId],
       fetch: async (url, _init) =>
@@ -344,7 +346,11 @@ describe("provider-specific OAuth contracts", () => {
 
     const provider = youtubeOAuth({
       clientId: "client",
-      credentialSink: { save: async ({ account }) => saved.push(account.ref.accountId) },
+      credentialSink: {
+        save: async ({ account }) => {
+          saved.push(account.ref.accountId);
+        },
+      },
       fetch: async (url) =>
         String(url).includes("token")
           ? response({ access_token: "at" })
