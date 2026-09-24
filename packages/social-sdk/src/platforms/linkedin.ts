@@ -1,4 +1,5 @@
 import { remainingBudget } from "../transport/budget.js";
+import { definedFields } from "../core/fields.js";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError } from "../core/errors.js";
 import type {
@@ -13,7 +14,15 @@ import type {
   PreparedPublishTarget,
 } from "../core/types.js";
 import { createHttp, HttpError } from "../transport/http.js";
-import { array, object, string, optionalString, optionalNumber } from "../transport/validation.js";
+import {
+  array,
+  isJsonObject,
+  object,
+  string,
+  optionalString,
+  optionalNumber,
+  type JsonField,
+} from "../transport/validation.js";
 import { upload } from "../transport/upload.js";
 import { publicFields } from "../cloud/common.js";
 
@@ -137,6 +146,19 @@ export interface LinkedInNative {
   }) => Promise<number | undefined>;
 }
 
+function isOptionsRecord(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Native publish options as an object; rejects non-object options as `object()` did. */
+function publishOptions(target: PreparedPublishTarget): JsonObject | undefined {
+  if (isOptionsRecord(target.options)) return target.options;
+
+  if (target.options === undefined) return undefined;
+
+  throw new HttpError("Upstream response must be an object.", "invalid-response", true);
+}
+
 export function linkedin(
   options: LinkedInOptions,
 ): import("../core/adapter.js").SocialAdapter<LinkedInNative> {
@@ -193,9 +215,11 @@ export function linkedin(
           ...extraHeaders,
         },
         method,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        ...(context.signal ? { signal: context.signal } : {}),
-        ...(selectedHeaders ? { responseHeaders: selectedHeaders } : {}),
+        ...definedFields({
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: context.signal,
+          responseHeaders: selectedHeaders,
+        }),
         maxAttempts: method === "GET" ? Math.min(5, context.retryBudget.maxAttempts) : 1,
       });
     } catch (error) {
@@ -302,13 +326,12 @@ export function linkedin(
       url: string(initialized["uploadUrl"]),
       source: {
         mimeType: media.mimeType!,
-        ...(size === undefined ? {} : { size }),
+        ...definedFields({ size }),
         open: source.kind === "blob" ? () => source.blob.stream() : source.open,
       },
       allowHost: (host) => host === "www.linkedin.com",
       maxBytes: 20 * 1024 * 1024,
-      ...(options.fetch ? { fetch: options.fetch } : {}),
-      ...(context.signal ? { signal: context.signal } : {}),
+      ...definedFields({ fetch: options.fetch, signal: context.signal }),
     });
 
     return {
@@ -400,7 +423,7 @@ export function linkedin(
     return `${path}?${params.join("&")}`;
   };
 
-  const numberMap = (value: unknown): Readonly<Record<string, number>> => {
+  const numberMap = (value: JsonField) => {
     const row = value === undefined ? {} : object(value);
     const output: Record<string, number> = {};
 
@@ -408,8 +431,8 @@ export function linkedin(
       const number = optionalNumber(item);
 
       if (number !== undefined) output[key] = number;
-      else if (item !== null && typeof item === "object" && !Array.isArray(item)) {
-        const nestedObject = object(item);
+      else if (isJsonObject(item)) {
+        const nestedObject = item;
 
         const nested = ["pageViews", "uniquePageViews", "clicks", "count"]
           .map((name) => optionalNumber(nestedObject[name]))
@@ -429,7 +452,7 @@ export function linkedin(
     return output;
   };
 
-  const followerBreakdowns = (row: Record<string, unknown>): LinkedInFollowerBreakdown[] => {
+  const followerBreakdowns = (row: JsonObject): LinkedInFollowerBreakdown[] => {
     const dimensions = [
       ["function", "followerCountsByFunction", "function"],
       ["seniority", "followerCountsBySeniority", "seniority"],
@@ -454,12 +477,10 @@ export function linkedin(
         output.push({
           dimension,
           value: label,
-          ...(optionalNumber(counts["organicFollowerCount"]) === undefined
-            ? {}
-            : { organicFollowerCount: optionalNumber(counts["organicFollowerCount"]) }),
-          ...(optionalNumber(counts["paidFollowerCount"]) === undefined
-            ? {}
-            : { paidFollowerCount: optionalNumber(counts["paidFollowerCount"]) }),
+          ...definedFields({
+            organicFollowerCount: optionalNumber(counts["organicFollowerCount"]),
+            paidFollowerCount: optionalNumber(counts["paidFollowerCount"]),
+          }),
         });
       }
     }
@@ -468,7 +489,7 @@ export function linkedin(
   };
 
   const parseInterval = (
-    row: Record<string, unknown>,
+    row: JsonObject,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInTimeInterval | undefined => {
     if (row["timeRange"] === undefined) return undefined;
@@ -483,15 +504,11 @@ export function linkedin(
     )
       return undefined;
 
-    return {
-      granularity,
-      ...(start === undefined ? {} : { start }),
-      ...(end === undefined ? {} : { end }),
-    };
+    return { granularity, ...definedFields({ start, end }) };
   };
 
   const parseFollowerStatistics = (
-    result: Record<string, unknown>,
+    result: JsonObject,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInFollowerStatistics[] =>
     array(result["elements"]).map((value) => {
@@ -500,20 +517,16 @@ export function linkedin(
 
       return {
         organization: string(row["organizationalEntity"]),
-        ...(parseInterval(row, requestedGranularity) === undefined
-          ? {}
-          : { interval: parseInterval(row, requestedGranularity) }),
-        ...(optionalNumber(gains["organicFollowerGain"]) === undefined
-          ? {}
-          : { organicFollowerGain: optionalNumber(gains["organicFollowerGain"]) }),
-        ...(optionalNumber(gains["paidFollowerGain"]) === undefined
-          ? {}
-          : { paidFollowerGain: optionalNumber(gains["paidFollowerGain"]) }),
+        ...definedFields({
+          interval: parseInterval(row, requestedGranularity),
+          organicFollowerGain: optionalNumber(gains["organicFollowerGain"]),
+          paidFollowerGain: optionalNumber(gains["paidFollowerGain"]),
+        }),
         breakdowns: followerBreakdowns(row),
       };
     });
 
-  const pageBreakdowns = (row: Record<string, unknown>) => {
+  const pageBreakdowns = (row: JsonObject) => {
     const output: LinkedInPageStatistics["breakdowns"] = [];
 
     for (const [field, dimension, key] of [
@@ -548,7 +561,7 @@ export function linkedin(
   };
 
   const parsePageStatistics = (
-    result: Record<string, unknown>,
+    result: JsonObject,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInPageStatistics[] =>
     array(result["elements"]).map((value) => {
@@ -559,9 +572,7 @@ export function linkedin(
 
       return {
         organization: string(row["organization"]),
-        ...(parseInterval(row, requestedGranularity) === undefined
-          ? {}
-          : { interval: parseInterval(row, requestedGranularity) }),
+        ...definedFields({ interval: parseInterval(row, requestedGranularity) }),
         views: numberMap(total["views"]),
         clicks: numberMap(total["clicks"]),
         breakdowns: pageBreakdowns(row),
@@ -569,7 +580,7 @@ export function linkedin(
     });
 
   const parseShareStatistics = (
-    result: Record<string, unknown>,
+    result: JsonObject,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInShareStatistics[] =>
     array(result["elements"]).map((value) => {
@@ -577,9 +588,7 @@ export function linkedin(
 
       return {
         organization: string(row["organizationalEntity"]),
-        ...(parseInterval(row, requestedGranularity) === undefined
-          ? {}
-          : { interval: parseInterval(row, requestedGranularity) }),
+        ...definedFields({ interval: parseInterval(row, requestedGranularity) }),
         metrics: numberMap(row["totalShareStatistics"]),
       };
     });
@@ -739,9 +748,9 @@ export function linkedin(
             "Scheduling, reply posts and structured links are not supported by this publishing slice.",
           );
 
-        if (target.options !== undefined) {
-          const settings = object(target.options);
+        const settings = publishOptions(target);
 
+        if (settings !== undefined) {
           if (
             Object.keys(settings).some((key) => key !== "visibility") ||
             (settings["visibility"] !== undefined && settings["visibility"] !== "public")
@@ -820,7 +829,7 @@ export function linkedin(
           content = {
             media: {
               id: media.source.ref.mediaId,
-              ...(media.altText ? { altText: media.altText } : {}),
+              ...definedFields({ altText: media.altText || undefined }),
             },
           };
         }
@@ -840,7 +849,7 @@ export function linkedin(
               },
               lifecycleState: "PUBLISHED",
               isReshareDisabledByAuthor: false,
-              ...(content ? { content } : {}),
+              ...definedFields({ content }),
             },
             ["x-restli-id"],
           ),
@@ -942,12 +951,12 @@ export function linkedin(
         const total = optionalNumber(paging["total"]);
         const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
 
-        return {
-          items,
-          ...(items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
-            ? { nextCursor: String(start + items.length) }
-            : {}),
-        };
+        const nextCursor =
+          items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
+            ? String(start + items.length)
+            : undefined;
+
+        return { items, ...definedFields({ nextCursor }) };
       },
       async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
         authorize(ref, context);
@@ -1008,7 +1017,7 @@ export function linkedin(
             ? String(start + items.length)
             : undefined;
 
-        return { items, ...(next === undefined ? {} : { nextCursor: next }) };
+        return { items, ...definedFields({ nextCursor: next }) };
       },
       async reply(
         ref: CommentRef,
@@ -1219,8 +1228,7 @@ export function linkedin(
 
         const id = optionalString(object(result["headers"])["x-restli-id"]);
 
-        // SAFETY: result is validated as a JSON object and id is a JSON string.
-        return (id === undefined ? result : { ...result, id }) as JsonObject;
+        return id === undefined ? result : { ...result, id };
       },
       async react({ account, postId, reaction, context }) {
         authorize(account, context);
@@ -1254,20 +1262,21 @@ export function linkedin(
 
         const id = optionalString(object(result["headers"])["x-restli-id"]);
 
-        // SAFETY: result is validated as a JSON object and id is a JSON string.
-        return (id === undefined ? result : { ...result, id }) as JsonObject;
+        return id === undefined ? result : { ...result, id };
       },
       async updatePost({ account, postId, body, context }) {
         authorize(account, context);
 
-        return (await request(
-          `/rest/posts/${encodeURIComponent(postId)}`,
-          context,
-          { patch: { $set: body } },
-          ["x-restli-id"],
-          "POST",
-          { "X-RestLi-Method": "PARTIAL_UPDATE" },
-        )) as JsonObject;
+        return object(
+          await request(
+            `/rest/posts/${encodeURIComponent(postId)}`,
+            context,
+            { patch: { $set: body } },
+            ["x-restli-id"],
+            "POST",
+            { "X-RestLi-Method": "PARTIAL_UPDATE" },
+          ),
+        );
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
@@ -1289,10 +1298,12 @@ export function linkedin(
             message: "Organization analytics requires an organization author.",
           });
 
-        return (await request(
-          `/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(account.accountId)}`,
-          context,
-        )) as JsonObject;
+        return object(
+          await request(
+            `/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(account.accountId)}`,
+            context,
+          ),
+        );
       },
       async getOrganizationFollowerStatistics({ account, interval, context }) {
         organizationOnly(account, context, "analytics.followers.read");

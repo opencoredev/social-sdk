@@ -2,7 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { tiktok } from "../src/platforms/tiktok.js";
-import type { AdapterOperationContext, PublishRequest } from "../src/core/types.js";
+import type { AdapterOperationContext, JsonValue, PublishRequest } from "../src/core/types.js";
 
 const account = connectedAccountRef({
   backend: "default",
@@ -60,7 +60,7 @@ const context: AdapterOperationContext = {
   retryBudget: { maxAttempts: 1, maxElapsedMs: 30000 },
 };
 
-const response = (data: unknown) => Response.json({ data, error: { code: "ok" } });
+const response = (data: JsonValue) => Response.json({ data, error: { code: "ok" } });
 
 it("TikTok validates consent and verified origins locally before any transfer", () => {
   let calls = 0;

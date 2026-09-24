@@ -10,6 +10,8 @@ import {
   youtubeOAuth,
 } from "../src/server/oauth.js";
 import type { ConnectionAttempt } from "../src/server/connections.js";
+import type { JsonValue } from "../src/core/types.js";
+import { isString } from "../src/transport/validation.js";
 
 const attempt: ConnectionAttempt = {
   id: "a",
@@ -61,7 +63,9 @@ describe("direct OAuth providers", () => {
     await provider.complete({ callbackUrl: `${attempt.redirectUri}?code=c&state=state`, attempt });
     const headers = new Headers(request?.headers);
     assert.equal(headers.get("authorization"), `Basic ${btoa("client:secret")}`);
-    assert.equal(new URLSearchParams(request?.body as string).has("client_secret"), false);
+    const body = request?.body;
+    assert.ok(body instanceof URLSearchParams);
+    assert.equal(body.has("client_secret"), false);
   });
 
   it("does not add PKCE parameters to TikTok web authorization", async () => {
@@ -237,8 +241,8 @@ describe("direct OAuth providers", () => {
   });
 });
 
-function response(value: unknown, status = 200, contentType = "application/json") {
-  return new Response(typeof value === "string" ? value : JSON.stringify(value), {
+function response(value: JsonValue, status = 200, contentType = "application/json") {
+  return new Response(isString(value) ? value : JSON.stringify(value), {
     status,
     headers: { "content-type": contentType },
   });
@@ -275,9 +279,7 @@ describe("provider-specific OAuth contracts", () => {
       clientSecret: "secret",
       linkedinApiVersion: "202609",
       fetch: async (url, init) => {
-        seen.push(
-          `${url} ${(init?.headers as Record<string, string>)?.["LinkedIn-Version"] ?? ""}`,
-        );
+        seen.push(`${url} ${new Headers(init?.headers).get("LinkedIn-Version") ?? ""}`);
 
         if (String(url).includes("userinfo")) return response({ sub: "member", name: "Member" });
 
