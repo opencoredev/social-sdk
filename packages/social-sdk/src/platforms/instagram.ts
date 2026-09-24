@@ -19,6 +19,7 @@ import { definedFields } from "../core/fields.js";
 import {
   array,
   isBoolean,
+  isJsonObject,
   isString,
   object,
   optionalNumber,
@@ -268,6 +269,7 @@ export function instagram(
         message: `${operation} is not supported with Instagram Login. Meta supports media deletion only through Instagram API with Facebook Login.`,
         retryDisposition: { kind: "never" },
       });
+
     const result: unknown = await request(
       `/${encodeURIComponent(mediaId)}`,
       context,
@@ -275,10 +277,10 @@ export function instagram(
       {},
       "DELETE",
     );
+
     if (
       result === null ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      typeof result !== "object" ||
+      !isJsonObject(result) ||
       !("success" in result) ||
       result.success !== true
     )
@@ -736,6 +738,12 @@ export function instagram(
               : ["instagram_business_basic", "instagram_business_content_publish"],
           notes:
             "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping.",
+        },
+        {
+          platform: "instagram",
+          operation: "posts.update",
+          availability: "unsupported-by-platform" as const,
+          notes: "Instagram Graph API does not provide an edit endpoint for published media.",
         },
         ...[
           "accounts.read",

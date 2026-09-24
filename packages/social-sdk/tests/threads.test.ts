@@ -143,10 +143,12 @@ test("Threads profile lookup does not treat an unrequested id as the provider ID
 
 test("Threads profile lookup encodes the username and falls back to the requested handle", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({ name: "No Username" });
     },
   });
@@ -164,10 +166,12 @@ test("Threads profile lookup encodes the username and falls back to the requeste
 
 test("Threads app-scoped profile read requests documented fields and uses the returned id", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({
         id: "u1",
         username: "me",
@@ -191,7 +195,6 @@ test("Threads app-scoped profile read requests documented fields and uses the re
   assert.equal(profile.avatarUrl, "https://me-img");
   assert.equal(profile.bio, "My bio");
   assert.equal(profile.native?._profileIdUnavailable, undefined);
-
 });
 
 test("Threads native reply management routes preserve fields and cursors", async () => {

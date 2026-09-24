@@ -980,6 +980,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             username: input.handle,
             fields: "username,name,profile_picture_url,biography,is_verified",
           });
+
           result = await request(
             `profile_lookup?${params.toString()}`,
             { method: "GET" },
@@ -1003,12 +1004,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             "profiles.read",
             context,
           );
+
           returnedProfileId = optionalString(result["id"]);
         }
 
         const handle = optionalString(result["username"]) ?? input.handle;
         // profile_lookup returns no Threads user ID. The normalized ID is a namespaced
         // `lookup:<username>` so a username is never presented as a provider user ID.
+
         const profileId =
           returnedProfileId ??
           input.profileId ??

@@ -852,13 +852,16 @@ it("maps malformed Instagram responses to an upstream SocialError", async () => 
 
 it("deletes media with Facebook Login and confirms Meta's success response", async () => {
   const calls: Array<{ method: string; url: URL }> = [];
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async (input, init) => {
       calls.push({ method: init?.method ?? "GET", url: new URL(String(input)) });
+
       return new Response(JSON.stringify({ success: true, deleted_id: "media/1" }));
     },
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
@@ -878,6 +881,7 @@ it("deletes media with Facebook Login and confirms Meta's success response", asy
       ["DELETE", "https://graph.facebook.com", "/v25.0/media-2"],
     ],
   );
+
   for (const operation of ["posts.delete", "posts.removeFromPlatform"])
     assert.deepEqual(
       adapter.capabilities.capabilities.find((entry) => entry.operation === operation)
@@ -891,6 +895,7 @@ it("treats an unconfirmed Instagram media deletion as ambiguous", async () => {
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async () => new Response(JSON.stringify({ success: false })),
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
@@ -909,13 +914,16 @@ it("treats an unconfirmed Instagram media deletion as ambiguous", async () => {
 
 it("rejects media deletion on Instagram Login without a network request", async () => {
   let fetches = 0;
+
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
     fetch: async () => {
       fetches++;
+
       return new Response(JSON.stringify({ success: true }));
     },
   });
+
   const account = connectedAccountRef({
     backend: "instagram",
     platform: "instagram",
@@ -935,6 +943,7 @@ it("rejects media deletion on Instagram Login without a network request", async 
     { code: "unsupported_capability", operation: "instagram.posts.delete" },
   );
   assert.equal(fetches, 0);
+
   for (const operation of ["posts.delete", "posts.removeFromPlatform"])
     assert.equal(
       adapter.capabilities.capabilities.find((entry) => entry.operation === operation)
