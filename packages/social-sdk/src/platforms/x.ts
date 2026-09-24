@@ -41,6 +41,13 @@ import {
 // most 1,200 distinct conversations, which keeps its cursor well under the client's 16,384
 // character cursor limit.
 
+interface XRecentSearchQuery extends Record<string, string> {
+  query: string;
+  "tweet.fields": string;
+  next_token?: string;
+  max_results?: string;
+}
+
 const conversationHashWidth = 11;
 
 const maxConversationHashes = 1200;
@@ -800,7 +807,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         message: "X reply limits must be integers from 10 through 100.",
       });
 
-    const query = {
+    const query: XRecentSearchQuery = {
       query: `conversation_id:${post.postId}`,
       "tweet.fields": replyFields.join(","),
     };
@@ -849,18 +856,22 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       const counts =
         row["public_metrics"] === undefined ? undefined : object(row["public_metrics"]);
 
-      const itemFields = publicFields(row, replyFields);
+      const metrics =
+        counts === undefined
+          ? undefined
+          : Object.fromEntries(
+              Object.keys(counts).flatMap((name) => {
+                const value = optionalNumber(counts[name]);
 
-      if (references !== undefined) itemFields["referenced_tweets"] = references;
+                return value === undefined ? [] : [[name, value]];
+              }),
+            );
 
-      if (counts !== undefined)
-        itemFields["public_metrics"] = Object.fromEntries(
-          Object.keys(counts).flatMap((name) => {
-            const value = optionalNumber(counts[name]);
-
-            return value === undefined ? [] : [[name, value]];
-          }),
-        );
+      const itemFields = definedFields({
+        ...publicFields(row, replyFields),
+        referenced_tweets: references,
+        public_metrics: metrics,
+      });
 
       return [itemFields];
     });
@@ -869,11 +880,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const nextCursor = optionalString(meta["next_token"]);
 
-    const page: Page<JsonObject> = { items };
+    if (nextCursor === undefined) return { items };
 
-    if (nextCursor !== undefined) page.nextCursor = nextCursor;
-
-    return page;
+    return { items, nextCursor };
   }
 
   async function pageRequest(
