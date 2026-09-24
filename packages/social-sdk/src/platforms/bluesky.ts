@@ -950,9 +950,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls.",
       },
       {
-<<<<<<< ours
-        operation: "media.upload",
-=======
         operation: "comments.moderate",
         platform: "bluesky",
         availability: "available",
@@ -961,8 +958,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           "Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies.",
       },
       {
-        operation: "posts.publish.video",
->>>>>>> theirs
+        operation: "media.upload",
         platform: "bluesky",
         availability: "available",
         formats: ["video"],
