@@ -1,9 +1,10 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- provider fixture setup stays grouped by scenario. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { youtube } from "../src/platforms/youtube.js";
-import { SocialError } from "../src/core/errors.js";
+import type { JsonObject, JsonValue } from "../src/core/types.js";
+import { parseJson } from "../src/transport/json.js";
+import { object } from "../src/transport/validation.js";
 
 const account = connectedAccountRef({
   backend: "default",
@@ -12,6 +13,7 @@ const account = connectedAccountRef({
 });
 
 const clock = () => new Date("2026-09-24T12:00:00.000Z");
+
 const publishAt = "2026-10-01T15:00:00.000Z";
 
 const job = {
@@ -23,8 +25,7 @@ const job = {
   jobId: "video1",
 };
 
-// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- fixture payload.
-const listed = (status: Record<string, unknown>) => ({
+const listed = (status: JsonObject) => ({
   items: [{ id: "video1", snippet: { channelId: "channel1", title: "Example" }, status }],
 });
 
@@ -48,8 +49,9 @@ it("YouTube reports a scheduled upload as scheduled with a job reference", async
       clock,
       fetch: async (_input, init) => {
         if (init?.method === "POST") {
-          const body = JSON.parse(String(init.body));
-          assert.deepEqual(body.status, {
+          const body = object(parseJson(String(init.body)));
+
+          assert.deepEqual(body["status"], {
             privacyStatus: "private",
             selfDeclaredMadeForKids: false,
             publishAt,
@@ -91,7 +93,7 @@ it("YouTube reports a scheduled upload as scheduled with a job reference", async
 });
 
 it("YouTube cancels a schedule by clearing publishAt and preserving the other status fields", async () => {
-  const calls: { method: string; url: URL; body?: unknown }[] = [];
+  const calls: { method: string; url: URL; body?: JsonValue }[] = [];
 
   const social = createSocial({
     clock,
@@ -108,12 +110,13 @@ it("YouTube cancels a schedule by clearing publishAt and preserving the other st
           return Response.json(listed(pending));
         }
 
-        const body = JSON.parse(String(init?.body));
+        const body = object(parseJson(String(init?.body)));
+
         calls.push({ method, url, body });
 
         return Response.json({
           id: "video1",
-          status: { ...body.status, uploadStatus: "processed", madeForKids: false },
+          status: { ...object(body["status"]), uploadStatus: "processed", madeForKids: false },
         });
       },
     }),
@@ -213,14 +216,11 @@ it("YouTube reports an unconfirmed or lost schedule cancellation as ambiguous wi
       }),
     });
 
-    await assert.rejects(
-      social.posts.cancelScheduled(job),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- node:test predicate receives unknown.
-      (error: unknown) =>
-        error instanceof SocialError &&
-        error.code === "ambiguous_outcome" &&
-        error.retryDisposition.kind === "reconcile-first",
-    );
+    await assert.rejects(social.posts.cancelScheduled(job), {
+      name: "SocialError",
+      code: "ambiguous_outcome",
+      retryDisposition: { kind: "reconcile-first" },
+    });
     assert.deepEqual(methods, ["GET", "PUT"]);
   }
 });

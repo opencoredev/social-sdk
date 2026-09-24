@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/no-chained-type-assertions, anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof -- validated external boundary or fixture contract. */
 import { readBinary } from "../transport/binary.js";
 import { remainingBudget } from "../transport/budget.js";
 import {
@@ -13,22 +12,45 @@ import {
   type ConnectedAccountRef,
   type DeliveryOutcome,
   type JsonObject,
+  type JsonValue,
+  type MediaAttachment,
   type MediaInput,
+  type MediaRef,
   type MetricValue,
   type Page,
+  type PreparedPublishTarget,
   type ProfileRecord,
   type RelationshipRecord,
   type SocialAdapter,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
+import { definedFields } from "../core/fields.js";
 import { abortable, createHttp, HttpError } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
-import { array, object, string } from "../transport/validation.js";
+import {
+  array,
+  isBoolean,
+  isFiniteNumber,
+  isString,
+  object,
+  optionalNumber,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 import { publicFields } from "../cloud/common.js";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const MAX_IMAGES = 4;
+
+/** app.bsky.embed.video accepts one MP4 blob of at most 300,000,000 bytes. */
+const MAX_VIDEO_BYTES = 300_000_000;
+
+const DEFAULT_VIDEO_SERVICE = "https://video.bsky.app";
+
+/** Bluesky's video guide recommends a 30 minute upload token lifetime. */
+const VIDEO_UPLOAD_TOKEN_SECONDS = 30 * 60;
 
 export interface BlueskyAuthorization {
   readonly service: string;
@@ -49,6 +71,38 @@ export interface BlueskyOptions {
     readonly did: string;
     readonly fetchHandler: (pathname: string, init?: RequestInit) => Promise<Response>;
   };
+  /** HTTPS origin of the Bluesky video service. Defaults to https://video.bsky.app. */
+  readonly videoService?: string;
+  /**
+   * Service DID of the account's PDS (for example `did:web:pds.example.com`). It is the
+   * audience of the service token that lets the video service store the processed blob.
+   * When omitted, `uploadVideo` reads the `#atproto_pds` endpoint from the DID document
+   * returned by `com.atproto.server.getSession`.
+   */
+  readonly pdsDid?: string;
+}
+
+/** A Bluesky video processing job (`app.bsky.video.defs#jobStatus`). */
+export interface BlueskyVideoJob {
+  readonly jobId: string;
+  readonly did: string;
+  /** `JOB_STATE_COMPLETED`, `JOB_STATE_FAILED`, or an in-progress state. */
+  readonly state: string;
+  readonly progress?: number;
+  /** The processed blob. Present once the video is stored on the PDS. */
+  readonly blob?: JsonObject;
+  readonly failureCode?: string;
+  readonly error?: string;
+  readonly message?: string;
+}
+
+/** Output of `app.bsky.video.getUploadLimits` for the configured account. */
+export interface BlueskyVideoUploadLimits {
+  readonly canUpload: boolean;
+  readonly remainingDailyVideos?: number;
+  readonly remainingDailyBytes?: number;
+  readonly message?: string;
+  readonly error?: string;
 }
 
 export interface BlueskyPostRef {
@@ -117,12 +171,29 @@ export interface BlueskyNative {
     readonly account: ConnectedAccountRef;
     readonly context?: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Sends one MP4 to the video service with a single upload request and returns the
+   * processing job. It does not wait for processing; poll `getVideoJobStatus` explicitly.
+   */
   readonly uploadVideo: (input: {
     readonly account: ConnectedAccountRef;
     readonly video: Blob;
     readonly mimeType?: string;
+    /** File name reported to the video service. Defaults to `video.mp4`. */
+    readonly name?: string;
     readonly context?: AdapterOperationContext;
-  }) => Promise<JsonObject>;
+  }) => Promise<BlueskyVideoJob>;
+  /** Reads a video processing job once. The caller decides when to check again. */
+  readonly getVideoJobStatus: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly jobId: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoJob>;
+  /** Reads the account's daily video upload allowance from the video service. */
+  readonly getVideoUploadLimits: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoUploadLimits>;
   readonly follow: (input: {
     readonly account: ConnectedAccountRef;
     readonly did: string;
@@ -221,6 +292,25 @@ export interface BlueskyNative {
     readonly text: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /**
+   * Hides or unhides a reply in a thread whose root post belongs to this account.
+   * Updates the root post's `app.bsky.feed.threadgate` record `hiddenReplies` list.
+   */
+  readonly hideReply: (input: BlueskyHideReplyInput) => Promise<BlueskyHideReplyResult>;
+}
+
+export interface BlueskyHideReplyInput {
+  readonly account: ConnectedAccountRef;
+  /** AT-URI of the reply post to hide or unhide. */
+  readonly replyUri: string;
+  readonly hidden: boolean;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyHideReplyResult {
+  readonly hidden: boolean;
+  /** The threadgate record after the change. Absent when no threadgate exists. */
+  readonly threadgate?: BlueskyPostRef;
 }
 
 export interface BlueskyPageInput {
@@ -339,11 +429,12 @@ function authHeaders(auth: BlueskyAuthorization): HeadersInit {
   return auth.accessJwt === undefined ? {} : { Authorization: `Bearer ${auth.accessJwt}` };
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-function operationError(operation: string, error: unknown, mutation = true): SocialError {
-  if (error instanceof SocialError) return error;
+function operationError(operation: string, cause: unknown, mutation = true): SocialError {
+  if (cause instanceof SocialError) return cause;
 
-  if (error instanceof HttpError) {
+  if (cause instanceof HttpError) {
+    const error = cause;
+
     const ambiguous =
       mutation &&
       error.dispatched &&
@@ -364,6 +455,7 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
                 : error.status === 429
                   ? "rate_limited"
                   : "upstream_failure";
+
     return new SocialError({
       code,
       operation,
@@ -377,8 +469,7 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
             : !mutation && error.status !== undefined && error.status >= 500
               ? { kind: "after-delay", delayMs: 1000 }
               : { kind: "never" },
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-      ...(error.status === undefined ? {} : { upstreamStatus: error.status }),
+      ...definedFields({ upstreamStatus: error.status }),
     });
   }
 
@@ -387,28 +478,140 @@ function operationError(operation: string, error: unknown, mutation = true): Soc
     operation,
     message: "Bluesky request failed.",
     retryDisposition: { kind: "reconcile-first" },
-    cause: error,
+    cause,
   });
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-function postRef(value: unknown): BlueskyPostRef {
+function postRef(value: JsonField): BlueskyPostRef {
   const record = object(value);
 
   return { uri: string(record["uri"]), cid: string(record["cid"]) };
 }
 
-function linkFacets(text: string): readonly JsonObject[] {
-  const facets: JsonObject[] = [];
+function videoServiceOrigin(value: string | undefined): URL {
+  let url: URL;
+
+  try {
+    url = new URL(value ?? DEFAULT_VIDEO_SERVICE);
+  } catch {
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "bluesky.configure",
+      message: "Bluesky video service must be an absolute URL.",
+    });
+  }
+
+  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/")
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "bluesky.configure",
+      message: "Bluesky video service must be an HTTPS origin without credentials or a path.",
+    });
+
+  return url;
+}
+
+function serviceDid(value: string, operation: string): string {
+  if (!/^did:[a-z]+:[A-Za-z0-9._:%-]{1,2000}$/.test(value))
+    throw new SocialError({
+      code: "invalid_config",
+      operation,
+      message: "Bluesky PDS service DID is malformed.",
+    });
+
+  return value;
+}
+
+/** Validates a processed video blob before it is written into a post record. */
+function videoBlob(value: JsonField): JsonObject {
+  const blob = object(value);
+
+  const link = object(blob["ref"])["$link"];
+
+  const size = blob["size"];
+
+  if (
+    blob["$type"] !== "blob" ||
+    !isString(link) ||
+    !/^[a-z0-9]{8,128}$/i.test(link) ||
+    blob["mimeType"] !== "video/mp4" ||
+    !isFiniteNumber(size) ||
+    !Number.isSafeInteger(size) ||
+    size <= 0 ||
+    size > MAX_VIDEO_BYTES
+  )
+    throw new SocialError({
+      code: "media_error",
+      operation: "bluesky.video.job",
+      message: "Bluesky returned a video blob that cannot be embedded.",
+      retryDisposition: { kind: "never" },
+    });
+
+  return { $type: "blob", ref: { $link: link }, mimeType: "video/mp4", size };
+}
+
+/** Parses app.bsky.video.defs#jobStatus and binds it to the configured DID. */
+function videoJob(value: JsonField, did: string): BlueskyVideoJob {
+  const job = object(value);
+
+  const owner = string(job["did"]);
+
+  if (owner !== did)
+    throw new SocialError({
+      code: "unauthorized",
+      operation: "bluesky.video.job",
+      message: "Bluesky video job belongs to a different DID.",
+    });
+
+  const progress = optionalNumber(job["progress"]);
+
+  const failureCode = optionalString(job["failureCode"]);
+
+  const error = optionalString(job["error"]);
+
+  const message = optionalString(job["message"]);
+
+  return {
+    jobId: string(job["jobId"]),
+    did: owner,
+    state: string(job["state"]),
+    ...definedFields({
+      progress,
+      blob: job["blob"] === undefined ? undefined : videoBlob(job["blob"]),
+      failureCode,
+      error,
+      message,
+    }),
+  };
+}
+
+type RichTextFacet = {
+  readonly index: { readonly byteStart: number; readonly byteEnd: number };
+  readonly features: readonly JsonObject[];
+};
+
+interface MentionInput {
+  readonly byteStart: number;
+  readonly byteEnd: number;
+  readonly did: string;
+}
+
+function linkFacets(text: string): RichTextFacet[] {
+  const facets: RichTextFacet[] = [];
+
   const urlPattern = /https?:\/\/[^\s<>]+/g;
 
   for (const match of text.matchAll(urlPattern)) {
     const value = match[0]?.replace(/[.,;:!?)]*$/u, "");
+
     const start = match.index;
 
     if (start === undefined || value === undefined) continue;
+
     const end = start + value.length;
+
     const byteStart = new TextEncoder().encode(text.slice(0, start)).byteLength;
+
     const byteEnd = new TextEncoder().encode(text.slice(0, end)).byteLength;
     facets.push({
       index: { byteStart, byteEnd },
@@ -419,146 +622,122 @@ function linkFacets(text: string): readonly JsonObject[] {
   return facets;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-function richTextOptions(text: string, options: unknown): JsonObject {
-  const invalid = (message: string): never => {
-    throw new SocialError({ code: "invalid_input", operation: "bluesky.prepare", message });
-  };
+function invalidRichText(message: string): never {
+  throw new SocialError({ code: "invalid_input", operation: "bluesky.prepare", message });
+}
 
-  if (
-    options !== undefined &&
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-    (options === null || typeof options !== "object" || Array.isArray(options))
-  )
-    invalid("Bluesky options must be an object.");
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-  const config = (options ?? {}) as JsonObject;
+/** Caller-supplied publish options arrive untyped; this only admits non-array objects. */
+function isOptionBag(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOptionList(value: unknown): value is readonly unknown[] {
+  return Array.isArray(value);
+}
+
+function isStringItem(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isStringList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every(isStringItem);
+}
+
+function hasMentionFields(value: unknown): value is MentionInput {
+  return (
+    isOptionBag(value) &&
+    "byteStart" in value &&
+    "byteEnd" in value &&
+    "did" in value &&
+    typeof value.byteStart === "number" &&
+    typeof value.byteEnd === "number" &&
+    typeof value.did === "string"
+  );
+}
+
+function isJsonBody(body: BodyInit | undefined): body is string {
+  return typeof body === "string";
+}
+
+function richTextOptions(text: string, target: PreparedPublishTarget): JsonObject {
+  const options = target.options;
+
+  if (options !== undefined && !isOptionBag(options))
+    invalidRichText("Bluesky options must be an object.");
+
+  const config = options ?? {};
 
   if (Object.keys(config).some((key) => key !== "languages" && key !== "mentions"))
-    invalid("A supplied Bluesky option is not supported.");
+    invalidRichText("A supplied Bluesky option is not supported.");
+
   let langs: string[] | undefined;
 
-  if (config["languages"] !== undefined) {
-    const languages = config["languages"];
+  const languages = "languages" in config ? config.languages : undefined;
 
-    if (
-      !Array.isArray(languages) ||
-      languages.length > 3 ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      languages.some((value) => typeof value !== "string")
-    )
-      invalid("Bluesky accepts at most three language tags.");
+  if (languages !== undefined) {
+    if (!isStringList(languages) || languages.length > 3)
+      invalidRichText("Bluesky accepts at most three language tags.");
 
     try {
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      langs = Intl.getCanonicalLocales(languages as string[]);
+      langs = Intl.getCanonicalLocales([...languages]);
     } catch {
-      invalid("Bluesky languages must be valid BCP 47 tags.");
+      invalidRichText("Bluesky languages must be valid BCP 47 tags.");
     }
   }
 
-  const facets = [...linkFacets(text)];
-  const bytes = new TextEncoder().encode(text);
-  const mentions = config["mentions"] ?? [];
+  const facets = linkFacets(text);
 
-  if (!Array.isArray(mentions) || mentions.length > 100)
-    invalid("Bluesky mentions must be an array of at most 100 DID references.");
+  const bytes = new TextEncoder().encode(text);
+
+  const mentions = ("mentions" in config ? config.mentions : undefined) ?? [];
+
+  if (!isOptionList(mentions) || mentions.length > 100)
+    invalidRichText("Bluesky mentions must be an array of at most 100 DID references.");
+
   const spans: { start: number; end: number }[] = [];
 
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-  for (const value of mentions as readonly JsonObject[]) {
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      invalid("Each mention requires UTF-8 offsets and a DID.");
-
-    const start = value["byteStart"],
-      end = value["byteEnd"],
-      did = value["did"];
+  for (const value of mentions) {
+    if (!isOptionBag(value)) invalidRichText("Each mention requires UTF-8 offsets and a DID.");
 
     if (
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      typeof start !== "number" ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      typeof end !== "number" ||
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start < 0 ||
-      end <= start ||
-      end > bytes.length ||
-      (bytes[start]! & 0xc0) === 0x80 ||
-      (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) ||
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      typeof did !== "string" ||
-      !/^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(did)
+      !hasMentionFields(value) ||
+      !Number.isSafeInteger(value.byteStart) ||
+      !Number.isSafeInteger(value.byteEnd) ||
+      value.byteStart < 0 ||
+      value.byteEnd <= value.byteStart ||
+      value.byteEnd > bytes.length ||
+      (bytes[value.byteStart]! & 0xc0) === 0x80 ||
+      (value.byteEnd < bytes.length && (bytes[value.byteEnd]! & 0xc0) === 0x80) ||
+      !/^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(value.did)
     )
-      invalid("Mention offsets must span complete UTF-8 characters and identify a DID.");
+      invalidRichText("Mention offsets must span complete UTF-8 characters and identify a DID.");
 
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    const byteStart = start as number,
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      byteEnd = end as number;
+    const { byteStart, byteEnd, did } = value;
 
     if (!new TextDecoder().decode(bytes.slice(byteStart, byteEnd)).startsWith("@"))
-      invalid("A mention span must start with @.");
+      invalidRichText("A mention span must start with @.");
 
     if (
       spans.some((span) => byteStart < span.end && byteEnd > span.start) ||
-      facets.some((facet) => {
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        const index = facet["index"] as JsonObject;
-
-        return byteStart < Number(index["byteEnd"]) && byteEnd > Number(index["byteStart"]);
-      })
+      facets.some((facet) => byteStart < facet.index.byteEnd && byteEnd > facet.index.byteStart)
     )
-      invalid("Mention spans must not overlap links or other mentions.");
+      invalidRichText("Mention spans must not overlap links or other mentions.");
     spans.push({ start: byteStart, end: byteEnd });
     facets.push({
       index: { byteStart, byteEnd },
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      features: [{ $type: "app.bsky.richtext.facet#mention", did: did as string }],
+      features: [{ $type: "app.bsky.richtext.facet#mention", did }],
     });
   }
 
-  facets.sort(
-    (left, right) =>
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      Number((left["index"] as JsonObject)["byteStart"]) -
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      Number((right["index"] as JsonObject)["byteStart"]),
-  );
+  facets.sort((left, right) => left.index.byteStart - right.index.byteStart);
 
-  // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-  return { ...(langs === undefined ? {} : { langs }), ...(facets.length ? { facets } : {}) };
+  return definedFields({ langs, facets: facets.length ? facets : undefined });
 }
 
 function graphemeCount(text: string): number {
-  const Segmenter =
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    (
-      Intl as unknown as {
-        readonly Segmenter?: new (
-          locales?: string | string[],
-          options?: { readonly granularity?: "grapheme" | "word" | "sentence" },
-        ) => { segment(value: string): Iterable<unknown> };
-      }
-    ).Segmenter;
-
-  return Segmenter === undefined
+  return Intl.Segmenter === undefined
     ? Array.from(text).length
-    : [...new Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+    : [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
 }
 
 async function readMedia(
@@ -568,11 +747,14 @@ async function readMedia(
   allowMediaHost: (hostname: string) => boolean,
 ): Promise<{ readonly bytes: Uint8Array; readonly mimeType: string }> {
   const duration = remainingBudget(context);
+
   const controller = new AbortController();
+
   const abort = () => controller.abort(context.signal?.reason);
 
   if (context.signal?.aborted) abort();
   context.signal?.addEventListener("abort", abort, { once: true });
+
   const timer = setTimeout(() => controller.abort(new Error("Media deadline exceeded")), duration);
 
   try {
@@ -607,6 +789,7 @@ async function readMedia(
           operation: "bluesky.uploadBlob",
           message: "Remote image host is outside the configured egress policy.",
         });
+
       const pending = fetcher(url, { redirect: "error", signal: controller.signal });
       void pending.then(
         (response) => {
@@ -614,6 +797,7 @@ async function readMedia(
         },
         () => undefined,
       );
+
       const response = await abortable(pending, controller.signal);
 
       if (
@@ -622,6 +806,7 @@ async function readMedia(
         Number(response.headers.get("content-length")) > MAX_IMAGE_BYTES
       ) {
         void response.body?.cancel().catch(() => undefined);
+
         throw new SocialError({
           code: "media_error",
           operation: "bluesky.uploadBlob",
@@ -648,6 +833,7 @@ async function readMedia(
         message: "Image preparation was interrupted before publication.",
         retryDisposition: { kind: "never" },
       });
+
     throw error;
   } finally {
     clearTimeout(timer);
@@ -657,7 +843,9 @@ async function readMedia(
 
 export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   const backend = options.backend ?? "default";
+
   const fetcher = options.fetch ?? globalThis.fetch;
+
   const allowMediaHost = options.allowMediaHost ?? (() => false);
 
   const http = createHttp({
@@ -670,8 +858,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           return options.session!.fetchHandler(url.pathname + url.search, init);
         }
       : fetcher,
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...definedFields({ timeoutMs: options.timeoutMs }),
   });
 
   const auth = options.auth;
@@ -699,6 +886,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   }
 
   const service = auth.service;
+
   const account = connectedAccountRef({ backend, platform: "bluesky", accountId: auth.did });
 
   const capabilities: CapabilityManifest = {
@@ -707,6 +895,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     apiRevision: "AT Protocol XRPC 2026-09",
     runtime: ["node>=22.12", "bun"],
     capabilities: [
+      {
+        operation: "webhooks.verify",
+        platform: "bluesky",
+        availability: "unsupported-by-platform",
+        notes:
+          "Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose.",
+      },
       {
         operation: "accounts.read",
         platform: "bluesky",
@@ -717,7 +912,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         operation: "posts.publish",
         platform: "bluesky",
         availability: "available",
-        formats: ["text", "image"],
+        formats: ["text", "image", "video"],
         requiredScopes: ["repo"],
       },
       {
@@ -782,9 +977,60 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       {
         operation: "posts.publish.video",
         platform: "bluesky",
-        availability: "not-implemented-by-adapter",
+        availability: "available",
         formats: ["video"],
         requiredScopes: ["repo"],
+        notes:
+          "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls.",
+      },
+      {
+        operation: "comments.moderate",
+        platform: "bluesky",
+        availability: "available",
+        requiredScopes: ["repo"],
+        notes:
+          "Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies.",
+      },
+      {
+        operation: "media.upload",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        requiredScopes: ["repo"],
+        notes:
+          "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference.",
+      },
+      {
+        operation: "media.video",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        requiredScopes: ["repo"],
+        notes:
+          "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job.",
+      },
+      {
+        operation: "media.status",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        notes: "native.getVideoJobStatus reads app.bsky.video.getJobStatus once per call.",
+      },
+      {
+        operation: "media.limits.read",
+        platform: "bluesky",
+        availability: "available",
+        formats: ["video"],
+        notes:
+          "native.getVideoUploadLimits reads the daily video allowance. Uploads do not check it automatically.",
+      },
+      // Source, accessed 2026-09-24: https://github.com/bluesky-social/atproto/discussions/3038
+      {
+        operation: "posts.update",
+        platform: "bluesky",
+        availability: "unsupported-by-platform",
+        notes:
+          "Bluesky treats posts as immutable. A putRecord rewrite succeeds on the PDS, but the Bluesky AppView ignores post updates and the new CID breaks existing strong references from replies, quotes, likes, and reposts.",
       },
       ...[
         "posts.repost",
@@ -818,14 +1064,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       readonly headers?: HeadersInit;
       readonly maxAttempts?: number;
     } = {},
-    // oxlint-disable-next-line anti-slop/no-unknown-returns -- validated boundary or fixture contract.
-  ): Promise<unknown> {
+  ): Promise<JsonValue> {
     try {
       const headers = new Headers(init.headers);
-      if (typeof init.body === "string" && !headers.has("Content-Type"))
+
+      if (isJsonBody(init.body) && !headers.has("Content-Type"))
         headers.set("Content-Type", "application/json");
+
       if (method.startsWith("chat.bsky.") && !headers.has("atproto-proxy"))
         headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
+
       return await http({
         url: endpoint(service, method),
         timeoutMs: remainingBudget(context),
@@ -833,10 +1081,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         ...(options.session
           ? { headers }
           : { headers: { ...authHeaders(auth), ...Object.fromEntries(headers.entries()) } }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(init.body === undefined ? {} : { body: init.body }),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(context.signal === undefined ? {} : { signal: context.signal }),
+        ...definedFields({ body: init.body, signal: context.signal }),
         maxAttempts:
           init.maxAttempts ??
           (init.body === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1),
@@ -868,11 +1113,139 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       });
     }
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-    const handle = typeof session["handle"] === "string" ? session["handle"] : undefined;
+    return { did, ...definedFields({ handle: optionalString(session["handle"]) }) };
+  }
 
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    return { did, ...(handle === undefined ? {} : { handle }) };
+  const videoOrigin = videoServiceOrigin(options.videoService);
+
+  const timeout = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
+
+  const videoHttp = createHttp({ fetch: fetcher, ...timeout });
+
+  // Bluesky's video guide notes that a video the service already processed is reported as
+  // `already_exists` together with the existing job and blob. The upload transport reads that
+  // 409 body as a job status; `videoJob` still validates it and binds it to this DID.
+  const videoUploadHttp = createHttp({
+    fetch: async (input, init) => {
+      const response = await fetcher(input, init);
+
+      return response.status === 409
+        ? new Response(response.body, { status: 200, headers: response.headers })
+        : response;
+    },
+    ...timeout,
+  });
+
+  async function videoRequest(
+    method: string,
+    query: URLSearchParams,
+    context: AdapterOperationContext,
+    init: { readonly token?: string; readonly body?: Blob } = {},
+  ): Promise<JsonValue> {
+    const url = new URL(`/xrpc/${method}`, videoOrigin);
+    url.search = query.toString();
+
+    try {
+      return await (init.body === undefined ? videoHttp : videoUploadHttp)({
+        url,
+        timeoutMs: remainingBudget(context),
+        method: init.body === undefined ? "GET" : "POST",
+        headers: definedFields({
+          Authorization: init.token === undefined ? undefined : `Bearer ${init.token}`,
+          "Content-Type": init.body === undefined ? undefined : "video/mp4",
+        }),
+        ...definedFields({ body: init.body, signal: context.signal }),
+        maxAttempts: init.body === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1,
+      });
+    } catch (error) {
+      throw operationError(`bluesky.${method}`, error, init.body !== undefined);
+    }
+  }
+
+  /** Requests a short-lived service token from the account's PDS. The token is never logged. */
+  async function serviceToken(
+    aud: string,
+    lxm: string,
+    expiresInSeconds: number | undefined,
+    context: AdapterOperationContext,
+  ): Promise<string> {
+    const query = new URLSearchParams({ aud, lxm });
+
+    if (expiresInSeconds !== undefined)
+      query.set("exp", String(Math.floor(Date.now() / 1000) + expiresInSeconds));
+
+    const response = object(
+      await xrpc(`com.atproto.server.getServiceAuth?${query.toString()}`, context),
+    );
+
+    return string(response["token"]);
+  }
+
+  /** Resolves the PDS service DID that the video service stores the processed blob with. */
+  async function pdsAudience(context: AdapterOperationContext): Promise<string> {
+    if (options.pdsDid !== undefined) return serviceDid(options.pdsDid, "bluesky.video.upload");
+
+    const session = object(await xrpc("com.atproto.server.getSession", context));
+
+    const didDoc = session["didDoc"];
+
+    if (session["did"] !== auth.did || didDoc === undefined)
+      throw new SocialError({
+        code: "invalid_config",
+        operation: "bluesky.video.upload",
+        message:
+          "The session did not include a DID document for this account. Configure pdsDid for video uploads.",
+      });
+
+    const document = object(didDoc);
+
+    const pds = array(document["service"] ?? []).find((entry) => {
+      const service = object(entry);
+
+      return optionalString(service["id"])?.endsWith("#atproto_pds") === true;
+    });
+
+    if (document["id"] !== auth.did || pds === undefined)
+      throw new SocialError({
+        code: "invalid_config",
+        operation: "bluesky.video.upload",
+        message: "The DID document does not name a PDS for this account. Configure pdsDid.",
+      });
+
+    let host: string;
+
+    try {
+      const url = new URL(string(object(pds)["serviceEndpoint"]));
+
+      if (url.protocol !== "https:") throw new Error("PDS endpoint must use HTTPS");
+      host = url.host;
+    } catch {
+      throw new SocialError({
+        code: "invalid_config",
+        operation: "bluesky.video.upload",
+        message: "The DID document names an invalid PDS endpoint. Configure pdsDid.",
+      });
+    }
+
+    return serviceDid(`did:web:${host.replace(":", "%3A")}`, "bluesky.video.upload");
+  }
+
+  /** Validates a normalized video attachment and returns its MP4 bytes without I/O. */
+  function videoSource(media: MediaAttachment): Blob {
+    const source = media.source;
+
+    const mimeType =
+      media.mimeType ?? (source.kind === "blob" ? source.blob.type || undefined : undefined);
+
+    if (media.kind !== "video" || source.kind !== "blob" || mimeType !== "video/mp4")
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "Bluesky video upload requires one video/mp4 Blob.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return source.blob;
   }
 
   const nativeContext = (context: AdapterOperationContext | undefined, operation: string) =>
@@ -897,33 +1270,38 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
   const pageQuery = (input: BlueskyPageInput): URLSearchParams => {
     const limit = input.limit ?? 50;
+
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       throw new SocialError({
         code: "invalid_input",
         operation: "bluesky.graph.read",
         message: "Page size must be between 1 and 100.",
       });
+
     return new URLSearchParams({
       limit: String(limit),
-      ...(input.cursor ? { cursor: input.cursor } : {}),
+      ...definedFields({ cursor: input.cursor || undefined }),
     });
   };
 
   const recordKey = (uri: string, collection: string): string => {
     const prefix = `at://${auth.did}/${collection}/`;
+
     const key = uri.startsWith(prefix) ? uri.slice(prefix.length) : "";
+
     if (!/^[A-Za-z0-9._~:-]{1,512}$/.test(key) || key === "." || key === "..")
       throw new SocialError({
         code: "invalid_input",
         operation: "bluesky.record.delete",
         message: "Record URI must belong to this account.",
       });
+
     return key;
   };
 
   const actorPage = (response: JsonObject, key: string): BlueskyActorPageResult => ({
-    actors: array(response[key] ?? []).map((value) => object(value) as unknown as JsonObject),
-    ...(typeof response["cursor"] === "string" ? { cursor: response["cursor"] } : {}),
+    actors: array(response[key] ?? []).map((value) => object(value)),
+    ...definedFields({ cursor: optionalString(response["cursor"]) }),
   });
 
   const native: BlueskyNative = {
@@ -935,8 +1313,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       };
 
       const query = new URLSearchParams({ uris: input.uri });
+
       const response = object(await xrpc(`app.bsky.feed.getPosts?${query.toString()}`, context));
+
       const posts = array(response["posts"]);
+
       const post = posts.find((value) => object(value)["uri"] === input.uri);
 
       if (post === undefined)
@@ -946,8 +1327,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Bluesky post was not found.",
         });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      return object(post) as JsonObject;
+      return object(post);
     },
     async getPostThread(input) {
       const context = input.context ?? {
@@ -958,16 +1338,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({ uri: input.uri });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      return object(
-        await xrpc(`app.bsky.feed.getPostThread?${query.toString()}`, context),
-      ) as JsonObject;
+      return object(await xrpc(`app.bsky.feed.getPostThread?${query.toString()}`, context));
     },
     async searchPosts(input) {
       const context = nativeContext(input.context, "bluesky.search.posts");
       assertNativeAccount(input.account, context, "bluesky.search.posts");
 
       const queryText = input.query.trim();
+
       if (!queryText)
         throw new SocialError({
           code: "invalid_input",
@@ -977,6 +1355,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         });
 
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -992,6 +1371,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Bluesky search sort must be latest or top.",
           retryDisposition: { kind: "never" },
         });
+
       if (input.scope === "all")
         throw new SocialError({
           code: "invalid_input",
@@ -1007,6 +1387,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         });
 
       const query = new URLSearchParams({ q: queryText, limit: String(limit) });
+
       const optional = {
         cursor: input.cursor,
         sort: input.sort,
@@ -1018,33 +1399,29 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         domain: input.domain,
         url: input.url,
       } as const;
+
       for (const [key, value] of Object.entries(optional))
         if (value !== undefined && value.trim() !== "") query.set(key, value);
+
       for (const tag of input.tags ?? []) {
         const normalizedTag = tag.trim();
+
         if (normalizedTag) query.append("tag", normalizedTag);
       }
 
       const response = object(await xrpc(`app.bsky.feed.searchPosts?${query}`, context));
-      const posts = array(response["posts"]).map((post) => {
-        const value = object(post);
 
-        // The XRPC transport has already decoded a JSON payload; `object` validates
-        // the record boundary while the recursive JSON shape is preserved for callers.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion
-        return value as JsonObject;
-      });
-      const cursorValue = response["cursor"];
-      const hitsTotalValue = response["hitsTotal"];
+      const posts = array(response["posts"]).map((post) => object(post));
+
+      const hitsTotal = optionalNumber(response["hitsTotal"]);
 
       return {
         posts,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(typeof cursorValue === "string" ? { cursor: cursorValue } : {}),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(typeof hitsTotalValue === "number" && Number.isSafeInteger(hitsTotalValue)
-          ? { hitsTotal: hitsTotalValue }
-          : {}),
+        ...definedFields({
+          cursor: optionalString(response["cursor"]),
+          hitsTotal:
+            hitsTotal !== undefined && Number.isSafeInteger(hitsTotal) ? hitsTotal : undefined,
+        }),
       };
     },
     async likePost(input) {
@@ -1096,12 +1473,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         cid = response["cid"];
 
       if (
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        typeof uri !== "string" ||
+        !isString(uri) ||
         !uri.startsWith(prefix) ||
         !/^[A-Za-z0-9._~:-]{1,512}$/.test(uri.slice(prefix.length)) ||
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        typeof cid !== "string" ||
+        !isString(cid) ||
         !cid
       )
         throw new SocialError({
@@ -1131,6 +1506,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       };
 
       const prefix = `at://${auth.did}/app.bsky.feed.like/`;
+
       const recordKey = input.likeUri.startsWith(prefix) ? input.likeUri.slice(prefix.length) : "";
 
       if (!/^[A-Za-z0-9._~:-]{1,512}$/.test(recordKey) || recordKey === "." || recordKey === "..")
@@ -1139,6 +1515,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.reactions.unlike",
           message: "Like record must belong to this Bluesky account.",
         });
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({ repo: auth.did, collection: "app.bsky.feed.like", rkey: recordKey }),
       });
@@ -1194,7 +1571,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async deletePost(input) {
       const context = nativeContext(input.context, "bluesky.delete");
       assertNativeAccount(input.account, context, "bluesky.delete");
+
       const prefix = `at://${auth.did}/app.bsky.feed.post/`;
+
       const rkey = input.post.uri.startsWith(prefix) ? input.post.uri.slice(prefix.length) : "";
 
       if (!rkey)
@@ -1203,23 +1582,131 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.delete",
           message: "Post URI does not belong to this account.",
         });
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({ repo: auth.did, collection: "app.bsky.feed.post", rkey }),
       });
     },
-    async uploadVideo(_input) {
-      throw new SocialError({
-        code: "unsupported_capability",
-        operation: "bluesky.video.upload",
-        message:
-          "Bluesky video upload requires the video service authentication and job polling flow; this adapter does not implement it.",
-      });
+    async uploadVideo(input) {
+      // https://docs.bsky.app/docs/tutorials/video (recommended method)
+      const context = nativeContext(input.context, "bluesky.video.upload");
+      assertNativeAccount(input.account, context, "bluesky.video.upload");
+
+      const name = input.name ?? "video.mp4";
+
+      if (
+        (input.mimeType ?? input.video.type) !== "video/mp4" ||
+        input.video.size <= 0 ||
+        input.video.size > MAX_VIDEO_BYTES ||
+        name.length > 255 ||
+        [...name].some((char) => char.charCodeAt(0) < 0x20 || char === "/" || char === "\\")
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.video.upload",
+          message: `Bluesky video upload requires a non-empty video/mp4 Blob of at most ${MAX_VIDEO_BYTES} bytes and a plain file name.`,
+          retryDisposition: { kind: "never" },
+        });
+
+      const token = await serviceToken(
+        await pdsAudience(context),
+        "com.atproto.repo.uploadBlob",
+        VIDEO_UPLOAD_TOKEN_SECONDS,
+        context,
+      );
+
+      const response = object(
+        await videoRequest(
+          "app.bsky.video.uploadVideo",
+          new URLSearchParams({ did: auth.did, name }),
+          context,
+          { token, body: input.video },
+        ),
+      );
+
+      try {
+        // The lexicon wraps the output in `jobStatus`; the video guide reads it unwrapped.
+        return videoJob(response["jobStatus"] ?? response, auth.did);
+      } catch (error) {
+        throw operationError("bluesky.app.bsky.video.uploadVideo", error);
+      }
+    },
+    async getVideoJobStatus(input) {
+      // https://docs.bsky.app/docs/api/app-bsky-video-get-job-status
+      const context = nativeContext(input.context, "bluesky.video.job");
+      assertNativeAccount(input.account, context, "bluesky.video.job");
+
+      if (!/^[\x21-\x7e]{1,256}$/.test(input.jobId))
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.video.job",
+          message: "Bluesky video job ID is malformed.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const response = object(
+        await videoRequest(
+          "app.bsky.video.getJobStatus",
+          new URLSearchParams({ jobId: input.jobId }),
+          context,
+        ),
+      );
+
+      try {
+        return videoJob(response["jobStatus"], auth.did);
+      } catch (error) {
+        throw operationError("bluesky.app.bsky.video.getJobStatus", error, false);
+      }
+    },
+    async getVideoUploadLimits(input) {
+      // https://docs.bsky.app/docs/api/app-bsky-video-get-upload-limits
+      const context = nativeContext(input.context, "bluesky.video.limits");
+      assertNativeAccount(input.account, context, "bluesky.video.limits");
+
+      const token = await serviceToken(
+        `did:web:${videoOrigin.host.replace(":", "%3A")}`,
+        "app.bsky.video.getUploadLimits",
+        undefined,
+        context,
+      );
+
+      const response = object(
+        await videoRequest("app.bsky.video.getUploadLimits", new URLSearchParams(), context, {
+          token,
+        }),
+      );
+
+      const canUpload = response["canUpload"];
+
+      if (!isBoolean(canUpload))
+        throw operationError(
+          "bluesky.app.bsky.video.getUploadLimits",
+          new HttpError("Upload limits are missing canUpload.", "invalid-response", true),
+          false,
+        );
+
+      const videos = optionalNumber(response["remainingDailyVideos"]);
+
+      const bytes = optionalNumber(response["remainingDailyBytes"]);
+
+      const message = optionalString(response["message"]);
+
+      const error = optionalString(response["error"]);
+
+      return {
+        canUpload,
+        ...definedFields({
+          remainingDailyVideos: videos,
+          remainingDailyBytes: bytes,
+          message,
+          error,
+        }),
+      };
     },
     async follow(input) {
       const context = nativeContext(input.context, "bluesky.follow");
       assertNativeAccount(input.account, context, "bluesky.follow");
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc("com.atproto.repo.createRecord", context, {
           body: JSON.stringify({
@@ -1232,11 +1719,12 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         }),
-      ) as JsonObject;
+      );
     },
     async unfollow(input) {
       const context = nativeContext(input.context, "bluesky.unfollow");
       assertNativeAccount(input.account, context, "bluesky.unfollow");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1249,7 +1737,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.block");
       assertNativeAccount(input.account, context, "bluesky.block");
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc("com.atproto.repo.createRecord", context, {
           body: JSON.stringify({
@@ -1262,11 +1749,12 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         }),
-      ) as JsonObject;
+      );
     },
     async unblock(input) {
       const context = nativeContext(input.context, "bluesky.unblock");
       assertNativeAccount(input.account, context, "bluesky.unblock");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1286,6 +1774,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unmute(input) {
       const context = nativeContext(input.context, "bluesky.unmute");
       assertNativeAccount(input.account, context, "bluesky.unmute");
+
       await xrpc("app.bsky.graph.unmuteActor", context, {
         body: JSON.stringify({ actor: input.did }),
       });
@@ -1293,134 +1782,153 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getFollowers(input) {
       const context = nativeContext(input.context, "bluesky.graph.followers");
       assertNativeAccount(input.account, context, "bluesky.graph.followers");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
+
       return actorPage(
-        object(await xrpc(`app.bsky.graph.getFollowers?${q}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.graph.getFollowers?${q}`, context)),
         "followers",
       );
     },
     async getFollows(input) {
       const context = nativeContext(input.context, "bluesky.graph.follows");
       assertNativeAccount(input.account, context, "bluesky.graph.follows");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
-      return actorPage(
-        object(await xrpc(`app.bsky.graph.getFollows?${q}`, context)) as JsonObject,
-        "follows",
-      );
+
+      return actorPage(object(await xrpc(`app.bsky.graph.getFollows?${q}`, context)), "follows");
     },
     async getMutes(input) {
       const context = nativeContext(input.context, "bluesky.graph.mutes");
       assertNativeAccount(input.account, context, "bluesky.graph.mutes");
+
       return actorPage(
-        object(await xrpc(`app.bsky.graph.getMutes?${pageQuery(input)}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.graph.getMutes?${pageQuery(input)}`, context)),
         "mutes",
       );
     },
     async getBlocks(input) {
       const context = nativeContext(input.context, "bluesky.graph.blocks");
       assertNativeAccount(input.account, context, "bluesky.graph.blocks");
+
       return actorPage(
-        object(await xrpc(`app.bsky.graph.getBlocks?${pageQuery(input)}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.graph.getBlocks?${pageQuery(input)}`, context)),
         "blocks",
       );
     },
     async getLikes(input) {
       const context = nativeContext(input.context, "bluesky.likes.read");
       assertNativeAccount(input.account, context, "bluesky.likes.read");
+
       const q = pageQuery(input);
       q.set("uri", input.uri);
+
       if (input.cid) q.set("cid", input.cid);
+
       const value = object(await xrpc(`app.bsky.feed.getLikes?${q}`, context));
+
       return {
-        likes: array(value["likes"] ?? []).map((entry) => object(entry) as JsonObject),
-        ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
+        likes: array(value["likes"] ?? []).map((entry) => object(entry)),
+        ...definedFields({ cursor: optionalString(value["cursor"]) }),
       };
     },
     async getActorLikes(input) {
       const context = nativeContext(input.context, "bluesky.likes.actor");
       assertNativeAccount(input.account, context, "bluesky.likes.actor");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
+
       const value = object(await xrpc(`app.bsky.feed.getActorLikes?${q}`, context));
+
       return {
-        feed: array(value["feed"] ?? []).map((entry) => object(entry) as JsonObject),
-        ...(typeof value["cursor"] === "string" ? { cursor: value["cursor"] } : {}),
+        feed: array(value["feed"] ?? []).map((entry) => object(entry)),
+        ...definedFields({ cursor: optionalString(value["cursor"]) }),
       };
     },
     async searchActors(input) {
       const context = nativeContext(input.context, "bluesky.profiles.search");
       assertNativeAccount(input.account, context, "bluesky.profiles.search");
+
       if (!input.query.trim())
         throw new SocialError({
           code: "invalid_input",
           operation: "bluesky.profiles.search",
           message: "Actor search query is required.",
         });
+
       const q = pageQuery(input);
       q.set("q", input.query.trim());
-      return actorPage(
-        object(await xrpc(`app.bsky.actor.searchActors?${q}`, context)) as JsonObject,
-        "actors",
-      );
+
+      return actorPage(object(await xrpc(`app.bsky.actor.searchActors?${q}`, context)), "actors");
     },
     async searchActorsTypeahead(input) {
       const context = nativeContext(input.context, "bluesky.profiles.search");
       assertNativeAccount(input.account, context, "bluesky.profiles.search");
+
       if (!input.query.trim())
         throw new SocialError({
           code: "invalid_input",
           operation: "bluesky.profiles.search",
           message: "Actor search query is required.",
         });
+
       const limit = input.limit ?? 8;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
           operation: "bluesky.profiles.search",
           message: "Page size must be between 1 and 100.",
         });
+
       const q = new URLSearchParams({ q: input.query.trim(), limit: String(limit) });
+
       return actorPage(
-        object(await xrpc(`app.bsky.actor.searchActorsTypeahead?${q}`, context)) as JsonObject,
+        object(await xrpc(`app.bsky.actor.searchActorsTypeahead?${q}`, context)),
         "actors",
       );
     },
     async createList(input) {
       const context = nativeContext(input.context, "bluesky.lists.create");
       assertNativeAccount(input.account, context, "bluesky.lists.create");
+
       const record = {
         $type: "app.bsky.graph.list",
         name: input.name,
         purpose: input.purpose,
         createdAt: new Date().toISOString(),
-        ...(input.description === undefined ? {} : { description: input.description }),
-      } as unknown as JsonObject;
+        ...definedFields({ description: input.description }),
+      };
+
       return postRef(
-        object(
-          await xrpc("com.atproto.repo.createRecord", context, {
-            body: JSON.stringify({ repo: auth.did, collection: "app.bsky.graph.list", record }),
-          }),
-        ) as unknown as JsonObject,
+        await xrpc("com.atproto.repo.createRecord", context, {
+          body: JSON.stringify({ repo: auth.did, collection: "app.bsky.graph.list", record }),
+        }),
       );
     },
     async updateList(input) {
       const context = nativeContext(input.context, "bluesky.lists.update");
       assertNativeAccount(input.account, context, "bluesky.lists.update");
+
       const existing = object(
         await xrpc(
           `com.atproto.repo.getRecord?repo=${encodeURIComponent(auth.did)}&collection=app.bsky.graph.list&rkey=${encodeURIComponent(recordKey(input.listUri, "app.bsky.graph.list"))}`,
           context,
         ),
       );
+
       const record = object(existing["value"]);
-      const next: JsonObject = {
+
+      const next = {
         ...record,
         name: input.name,
         purpose: input.purpose,
-        ...(input.description === undefined ? {} : { description: input.description }),
+        ...definedFields({ description: input.description }),
       };
+
       await xrpc("com.atproto.repo.putRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1433,6 +1941,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async deleteList(input) {
       const context = nativeContext(input.context, "bluesky.lists.delete");
       assertNativeAccount(input.account, context, "bluesky.lists.delete");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1444,26 +1953,26 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async addListItem(input) {
       const context = nativeContext(input.context, "bluesky.lists.items.add");
       assertNativeAccount(input.account, context, "bluesky.lists.items.add");
+
       return postRef(
-        object(
-          await xrpc("com.atproto.repo.createRecord", context, {
-            body: JSON.stringify({
-              repo: auth.did,
-              collection: "app.bsky.graph.listitem",
-              record: {
-                $type: "app.bsky.graph.listitem",
-                list: input.listUri,
-                subject: input.subject,
-                createdAt: new Date().toISOString(),
-              },
-            }),
+        await xrpc("com.atproto.repo.createRecord", context, {
+          body: JSON.stringify({
+            repo: auth.did,
+            collection: "app.bsky.graph.listitem",
+            record: {
+              $type: "app.bsky.graph.listitem",
+              list: input.listUri,
+              subject: input.subject,
+              createdAt: new Date().toISOString(),
+            },
           }),
-        ) as unknown as JsonObject,
+        }),
       );
     },
     async removeListItem(input) {
       const context = nativeContext(input.context, "bluesky.lists.items.remove");
       assertNativeAccount(input.account, context, "bluesky.lists.items.remove");
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1475,20 +1984,25 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getList(input) {
       const context = nativeContext(input.context, "bluesky.lists.get");
       assertNativeAccount(input.account, context, "bluesky.lists.get");
+
       const q = pageQuery(input);
       q.set("list", input.listUri);
-      return object(await xrpc(`app.bsky.graph.getList?${q}`, context)) as JsonObject;
+
+      return object(await xrpc(`app.bsky.graph.getList?${q}`, context));
     },
     async getLists(input) {
       const context = nativeContext(input.context, "bluesky.lists.list");
       assertNativeAccount(input.account, context, "bluesky.lists.list");
+
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
-      return object(await xrpc(`app.bsky.graph.getLists?${q}`, context)) as JsonObject;
+
+      return object(await xrpc(`app.bsky.graph.getLists?${q}`, context));
     },
     async muteList(input) {
       const context = nativeContext(input.context, "bluesky.lists.mute");
       assertNativeAccount(input.account, context, "bluesky.lists.mute");
+
       await xrpc("app.bsky.graph.muteActorList", context, {
         body: JSON.stringify({ list: input.listUri }),
       });
@@ -1496,6 +2010,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unmuteList(input) {
       const context = nativeContext(input.context, "bluesky.lists.unmute");
       assertNativeAccount(input.account, context, "bluesky.lists.unmute");
+
       await xrpc("app.bsky.graph.unmuteActorList", context, {
         body: JSON.stringify({ list: input.listUri }),
       });
@@ -1503,6 +2018,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async blockList(input) {
       const context = nativeContext(input.context, "bluesky.lists.block");
       assertNativeAccount(input.account, context, "bluesky.lists.block");
+
       await xrpc("com.atproto.repo.createRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1518,7 +2034,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async unblockList(input) {
       const context = nativeContext(input.context, "bluesky.lists.unblock");
       assertNativeAccount(input.account, context, "bluesky.lists.unblock");
+
       let cursor: string | undefined;
+
       let record: JsonObject | undefined;
 
       do {
@@ -1526,15 +2044,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           repo: auth.did,
           collection: "app.bsky.graph.listblock",
           limit: "100",
-          ...(cursor === undefined ? {} : { cursor }),
+          ...definedFields({ cursor }),
         });
+
         const records = object(
           await xrpc(`com.atproto.repo.listRecords?${query.toString()}`, context),
         );
+
         record = array(records["records"])
-          .map((value) => object(value) as JsonObject)
+          .map((value) => object(value))
           .find((value) => object(value["value"])["subject"] === input.listUri);
-        cursor = typeof records["cursor"] === "string" ? records["cursor"] : undefined;
+        cursor = optionalString(records["cursor"]);
       } while (record === undefined && cursor !== undefined);
 
       if (record === undefined)
@@ -1543,6 +2063,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           operation: "bluesky.lists.unblock",
           message: "No list block record was found for this list.",
         });
+
       await xrpc("com.atproto.repo.deleteRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1554,19 +2075,23 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async createModerationReport(input) {
       const context = nativeContext(input.context, "bluesky.moderation.report");
       assertNativeAccount(input.account, context, "bluesky.moderation.report");
-      const body: JsonObject = {
+
+      const body = {
         reasonType: input.reasonType,
         subject: input.subject,
-        ...(input.reason === undefined ? {} : { reason: input.reason }),
+        ...definedFields({ reason: input.reason }),
       };
+
       return object(
         await xrpc("com.atproto.moderation.createReport", context, { body: JSON.stringify(body) }),
-      ) as JsonObject;
+      );
     },
     async listNotifications(input) {
       const context = nativeContext(input.context, "bluesky.notifications.list");
       assertNativeAccount(input.account, context, "bluesky.notifications.list");
+
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1576,18 +2101,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      return object(
-        await xrpc(`app.bsky.notification.listNotifications?${query}`, context),
-      ) as JsonObject;
+      return object(await xrpc(`app.bsky.notification.listNotifications?${query}`, context));
     },
     async markNotificationsSeen(input) {
       const context = nativeContext(input.context, "bluesky.notifications.seen");
       assertNativeAccount(input.account, context, "bluesky.notifications.seen");
+
       await xrpc("app.bsky.notification.updateSeen", context, {
         body: JSON.stringify({ seenAt: input.seenAt ?? new Date().toISOString() }),
       });
@@ -1596,17 +2118,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.profile.get");
       assertNativeAccount(input.account, context, "bluesky.profile.get");
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc(
           `app.bsky.actor.getProfile?actor=${encodeURIComponent(input.actor ?? auth.did)}`,
           context,
         ),
-      ) as JsonObject;
+      );
     },
     async updateProfile(input) {
       const context = nativeContext(input.context, "bluesky.profile.update");
       assertNativeAccount(input.account, context, "bluesky.profile.update");
+
       await xrpc("com.atproto.repo.putRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
@@ -1619,7 +2141,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async listFeeds(input) {
       const context = nativeContext(input.context, "bluesky.feeds.list");
       assertNativeAccount(input.account, context, "bluesky.feeds.list");
+
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1629,17 +2153,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      return object(await xrpc(`app.bsky.feed.getSuggestedFeeds?${query}`, context)) as JsonObject;
+      return object(await xrpc(`app.bsky.feed.getSuggestedFeeds?${query}`, context));
     },
     async listConversations(input) {
       const context = nativeContext(input.context, "bluesky.chat.list");
       assertNativeAccount(input.account, context, "bluesky.chat.list");
+
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1649,17 +2173,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-      return object(await xrpc(`chat.bsky.convo.listConvos?${query}`, context)) as JsonObject;
+      return object(await xrpc(`chat.bsky.convo.listConvos?${query}`, context));
     },
     async listMessages(input) {
       const context = nativeContext(input.context, "bluesky.chat.messages");
       assertNativeAccount(input.account, context, "bluesky.chat.messages");
+
       const limit = input.limit ?? 50;
+
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         throw new SocialError({
           code: "invalid_input",
@@ -1669,17 +2193,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const query = new URLSearchParams({
         limit: String(limit),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...definedFields({ cursor: input.cursor || undefined }),
       });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc(
           `chat.bsky.convo.getMessages?convoId=${encodeURIComponent(input.conversationId)}&${query}`,
           context,
         ),
-      ) as JsonObject;
+      );
     },
     async sendMessage(input) {
       const context = nativeContext(input.context, "bluesky.chat.send");
@@ -1692,12 +2214,137 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Message text is required.",
         });
 
-      // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
       return object(
         await xrpc("chat.bsky.convo.sendMessage", context, {
           body: JSON.stringify({ convoId: input.conversationId, message: { text: input.text } }),
         }),
-      ) as JsonObject;
+      );
+    },
+    async hideReply(input) {
+      const operation = "bluesky.comments.moderate";
+
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const invalid = (message: string) =>
+        new SocialError({
+          code: "invalid_input",
+          operation,
+          message,
+          retryDisposition: { kind: "never" },
+        });
+
+      const postUri =
+        /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.feed\.post\/[A-Za-z0-9._~:-]{1,512}$/;
+
+      if (!postUri.test(input.replyUri))
+        throw invalid("Reply must be an app.bsky.feed.post AT-URI.");
+
+      const postView = async (uri: string): Promise<ReturnType<typeof object>> => {
+        const query = new URLSearchParams({ uris: uri });
+
+        const found = array(
+          object(await xrpc(`app.bsky.feed.getPosts?${query.toString()}`, context))["posts"],
+        )
+          .map((value) => object(value))
+          .find((value) => value["uri"] === uri);
+
+        if (found === undefined)
+          throw new SocialError({
+            code: "not_found",
+            operation,
+            message: "Bluesky post was not found.",
+          });
+
+        return found;
+      };
+
+      const reply = object(object((await postView(input.replyUri))["record"]))["reply"];
+
+      if (reply === undefined) throw invalid("The URI identifies a root post, not a reply.");
+
+      const rootUri = string(object(object(reply)["root"])["uri"]);
+
+      if (!rootUri.startsWith(`at://${auth.did}/app.bsky.feed.post/`))
+        throw invalid("Only the author of the thread's root post can hide its replies.");
+
+      const rkey = recordKey(rootUri, "app.bsky.feed.post");
+
+      const threadgateUri = `at://${auth.did}/app.bsky.feed.threadgate/${rkey}`;
+
+      const gate = (await postView(rootUri))["threadgate"];
+
+      let existing:
+        | {
+            readonly ref: BlueskyPostRef;
+            readonly record: ReturnType<typeof object>;
+            readonly hiddenReplies: readonly string[];
+          }
+        | undefined;
+
+      if (gate !== undefined) {
+        const view = object(gate);
+
+        if (view["uri"] !== threadgateUri)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation,
+            message: "Bluesky returned a threadgate for a different post.",
+          });
+
+        const record = object(view["record"]);
+        existing = {
+          ref: postRef(view),
+          record,
+          hiddenReplies:
+            record["hiddenReplies"] === undefined
+              ? []
+              : array(record["hiddenReplies"]).map((value) => string(value)),
+        };
+      }
+
+      const current = existing?.hiddenReplies.includes(input.replyUri) ?? false;
+
+      if (current === input.hidden)
+        return existing === undefined
+          ? { hidden: current }
+          : { hidden: current, threadgate: existing.ref };
+
+      if (existing === undefined) {
+        // Omit `allow`: an absent allow list keeps replies open, an empty one closes them.
+        const created = await xrpc("com.atproto.repo.createRecord", context, {
+          body: JSON.stringify({
+            repo: auth.did,
+            collection: "app.bsky.feed.threadgate",
+            rkey,
+            record: {
+              $type: "app.bsky.feed.threadgate",
+              post: rootUri,
+              createdAt: new Date().toISOString(),
+              hiddenReplies: [input.replyUri],
+            },
+          }),
+        });
+
+        return { hidden: true, threadgate: postRef(created) };
+      }
+
+      const hiddenReplies = input.hidden
+        ? [...existing.hiddenReplies, input.replyUri]
+        : existing.hiddenReplies.filter((uri) => uri !== input.replyUri);
+      // swapRecord makes the PDS reject the write if the threadgate changed since it was read.
+
+      const updated = await xrpc("com.atproto.repo.putRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.feed.threadgate",
+          rkey,
+          record: { ...existing.record, hiddenReplies },
+          swapRecord: existing.ref.cid,
+        }),
+      });
+
+      return { hidden: input.hidden, threadgate: postRef(updated) };
     },
   };
 
@@ -1705,18 +2352,38 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     id: backend,
     capabilities,
     native,
+    media: {
+      async upload(media, accountRef, context): Promise<MediaRef> {
+        const job = await native.uploadVideo({
+          account: accountRef,
+          video: videoSource(media),
+          mimeType: "video/mp4",
+          ...definedFields({ name: media.filename }),
+          context,
+        });
+
+        return {
+          kind: "media",
+          version: 1,
+          backend,
+          platform: "bluesky",
+          accountId: auth.did,
+          mediaId: job.jobId,
+        };
+      },
+    },
     graph: {
       async getProfile(account, input, context): Promise<ProfileRecord> {
         const value = await native.getProfile({
           account,
-          ...(input.profileId === undefined ? {} : { actor: input.profileId }),
-          ...(input.profileId === undefined && input.handle !== undefined
-            ? { actor: input.handle }
-            : {}),
+          ...definedFields({ actor: input.profileId ?? input.handle }),
           context,
         });
-        const actor = object(value) as JsonObject;
+
+        const actor = object(value);
+
         const id = string(actor["did"]);
+
         return {
           ref: profileRef({
             backend,
@@ -1724,48 +2391,49 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             accountId: account.accountId,
             profileId: id,
           }),
-          ...(typeof actor["displayName"] === "string"
-            ? { displayName: actor["displayName"] }
-            : {}),
-          ...(typeof actor["handle"] === "string" ? { handle: actor["handle"] } : {}),
-          ...(typeof actor["avatar"] === "string" ? { avatarUrl: actor["avatar"] } : {}),
-          ...(typeof actor["description"] === "string" ? { bio: actor["description"] } : {}),
+          ...definedFields({
+            displayName: optionalString(actor["displayName"]),
+            handle: optionalString(actor["handle"]),
+            avatarUrl: optionalString(actor["avatar"]),
+            bio: optionalString(actor["description"]),
+          }),
           native: actor,
         };
       },
       async listRelationships(account, input, context): Promise<Page<RelationshipRecord>> {
+        const page = definedFields({ cursor: input.cursor, limit: input.limit });
+
         const result =
           input.kind === "following"
             ? await native.getFollows({
                 account,
                 context,
-                ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                ...(input.limit === undefined ? {} : { limit: input.limit }),
+                ...page,
               })
             : input.kind === "followers"
               ? await native.getFollowers({
                   account,
                   context,
-                  ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                  ...(input.limit === undefined ? {} : { limit: input.limit }),
+                  ...page,
                 })
               : input.kind === "blocked"
                 ? await native.getBlocks({
                     account,
                     context,
-                    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                    ...(input.limit === undefined ? {} : { limit: input.limit }),
+                    ...page,
                   })
                 : await native.getMutes({
                     account,
                     context,
-                    ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-                    ...(input.limit === undefined ? {} : { limit: input.limit }),
+                    ...page,
                   });
+
         return {
           items: result.actors.map((actor) => {
             const value = object(actor);
+
             const id = string(value["did"]);
+
             return {
               profile: profileRef({
                 backend,
@@ -1781,47 +2449,58 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                     : input.kind,
             };
           }),
-          ...(result.cursor === undefined ? {} : { nextCursor: result.cursor }),
+          ...definedFields({ nextCursor: result.cursor }),
         };
       },
       async follow(target, context): Promise<RelationshipRecord> {
         await native.follow({ account, did: target.profileId, context });
+
         return { profile: target, relationship: "following" };
       },
       async unfollow(target, context): Promise<void> {
         const profile = object(
           await native.getProfile({ account, actor: target.profileId, context }),
         );
+
         const viewer = object(profile["viewer"] ?? {});
+
         const uri = viewer["following"];
-        if (typeof uri !== "string" || !uri)
+
+        if (!isString(uri) || !uri)
           throw new SocialError({
             code: "invalid_input",
             operation: "graph.unfollow",
             message: "A follow record URI is required to unfollow.",
           });
+
         await native.unfollow({ account, followUri: uri, context });
       },
       async block(target, context): Promise<RelationshipRecord> {
         await native.block({ account, did: target.profileId, context });
+
         return { profile: target, relationship: "blocked" };
       },
       async unblock(target, context): Promise<void> {
         const profile = object(
           await native.getProfile({ account, actor: target.profileId, context }),
         );
+
         const viewer = object(profile["viewer"] ?? {});
+
         const uri = viewer["blocking"];
-        if (typeof uri !== "string" || !uri)
+
+        if (!isString(uri) || !uri)
           throw new SocialError({
             code: "invalid_input",
             operation: "graph.unblock",
             message: "A block record URI is required to unblock.",
           });
+
         await native.unblock({ account, blockUri: uri, context });
       },
       async mute(target, context): Promise<RelationshipRecord> {
         await native.mute({ account, did: target.profileId, context });
+
         return { profile: target, relationship: "muted" };
       },
       async unmute(target, context): Promise<void> {
@@ -1837,8 +2516,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             {
               ref: account,
               displayName: session.handle ?? session.did,
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-              ...(session.handle === undefined ? {} : { handle: session.handle }),
+              ...definedFields({ handle: session.handle }),
               status: "connected",
             },
           ],
@@ -1852,13 +2530,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             message: "The account reference does not belong to this Bluesky adapter.",
             account: ref,
           });
+
         const session = await verifiedSession(context);
 
         return {
           ref: account,
           displayName: session.handle ?? session.did,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(session.handle === undefined ? {} : { handle: session.handle }),
+          ...definedFields({ handle: session.handle }),
           status: "connected",
         };
       },
@@ -1876,18 +2554,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const result = await native.searchPosts({
           account,
           query: input.query,
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
-          ...(input.startTime === undefined ? {} : { since: input.startTime }),
-          ...(input.endTime === undefined ? {} : { until: input.endTime }),
-          ...(input.scope === undefined ? {} : { scope: input.scope }),
+          ...definedFields({
+            cursor: input.cursor,
+            limit: input.limit,
+            since: input.startTime,
+            until: input.endTime,
+            scope: input.scope,
+          }),
           context,
         });
 
         return {
           items: result.posts,
-          ...(result.cursor === undefined ? {} : { nextCursor: result.cursor }),
-          ...(result.hitsTotal === undefined ? {} : { metadata: { hitsTotal: result.hitsTotal } }),
+          ...definedFields({
+            nextCursor: result.cursor,
+            metadata: result.hitsTotal === undefined ? undefined : { hitsTotal: result.hitsTotal },
+          }),
         };
       },
     },
@@ -1907,26 +2589,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const response = await native.listNotifications({
           account,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...definedFields({ cursor: input.cursor, limit: input.limit }),
           context,
         });
+
         const values = response["notifications"];
-        const items =
-          values === undefined
-            ? []
-            : array(values).map((value) => {
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated provider notification object.
-                return object(value) as JsonObject;
-              });
-        const cursor = response["cursor"];
+
+        const items = values === undefined ? [] : array(values).map((value) => object(value));
 
         return {
           items,
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          ...(typeof cursor === "string" ? { nextCursor: cursor } : {}),
+          ...definedFields({ nextCursor: optionalString(response["cursor"]) }),
         };
       },
       async markSeen(
@@ -1941,10 +2614,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             message: "The account reference does not belong to this adapter.",
             account,
           });
+
         await native.markNotificationsSeen({
           account,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.seenAt === undefined ? {} : { seenAt: input.seenAt }),
+          ...definedFields({ seenAt: input.seenAt }),
           context,
         });
       },
@@ -1961,6 +2634,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "bluesky.posts.list",
             message: "The account reference does not belong to this adapter.",
           });
+
         const limit = input.limit ?? 50;
 
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -1973,16 +2647,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const query = new URLSearchParams({
           actor: auth.did,
           limit: String(limit),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+          ...definedFields({ cursor: input.cursor }),
         });
 
         const response = object(
           await xrpc(`app.bsky.feed.getAuthorFeed?${query.toString()}`, context),
         );
 
-        const feed = array(response["feed"]).map((value) => {
+        const feed = array(response["feed"]).map((value): JsonObject => {
           const entry = object(value);
+
           const post = object(entry["post"]);
 
           const safePost = {
@@ -1996,57 +2670,52 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               "indexedAt",
               "labels",
             ]),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            ...(post["author"] === undefined
-              ? {}
-              : {
-                  author: publicFields(object(post["author"]), [
-                    "did",
-                    "handle",
-                    "displayName",
-                    "avatar",
-                  ]),
-                }),
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            ...(post["record"] === undefined
-              ? {}
-              : {
-                  record: publicFields(object(post["record"]), [
-                    "text",
-                    "facets",
-                    "createdAt",
-                    "reply",
-                    "embed",
-                  ]),
-                }),
+            ...definedFields({
+              author:
+                post["author"] === undefined
+                  ? undefined
+                  : publicFields(object(post["author"]), [
+                      "did",
+                      "handle",
+                      "displayName",
+                      "avatar",
+                    ]),
+              record:
+                post["record"] === undefined
+                  ? undefined
+                  : publicFields(object(post["record"]), [
+                      "text",
+                      "facets",
+                      "createdAt",
+                      "reply",
+                      "embed",
+                    ]),
+            }),
           };
 
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
           return {
             post: safePost,
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            ...(entry["reason"] === undefined
-              ? {}
-              : { reason: publicFields(object(entry["reason"]), ["$type", "by", "indexedAt"]) }),
-          } as JsonObject;
+            ...definedFields({
+              reason:
+                entry["reason"] === undefined
+                  ? undefined
+                  : publicFields(object(entry["reason"]), ["$type", "by", "indexedAt"]),
+            }),
+          };
         });
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        const cursor = typeof response["cursor"] === "string" ? response["cursor"] : undefined;
-
         return {
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-          items: feed as JsonObject[],
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(cursor === undefined ? {} : { nextCursor: cursor }),
+          items: feed,
+          ...definedFields({ nextCursor: optionalString(response["cursor"]) }),
         };
       },
       prepareTarget(target) {
         const issues = [];
+
         const text = target.content.text ?? "";
 
         try {
-          richTextOptions(text, target.options);
+          richTextOptions(text, target);
         } catch (error) {
           issues.push({
             code: "bluesky.richtext",
@@ -2076,14 +2745,53 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             severity: "error" as const,
           });
 
-        if (target.content.media?.some((media) => media.kind !== "image"))
+        const media = target.content.media ?? [];
+
+        const videos = media.filter((item) => item.kind === "video");
+
+        if (videos.length > 0 && media.length !== 1)
           issues.push({
-            code: "media.unsupported",
-            message: "Bluesky direct publishing supports images, not video.",
+            code: "media.mixed",
+            message: "A Bluesky post carries either up to four images or exactly one video.",
             severity: "error" as const,
           });
 
-        if ((target.content.media?.length ?? 0) > MAX_IMAGES)
+        for (const video of videos) {
+          const ref = video.source.kind === "media-ref" ? video.source.ref : undefined;
+
+          if (ref === undefined)
+            issues.push({
+              code: "media.video_ref_required",
+              message:
+                "Upload the video with media.upload, wait until its job has a blob, then publish the returned media reference.",
+              severity: "error" as const,
+            });
+          else if (
+            ref.backend !== target.account.backend ||
+            ref.platform !== "bluesky" ||
+            ref.accountId !== target.account.accountId ||
+            !/^[\x21-\x7e]{1,256}$/.test(ref.mediaId)
+          )
+            issues.push({
+              code: "media.video_owner",
+              message: "Video reference belongs to another account or backend, or is malformed.",
+              severity: "error" as const,
+            });
+
+          if (
+            (video.width === undefined) !== (video.height === undefined) ||
+            [video.width, video.height].some(
+              (value) => value !== undefined && (!Number.isSafeInteger(value) || value < 1),
+            )
+          )
+            issues.push({
+              code: "media.aspect_ratio",
+              message: "Video width and height must be supplied together as positive integers.",
+              severity: "error" as const,
+            });
+        }
+
+        if (videos.length === 0 && media.length > MAX_IMAGES)
           issues.push({
             code: "media.too_many",
             message: `Bluesky supports at most ${MAX_IMAGES} images per post.`,
@@ -2103,23 +2811,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         try {
           const content = target.content;
+
           const text = content.text ?? "";
 
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- provider payload is validated at this adapter boundary.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated external boundary or fixture contract.
-          // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-          const record: Record<string, unknown> = {
-            $type: "app.bsky.feed.post",
-            text,
-            createdAt: new Date().toISOString(),
-          };
+          const createdAt = new Date().toISOString();
 
-          Object.assign(record, richTextOptions(text, target.options));
+          const richText = richTextOptions(text, target);
+
+          let reply: JsonObject | undefined;
+
+          let embed: JsonObject | undefined;
 
           if (target.replyTo !== undefined) {
             if (target.replyTo.kind !== "platform-post")
@@ -2145,21 +2846,79 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                   };
 
             const rootValue = parentRecord["reply"];
+
             const root = rootValue === undefined ? parentRef : object(object(rootValue)["root"]);
-            Object.assign(record, { reply: { root, parent: parentRef } });
+            reply = { root, parent: parentRef };
           }
 
-          if (content.media !== undefined && content.media.length > 0) {
-            // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-            const blobs: Record<string, unknown>[] = [];
+          const video = content.media?.find((item) => item.kind === "video");
+
+          if (video !== undefined) {
+            if (video.source.kind !== "media-ref" || content.media?.length !== 1)
+              throw new SocialError({
+                code: "invalid_input",
+                operation: "bluesky.publish",
+                message: "Bluesky video posts require exactly one uploaded video reference.",
+                retryDisposition: { kind: "never" },
+              });
+
+            const ref = video.source.ref;
+
+            if (ref.backend !== backend || ref.platform !== "bluesky" || ref.accountId !== auth.did)
+              throw new SocialError({
+                code: "unauthorized",
+                operation: "bluesky.publish",
+                message: "The video reference does not belong to this adapter.",
+                account: target.account,
+              });
+
+            // One status read. A job that is still processing fails before any post is created.
+            const job = await native.getVideoJobStatus({
+              account: target.account,
+              jobId: ref.mediaId,
+              context,
+            });
+
+            if (job.blob === undefined)
+              throw new SocialError(
+                job.state === "JOB_STATE_FAILED"
+                  ? {
+                      code: "media_error",
+                      operation: "bluesky.publish",
+                      message: "Bluesky video processing failed. No post was created.",
+                      retryDisposition: { kind: "never" },
+                      ...definedFields({ upstreamCode: job.failureCode }),
+                    }
+                  : {
+                      code: "media_error",
+                      operation: "bluesky.publish",
+                      message:
+                        "Bluesky video processing is not complete. No post was created. Check native.getVideoJobStatus, then publish again.",
+                      retryDisposition: { kind: "after-delay", delayMs: 1000 },
+                      upstreamCode: job.state,
+                    },
+              );
+
+            embed = {
+              $type: "app.bsky.embed.video",
+              video: job.blob,
+              ...definedFields({
+                alt: video.altText,
+                aspectRatio:
+                  video.width === undefined || video.height === undefined
+                    ? undefined
+                    : { width: video.width, height: video.height },
+              }),
+            };
+          } else if (content.media !== undefined && content.media.length > 0) {
+            const blobs: JsonObject[] = [];
 
             for (const media of content.media) {
               const source = await readMedia(media.source, fetcher, context, allowMediaHost);
 
               const blob = object(
                 await xrpc("com.atproto.repo.uploadBlob", context, {
-                  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-                  body: new Blob([source.bytes.slice().buffer as ArrayBuffer], {
+                  body: new Blob([source.bytes.slice()], {
                     type: source.mimeType,
                   }),
                   headers: { "Content-Type": source.mimeType },
@@ -2169,16 +2928,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               blobs.push(object(blob["blob"]));
             }
 
-            Object.assign(record, {
-              embed: {
-                $type: "app.bsky.embed.images",
-                images: blobs.map((blob, index) => ({
-                  image: blob,
-                  alt: content.media?.[index]?.altText ?? "",
-                })),
-              },
-            });
+            embed = {
+              $type: "app.bsky.embed.images",
+              images: blobs.map((blob, index) => ({
+                image: blob,
+                alt: content.media?.[index]?.altText ?? "",
+              })),
+            };
           }
+
+          const record = {
+            $type: "app.bsky.feed.post",
+            text,
+            createdAt,
+            ...richText,
+            ...definedFields({ reply, embed }),
+          };
 
           const response = object(
             await xrpc("com.atproto.repo.createRecord", context, {
@@ -2245,6 +3010,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "posts.removeFromPlatform",
             message: "The post reference does not belong to this Bluesky adapter.",
           });
+
         await native.deletePost({
           account,
           post: {
@@ -2263,11 +3029,12 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "comments.read",
             message: "This adapter does not expose upstream comment pagination.",
           });
+
         const thread = await native.getPostThread({ uri: post.postId, context });
+
         const replies = array(object(thread["thread"])["replies"] ?? []);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return { items: replies.map((reply) => object(reply) as JsonObject) };
+        return { items: replies.map((reply) => object(reply)) };
       },
       async reply(comment, content, context): Promise<CommentRef> {
         const outcome = await adapter.posts?.publishTarget(
@@ -2311,8 +3078,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     analytics: {
       async getPostMetrics(post, context): Promise<readonly MetricValue[]> {
         const value = await native.getPost({ uri: post.postId, context });
+
         const record = object(value);
+
         const fetchedAt = new Date().toISOString();
+
         const metrics: MetricValue[] = [];
 
         for (const [name, field] of [
@@ -2323,8 +3093,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         ] as const) {
           const count = record[field];
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          if (typeof count === "number" && Number.isFinite(count))
+          if (isFiniteNumber(count))
             metrics.push({
               name,
               value: count,
@@ -2357,6 +3126,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             operation: "bluesky.analytics.account",
             message: "Bluesky profile identity does not match the requested DID.",
           });
+
         const fetchedAt = new Date().toISOString();
 
         return (
@@ -2366,8 +3136,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             ["posts", profile["postsCount"]],
           ] as const
         ).flatMap(([name, value]) =>
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          typeof value === "number" && Number.isFinite(value)
+          isFiniteNumber(value)
             ? [
                 {
                   name,

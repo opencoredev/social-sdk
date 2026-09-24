@@ -1,0 +1,10 @@
+# Lint and CI setup. Changes need a review from @leoisadev1 before they can merge,
+# so the checks cannot be weakened in the same pull request that relies on them.
+/.oxlintrc.json @leoisadev1
+/.oxfmtrc.json @leoisadev1
+/package.json @leoisadev1
+/scripts/check-lint-policy.ts @leoisadev1
+/scripts/check-anti-slop-bundle.ts @leoisadev1
+/tools/oxlint/ @leoisadev1
+/.github/ @leoisadev1
+/AGENTS.md @leoisadev1

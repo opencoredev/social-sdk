@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, type BackendPostRef, type ScheduledJobRef } from "../src/index.js";
@@ -84,21 +83,15 @@ test("lifecycle denies unauthorized references, wrong kinds, shared records and 
   });
 
   await assert.rejects(denied.posts.cancelScheduled(job), { code: "unauthorized" });
-  await assert.rejects(
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- validated external boundary or fixture contract.
-    createSocial({ backend }).posts.cancelScheduled({
-      ...job,
-      kind: "platform-post",
-    } as unknown as ScheduledJobRef),
-    { code: "invalid_input" },
+
+  // A ref restored from storage is only typed by its reader; simulate a stored ref of the wrong kind.
+  const storedWrongKind: ScheduledJobRef = JSON.parse(
+    JSON.stringify({ ...job, kind: "platform-post" }),
   );
+
+  await assert.rejects(createSocial({ backend }).posts.cancelScheduled(storedWrongKind), {
+    code: "invalid_input",
+  });
   assert.equal(calls, 0);
 
   for (const patch of [

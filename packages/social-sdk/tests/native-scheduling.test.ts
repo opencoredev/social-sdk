@@ -10,8 +10,6 @@ import { threads } from "../src/platforms/threads.js";
 import { tiktok } from "../src/platforms/tiktok.js";
 import { x } from "../src/platforms/x.js";
 
-/* oxlint-disable anti-slop/require-readable-spacing -- Keep one fixture row per platform. */
-
 let calls = 0;
 
 const offlineFetch = async (): Promise<Response> => {

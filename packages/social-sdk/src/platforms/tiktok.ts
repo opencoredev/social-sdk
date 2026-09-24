@@ -1,5 +1,5 @@
-/* oxlint-disable anti-slop/no-unknown-parameters -- validated external boundary or fixture contract. */
 import { defineAdapter } from "../core/adapter.js";
+import { definedFields } from "../core/fields.js";
 import { SocialError } from "../core/errors.js";
 import type {
   AdapterOperationContext,
@@ -10,9 +10,24 @@ import type {
   MetricValue,
   PlatformPostRef,
 } from "../core/types.js";
-import { managedHttp, publicFields } from "../cloud/common.js";
-import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
+import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import { parseJson } from "../transport/json.js";
+import {
+  array,
+  isBoolean,
+  isFiniteNumber,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  object,
+  optionalNumber,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { verifyTikTokWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
 export interface TikTokOptions {
   readonly auth: { readonly accessToken: string; readonly openId: string };
@@ -20,6 +35,10 @@ export interface TikTokOptions {
   readonly verifiedMediaOrigins: readonly string[];
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
+  /** App client secret that TikTok uses to sign webhook deliveries (`TikTok-Signature`). */
+  readonly webhookSecret?: string;
+  /** Accepted age of a signed webhook timestamp, in seconds. Defaults to 300. */
+  readonly webhookToleranceSeconds?: number;
 }
 
 export interface TikTokNative {
@@ -61,39 +80,44 @@ const videoFields = [
   "view_count",
 ];
 
+/**
+ * TikTok reports some rejections as 4xx responses with a structured `error.code`.
+ * Pass those through as 200 so `data()` can map the provider code.
+ */
+function withTikTokErrorBodies(fetch: typeof globalThis.fetch) {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetch(input, init);
+
+    if (response.status < 400 || response.status >= 500) return response;
+
+    const body = await response.clone().text();
+
+    try {
+      const errorObject = object(object(parseJson(body))["error"]);
+
+      if (errorObject["code"] !== undefined)
+        return new Response(body, {
+          status: 200,
+          headers: response.headers,
+        });
+    } catch {
+      // Preserve ordinary HTTP error handling for non-JSON responses.
+    }
+
+    return response;
+  };
+}
+
 export function tiktok(
   options: TikTokOptions,
 ): import("../core/adapter.js").SocialAdapter<TikTokNative> {
+  const userFetch = options.fetch;
+
   const request = managedHttp("https://open.tiktokapis.com", {
     apiKey: options.auth.accessToken,
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    ...(options.fetch
-      ? {
-          fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-            const response = await options.fetch!(input, init);
-
-            if (response.status < 400 || response.status >= 500) return response;
-
-            const body = await response.clone().text();
-
-            try {
-              const parsed: unknown = JSON.parse(body);
-              const parsedObject = object(parsed);
-              const errorObject = object(parsedObject["error"]);
-
-              if (errorObject["code"] !== undefined)
-                return new Response(body, {
-                  status: 200,
-                  headers: response.headers,
-                });
-            } catch {
-              // Preserve ordinary HTTP error handling for non-JSON responses.
-            }
-
-            return response;
-          },
-        }
-      : {}),
+    ...definedFields({
+      fetch: userFetch === undefined ? undefined : withTikTokErrorBodies(userFetch),
+    }),
   });
 
   const origins = new Set(options.verifiedMediaOrigins.map((value) => httpsUrl(value).origin));
@@ -115,15 +139,7 @@ export function tiktok(
       });
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated external boundary or fixture contract.
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated external boundary or fixture contract.
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-  const data = (value: unknown): Record<string, unknown> => {
+  const data = (value: JsonField): JsonObject => {
     const response = object(value);
     const error = object(response["error"]);
 
@@ -174,7 +190,7 @@ export function tiktok(
 
     if (target.account.platform !== "tiktok" || target.account.accountId !== options.auth.openId)
       fail("tiktok.account", "Select the configured TikTok creator.");
-    const config = target.options === undefined ? {} : object(target.options);
+    const config = optionsObject(target);
     const draft = config["draft"] === true;
 
     if (config["consentGiven"] !== true)
@@ -192,18 +208,17 @@ export function tiktok(
       "aiGenerated",
       "draft",
     ])
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      if (typeof config[key] !== "boolean")
-        fail(`tiktok.${key}`, `Explicit ${key} choice is required.`);
+      if (!isBoolean(config[key])) fail(`tiktok.${key}`, `Explicit ${key} choice is required.`);
 
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-    if (!draft && (!config["creatorInfo"] || typeof config["creatorInfo"] !== "object"))
+    const creatorInfoValue = config["creatorInfo"];
+
+    if (!draft && !isJsonObject(creatorInfoValue) && !isJsonArray(creatorInfoValue))
       fail(
         "tiktok.creator_info",
         "Query creator information explicitly and render its choices before preparation.",
       );
     else if (!draft) {
-      const creator = object(config["creatorInfo"]);
+      const creator = object(creatorInfoValue);
 
       if (
         creator["accountId"] !== target.account.accountId ||
@@ -214,7 +229,10 @@ export function tiktok(
           "Creator information belongs to a different account or backend.",
         );
 
-      if (!array(creator["privacyLevels"]).includes(config["privacy"]))
+      const privacyLevels = array(creator["privacyLevels"]);
+      const privacy = config["privacy"];
+
+      if (privacy === undefined || !privacyLevels.includes(privacy))
         fail("tiktok.privacy", "Choose a privacy level returned by this creator's information.");
     }
 
@@ -230,24 +248,22 @@ export function tiktok(
     if ((target.content.text?.length ?? 0) > (video ? 2200 : 4000))
       fail("tiktok.caption", "Caption exceeds TikTok's UTF-16 limit for this format.");
 
-    if (
-      !video &&
-      config["title"] !== undefined &&
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      (typeof config["title"] !== "string" || config["title"].length > 90)
-    )
+    const title = config["title"];
+
+    if (!video && title !== undefined && (!isString(title) || title.length > 90))
       fail("tiktok.title", "Photo titles are limited to 90 UTF-16 code units.");
 
-    if (video && config["title"] !== undefined)
+    if (video && title !== undefined)
       fail("tiktok.title", "Video captions use content.text; title is a photo-only option.");
+
+    const photoCoverIndex = config["photoCoverIndex"];
 
     if (
       !video &&
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      (typeof config["photoCoverIndex"] !== "number" ||
-        !Number.isInteger(config["photoCoverIndex"]) ||
-        config["photoCoverIndex"] < 0 ||
-        config["photoCoverIndex"] >= media.length)
+      (!isFiniteNumber(photoCoverIndex) ||
+        !Number.isInteger(photoCoverIndex) ||
+        photoCoverIndex < 0 ||
+        photoCoverIndex >= media.length)
     )
       fail("tiktok.cover", "Select a photo cover index within the attached images.");
 
@@ -306,6 +322,10 @@ export function tiktok(
       apiRevision: "Content Posting API v2",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        webhookCapability(
+          "tiktok",
+          "Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event.",
+        ),
         {
           platform: "tiktok",
           operation: "posts.publish",
@@ -341,6 +361,14 @@ export function tiktok(
           requiredScopes: ["video.upload"],
         },
         { platform: "tiktok", operation: "posts.status.poll", availability: "available" as const },
+        // Source, accessed 2026-09-24: https://developers.tiktok.com/doc/content-posting-api-get-started
+        {
+          platform: "tiktok",
+          operation: "posts.update",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "The Content Posting API sets caption and privacy only when a post is initialized. It has no endpoint to edit a published post.",
+        },
         {
           platform: "tiktok",
           operation: "comments.read",
@@ -378,6 +406,17 @@ export function tiktok(
         },
       ],
     },
+    webhooks: directWebhooks(
+      "tiktok",
+      (input) =>
+        verifyTikTokWebhook({
+          ...input,
+          secret: options.webhookSecret ?? "",
+          now: () => options.clock?.() ?? new Date(),
+          ...definedFields({ toleranceSeconds: options.webhookToleranceSeconds }),
+        }),
+      now,
+    ),
     accounts: {
       async list(_input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         const response = data(
@@ -496,16 +535,19 @@ export function tiktok(
           ),
         );
 
+        const nextOffset = result["cursor"];
+
+        const nextCursor =
+          result["has_more"] === true &&
+          isFiniteNumber(nextOffset) &&
+          Number.isSafeInteger(nextOffset) &&
+          nextOffset >= 0
+            ? String(nextOffset)
+            : undefined;
+
         return {
           items: array(result["videos"]).map((row) => publicFields(row, videoFields)),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(result["has_more"] === true &&
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          typeof result["cursor"] === "number" &&
-          Number.isSafeInteger(result["cursor"]) &&
-          result["cursor"] >= 0
-            ? { nextCursor: String(result["cursor"]) }
-            : {}),
+          ...definedFields({ nextCursor }),
         };
       },
       prepareTarget: prepare,
@@ -514,13 +556,15 @@ export function tiktok(
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
         authorize(target.account, context);
-        const config = object(target.options);
+        const config = optionsObject(target);
         const draft = config["draft"] === true;
         const latest = draft ? undefined : await creatorInfo(target.account, context);
         const media = target.content.media ?? [];
         const first = media[0];
 
-        if (latest && !array(latest["privacyLevels"]).includes(config["privacy"]))
+        const privacy = config["privacy"];
+
+        if (latest && (privacy === undefined || !array(latest["privacyLevels"]).includes(privacy)))
           throw new SocialError({
             code: "invalid_input",
             operation: "posts.publish",
@@ -555,13 +599,12 @@ export function tiktok(
             message: "Verified media URL required.",
           });
 
+        const maxDuration = latest?.["maxVideoDurationSeconds"];
+
         if (
           first.kind === "video" &&
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          latest &&
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          typeof latest["maxVideoDurationSeconds"] === "number" &&
-          (first.durationSeconds ?? Infinity) > latest["maxVideoDurationSeconds"]
+          isFiniteNumber(maxDuration) &&
+          (first.durationSeconds ?? Infinity) > maxDuration
         )
           throw new SocialError({
             code: "invalid_input",
@@ -577,8 +620,7 @@ export function tiktok(
           brand_organic_toggle: config["ownBrand"] === true,
         };
 
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-        let result: Record<string, unknown>;
+        let result: JsonObject;
 
         if (first.kind === "video")
           result = data(
@@ -586,17 +628,16 @@ export function tiktok(
               draft ? "/v2/post/publish/inbox/video/init/" : "/v2/post/publish/video/init/",
               context,
               {
-                // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-                ...(draft
-                  ? {}
-                  : {
-                      post_info: {
+                ...definedFields({
+                  post_info: draft
+                    ? undefined
+                    : {
                         ...postInfo,
                         disable_duet: config["disableDuet"] === true,
                         disable_stitch: config["disableStitch"] === true,
                         is_aigc: config["aiGenerated"] === true,
                       },
-                    }),
+                }),
                 source_info: { source: "PULL_FROM_URL", video_url: first.source.url },
               },
             ),
@@ -606,16 +647,13 @@ export function tiktok(
             await request("/v2/post/publish/content/init/", context, {
               post_info: {
                 ...postInfo,
-                // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-                title: typeof config["title"] === "string" ? config["title"] : "",
+                title: optionalString(config["title"]) ?? "",
                 description: target.content.text ?? "",
                 auto_add_music: false,
               },
               source_info: {
                 source: "PULL_FROM_URL",
-                photo_cover_index:
-                  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-                  typeof config["photoCoverIndex"] === "number" ? config["photoCoverIndex"] : 0,
+                photo_cover_index: optionalNumber(config["photoCoverIndex"]) ?? 0,
                 photo_images: media.map((item) =>
                   item.source.kind === "https-url" ? item.source.url : "",
                 ),
@@ -690,14 +728,11 @@ export function tiktok(
           const ids = result["publicaly_available_post_id"];
           const id = Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
 
-          const nativeId =
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-            typeof id === "string"
-              ? id
-              : // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-                typeof id === "number" && Number.isSafeInteger(id)
-                ? String(id)
-                : undefined;
+          const nativeId = isString(id)
+            ? id
+            : isFiniteNumber(id) && Number.isSafeInteger(id)
+              ? String(id)
+              : undefined;
 
           if (nativeId)
             return {
@@ -750,14 +785,14 @@ export function tiktok(
         const fetchedAt = now();
 
         return (["like_count", "comment_count", "share_count", "view_count"] as const).flatMap(
-          (field) =>
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-            typeof row[field] === "number" && Number.isFinite(row[field])
+          (field) => {
+            const value = row[field];
+
+            return isFiniteNumber(value)
               ? [
                   {
                     name: field,
-                    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-                    value: row[field] as number,
+                    value,
                     unit: "count" as const,
                     period: "lifetime" as const,
                     fetchedAt,
@@ -765,7 +800,8 @@ export function tiktok(
                     source: "tiktok:video.query",
                   },
                 ]
-              : [],
+              : [];
+          },
         );
       },
       async getAccountMetrics(
@@ -793,14 +829,14 @@ export function tiktok(
 
         return (
           ["follower_count", "following_count", "likes_count", "video_count"] as const
-        ).flatMap((field) =>
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-          typeof user[field] === "number" && Number.isFinite(user[field])
+        ).flatMap((field) => {
+          const value = user[field];
+
+          return isFiniteNumber(value)
             ? [
                 {
                   name: field,
-                  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-                  value: user[field] as number,
+                  value,
                   unit: "count" as const,
                   period: "lifetime" as const,
                   fetchedAt,
@@ -808,8 +844,8 @@ export function tiktok(
                   source: "tiktok:user.info.stats",
                 },
               ]
-            : [],
-        );
+            : [];
+        });
       },
     },
     native: {
@@ -817,17 +853,14 @@ export function tiktok(
       async uploadDraft({ account, video, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        return data(
-          await request("/v2/post/publish/inbox/video/init/", context, video),
-        ) as JsonObject;
+        return data(await request("/v2/post/publish/inbox/video/init/", context, video));
       },
       async listVideos({ account, cursor, maxCount, context }) {
         authorize(account, context);
 
         const parsedCursor = cursor === undefined ? 0 : Number(cursor);
 
-        const result = data(
+        return data(
           await request(
             "/v2/video/list/",
             context,
@@ -835,17 +868,13 @@ export function tiktok(
             { fields: videoFields.join(",") },
           ),
         );
-
-        // SAFETY: data() validates the provider response as a JSON object.
-        return result as JsonObject;
       },
       async publishStatus({ account, publishId, context }) {
         authorize(account, context);
 
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
         return data(
           await request("/v2/post/publish/status/fetch/", context, { publish_id: publishId }),
-        ) as JsonObject;
+        );
       },
     },
   });

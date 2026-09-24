@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- provider fixture setup stays grouped by scenario. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { threads, MemoryThreadsWorkflowStore } from "../src/platforms/threads.js";
@@ -19,10 +18,12 @@ const context: AdapterOperationContext = {
 
 test("Threads keyword search sends the documented q and filter parameters", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({
         data: [{ id: "post-1" }],
         paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
@@ -68,9 +69,11 @@ test("Threads search rejects empty query and invalid limits", async () => {
     adapter.native!.search({ account, query: "x", limit: 101, context }),
     /limit must be an integer from 1 through 100/,
   );
+
   const scopeError = await adapter
     .search!.posts(account, { query: "x", scope: "all" }, context)
     .catch((error) => error);
+
   assert.ok(scopeError instanceof SocialError);
   assert.equal(scopeError.code, "invalid_input");
   assert.match(scopeError.message, /scope 'all'/);
@@ -78,10 +81,12 @@ test("Threads search rejects empty query and invalid limits", async () => {
 
 test("Threads keyword search requests the documented fields", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({ data: [] });
     },
   });
@@ -93,41 +98,118 @@ test("Threads keyword search requests the documented fields", async () => {
   );
 });
 
-test("Threads profile lookup maps current fields without treating the handle as an ID", async () => {
+test("Threads profile lookup requests only documented fields and namespaces the handle", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({
         username: "alice",
         name: "Alice",
         profile_picture_url: "https://img",
         biography: "Bio",
+        is_verified: true,
+        follower_count: 120,
       });
     },
   });
 
   const profile = await adapter.graph!.getProfile!(account, { handle: "alice" }, context);
   assert.equal(requested?.pathname, "/v1.0/profile_lookup");
+  assert.equal(requested?.searchParams.get("username"), "alice");
   assert.equal(
     requested?.searchParams.get("fields"),
-    "id,username,name,profile_picture_url,biography,is_verified",
+    "username,name,profile_picture_url,biography,is_verified",
   );
+  assert.equal(profile.ref.profileId, "lookup:alice");
   assert.equal(profile.handle, "alice");
+  assert.equal(profile.displayName, "Alice");
   assert.equal(profile.avatarUrl, "https://img");
   assert.equal(profile.bio, "Bio");
-  assert.notEqual(profile.ref.profileId, "alice");
-  assert.equal(profile.native?._profileIdUnavailable, true);
+
+  assert.equal(profile.native?.["_profileIdUnavailable"], true);
+  assert.equal(profile.native?.["follower_count"], 120);
+});
+
+test("Threads profile lookup does not treat an unrequested id as the provider ID", async () => {
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async () => Response.json({ id: "999", username: "alice" }),
+  });
+
+  const profile = await adapter.graph!.getProfile!(account, { handle: "alice" }, context);
+  assert.equal(profile.ref.profileId, "lookup:alice");
+  assert.equal(profile.native?.["_profileIdUnavailable"], true);
+});
+
+test("Threads profile lookup encodes the username and falls back to the requested handle", async () => {
+  let requested: URL | undefined;
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async (input) => {
+      requested = new URL(String(input));
+
+      return Response.json({ name: "No Username" });
+    },
+  });
+
+  const profile = await adapter.graph!.getProfile!(account, { handle: "a&b c" }, context);
+  assert.equal(requested?.searchParams.get("username"), "a&b c");
+  assert.equal(
+    requested?.searchParams.get("fields"),
+    "username,name,profile_picture_url,biography,is_verified",
+  );
+  assert.equal(profile.ref.profileId, "lookup:a&b c");
+  assert.equal(profile.handle, "a&b c");
+  assert.equal(profile.displayName, "No Username");
+});
+
+test("Threads app-scoped profile read requests documented fields and uses the returned id", async () => {
+  let requested: URL | undefined;
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async (input) => {
+      requested = new URL(String(input));
+
+      return Response.json({
+        id: "u1",
+        username: "me",
+        name: "Me",
+        threads_profile_picture_url: "https://me-img",
+        threads_biography: "My bio",
+        is_verified: false,
+      });
+    },
+  });
+
+  const profile = await adapter.graph!.getProfile!(account, {}, context);
+  assert.equal(requested?.pathname, "/v1.0/u1");
+  assert.equal(
+    requested?.searchParams.get("fields"),
+    "id,username,name,threads_profile_picture_url,threads_biography,is_verified",
+  );
+  assert.equal(profile.ref.profileId, "u1");
+  assert.equal(profile.handle, "me");
+  assert.equal(profile.displayName, "Me");
+  assert.equal(profile.avatarUrl, "https://me-img");
+  assert.equal(profile.bio, "My bio");
+  assert.equal(profile.native?.["_profileIdUnavailable"], undefined);
 });
 
 test("Threads native reply management routes preserve fields and cursors", async () => {
   const requests: URL[] = [];
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       const url = new URL(String(input));
       requests.push(url);
+
       return Response.json({
         data: [],
         paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
@@ -163,18 +245,22 @@ test("Threads native reply management routes preserve fields and cursors", async
 
 test("Threads exposes normalized search, app-scoped profiles, and reply moderation", async () => {
   const requests: Array<{ url: URL; method: string }> = [];
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input, init) => {
       const url = new URL(String(input));
       requests.push({ url, method: init?.method ?? "GET" });
+
       if (url.pathname.endsWith("/keyword_search"))
         return Response.json({
           data: [],
           paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
         });
+
       if (url.pathname.endsWith("/manage_reply") || url.pathname.endsWith("/manage_pending_reply"))
         return Response.json({ success: true });
+
       return Response.json({ id: "u1", username: "alice", name: "Alice" });
     },
   });
@@ -400,10 +486,12 @@ test("stops Threads search paging when Graph omits paging.next", async () => {
 
 test("Threads declares profile search and relationship reads as unsupported by the platform", async () => {
   let requests = 0;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async () => {
       requests += 1;
+
       return Response.json({});
     },
   });
@@ -412,6 +500,7 @@ test("Threads declares profile search and relationship reads as unsupported by t
     const declaration = adapter.capabilities.capabilities.find(
       (candidate) => candidate.operation === operation,
     );
+
     assert.equal(declaration?.availability, "unsupported-by-platform");
 
     assert.ok(declaration?.notes);
@@ -420,6 +509,7 @@ test("Threads declares profile search and relationship reads as unsupported by t
   assert.equal(adapter.graph?.listRelationships, undefined);
 
   const social = createSocial({ backend: adapter });
+
   for (const kind of ["followers", "following"] as const)
     await assert.rejects(social.graph.listRelationships(account, { kind }), {
       name: SocialError.name,
