@@ -495,6 +495,15 @@ export function linkedin(
     });
   }
 
+  /** Remaining elapsed budget in milliseconds, or 0 once it is exhausted. */
+  function budgetLeft(context: AdapterOperationContext): number {
+    try {
+      return remainingBudget(context);
+    } catch {
+      return 0;
+    }
+  }
+
   /** Sleeps between explicit waitForVideo reads and rejects as soon as the context aborts. */
   function videoWaitDelay(milliseconds: number, context: AdapterOperationContext): Promise<void> {
     if (context.signal?.aborted) return Promise.reject(videoWaitCancelled());
@@ -695,7 +704,7 @@ export function linkedin(
   ): Promise<MediaRef> {
     authorize(account, context);
     const source = media.source;
-    const size = media.byteSize ?? (source.kind === "blob" ? source.blob.size : undefined);
+    const size = source.kind === "blob" ? source.blob.size : media.byteSize;
     const mimeType = media.mimeType ?? "";
 
     if (
@@ -710,13 +719,15 @@ export function linkedin(
       });
 
     if (
-      size !== undefined &&
-      (!Number.isSafeInteger(size) || size <= 0 || size > linkedInDocumentMaxBytes)
+      (source.kind === "blob" && media.byteSize !== undefined && media.byteSize !== size) ||
+      (size !== undefined &&
+        (!Number.isSafeInteger(size) || size <= 0 || size > linkedInDocumentMaxBytes))
     )
       throw new SocialError({
         code: "invalid_input",
         operation: "media.upload",
-        message: "LinkedIn documents must be non-empty and at most 100 MB.",
+        message:
+          "LinkedIn documents must be non-empty and at most 100 MB, and byteSize must match the Blob size.",
       });
 
     const initialized = object(
@@ -736,8 +747,10 @@ export function linkedin(
         message: "LinkedIn returned an invalid document identifier.",
       });
 
+    let transferred: number;
+
     try {
-      await upload({
+      ({ bytes: transferred } = await upload({
         url: string(initialized["uploadUrl"]),
         source: {
           mimeType,
@@ -748,7 +761,7 @@ export function linkedin(
         maxBytes: linkedInDocumentMaxBytes,
         timeoutMs: remainingBudget(context),
         ...definedFields({ fetch: options.fetch, signal: context.signal }),
-      });
+      }));
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
       throw new SocialError({
@@ -766,6 +779,15 @@ export function linkedin(
         retryDisposition: { kind: "never" },
       });
     }
+
+    // A stream without byteSize can end empty; LinkedIn cannot publish an empty document.
+    if (transferred === 0)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: `LinkedIn document upload for ${mediaId} sent no bytes. Provide a non-empty document.`,
+        retryDisposition: { kind: "never" },
+      });
 
     return {
       kind: "media",
@@ -805,7 +827,8 @@ export function linkedin(
   }
 
   /** The Posts API requires a title for documents; take it from caption, then filename. */
-  const documentTitle = (media: MediaAttachment) => (media.caption ?? media.filename ?? "").trim();
+  const documentTitle = (media: MediaAttachment) =>
+    media.caption?.trim() || media.filename?.trim() || "";
 
   const documentIssues = (target: PreparedPublishTarget): [string, string][] => {
     const media = target.content.media ?? [];
@@ -1432,7 +1455,9 @@ export function linkedin(
               ),
             );
           } catch (error) {
+            // Only image reads keep the member-token 403 exception. A video must prove AVAILABLE.
             if (
+              video ||
               !(error instanceof SocialError) ||
               error.code !== "missing_permission" ||
               !options.auth.author.startsWith("urn:li:person:")
@@ -1469,7 +1494,11 @@ export function linkedin(
               retryDisposition: { kind: "after-delay", delayMs: linkedInVideoRetryDelayMs },
             });
 
-          if (image?.["status"] !== undefined && image["status"] !== "AVAILABLE")
+          if (
+            video
+              ? image?.["status"] !== "AVAILABLE"
+              : image?.["status"] !== undefined && image["status"] !== "AVAILABLE"
+          )
             throw new SocialError({
               code: "media_error",
               operation: "posts.publish",
@@ -1902,17 +1931,12 @@ export function linkedin(
           // Leave room for the next read; return the pending status instead of timing out.
           if (context.signal?.aborted) throw videoWaitCancelled();
 
-          let remaining = 0;
-
-          try {
-            remaining = remainingBudget(context);
-          } catch {
-            // An exhausted budget ends the wait with the status already read.
-          }
-
-          if (intervalMs >= remaining) break;
+          if (intervalMs >= budgetLeft(context)) break;
 
           await videoWaitDelay(intervalMs, context);
+
+          // A late timer can wake after the deadline; keep the last status instead of timing out.
+          if (budgetLeft(context) <= 0) break;
           status = await readVideoStatus(ref, context);
         }
 

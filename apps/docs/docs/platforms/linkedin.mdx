@@ -126,7 +126,7 @@ LinkedIn processes the video after the upload and does not document how long tha
 
 Publishing does not wait. It reads the status once and creates no post unless the video is `AVAILABLE`. A video that is still processing gives a `failed` outcome with a `media_error` code and an `after-delay` retry disposition: no post exists, so publishing again later is safe. The SDK does not retry for you. A `PROCESSING_FAILED` video gives a `failed` outcome with a `never` disposition and has to be uploaded again.
 
-A video post carries exactly one video and no images. The attachment `caption`, when it is not blank, becomes the video's `title` in the Posts API; LinkedIn requires a title only for documents. Video posts do not accept alt text, and thumbnails and subtitle files are not implemented.
+A video post carries exactly one video and no images. The attachment `caption`, when it is not blank, becomes the video's `title` in the Posts API; LinkedIn requires a title only for documents. Video posts do not accept alt text, and thumbnails and subtitle files are not implemented. The image 403 exception does not apply to video: the adapter creates a video post only after LinkedIn reports the video `AVAILABLE`.
 
 ```ts
 const videoRef = await social.media.upload(
@@ -169,7 +169,7 @@ A document post carries one PDF, PPT, PPTX, DOC, or DOCX file. LinkedIn accepts 
 
 `social.media.upload` calls the Documents API `initializeUpload` action with the configured author as owner, then sends the bytes to the returned upload URL. The upload URL is not stored or included in errors. The result is an account-bound reference to the `urn:li:document:` URN.
 
-LinkedIn requires a title for document posts. The adapter uses the attachment `caption`, or `filename` when no caption is set. Preparation fails without a title, when the document shares the post with other media, or when `altText` is set, because LinkedIn documents have no alt text field.
+LinkedIn requires a title for document posts. The adapter uses the attachment `caption`, or `filename` when the caption is missing or blank. Preparation fails without a title, when the document shares the post with other media, or when `altText` is set, because LinkedIn documents have no alt text field.
 
 ```ts
 const documentRef = await social.media.upload(

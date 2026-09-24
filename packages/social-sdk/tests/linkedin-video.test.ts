@@ -490,6 +490,30 @@ it("LinkedIn marks a processing video as safe to publish later and a failed one 
   }
 });
 
+it("LinkedIn creates no video post when a member cannot read the video or its status is missing", async () => {
+  for (const scenario of ["forbidden", "no-status"] as const) {
+    const methods: string[] = [];
+
+    const social = createSocial({
+      backend: linkedin({
+        auth,
+        apiVersion: "202609",
+        fetch: async (_input, init) => {
+          methods.push(init?.method ?? "GET");
+
+          return scenario === "forbidden"
+            ? Response.json({ message: "Not enough permissions" }, { status: 403 })
+            : Response.json({ id: videoRef.mediaId, owner: auth.author });
+        },
+      }),
+    });
+
+    const result = await social.posts.publish(videoPost());
+    assert.equal(result.outcomes[0]?.state, "failed");
+    assert.deepEqual(methods, ["GET"]);
+  }
+});
+
 function statusSequence(statuses: string[], urls: string[]) {
   return linkedin({
     auth,
@@ -553,6 +577,26 @@ it("LinkedIn waitForVideo stops on terminal status, check limit, or budget", asy
 
   assert.equal(pending["status"], "PROCESSING");
   assert.equal(budgetUrls.length, 1);
+});
+
+it("LinkedIn waitForVideo returns the last status when the interval timer wakes after the deadline", async () => {
+  const urls: string[] = [];
+  const adapter = statusSequence(["PROCESSING", "AVAILABLE"], urls);
+
+  // Block the event loop past the deadline so the 1,000 ms interval timer fires late.
+  const blocker = setTimeout(() => {
+    const until = performance.now() + 400;
+
+    while (performance.now() < until) continue;
+  }, 900);
+
+  const status = await adapter.native!.waitForVideo(videoRef, freshContext(1_200), {
+    intervalMs: 1_000,
+  });
+
+  clearTimeout(blocker);
+  assert.equal(status["status"], "PROCESSING");
+  assert.equal(urls.length, 1);
 });
 
 it("LinkedIn waitForVideo validates options and honors cancellation", async () => {

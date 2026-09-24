@@ -137,6 +137,12 @@ it("LinkedIn document upload rejects unsupported types, empty files and oversize
       mimeType: "application/pdf",
       source: { kind: "https-url", url: "https://example.com/report.pdf" },
     },
+    {
+      kind: "document",
+      mimeType: "application/pdf",
+      byteSize: 11,
+      source: { kind: "blob", blob: pdf(12), fingerprint: "doc" },
+    },
   ];
 
   for (const attachment of attempts)
@@ -195,6 +201,41 @@ it("LinkedIn document upload rejects an invalid URN and maps storage failures wi
 
     assert.equal(urls.length, scenario === "bad-urn" ? 1 : 2);
   }
+});
+
+it("LinkedIn document upload rejects a stream that ends without bytes", async () => {
+  const methods: string[] = [];
+
+  const social = createSocial({
+    backend: linkedin({
+      auth,
+      apiVersion: "202609",
+      fetch: async (input, init) => {
+        methods.push(init?.method ?? "GET");
+
+        if (String(input).includes("initializeUpload"))
+          return Response.json({ value: { uploadUrl, document: documentUrn } });
+
+        await new Response(init?.body).arrayBuffer();
+
+        return new Response(null, { status: 201 });
+      },
+    }),
+  });
+
+  await assert.rejects(
+    social.media.upload(
+      {
+        kind: "document",
+        mimeType: "application/pdf",
+        source: { kind: "stream", open: () => new Blob([]).stream(), fingerprint: "doc" },
+      },
+      account,
+    ),
+    { name: "SocialError", code: "invalid_input" },
+  );
+
+  assert.deepEqual(methods, ["POST", "PUT"]);
 });
 
 it("LinkedIn publishes an AVAILABLE document with the documented media id and title", async () => {
@@ -350,6 +391,13 @@ it("LinkedIn prepare rejects document posts without a title, with extra media, f
   });
 
   assert.equal(fromFilename.ok, true);
+
+  const blankCaption = social.posts.prepare({
+    targets: [{ account }],
+    content: { media: [documentMedia({ caption: "  ", filename: "deck.pptx" })] },
+  });
+
+  assert.equal(blankCaption.ok, true);
 });
 
 it("LinkedIn native documentStatus returns id, owner and status without the signed download URL", async () => {
