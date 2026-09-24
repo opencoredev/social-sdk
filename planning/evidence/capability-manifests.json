@@ -1469,6 +1469,12 @@
           ]
         },
         {
+          "operation": "posts.schedule",
+          "platform": "bluesky",
+          "availability": "unsupported-by-platform",
+          "notes": "AT Protocol records are visible once written. The post createdAt field is a client-declared timestamp and does not delay publication."
+        },
+        {
           "operation": "posts.read",
           "platform": "bluesky",
           "availability": "available",
@@ -2128,6 +2134,12 @@
         },
         {
           "platform": "x",
+          "operation": "notifications.read",
+          "availability": "unsupported-by-platform",
+          "notes": "X API v2 has no notifications list endpoint. Use mentions.read, or the Account Activity or X Activity API webhooks and streams."
+        },
+        {
+          "platform": "x",
           "operation": "messages.write",
           "availability": "available",
           "requiredScopes": [
@@ -2152,8 +2164,20 @@
         {
           "platform": "x",
           "operation": "streams.read",
+          "availability": "available",
+          "notes": "Filtered stream via native stream, listStreamRules, addStreamRules, and deleteStreamRules with the app-only appBearerToken. Needs X API pay-per-use (1 connection, 1,000 rules of up to 1,024 characters) or Enterprise (multiple connections, 25,000+ rules of up to 2,048 characters). backfillMinutes and startTime/endTime recovery need Enterprise. One caller-controlled connection per iteration; no automatic reconnect."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.schedule",
           "availability": "not-implemented-by-adapter",
-          "notes": "Filtered stream rules and streaming transport are not implemented by this adapter."
+          "notes": "X API v2 has no scheduled-post field; POST /2/tweets publishes immediately. X Ads API scheduled Tweets (ads-api.x.com/12/accounts/:account_id/scheduled_tweets) need Ads API approval, an ads account, and OAuth 1.0a-signed requests, which this OAuth 2.0 adapter does not implement (https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests, checked 2026-09-24). Scheduled Tweets default to nullcast=true (promoted-only, not on the public timeline); organic nullcast=false Tweets can only be created by the ads account's full promotable user (https://docs.x.com/x-ads-api/creatives, checked 2026-09-24). Use an application-owned job runner to publish at a chosen time."
+        },
+        {
+          "platform": "x",
+          "operation": "profile.update",
+          "availability": "unsupported-by-platform",
+          "notes": "X API v2 (OpenAPI 2.168, https://docs.x.com/openapi.json, checked 2026-09-24) has no endpoint that writes the user's profile. The v1.1 POST account/update_profile reference is no longer published on docs.x.com (its developer.x.com URL redirects to https://docs.x.com/overview), and v1.1 user writes require OAuth 1.0a."
         }
       ]
     }
@@ -2194,6 +2218,12 @@
             "threads_basic",
             "threads_content_publish"
           ]
+        },
+        {
+          "operation": "posts.schedule",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "Threads publishing endpoints have no publish-time parameter; threads_publish publishes immediately."
         },
         {
           "operation": "posts.read",
@@ -2313,6 +2343,12 @@
           "availability": "available"
         },
         {
+          "operation": "profile.update",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "The Threads API exposes profile reads only. It has no profile write endpoint."
+        },
+        {
           "operation": "search.keyword",
           "platform": "threads",
           "availability": "available",
@@ -2329,6 +2365,18 @@
             "threads_basic"
           ],
           "notes": "The profile endpoint reads the authorized app-scoped user; profile lookup requires threads_profile_discovery."
+        },
+        {
+          "operation": "profiles.search",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "Threads has no profile search endpoint. Profile discovery only looks up an exact username, which profiles.read covers."
+        },
+        {
+          "operation": "graph.read",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "Threads does not expose follower or following lists. The followers_count metric is available through analytics.account.read."
         },
         {
           "operation": "search.posts",
@@ -2354,6 +2402,12 @@
           "platform": "threads",
           "availability": "unsupported-by-platform",
           "notes": "Threads does not expose messaging APIs to standard apps."
+        },
+        {
+          "operation": "notifications.read",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "The Threads API has no notifications endpoint. Use mentions.read, reply reads, or webhooks instead."
         }
       ]
     }
@@ -2438,12 +2492,27 @@
           "notes": "Scheduled videos are uploaded private with a future ISO publishAt timestamp."
         },
         {
+          "operation": "posts.cancelScheduled",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Clears status.publishAt with videos.update and keeps the video private. The video is not deleted. Costs 51 quota units (videos.list + videos.update)."
+        },
+        {
           "operation": "posts.removeFromPlatform",
           "platform": "youtube",
           "availability": "available",
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ]
+        },
+        {
+          "operation": "notifications.read",
+          "platform": "youtube",
+          "availability": "unsupported-by-platform",
+          "notes": "The YouTube Data API has no notifications resource. activities.list reports actions a channel took, not notifications it received."
         },
         {
           "operation": "playlists.read",
@@ -2484,6 +2553,15 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ]
+        },
+        {
+          "operation": "profile.update",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Native access: updateProfile. Writes brandingSettings.channel or localizations through channels.update. Each call reads the channel (1 quota unit) and then writes it (50 units)."
         },
         {
           "operation": "videos.delete",
@@ -2635,6 +2713,12 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "unsupported-by-platform",
+          "notes": "Content Posting API post_info has no publish-time field."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.status",
           "availability": "available"
         },
@@ -2686,6 +2770,12 @@
         },
         {
           "platform": "tiktok",
+          "operation": "notifications.read",
+          "availability": "unsupported-by-platform",
+          "notes": "TikTok for Developers APIs do not expose a user notification inbox."
+        },
+        {
+          "platform": "tiktok",
           "operation": "accounts.read",
           "availability": "available",
           "requiredScopes": [
@@ -2707,6 +2797,12 @@
           "requiredScopes": [
             "video.list"
           ]
+        },
+        {
+          "platform": "tiktok",
+          "operation": "profile.update",
+          "availability": "unsupported-by-platform",
+          "notes": "The Display API reads user info only. TikTok has no profile write endpoint."
         }
       ]
     }
@@ -2737,6 +2833,12 @@
             "instagram_business_content_publish"
           ],
           "notes": "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "unsupported-by-platform",
+          "notes": "The content publishing API has no publish-time parameter; media_publish publishes immediately and unpublished containers expire after 24 hours."
         },
         {
           "platform": "instagram",
@@ -2833,6 +2935,12 @@
         },
         {
           "platform": "instagram",
+          "operation": "profile.update",
+          "availability": "unsupported-by-platform",
+          "notes": "The IG User node supports reads only. Updating it is not supported."
+        },
+        {
+          "platform": "instagram",
           "operation": "posts.delete",
           "availability": "unsupported-by-platform",
           "notes": "Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media"
@@ -2851,7 +2959,12 @@
         {
           "platform": "instagram",
           "operation": "mentions.read",
-          "availability": "not-implemented-by-adapter"
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_comments"
+          ],
+          "notes": "Reads the paginated /{ig-user-id}/tags edge on graph.instagram.com. mentionedMedia and mentionedComment require Facebook Login. Story mentions and private media are not returned."
         },
         {
           "platform": "instagram",
@@ -2868,6 +2981,12 @@
           "operation": "webhooks.verify",
           "availability": "available",
           "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
+        },
+        {
+          "platform": "instagram",
+          "operation": "notifications.read",
+          "availability": "unsupported-by-platform",
+          "notes": "The Instagram API has no notifications edge. Use mentions.read, tags, comments, or webhooks instead."
         }
       ]
     }
@@ -2902,12 +3021,28 @@
         },
         {
           "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "unsupported-by-platform",
+          "notes": "The Posts API accepts only lifecycleState PUBLISHED on creation and has no publish-time field."
+        },
+        {
+          "platform": "linkedin",
           "operation": "posts.read",
           "availability": "available",
           "requiredScopes": [
             "r_member_social"
           ],
           "notes": "Member read access is restricted. Publication permission does not grant read permission."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "accounts.read",
+          "availability": "available",
+          "requiredScopes": [
+            "openid",
+            "profile"
+          ],
+          "notes": "Returns the configured member only. Reads the OpenID Connect userinfo endpoint and checks that sub matches the author URN. Requires the Sign In with LinkedIn using OpenID Connect product."
         },
         {
           "platform": "linkedin",
@@ -3000,6 +3135,12 @@
         },
         {
           "platform": "linkedin",
+          "operation": "profile.update",
+          "availability": "approval-dependent",
+          "notes": "Member profile writes use the Profile Edit API, which LinkedIn restricts to approved developers. This adapter does not implement it."
+        },
+        {
+          "platform": "linkedin",
           "operation": "messages.write",
           "availability": "unsupported-by-platform"
         },
@@ -3011,6 +3152,21 @@
             "rw_organization_admin"
           ],
           "notes": "LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "notifications.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Organization social-action notifications from the last 60 days, pulled with offset paging. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "notifications.seen",
+          "availability": "unsupported-by-platform",
+          "notes": "LinkedIn does not expose a seen or read state for notifications."
         },
         {
           "platform": "linkedin",

@@ -28,6 +28,18 @@ import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { createHttp, HttpError } from "../transport/http.js";
 import { isJsonValue } from "../transport/json.js";
 import {
+  parseRulesUpdate,
+  parseStreamRule,
+  readFilteredStream,
+  validateRuleIds,
+  validateRuleInput,
+  type XStreamEvent,
+  type XStreamOptions,
+  type XStreamRule,
+  type XStreamRuleInput,
+  type XStreamRulesUpdate,
+} from "./x-stream.js";
+import {
   array,
   isString,
   object,
@@ -89,6 +101,16 @@ export interface XAuthorization {
 }
 
 export { xLike, xUnlike, type XEngagementOptions, type XEngagementResult } from "./x-engagement.js";
+
+export {
+  xStreamDefaultStallTimeoutMs,
+  type XMatchingRule,
+  type XStreamEvent,
+  type XStreamOptions,
+  type XStreamRule,
+  type XStreamRuleInput,
+  type XStreamRulesUpdate,
+} from "./x-stream.js";
 
 export interface XOptions {
   readonly auth: XAuthorization;
@@ -464,6 +486,39 @@ export interface XNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /** Lists the app's filtered-stream rules. Requires `appBearerToken`. */
+  readonly listStreamRules: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly ids?: readonly string[];
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<XStreamRule>>;
+  /** Adds filtered-stream rules in one request. Set `dryRun` to validate without saving. */
+  readonly addStreamRules: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly rules: readonly XStreamRuleInput[];
+    readonly dryRun?: boolean;
+    readonly context: AdapterOperationContext;
+  }) => Promise<XStreamRulesUpdate>;
+  /** Deletes filtered-stream rules by ID in one request. Set `dryRun` to validate without saving. */
+  readonly deleteStreamRules: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly ids: readonly string[];
+    readonly dryRun?: boolean;
+    readonly context: AdapterOperationContext;
+  }) => Promise<XStreamRulesUpdate>;
+  /**
+   * Opens one filtered-stream connection when iteration starts. It yields until the caller
+   * stops, `context.signal` aborts, the stall timeout elapses, or X closes the response. It
+   * never reconnects on its own. Requires `appBearerToken`.
+   */
+  readonly stream: (
+    input: XStreamOptions & {
+      readonly account: ConnectedAccountRef;
+      readonly context: AdapterOperationContext;
+    },
+  ) => AsyncGenerator<XStreamEvent, void, undefined>;
   /**
    * Hides or unhides a reply in a conversation the authenticated user started.
    * Calls `PUT /2/tweets/:id/hidden` and returns the hidden state X reports.
@@ -1671,6 +1726,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         },
         {
           platform: "x",
+          operation: "notifications.read",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "X API v2 has no notifications list endpoint. Use mentions.read, or the Account Activity or X Activity API webhooks and streams.",
+        },
+        {
+          platform: "x",
           operation: "messages.write",
           availability: "available" as const,
           requiredScopes: ["dm.write", "dm.read", "users.read", "tweet.read"],
@@ -1687,9 +1749,23 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         {
           platform: "x",
           operation: "streams.read",
+          availability: "available" as const,
+          notes:
+            "Filtered stream via native stream, listStreamRules, addStreamRules, and deleteStreamRules with the app-only appBearerToken. Needs X API pay-per-use (1 connection, 1,000 rules of up to 1,024 characters) or Enterprise (multiple connections, 25,000+ rules of up to 2,048 characters). backfillMinutes and startTime/endTime recovery need Enterprise. One caller-controlled connection per iteration; no automatic reconnect.",
+        },
+        {
+          platform: "x",
+          operation: "posts.schedule",
           availability: "not-implemented-by-adapter" as const,
           notes:
-            "Filtered stream rules and streaming transport are not implemented by this adapter.",
+            "X API v2 has no scheduled-post field; POST /2/tweets publishes immediately. X Ads API scheduled Tweets (ads-api.x.com/12/accounts/:account_id/scheduled_tweets) need Ads API approval, an ads account, and OAuth 1.0a-signed requests, which this OAuth 2.0 adapter does not implement (https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests, checked 2026-09-24). Scheduled Tweets default to nullcast=true (promoted-only, not on the public timeline); organic nullcast=false Tweets can only be created by the ads account's full promotable user (https://docs.x.com/x-ads-api/creatives, checked 2026-09-24). Use an application-owned job runner to publish at a chosen time.",
+        },
+        {
+          platform: "x",
+          operation: "profile.update",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "X API v2 (OpenAPI 2.168, https://docs.x.com/openapi.json, checked 2026-09-24) has no endpoint that writes the user's profile. The v1.1 POST account/update_profile reference is no longer published on docs.x.com (its developer.x.com URL redirects to https://docs.x.com/overview), and v1.1 user writes require OAuth 1.0a.",
         },
       ],
     },
@@ -1874,7 +1950,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         if (target.schedule || target.content.link)
           fail(
             "x.operation",
-            "Scheduling needs an application runner; place URLs explicitly in text.",
+            "X API v2 cannot schedule posts; use an application job runner. Place URLs explicitly in text.",
           );
 
         if (
@@ -2898,6 +2974,90 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           {},
           "DELETE",
         );
+      },
+      async listStreamRules({ account, ids, cursor, limit, context }) {
+        authorize(account, context);
+
+        if (ids !== undefined) validateRuleIds(ids, "x.streamRules.list", 1000);
+
+        if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "x.streamRules.list",
+            message: "X stream rule limits must be integers from 1 through 1000.",
+          });
+
+        const result = object(
+          await appRequest()("/2/tweets/search/stream/rules", context, undefined, {
+            ...definedFields({
+              ids: ids?.join(","),
+              pagination_token: cursor,
+              max_results: limit === undefined ? undefined : String(limit),
+            }),
+          }),
+        );
+
+        const items = (result["data"] === undefined ? [] : array(result["data"])).map((entry) =>
+          parseStreamRule(object(entry), "x.streamRules.list"),
+        );
+
+        const meta = result["meta"] === undefined ? {} : object(result["meta"]);
+        const nextCursor = optionalString(meta["next_token"]);
+
+        return { items, ...definedFields({ nextCursor }) };
+      },
+      async addStreamRules({ account, rules, dryRun = false, context }) {
+        authorize(account, context);
+
+        if (rules.length === 0)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "x.streamRules.add",
+            message: "Provide at least one X filtered-stream rule to add.",
+          });
+
+        for (const rule of rules) validateRuleInput(rule);
+
+        const result = await appRequest()(
+          "/2/tweets/search/stream/rules",
+          context,
+          {
+            add: rules.map((rule) => ({
+              value: rule.value,
+              ...definedFields({ tag: rule.tag }),
+            })),
+          },
+          dryRun ? { dry_run: "true" } : {},
+        );
+
+        return parseRulesUpdate(object(result), dryRun);
+      },
+      async deleteStreamRules({ account, ids, dryRun = false, context }) {
+        authorize(account, context);
+        validateRuleIds(ids, "x.streamRules.delete", 1000);
+
+        const result = await appRequest()(
+          "/2/tweets/search/stream/rules",
+          context,
+          { delete: { ids: [...ids] } },
+          dryRun ? { dry_run: "true" } : {},
+        );
+
+        return parseRulesUpdate(object(result), dryRun);
+      },
+      async *stream({ account, context, ...streamOptions }) {
+        authorize(account, context);
+        const bearerToken = options.appBearerToken;
+
+        if (!bearerToken?.trim())
+          throw new SocialError({
+            code: "missing_permission",
+            operation: "streams.read",
+            message:
+              "The X filtered stream requires an app-only bearer token. Configure appBearerToken.",
+          });
+
+        yield* readFilteredStream({ bearerToken, fetch: options.fetch }, streamOptions, context);
       },
       async hideReply({ account, replyId, hidden, context }) {
         authorize(account, context);

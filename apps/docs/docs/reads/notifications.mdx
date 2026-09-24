@@ -1,10 +1,12 @@
 ---
 title: Notifications and mentions
-description: Read Bluesky notifications and native mention timelines on X, Instagram, and Threads, including cursors, seen state, and the scopes each one needs.
+description: Read Bluesky and LinkedIn organization notifications, plus native mention timelines on X, Instagram, and Threads, with cursors and scopes.
 ---
 
-The normalized notifications facade is implemented only by Bluesky. X, Instagram,
-and Threads expose native mention reads. YouTube has neither capability.
+Bluesky and LinkedIn implement the normalized notifications facade. LinkedIn
+covers organization pages only. X, Instagram, and Threads have no notifications
+API, so their adapters declare `notifications.read` as `unsupported-by-platform`
+and expose native mention reads instead. YouTube and TikTok have neither.
 
 ## Normalized API
 
@@ -20,8 +22,8 @@ lazily within its bounds. `markSeen` returns `void`; `notifications.read` and
 `notifications.seen` are separate capabilities. Objects stay provider-shaped.
 
 The examples assume one `social` client built with the platform's adapter and an
-`account` from `connectedAccountRef`. `accountId` is the Bluesky DID, the X or
-Threads user ID, or the Instagram account ID. Native calls also take the
+`account` from `connectedAccountRef`. `accountId` is the Bluesky DID, the
+LinkedIn organization URN, the X or Threads user ID, or the Instagram account ID. Native calls also take the
 `context` your application passes to adapter operations.
 
 ## Platform support
@@ -43,9 +45,32 @@ await social.notifications.markSeen(account, { seenAt: new Date().toISOString() 
 ```
 
 </PlatformTab>
+<PlatformTab platform="linkedin">
+
+**Normalized** `list` and `iterate` for organization accounts. Needs the
+Community Management API product, `rw_organization_admin`, and an administrator
+role on the organization. `markSeen` is not supported.
+
+Configure `linkedin({ auth: { accessToken, author: "urn:li:organization:123" }, apiVersion })`.
+The adapter calls `organizationalEntityNotifications` with all seven action
+types: `LIKE`, `COMMENT`, `SHARE`, `SHARE_MENTION`, `ADMIN_COMMENT`,
+`COMMENT_EDIT`, and `COMMENT_DELETE`. Items keep `notificationId`, `action`,
+`sourcePost`, `generatedActivity`, and `lastModifiedAt`.
+
+```ts
+const page = await social.notifications.list(account, { limit: 50 });
+```
+
+Page sizes run from 1 to 100 and the cursor is an offset. LinkedIn keeps
+notifications for 60 days and recommends webhooks for ongoing delivery. Member
+accounts declare `notifications.read` as `account-ineligible`.
+
+</PlatformTab>
 <PlatformTab platform="x">
 
-**Native** `mentions` only. Needs a user access token with `mentions.read`.
+**Native** `mentions` only. X API v2 has no notifications list endpoint. The
+Account Activity API and X Activity API push events to webhooks or streams, which
+this read does not cover. Needs a user access token with `mentions.read`.
 Subject to X API paging and rate limits.
 
 Configure `x({ auth: { userId, accessToken } })` and use the X user ID as
@@ -63,25 +88,30 @@ Pass `page.nextCursor` back as `cursor`. A missing user token or scope raises
 </PlatformTab>
 <PlatformTab platform="instagram">
 
-**Native** `listMentions` (also exposed as `mentions`). Needs Facebook Login
-scopes `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`.
+**Native** `listMentions` (also exposed as `mentions`). Works with Instagram
+Login and Facebook Login. Instagram Login needs `instagram_business_basic` and
+`instagram_business_manage_comments`. Facebook Login needs `instagram_basic`,
+`instagram_manage_comments`, and `pages_read_engagement`.
 
-Configure `instagram({ auth: { accountId, accessToken, flavor: "facebook-login" } })`.
-The adapter reads the `/{ig-user-id}/tags` edge and returns tagged-media objects
-with a cursor.
+Configure `instagram({ auth: { accountId, accessToken } })` for Instagram Login,
+or add `flavor: "facebook-login"`. The adapter reads the `/{ig-user-id}/tags`
+edge on the matching Graph host and returns tagged-media objects with a cursor.
+Meta does not return private media or Story mentions.
 
 ```ts
 const native = social.native("default", { acknowledgeUnsafe: true });
 const page = await native.listMentions({ account, limit: 50, context });
 ```
 
-`mentionedMedia` and `mentionedComment` also need Facebook Login. With Instagram
-Login all three methods raise `unsupported_capability`.
+`mentionedMedia` and `mentionedComment` look up one caption or comment mention
+by ID and need Facebook Login. Meta documents no Instagram Login equivalent, so
+with Instagram Login they raise `unsupported_capability` before any request.
 
 </PlatformTab>
 <PlatformTab platform="threads">
 
-**Native** `mentions` only. Needs `threads_basic` and `threads_manage_mentions`.
+**Native** `mentions` only. The Threads API has no notifications endpoint. Needs
+`threads_basic` and `threads_manage_mentions`.
 
 Configure `threads({ auth: { userId, accessToken } })`. The method calls the
 `/:threads-user-id/mentions` edge and returns the provider JSON unchanged.
@@ -97,9 +127,10 @@ reports missing permissions as `unauthorized` or an upstream error.
 </PlatformTab>
 <PlatformTab platform="youtube">
 
-**Not supported.** The YouTube adapter declares no `notifications.read`,
-`notifications.seen`, or `mentions.read` capability and has no native mentions
-method. A normalized call raises `SocialError` with
+**Not supported.** The YouTube Data API has no notifications resource.
+`activities.list` reports actions a channel took, not notifications it received.
+The adapter declares `notifications.read` as `unsupported-by-platform` and has
+no native mentions method. A normalized call raises `SocialError` with
 `code: "unsupported_capability"`.
 
 ```ts
@@ -110,11 +141,28 @@ const canRead = capabilities.some(
 ```
 
 </PlatformTab>
+<PlatformTab platform="tiktok">
+
+**Not supported.** TikTok for Developers APIs expose no notification inbox or
+mentions read. The adapter declares `notifications.read` as
+`unsupported-by-platform`, and a normalized call raises `unsupported_capability`.
+
+</PlatformTab>
 </PlatformTabs>
 
 ## Errors
 
-Calling the normalized notifications facade for X, Instagram, Threads, or YouTube
-raises `unsupported_capability` before any request. Invalid page limits raise
+Calling the normalized notifications facade for X, Instagram, Threads, YouTube,
+TikTok, or a LinkedIn member account raises `unsupported_capability` before any
+request. So does `markSeen` on LinkedIn. Invalid page limits raise
 `invalid_input`. Native calls bypass tenant authorization and concurrency
 middleware, so apply your own policy around them.
+
+Sources, accessed 2026-09-24:
+[LinkedIn organization social action notifications](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications),
+[X Activity API](https://docs.x.com/x-api/activity/introduction),
+[X Account Activity API](https://docs.x.com/x-api/account-activity/introduction),
+[Threads API reference](https://developers.facebook.com/docs/threads/reference),
+[Instagram IG User reference](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user),
+[YouTube Data API reference](https://developers.google.com/youtube/v3/docs),
+[TikTok for Developers overview](https://developers.tiktok.com/doc/overview).

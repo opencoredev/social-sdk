@@ -110,8 +110,14 @@ const adapter = threads({ auth: { userId, accessToken } });
 ```
 
 The adapter returns profile ID, username, name, profile picture, biography, and verification data
-where present. Relationship reads and mutations raise `unsupported_capability`, and so can a
-profile lookup outside the authorized user.
+where present. Handle lookup calls `GET /profile_lookup`, which needs an exact username match and
+only returns public profiles with at least 100 followers. Its `follower_count` and seven-day
+engagement counts stay in `native`.
+
+Threads has no endpoint that lists followers or followed accounts, so the manifest declares
+`graph.read` as `unsupported-by-platform`, and `listRelationships` raises `unsupported_capability`
+before any request. Mutations raise the same error. For the authorized user's total follower
+count, read the `followers_count` metric with `social.analytics.getAccountMetrics`.
 
 </PlatformTab>
 <PlatformTab platform="instagram">
@@ -147,6 +153,22 @@ const subscriptions = await native.subscriptions({ action: "list", channelId, co
 
 </PlatformTab>
 </PlatformTabs>
+
+## Profile updates
+
+Profile writes are native only, because each platform accepts different fields. Check the
+`profile.update` declaration in the [capability matrix](/reference/capabilities) before you offer
+the feature.
+
+- **Bluesky:** `native.updateProfile({ account, profile, context })` replaces the
+  `app.bsky.actor.profile` record, so send the complete record.
+- **YouTube:** `native.updateProfile({ part, value, context })` updates the channel's
+  `brandingSettings.channel` fields or `localizations`. See the
+  [YouTube guide](/platforms/youtube#update-channel-details).
+- **LinkedIn:** member profile writes use the Profile Edit API, which LinkedIn limits to approved
+  developers. The adapter does not implement it.
+- **X, Threads, Instagram, and TikTok:** the platform APIs have no profile write, and the
+  operation is declared `unsupported-by-platform`.
 
 ## Errors and authorization
 

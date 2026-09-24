@@ -916,6 +916,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         requiredScopes: ["repo"],
       },
       {
+        operation: "posts.schedule",
+        platform: "bluesky",
+        availability: "unsupported-by-platform",
+        notes:
+          "AT Protocol records are visible once written. The post createdAt field is a client-declared timestamp and does not delay publication.",
+      },
+      {
         operation: "posts.read",
         platform: "bluesky",
         availability: "available",

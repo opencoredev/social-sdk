@@ -752,15 +752,26 @@ it("uses ID-scoped field expansions for Facebook mention lookups", async () => {
   );
 });
 
-it("rejects tags mentions with Instagram Login through the public native facade", async () => {
-  let requests = 0;
+it("reads tags mentions with Instagram Login on graph.instagram.com", async () => {
+  const urls: URL[] = [];
 
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1" },
-    fetch: async (_input) => {
-      requests++;
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      urls.push(url);
 
-      return new Response(JSON.stringify({ data: [{ id: "mention-1" }] }));
+      return urls.length === 1
+        ? new Response(
+            JSON.stringify({
+              data: [{ id: "mention-1", username: "fan", access_token: "leak" }],
+              paging: {
+                cursors: { before: "b1", after: "a1" },
+                next: "https://graph.instagram.com/v25.0/ig1/tags?after=a1",
+              },
+            }),
+          )
+        : new Response(JSON.stringify({ data: [], paging: { cursors: { before: "b2" } } }));
     },
   });
 
@@ -773,10 +784,104 @@ it("rejects tags mentions with Instagram Login through the public native facade"
   });
 
   const native = social.native("default", { acknowledgeUnsafe: true });
+  const first = await native?.listMentions({ account, limit: 10, context: context("default") });
+  const cursor = first?.nextCursor;
+
+  if (cursor === undefined) throw new Error("Expected a next cursor from the first mentions page.");
+
+  const second = await native?.mentions({ account, cursor, context: context("default") });
+
+  assert.deepEqual(first, { items: [{ id: "mention-1", username: "fan" }], nextCursor: "a1" });
+  assert.deepEqual(second, { items: [] });
+  assert.equal(urls[0]?.host, "graph.instagram.com");
+  assert.equal(urls[0]?.pathname, "/v25.0/ig1/tags");
+  assert.equal(urls[0]?.searchParams.get("limit"), "10");
+  assert.match(urls[0]?.searchParams.get("fields") ?? "", /^id,caption,media_type/);
+  assert.equal(urls[0]?.searchParams.get("after"), null);
+  assert.equal(urls[1]?.searchParams.get("after"), "a1");
+});
+
+it("declares mentions.read for both login flavors with flavor-specific scopes", () => {
+  const read = (flavor: "instagram-login" | "facebook-login") =>
+    instagram({
+      auth: { accessToken: "token", accountId: "ig1", flavor },
+    }).capabilities.capabilities.find((entry) => entry.operation === "mentions.read");
+
+  const igLogin = read("instagram-login");
+  const fbLogin = read("facebook-login");
+  assert.equal(igLogin?.availability, "available");
+  assert.deepEqual(igLogin?.requiredScopes, [
+    "instagram_business_basic",
+    "instagram_business_manage_comments",
+  ]);
+  assert.match(igLogin?.notes ?? "", /require Facebook Login/);
+  assert.equal(fbLogin?.availability, "available");
+  assert.deepEqual(fbLogin?.requiredScopes, [
+    "instagram_basic",
+    "instagram_manage_comments",
+    "pages_read_engagement",
+  ]);
+});
+
+it("rejects mentioned_media and mentioned_comment lookups with Instagram Login before any request", async () => {
+  let requests = 0;
+
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1" },
+    fetch: async () => {
+      requests++;
+
+      return new Response(JSON.stringify({ id: "ig1" }));
+    },
+  });
+
+  const account = connectedAccountRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+
   await assert.rejects(
-    async () => native?.listMentions({ account, context: context("default") }),
-    /Facebook Login/,
+    async () => adapter.native?.mentionedMedia({ account, mediaId: "media-1", context: context() }),
+    {
+      code: "unsupported_capability",
+      operation: "instagram.mentions.read",
+      message: /mentioned_media lookups require a Facebook Login/,
+    },
   );
+  await assert.rejects(
+    async () =>
+      adapter.native?.mentionedComment({ account, commentId: "comment-1", context: context() }),
+    {
+      code: "unsupported_capability",
+      operation: "instagram.mentions.read",
+      message: /mentioned_comment lookups require a Facebook Login/,
+    },
+  );
+  assert.equal(requests, 0);
+});
+
+it("rejects Instagram Login tags mentions for a foreign account reference", async () => {
+  let requests = 0;
+
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1" },
+    fetch: async () => {
+      requests++;
+
+      return new Response(JSON.stringify({ data: [] }));
+    },
+  });
+
+  const account = connectedAccountRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: "ig2",
+  });
+
+  await assert.rejects(async () => adapter.native?.listMentions({ account, context: context() }), {
+    code: "unauthorized",
+  });
   assert.equal(requests, 0);
 });
 
