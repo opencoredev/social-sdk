@@ -227,6 +227,7 @@ export function youtube(
         operation: "posts.read",
         message: "Video is absent or inaccessible to this authorization.",
       });
+
     const snippet = object(video["snippet"]);
 
     if (snippet["channelId"] !== options.auth.channelId)
@@ -244,7 +245,9 @@ export function youtube(
     target: { account: ConnectedAccountRef; targetIndex: number },
   ): DeliveryOutcome => {
     const id = string(video["id"]);
+
     const status = object(video["status"]);
+
     const uploaded = optionalString(status["uploadStatus"]) ?? "unknown";
 
     const base = {
@@ -375,7 +378,9 @@ export function youtube(
       return object(result);
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
+
       const ambiguous = error.dispatched && (error.kind !== "http" || (error.status ?? 0) >= 500);
+
       throw new SocialError({
         code: ambiguous
           ? "ambiguous_outcome"
@@ -582,6 +587,7 @@ export function youtube(
         context: AdapterOperationContext,
       ) {
         authorize(account, context);
+
         const limit = input.limit ?? 25;
 
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || input.cursor === "")
@@ -666,6 +672,7 @@ export function youtube(
           target.account.accountId !== options.auth.channelId
         )
           fail("youtube.channel", "Select the configured YouTube channel.");
+
         const media = target.content.media;
 
         if (media?.length !== 1 || media[0]?.kind !== "video")
@@ -673,6 +680,7 @@ export function youtube(
             "youtube.video",
             "YouTube requires exactly one video; text-only publication is unavailable.",
           );
+
         const item = media?.[0];
 
         if (item) {
@@ -687,6 +695,7 @@ export function youtube(
         }
 
         const config = optionsObject(target);
+
         const title = config["title"];
 
         if (!isString(title) || !title || [...title].length > 100 || /[<>]/u.test(title))
@@ -717,6 +726,7 @@ export function youtube(
       },
       async publishTarget(target: PreparedPublishTarget, context: AdapterOperationContext) {
         authorize(target.account, context);
+
         const media = target.content.media?.[0];
 
         if (!media)
@@ -725,6 +735,7 @@ export function youtube(
             operation: "posts.publish",
             message: "Video required.",
           });
+
         const config = optionsObject(target);
 
         const uploadOptions = {
@@ -734,9 +745,13 @@ export function youtube(
         };
 
         const size = media.byteSize ?? (media.source.kind === "blob" ? media.source.blob.size : 0);
+
         const mimeType = string(media.mimeType);
+
         const title = string(config["title"]);
+
         const visibility = string(config["visibility"]);
+
         const selfDeclaredMadeForKids = config["madeForKids"] === true;
 
         // A schedule forces private visibility until YouTube publishes at `publishAt`.
@@ -763,6 +778,7 @@ export function youtube(
         );
 
         if (options.saveUploadSession) await options.saveUploadSession(session);
+
         const result = await sendYouTubeUpload(session, media, uploadOptions);
 
         if (result.state === "incomplete")
@@ -835,6 +851,7 @@ export function youtube(
         context: AdapterOperationContext,
       ): Promise<Page<JsonObject>> {
         authorize(account, context);
+
         const limit = input.limit ?? 25;
 
         if (input.scope !== undefined && input.scope !== "recent")
@@ -879,13 +896,16 @@ export function youtube(
         const video = await get(ref, context);
 
         if (video["statistics"] === undefined) return [];
+
         const values = object(video["statistics"]);
+
         const metrics: MetricValue[] = [];
 
         for (const name of ["viewCount", "likeCount", "commentCount"]) {
           const raw = values[name];
 
           if (!isString(raw) || !/^\d+$/.test(raw)) continue;
+
           const value = Number(raw);
 
           if (!Number.isSafeInteger(value)) continue;
@@ -923,11 +943,14 @@ export function youtube(
             operation: "analytics.account.read",
             message: "Configured channel was not returned for this authorization.",
           });
+
         const stats = object(channel["statistics"]);
+
         const fetchedAt = now();
 
         return (["viewCount", "subscriberCount", "videoCount"] as const).flatMap((name) => {
           if (name === "subscriberCount" && stats["hiddenSubscriberCount"] === true) return [];
+
           const raw = stats[name];
 
           return isString(raw) && /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw))
@@ -1002,6 +1025,7 @@ export function youtube(
           const dimensions = Object.fromEntries(
             headers.flatMap((header, index) => {
               if (header.type !== "DIMENSION") return [];
+
               const raw = cells[index];
 
               // JSON numbers are always finite, so isFiniteNumber accepts every numeric cell.
@@ -1015,6 +1039,7 @@ export function youtube(
 
           headers.forEach((header, index) => {
             if (header.type === "DIMENSION") return;
+
             const raw = cells[index];
 
             const parsed = isFiniteNumber(raw)
@@ -1039,6 +1064,7 @@ export function youtube(
         context: AdapterOperationContext,
       ) {
         authorize(ref, context);
+
         const limit = input.limit ?? 25;
 
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -1063,6 +1089,7 @@ export function youtube(
         return {
           items: array(result["items"]).map((value) => {
             const row = object(value);
+
             const comment = object(object(row["snippet"])["topLevelComment"]);
 
             return {
@@ -1093,6 +1120,7 @@ export function youtube(
         );
 
         const parent = array(parentResult["items"]).map(object)[0];
+
         const parentSnippet = parent === undefined ? undefined : object(parent["snippet"]);
 
         if (parentSnippet === undefined || parentSnippet["videoId"] !== ref.postId)
@@ -1206,6 +1234,7 @@ export function youtube(
               operation: `captions.${action}`,
               message: "Caption metadata and media are required for insert.",
             });
+
           const snippet = object(body["snippet"] ?? {});
 
           if (action === "insert" && (!videoId || (snippet["videoId"] ?? videoId) !== videoId))
@@ -1243,8 +1272,11 @@ export function youtube(
               operation: "captions.insert",
               message: "Caption media is required.",
             });
+
           const boundary = `youtube-caption-${crypto.randomUUID()}`;
+
           const media = mediaBlob(caption);
+
           const filename = (caption.filename ?? "captions.vtt").replace(/[\r\n]/gu, "");
 
           const encoded = new Blob([
@@ -1271,6 +1303,7 @@ export function youtube(
               operation: "captions.delete",
               message: "captionId is required.",
             });
+
           await request(
             "/youtube/v3/captions",
             context,
@@ -1443,10 +1476,12 @@ export function youtube(
             operation: "videos.delete",
             message: "videoId is required.",
           });
+
         await request("/youtube/v3/videos", context, undefined, { id: videoId }, "DELETE");
       },
       async rateVideo({ videoId, rating, context }) {
         nativeAuthorize(context);
+
         await request(
           "/youtube/v3/videos/rate",
           context,
@@ -1466,6 +1501,7 @@ export function youtube(
       },
       async subscriptions({ action, subscriptionId, channelId, pageToken, context }) {
         nativeAuthorize(context);
+
         const method = action === "list" ? "GET" : action === "delete" ? "DELETE" : "POST";
 
         if (action === "delete" && !subscriptionId)
@@ -1606,6 +1642,7 @@ export function youtube(
             operation: "comments.delete",
             message: "commentId is required.",
           });
+
         await request("/youtube/v3/comments", context, undefined, { id: commentId }, "DELETE");
       },
       async heldComments({ pageToken, maxResults, context }) {
