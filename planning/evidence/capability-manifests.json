@@ -1713,7 +1713,8 @@
           "availability": "available",
           "formats": [
             "text",
-            "image"
+            "image",
+            "video"
           ],
           "requiredScopes": [
             "tweet.read",
@@ -1721,7 +1722,7 @@
             "users.read",
             "media.write"
           ],
-          "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB. Video/GIF processing is outside this slice."
+          "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403."
         },
         {
           "platform": "x",
@@ -1995,15 +1996,29 @@
         {
           "platform": "x",
           "operation": "media.video",
-          "availability": "not-implemented-by-adapter",
+          "availability": "available",
           "formats": [
             "video"
-          ]
+          ],
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read",
+            "media.write"
+          ],
+          "notes": "MP4 Blob chunked INIT/APPEND/FINALIZE with 1 MiB segments and bounded STATUS poll honoring check_after_secs."
         },
         {
           "platform": "x",
           "operation": "media.gif",
-          "availability": "not-implemented-by-adapter"
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read",
+            "media.write"
+          ],
+          "notes": "GIF Blob chunked upload; large GIFs process asynchronously before attach."
         },
         {
           "platform": "x",

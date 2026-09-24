@@ -268,7 +268,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | bluesky | bluesky | search.posts | available | None declared | See adapter setup |
 | bluesky | bluesky | chat.read | available | None declared | See adapter setup |
 | bluesky | bluesky | chat.write | available | None declared | See adapter setup |
-| x | x | posts.publish | available | text, image | tweet.read, tweet.write, users.read, media.write |
+| x | x | posts.publish | available | text, image, video | tweet.read, tweet.write, users.read, media.write |
 | x | x | accounts.read | available | None declared | See adapter setup |
 | x | x | posts.list | available | None declared | tweet.read, users.read |
 | x | x | posts.read | available | None declared | See adapter setup |
@@ -302,8 +302,8 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | x | x | messages.conversation.write | available | None declared | dm.write |
 | x | x | messages.group.write | available | None declared | dm.write |
 | x | x | search.posts | available | None declared | tweet.read, users.read |
-| x | x | media.video | not-implemented-by-adapter | video | See adapter setup |
-| x | x | media.gif | not-implemented-by-adapter | None declared | See adapter setup |
+| x | x | media.video | available | video | tweet.read, tweet.write, users.read, media.write |
+| x | x | media.gif | available | None declared | tweet.read, tweet.write, users.read, media.write |
 | x | x | messages.read | available | None declared | dm.read, users.read, tweet.read |
 | x | x | messages.write | available | None declared | dm.write, dm.read, users.read, tweet.read |
 | x | x | streams.read | not-implemented-by-adapter | None declared | See adapter setup |

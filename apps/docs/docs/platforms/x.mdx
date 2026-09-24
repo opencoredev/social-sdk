@@ -80,6 +80,34 @@ const result = await social.posts.publish({
 });
 ```
 
+### Publish with a video or GIF
+
+Video (`video/mp4`, up to 512 MiB) and GIF (`image/gif`, up to 15 MiB) upload through the
+chunked `INIT → APPEND → FINALIZE → STATUS` flow with 1 MiB segments. Attach exactly one
+video or GIF per post. The adapter polls `processing_info` honoring `check_after_secs`, and fails with `timeout`
+instead of waiting past the operation budget. A `failed` processing state surfaces as a terminal
+`media_error` and never creates a post. X checks video duration only when the post is created and
+answers with HTTP 403, which the adapter reports as `missing_permission` with a message naming both
+possible causes, because the status alone cannot tell a duration limit from a missing permission.
+
+```ts
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: {
+    text: "Demo clip",
+    media: [
+      {
+        kind: "video",
+        source: { kind: "blob", blob: videoBlob, fingerprint: contentHash },
+        mimeType: "video/mp4",
+        filename: "demo.mp4",
+        byteSize: videoBlob.size,
+      },
+    ],
+  },
+});
+```
+
 ### Reconcile an uncertain outcome
 
 Every target result is independent. A successful HTTP response is not treated as a publication unless X returns a tweet ID. A transport failure after dispatch is `unknown`; reconcile before retrying. The adapter does not fail over to another backend.
@@ -230,7 +258,7 @@ still depends on the X API tier and Direct Messages access for the app.
 
 ## Native operations
 
-The typed native module also exposes user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, deletion, and bookmarks. Video and GIF uploads and filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
+The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, deletion, and bookmarks. Filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
 
 Full-archive search (`searchAllPosts`) requires an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
 
