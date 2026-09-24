@@ -3,6 +3,7 @@ import type {
   AdapterOperationContext,
   ConnectedAccountRef,
   JsonObject,
+  JsonValue,
   MediaAttachment,
   MediaRef,
 } from "../core/types.js";
@@ -37,8 +38,7 @@ export class MemoryManagedMediaStore implements ManagedMediaStore {
 export function managedMedia(
   provider: "zernio" | "post-for-me",
   options: ManagedOptions,
-  // oxlint-disable-next-line anti-slop/no-unknown-returns -- provider payload is validated at this adapter boundary.
-  presign: (body: JsonObject, context: AdapterOperationContext) => Promise<unknown>,
+  presign: (body: JsonObject, context: AdapterOperationContext) => Promise<JsonValue>,
 ) {
   const store = options.mediaStore ?? new MemoryManagedMediaStore();
 

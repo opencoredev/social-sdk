@@ -1,7 +1,15 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- webhook bodies are unknown until validated by the decoder. */
 import { parseJson } from "../transport/json.js";
 import { SocialError } from "../core/errors.js";
-import { array, object, optionalString, string } from "../transport/validation.js";
+import {
+  array,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  object,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 import type { JsonObject, JsonValue } from "../core/types.js";
 
 export interface VerifiedWebhook {
@@ -120,27 +128,42 @@ export interface SocialEvent {
 const sensitive =
   /^(access.?token|refresh.?token|authorization|cookie|secret|signature|code|password|signed.?url|upload.?url)$/i;
 
-function clean(value: unknown, depth = 0): JsonValue {
+/** Objects and arrays: the values a truthy `typeof value === "object"` check admits. */
+function isStructured(value: JsonField): value is JsonObject | readonly JsonValue[] {
+  return isJsonObject(value) || isJsonArray(value);
+}
+
+function checkDepth(depth: number): void {
   if (depth > 32)
     throw new SocialError({
       code: "invalid_input",
       operation: "webhooks.decode",
       message: "Webhook payload nesting exceeds the limit.",
     });
+}
 
-  if (value === null || typeof value === "boolean" || typeof value === "number") return value;
+function clean(value: JsonValue, depth: number): JsonValue {
+  checkDepth(depth);
 
-  if (typeof value === "string") {
+  if (isString(value)) {
     if (/https:\/\//i.test(value) && /[?&](x-amz-|signature|token|sig|key)=?/i.test(value))
       return "[redacted URL]";
 
     return value;
   }
 
-  if (Array.isArray(value)) return value.map((item) => clean(item, depth + 1));
+  if (isJsonArray(value)) return value.map((item) => clean(item, depth + 1));
+
+  if (isJsonObject(value)) return cleanObject(value, depth);
+
+  return value;
+}
+
+function cleanObject(value: JsonObject, depth = 0): JsonObject {
+  checkDepth(depth);
   const result: Record<string, JsonValue> = {};
 
-  for (const [key, entry] of Object.entries(object(value)))
+  for (const [key, entry] of Object.entries(value))
     result[key] = sensitive.test(key) ? "[redacted]" : clean(entry, depth + 1);
 
   return result;
@@ -153,7 +176,7 @@ export async function decodeWebhook(input: {
   receivedAt?: string;
 }): Promise<SocialEvent> {
   const bytes = checkedBytes(input.body, 1024 * 1024);
-  let parsed: unknown;
+  let parsed: JsonValue;
 
   try {
     parsed = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
@@ -199,10 +222,7 @@ export async function decodeWebhook(input: {
   else if (originalType === "message.received") type = "message.received";
   else if (originalType === "comment.received") type = "comment.received";
   const dataValue = input.provider === "zernio" ? payload : object(payload["data"]);
-  const cleaned = clean(dataValue);
-
-  if (typeof cleaned !== "object" || cleaned === null || Array.isArray(cleaned))
-    throw new Error("Expected normalized object");
+  const cleaned = cleanObject(dataValue);
   // IDs only locate application mappings; they never grant tenant ownership.
   const accountIds: string[] = [];
 
@@ -211,8 +231,10 @@ export async function decodeWebhook(input: {
 
   if (direct) accountIds.push(direct);
 
-  if (dataValue["account"] && typeof dataValue["account"] === "object") {
-    const account = object(dataValue["account"]);
+  const accountValue = dataValue["account"];
+
+  if (isStructured(accountValue)) {
+    const account = object(accountValue);
 
     const accountId =
       optionalString(account["accountId"]) ??
@@ -225,8 +247,10 @@ export async function decodeWebhook(input: {
   if (input.provider === "post-for-me" && originalType.startsWith("social.account."))
     accountIds.push(string(dataValue["id"]));
 
-  if (dataValue["post"] && typeof dataValue["post"] === "object") {
-    const post = object(dataValue["post"]);
+  const postValue = dataValue["post"];
+
+  if (isStructured(postValue)) {
+    const post = object(postValue);
 
     if (post["platforms"])
       for (const value of array(post["platforms"])) {
@@ -239,16 +263,13 @@ export async function decodeWebhook(input: {
 
   if (input.provider === "post-for-me" && Array.isArray(dataValue["social_accounts"])) {
     for (const item of dataValue["social_accounts"]) {
-      const id = typeof item === "string" ? item : optionalString(object(item)["id"]);
+      const id = isString(item) ? item : optionalString(object(item)["id"]);
 
       if (id) accountIds.push(id);
     }
   }
 
-  const post =
-    dataValue["post"] && typeof dataValue["post"] === "object"
-      ? object(dataValue["post"])
-      : undefined;
+  const post = isStructured(postValue) ? object(postValue) : undefined;
 
   const backendRecordId =
     input.provider === "zernio"
@@ -271,7 +292,7 @@ export async function decodeWebhook(input: {
     originalType,
     receivedAt: input.receivedAt ?? new Date().toISOString(),
     accountIds: [...new Set(accountIds)],
-    data: cleaned as JsonObject,
+    data: cleaned,
   };
 
   const event: SocialEvent =

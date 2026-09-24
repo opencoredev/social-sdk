@@ -1,6 +1,8 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { runCli } from "../src/cli.js";
+import { isJsonValue } from "../src/transport/json.js";
+import { array, object, string } from "../src/transport/validation.js";
 
 async function run(args: string[], input = "{}", env: Record<string, string> = {}) {
   let output = "";
@@ -13,30 +15,33 @@ async function run(args: string[], input = "{}", env: Record<string, string> = {
     },
   });
 
-  return { code, output, result: JSON.parse(output) };
+  const parsed: unknown = JSON.parse(output);
+  assert.ok(isJsonValue(parsed), "CLI output must be JSON");
+
+  return { code, output, data: object(object(parsed)["data"]) };
 }
 
 it("CLI doctor checks only selected environment names without printing values or authenticating", async () => {
   const missing = await run(["doctor", "--adapter", "zernio", "--json"]);
   assert.equal(missing.code, 1);
-  assert.deepEqual(missing.result.data.missingEnvironmentVariables, ["ZERNIO_API_KEY"]);
+  assert.deepEqual(missing.data["missingEnvironmentVariables"], ["ZERNIO_API_KEY"]);
 
   const configured = await run(["doctor", "--adapter", "zernio", "--json"], "{}", {
     ZERNIO_API_KEY: "never-print-me",
   });
 
   assert.equal(configured.code, 0);
-  assert.equal(configured.result.data.authenticated, false);
+  assert.equal(configured.data["authenticated"], false);
   assert.ok(!configured.output.includes("never-print-me"));
 });
 
 it("CLI capabilities uses each actual adapter manifest without making any network request", async () => {
   const listed = await run(["adapters", "--json"]);
 
-  for (const adapter of listed.result.data.adapters) {
-    const result = await run(["capabilities", "--adapter", adapter, "--json"]);
+  for (const adapter of array(listed.data["adapters"])) {
+    const result = await run(["capabilities", "--adapter", string(adapter), "--json"]);
     assert.equal(result.code, 0);
-    assert.ok(result.result.data.manifest.capabilities.length > 0);
+    assert.ok(array(object(result.data["manifest"])["capabilities"]).length > 0);
   }
 });
 
@@ -45,7 +50,7 @@ it("CLI validates its own example and reports invalid inputs without echoing con
 
   const valid = await run(
     ["validate", "--file", "request.json", "--json"],
-    JSON.stringify(example.result.data.request),
+    JSON.stringify(example.data["request"]),
   );
 
   assert.equal(valid.code, 0);

@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unknown-parameters -- test cases keep fixture setup together and exercise runtime-invalid inputs. */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -20,6 +19,14 @@ const manifest: CapabilityManifest = {
   runtime: ["bun"],
   capabilities: [{ operation: "posts.publish", platform: "*", availability: "available" }],
 };
+
+/**
+ * Simulates a JavaScript caller whose JSON-decoded input bypasses the static types,
+ * so the runtime guards in the client facade can be exercised.
+ */
+function untypedJson<Declared>(json: string): Declared {
+  return JSON.parse(json);
+}
 
 function account(backend: string, id: string) {
   return connectedAccountRef({ backend, platform: "x", accountId: id });
@@ -109,8 +116,8 @@ describe("core publication contract", () => {
         ],
         content: { text: "hello" },
       }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-      (error: unknown) => error instanceof SocialError && error.code === "unauthorized",
+      (error: unknown): error is SocialError =>
+        error instanceof SocialError && error.code === "unauthorized",
     );
     assert.equal(authorizeCalls, 1);
     assert.equal(
@@ -135,8 +142,8 @@ describe("core publication contract", () => {
         ],
         content: { text: "hello" },
       }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-      (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+      (error: unknown): error is SocialError =>
+        error instanceof SocialError && error.code === "invalid_input",
     );
     assert.equal(mock.testing.history().length, 0);
   });
@@ -167,8 +174,8 @@ describe("core publication contract", () => {
         targets: [{ account: account("default", "a") }],
         content: { text: "hello" },
       }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-      (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+      (error: unknown): error is SocialError =>
+        error instanceof SocialError && error.code === "invalid_input",
     );
   });
 
@@ -255,8 +262,8 @@ describe("core publication contract", () => {
     assert.equal(mock.testing.history().length, historyAfterFirst);
     await assert.rejects(
       social.posts.publish({ ...request, content: { text: "changed" } }),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-      (error: unknown) => error instanceof SocialError && error.code === "idempotency_conflict",
+      (error: unknown): error is SocialError =>
+        error instanceof SocialError && error.code === "idempotency_conflict",
     );
   });
 
@@ -406,7 +413,9 @@ describe("core publication contract", () => {
         },
       },
     });
+
     const social = createSocial({ backend: scheduledAdapter });
+
     const result = await social.posts.publishSequence({
       idempotencyKey: "scheduled-sequence",
       items: [
@@ -449,7 +458,9 @@ describe("core publication contract", () => {
         },
       },
     });
+
     const social = createSocial({ backend: pendingAdapter });
+
     const result = await social.posts.publishSequence({
       idempotencyKey: "chain-pending",
       replyToPrevious: true,
@@ -532,23 +543,23 @@ describe("core publication contract", () => {
     );
     await social.graph.getProfile(account("default", "mock-account-1"), {});
     await assert.rejects(
-      social.graph.getProfile(account("default", "mock-account-1"), null as never),
+      social.graph.getProfile(account("default", "mock-account-1"), untypedJson("null")),
       { code: "invalid_input" },
     );
     await assert.rejects(
       social.graph.listRelationships(account("default", "mock-account-1"), {
-        kind: "invalid" as never,
+        kind: untypedJson('"invalid"'),
       }),
-      (error: unknown) =>
+      (error: unknown): error is SocialError =>
         error instanceof SocialError &&
         error.code === "invalid_input" &&
         error.message.includes("Relationship kind"),
     );
     await assert.rejects(
-      social.notifications.markSeen(account("default", "mock-account-1"), null as never),
+      social.notifications.markSeen(account("default", "mock-account-1"), untypedJson("null")),
       { code: "invalid_input" },
     );
-    await assert.rejects(social.graph.follow(null as never), { code: "invalid_input" });
+    await assert.rejects(social.graph.follow(untypedJson("null")), { code: "invalid_input" });
   });
 
   test("references are versioned and JSON-safe", () => {

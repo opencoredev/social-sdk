@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- CLI JSON is parsed and validated at its input boundary. */
 import { realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createSocial } from "./core/client.js";
-import type { PublishRequest, SocialAdapter } from "./core/index.js";
+import type { SocialAdapter } from "./core/index.js";
+import { decodePublishRequest, PublishRequestInputError } from "./cli-request.js";
 import { mockBackend } from "./testing/index.js";
 import { zernio } from "./cloud/zernio.js";
 import { postForMe } from "./cloud/post-for-me.js";
@@ -16,7 +16,8 @@ import { tiktok } from "./platforms/tiktok.js";
 import { instagram } from "./platforms/instagram.js";
 import { linkedin } from "./platforms/linkedin.js";
 
-const names = [
+/** Adapters the diagnostic CLI can construct offline. */
+export const adapterNames = [
   "mock",
   "zernio",
   "post-for-me",
@@ -29,7 +30,17 @@ const names = [
   "linkedin",
 ] as const;
 
-type AdapterName = (typeof names)[number];
+export type AdapterName = (typeof adapterNames)[number];
+
+export function isAdapterName(value: string): value is AdapterName {
+  return adapterNames.some((name) => name === value);
+}
+
+type LinkedInAuthorUrn = `urn:li:person:${string}` | `urn:li:organization:${string}`;
+
+function isLinkedInAuthorUrn(value: string): value is LinkedInAuthorUrn {
+  return value.startsWith("urn:li:person:") || value.startsWith("urn:li:organization:");
+}
 
 const environmentNames: Record<AdapterName, readonly string[]> = {
   mock: [],
@@ -93,9 +104,7 @@ export function createDiagnosticAdapter(
     case "linkedin":
       return linkedin({
         auth: {
-          author: accountId.startsWith("urn:li:")
-            ? (accountId as `urn:li:person:${string}`)
-            : "urn:li:person:diagnostic",
+          author: isLinkedInAuthorUrn(accountId) ? accountId : "urn:li:person:diagnostic",
           accessToken: "offline-placeholder",
         },
         apiVersion: "202609",
@@ -115,7 +124,8 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   const command = args[0] ?? "help";
   const json = args.includes("--json");
 
-  const finish = (code: number, data: unknown) => {
+  // `data` is any report shape this command builds; it is only passed to JSON.stringify.
+  const finish = <Data>(code: number, data: Data) => {
     const result = { schemaVersion: 1, command, ok: code === 0, data };
     io.write(json ? JSON.stringify(result) + "\n" : JSON.stringify(result, null, 2) + "\n");
 
@@ -150,13 +160,13 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
     });
   const selected = options.get("--adapter") ?? "mock";
 
-  if (!names.includes(selected as AdapterName))
-    return finish(2, { error: "Unknown adapter.", adapters: names });
-  const name = selected as AdapterName;
+  if (!isAdapterName(selected))
+    return finish(2, { error: "Unknown adapter.", adapters: adapterNames });
+  const name = selected;
 
   if (command === "adapters")
     return finish(0, {
-      adapters: names,
+      adapters: adapterNames,
       verification: "Local contract tests; no live checks are performed by this CLI.",
     });
 
@@ -213,27 +223,7 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
 
     if (new TextEncoder().encode(raw).byteLength > 1024 * 1024)
       return finish(2, { error: "Input exceeds the 1 MiB diagnostic limit." });
-    const request: unknown = JSON.parse(raw);
-
-    if (
-      !request ||
-      typeof request !== "object" ||
-      !Array.isArray((request as Record<string, unknown>)["targets"])
-    )
-      return finish(2, { error: "Expected a JSON publish request with a targets array." });
-    const input = request as PublishRequest;
-    // JSON diagnostics deliberately accept only portable URLs, never executable streams or Blob handles.
-    const contents = [input.content, ...input.targets.map((target) => target.content)];
-
-    if (
-      contents.some((content) =>
-        content?.media?.some((media) => media.source?.kind !== "https-url"),
-      )
-    )
-      return finish(2, {
-        error:
-          "CLI media validation accepts HTTPS URL inputs only. Validate Blob/stream/media handles through the SDK.",
-      });
+    const input = decodePublishRequest(raw);
 
     const social = createSocial({
       backend: createDiagnosticAdapter(name, input.targets[0]?.account?.accountId),
@@ -252,7 +242,10 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
         targetIndex,
       })),
     });
-  } catch {
+  } catch (error) {
+    // Decoder messages name a path or rule and never repeat submitted values.
+    if (error instanceof PublishRequestInputError) return finish(2, { error: error.message });
+
     return finish(2, {
       error:
         "Unable to read or validate the JSON publish request. Check its shape and file permissions.",

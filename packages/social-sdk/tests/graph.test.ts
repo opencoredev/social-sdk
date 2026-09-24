@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing, anti-slop/no-unknown-parameters -- adapter fixture assertions validate the error boundary. */
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import {
@@ -8,8 +7,10 @@ import {
   type CapabilityManifest,
   type SocialAdapter,
 } from "../src/index.js";
+import { definedFields } from "../src/core/fields.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "me" });
+
 const target = profileRef({ ...account, profileId: "someone" });
 
 function adapter(): SocialAdapter {
@@ -25,12 +26,13 @@ function adapter(): SocialAdapter {
       { operation: "graph.unfollow", platform: "x", availability: "available" },
     ],
   };
+
   return {
     id: "graph-test",
     capabilities,
     graph: {
       async getProfile(_account, input) {
-        return { ref: target, displayName: input.profileId ?? input.handle };
+        return { ref: target, ...definedFields({ displayName: input.profileId ?? input.handle }) };
       },
       async listRelationships(_account, input) {
         return {
@@ -65,7 +67,7 @@ it("rejects graph calls whose capability is unavailable before dispatch", async 
   const social = createSocial({ backend: adapter() });
   await assert.rejects(
     social.graph.block(target),
-    (error: unknown) =>
+    (error: unknown): error is Error =>
       error instanceof Error && "code" in error && error.code === "unsupported_capability",
   );
 });
