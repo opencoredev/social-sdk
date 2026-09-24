@@ -2152,8 +2152,8 @@
         {
           "platform": "x",
           "operation": "streams.read",
-          "availability": "not-implemented-by-adapter",
-          "notes": "Filtered stream rules and streaming transport are not implemented by this adapter."
+          "availability": "available",
+          "notes": "Filtered stream via native stream, listStreamRules, addStreamRules, and deleteStreamRules with the app-only appBearerToken. Needs X API pay-per-use (1 connection, 1,000 rules of up to 1,024 characters) or Enterprise (multiple connections, 25,000+ rules of up to 2,048 characters). backfillMinutes and startTime/endTime recovery need Enterprise. One caller-controlled connection per iteration; no automatic reconnect."
         }
       ]
     }
@@ -2851,7 +2851,12 @@
         {
           "platform": "instagram",
           "operation": "mentions.read",
-          "availability": "not-implemented-by-adapter"
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_comments"
+          ],
+          "notes": "Reads the paginated /{ig-user-id}/tags edge on graph.instagram.com. mentionedMedia and mentionedComment require Facebook Login. Story mentions and private media are not returned."
         },
         {
           "platform": "instagram",
