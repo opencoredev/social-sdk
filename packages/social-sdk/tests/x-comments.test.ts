@@ -76,7 +76,10 @@ it("X comments.list searches the conversation, drops the root, and pages with ne
 
   assert.match(first.nextCursor ?? "", /^social-v1\./);
 
-  const second = await social.comments.list(post, { limit: 10, cursor: first.nextCursor });
+  const second = await social.comments.list(
+    post,
+    first.nextCursor === undefined ? { limit: 10 } : { limit: 10, cursor: first.nextCursor },
+  );
 
   assert.equal(requests[1]?.searchParams.get("next_token"), "b26v89c19zqg8o3f");
 
@@ -139,10 +142,15 @@ it("X comments.list rejects invalid input and foreign conversations", async () =
 
   await assert.rejects(social.comments.list(post), { name: "SocialError", code: "unauthorized" });
 
-  await assert.rejects(social.comments.list(platformPostRef({ ...account, accountId: "other" })), {
-    name: "SocialError",
-    code: "unauthorized",
-  });
+  await assert.rejects(
+    social.comments.list(
+      platformPostRef({ ...account, postId: "1700000000000000000", accountId: "other" }),
+    ),
+    {
+      name: "SocialError",
+      code: "unauthorized",
+    },
+  );
 
   assert.equal(calls, 1);
 });
