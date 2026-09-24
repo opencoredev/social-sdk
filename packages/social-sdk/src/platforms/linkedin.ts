@@ -525,12 +525,13 @@ export function linkedin(
         let result: { bytes: number; etag?: string };
 
         try {
-          // The part is streamed with a declared size so upload() can prove every byte was sent.
+          // fetch sends the Blob slice directly; the declared size lets upload() check every byte.
           result = await upload({
             url: part.url,
             source: {
               mimeType: "application/octet-stream",
               size: body.size,
+              body,
               open: () => body.stream(),
             },
             allowHost: (host) => host === "www.linkedin.com",

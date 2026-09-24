@@ -27,6 +27,7 @@ interface Call {
   method: string;
   body?: JsonObject;
   bytes?: number;
+  blobBody?: boolean;
   headers: Headers;
 }
 
@@ -36,10 +37,11 @@ async function record(input: RequestInfo | URL, init: RequestInit | undefined): 
   const headers = new Headers(init?.headers);
 
   if (url.startsWith(uploadBase)) {
-    // Consume the streamed part the way a real upload endpoint would.
+    // Read the whole part before answering, the way a real upload endpoint would.
+    const blobBody = init?.body instanceof Blob;
     const bytes = (await new Response(init?.body).arrayBuffer()).byteLength;
 
-    return { url, method, headers, bytes };
+    return { url, method, headers, bytes, blobBody };
   }
 
   // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- fixture contract.
@@ -142,8 +144,13 @@ it("LinkedIn uploads video parts in order and finalizes with unquoted ETags", as
   });
   assert.equal(calls[1]?.headers.get("content-type"), "application/octet-stream");
   assert.equal(calls[1]?.headers.get("authorization"), null);
+  // Each part goes out as a Blob slice, and storage reads it in full before answering.
   assert.equal(calls[1]?.bytes, part);
   assert.equal(calls[2]?.bytes, 100_000);
+  assert.equal(calls[1]?.blobBody, true);
+  assert.equal(calls[2]?.blobBody, true);
+  assert.equal(calls[1]?.headers.get("content-length"), String(part));
+  assert.equal(calls[2]?.headers.get("content-length"), "100000");
   assert.ok(calls[3]?.url.endsWith("action=finalizeUpload"));
   assert.deepEqual(calls[3]?.body, {
     finalizeUploadRequest: {
