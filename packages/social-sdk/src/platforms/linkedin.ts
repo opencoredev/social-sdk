@@ -79,6 +79,15 @@ export interface LinkedInShareStatistics {
 
 export interface LinkedInNative {
   readonly imageStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
+  /**
+   * Reads one uploaded video's owner and processing status with a single GET. Call it again later
+   * while the status is PROCESSING or WAITING_UPLOAD; the adapter never polls on its own.
+   */
+  readonly videoStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
+  /**
+   * @deprecated Upload video bytes with `social.media.upload` and check processing with
+   * `videoStatus`. This method always throws `unsupported_capability`.
+   */
   readonly registerVideo: (input: {
     readonly account: ConnectedAccountRef;
     readonly byteSize: number;
@@ -138,6 +147,20 @@ export interface LinkedInNative {
     readonly context: AdapterOperationContext;
   }) => Promise<number | undefined>;
 }
+
+/*
+ * Videos API, accessed 2026-09-24:
+ * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-09
+ * Feed video is MP4, 75 KB to 500 MB and 3 seconds to 30 minutes. initializeUpload returns
+ * contiguous part instructions of up to 4,194,304 bytes; each part's ETag is passed to finalizeUpload.
+ * Posts API video content, accessed 2026-09-24:
+ * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-09
+ */
+const linkedInVideoPartBytes = 4 * 1024 * 1024;
+const linkedInVideoMinBytes = 75_000;
+const linkedInVideoMaxBytes = 500 * 1024 * 1024;
+const linkedInVideoUrn = /^urn:li:video:[a-zA-Z0-9_-]+$/;
+const linkedInImageUrn = /^urn:li:image:[a-zA-Z0-9_-]+$/;
 
 export function linkedin(
   options: LinkedInOptions,
@@ -327,6 +350,222 @@ export function linkedin(
       accountId: account.accountId,
       mediaId,
     };
+  }
+
+  function videoPartError(error: HttpError, part: number): SocialError {
+    if (error.kind === "cancelled")
+      return new SocialError({
+        code: "cancelled",
+        operation: "media.upload",
+        message: `LinkedIn video part ${part} upload was cancelled. No post was created.`,
+      });
+
+    if (error.kind === "timeout")
+      return new SocialError({
+        code: "timeout",
+        operation: "media.upload",
+        message: `LinkedIn video part ${part} upload exceeded its elapsed budget. No post was created.`,
+        retryDisposition: { kind: "never" },
+      });
+
+    if (error.status === 429)
+      return new SocialError({
+        code: "rate_limited",
+        operation: "media.upload",
+        message: `LinkedIn rate limited video part ${part}. No post was created.`,
+        upstreamStatus: error.status,
+        retryDisposition:
+          error.retryAfterMs === undefined
+            ? { kind: "never" }
+            : { kind: "after-delay", delayMs: error.retryAfterMs },
+      });
+
+    return new SocialError({
+      code: "media_error",
+      operation: "media.upload",
+      message:
+        error.status === 401
+          ? `LinkedIn rejected video part ${part} because its upload URL expired. Start a new upload.`
+          : `LinkedIn did not accept video part ${part}. Start a new upload; no post was created.`,
+      upstreamStatus: error.status,
+      retryDisposition: { kind: "never" },
+    });
+  }
+
+  /** Initializes, uploads every part and finalizes one video. It never waits for processing. */
+  async function uploadVideo(
+    media: MediaAttachment,
+    account: ConnectedAccountRef,
+    context: AdapterOperationContext,
+  ): Promise<MediaRef> {
+    authorize(account, context);
+    const source = media.source;
+
+    if (media.mimeType !== "video/mp4" || source.kind !== "blob")
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "Provide one MP4 video as a Blob with mimeType video/mp4.",
+      });
+
+    if (media.thumbnail !== undefined)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "LinkedIn video thumbnails are not implemented by this adapter.",
+      });
+
+    const blob = source.blob;
+
+    if (
+      (media.byteSize !== undefined && media.byteSize !== blob.size) ||
+      blob.size < linkedInVideoMinBytes ||
+      blob.size > linkedInVideoMaxBytes
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message:
+          "LinkedIn feed video must be 75 KB to 500 MB, and byteSize must match the Blob size.",
+      });
+
+    if (
+      media.durationSeconds !== undefined &&
+      (!Number.isFinite(media.durationSeconds) ||
+        media.durationSeconds < 3 ||
+        media.durationSeconds > 1800)
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "LinkedIn feed video must be 3 seconds to 30 minutes long.",
+      });
+
+    try {
+      const initialized = object(
+        object(
+          await request("/rest/videos?action=initializeUpload", context, {
+            initializeUploadRequest: {
+              owner: account.accountId,
+              fileSizeBytes: blob.size,
+              uploadCaptions: false,
+              uploadThumbnail: false,
+            },
+          }),
+        )["value"],
+      );
+
+      const mediaId = string(initialized["video"]);
+      // LinkedIn documents an empty upload token for some sessions, so only its type is checked.
+      const uploadToken = optionalString(initialized["uploadToken"]);
+
+      const parts = array(initialized["uploadInstructions"]).map((value) => {
+        const part = object(value);
+
+        return {
+          url: string(part["uploadUrl"]),
+          firstByte: optionalNumber(part["firstByte"]),
+          lastByte: optionalNumber(part["lastByte"]),
+        };
+      });
+
+      let nextByte = 0;
+      const plan: { url: string; firstByte: number; lastByte: number }[] = [];
+
+      for (const part of parts) {
+        const { firstByte, lastByte } = part;
+
+        if (
+          firstByte !== nextByte ||
+          lastByte === undefined ||
+          !Number.isSafeInteger(lastByte) ||
+          lastByte < firstByte ||
+          lastByte - firstByte + 1 > linkedInVideoPartBytes
+        )
+          break;
+        plan.push({ url: part.url, firstByte, lastByte });
+        nextByte = lastByte + 1;
+      }
+
+      if (
+        !linkedInVideoUrn.test(mediaId) ||
+        uploadToken === undefined ||
+        plan.length === 0 ||
+        plan.length !== parts.length ||
+        nextByte !== blob.size
+      )
+        throw new SocialError({
+          code: "media_error",
+          operation: "media.upload",
+          message:
+            "LinkedIn returned an invalid video identifier or an upload plan that does not cover the file. No bytes were sent.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const uploadedPartIds: string[] = [];
+
+      for (const [index, part] of plan.entries()) {
+        const body = blob.slice(part.firstByte, part.lastByte + 1);
+        let result: { bytes: number; etag?: string };
+
+        try {
+          // The part is streamed with a declared size so upload() can prove every byte was sent.
+          result = await upload({
+            url: part.url,
+            source: {
+              mimeType: "application/octet-stream",
+              size: body.size,
+              open: () => body.stream(),
+            },
+            allowHost: (host) => host === "www.linkedin.com",
+            maxBytes: linkedInVideoPartBytes,
+            timeoutMs: remainingBudget(context),
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+            ...(options.fetch ? { fetch: options.fetch } : {}),
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+            ...(context.signal ? { signal: context.signal } : {}),
+          });
+        } catch (error) {
+          if (error instanceof HttpError) throw videoPartError(error, index + 1);
+          throw error;
+        }
+
+        // finalizeUpload takes the ETag value without the HTTP quoting.
+        const etag = result.etag?.trim().replace(/^"(.*)"$/, "$1");
+
+        if (!etag)
+          throw new SocialError({
+            code: "media_error",
+            operation: "media.upload",
+            message: `LinkedIn accepted video part ${index + 1} without an ETag. Start a new upload.`,
+            retryDisposition: { kind: "never" },
+          });
+        uploadedPartIds.push(etag);
+      }
+
+      await request("/rest/videos?action=finalizeUpload", context, {
+        finalizeUploadRequest: { video: mediaId, uploadToken, uploadedPartIds },
+      });
+
+      return {
+        kind: "media",
+        version: 1,
+        backend: account.backend,
+        platform: "linkedin",
+        accountId: account.accountId,
+        mediaId,
+      };
+    } catch (error) {
+      // Malformed upload responses fail before any post request, so no post exists.
+      if (error instanceof HttpError)
+        throw new SocialError({
+          code: "media_error",
+          operation: "media.upload",
+          message: "LinkedIn returned a malformed video upload response. No post was created.",
+          retryDisposition: { kind: "never" },
+        });
+      throw error;
+    }
   }
 
   /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing -- These helpers normalize documented LinkedIn response facets at the transport boundary. */
@@ -577,14 +816,14 @@ export function linkedin(
           platform: "linkedin",
           operation: "posts.publish",
           availability: "available" as const,
-          formats: ["text" as const, "image" as const, "carousel" as const],
+          formats: ["text" as const, "image" as const, "carousel" as const, "video" as const],
           requiredScopes: [
             options.auth.author.startsWith("urn:li:organization:")
               ? "w_organization_social"
               : "w_member_social",
           ],
           notes:
-            "Explicit author URN and public visibility. Organization role and app product approval required. Registered images must be AVAILABLE before creating a post.",
+            "Explicit author URN and public visibility. Organization role and app product approval required. One registered image or MP4 video per post; the asset must be AVAILABLE before creating a post.",
         },
         {
           platform: "linkedin",
@@ -614,8 +853,15 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "posts.video",
-          availability: "not-implemented-by-adapter" as const,
+          availability: "available" as const,
           formats: ["video" as const],
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "w_organization_social"
+              : "w_member_social",
+          ],
+          notes:
+            "Upload one MP4 Blob (75 KB to 500 MB, 3 seconds to 30 minutes) with media.upload, then publish the video URN once native videoStatus reports AVAILABLE. Processing is checked explicitly, never polled.",
         },
         {
           platform: "linkedin",
@@ -689,7 +935,7 @@ export function linkedin(
           platform: "linkedin",
           operation: "media.upload",
           availability: "available" as const,
-          formats: ["image" as const],
+          formats: ["image" as const, "video" as const],
         },
         ...["comments.read", "comments.write", "analytics.read"].map((operation) => ({
           platform: "linkedin" as const,
@@ -703,7 +949,16 @@ export function linkedin(
         })),
       ],
     },
-    media: { upload: uploadImage },
+    media: {
+      upload: (
+        media: MediaAttachment,
+        account: ConnectedAccountRef,
+        context: AdapterOperationContext,
+      ) =>
+        media.kind === "video"
+          ? uploadVideo(media, account, context)
+          : uploadImage(media, account, context),
+    },
     posts: {
       prepareTarget(target: PreparedPublishTarget) {
         const issues: { code: string; message: string; severity: "error"; targetIndex: number }[] =
@@ -743,31 +998,42 @@ export function linkedin(
         const media = target.content.media ?? [];
 
         // A MultiImage post takes 2 to 20 images; alt text is at most 4,086 characters.
+        // A video post carries exactly one video and cannot be mixed with images.
         if (media.length > 20)
           fail(
             "linkedin.media_count",
-            "LinkedIn accepts one image, or a multi-image post of 2 to 20 images.",
+            "LinkedIn accepts one image, one video, or a multi-image post of 2 to 20 images.",
+          );
+
+        if (media.length > 1 && media.some((item) => item.kind === "video"))
+          fail(
+            "linkedin.media_count",
+            "A LinkedIn video post carries exactly one video and cannot be combined with other media.",
           );
 
         for (const item of media) {
           if (media.length > 1 && (item.altText?.length ?? 0) > 4086)
             fail("linkedin.alt_text", "LinkedIn multi-image alt text exceeds 4,086 characters.");
 
-          if (item.kind !== "image" || item.source.kind !== "media-ref")
+          if ((item.kind !== "image" && item.kind !== "video") || item.source.kind !== "media-ref")
             fail(
               "linkedin.media",
-              "Upload an image first with media.upload, then publish its account-bound reference.",
+              "Upload an image or video first with media.upload, then publish its account-bound reference.",
             );
           else if (
             item.source.ref.backend !== target.account.backend ||
             item.source.ref.accountId !== target.account.accountId ||
             item.source.ref.platform !== "linkedin" ||
-            !/^urn:li:image:[a-zA-Z0-9_-]+$/.test(item.source.ref.mediaId)
+            !(item.kind === "video" ? linkedInVideoUrn : linkedInImageUrn).test(
+              item.source.ref.mediaId,
+            )
           )
             fail(
               "linkedin.media_owner",
-              "Image reference belongs to another author/backend or has an invalid URN.",
+              "Media reference belongs to another author/backend or has an invalid URN for its kind.",
             );
+          else if (item.kind === "video" && item.altText !== undefined)
+            fail("linkedin.video_alt_text", "LinkedIn video posts do not accept alt text.");
         }
 
         return issues;
@@ -775,17 +1041,21 @@ export function linkedin(
       async publishTarget(target: PreparedPublishTarget, context: AdapterOperationContext) {
         authorize(target.account, context);
         const media = target.content.media ?? [];
-        const images: JsonObject[] = [];
+        const entries: JsonObject[] = [];
 
         for (const item of media) {
           if (item.source.kind !== "media-ref") continue;
           authorize(item.source.ref, context);
 
+          const video = item.kind === "video";
           let image: JsonObject | undefined;
           try {
             // SAFETY: object() validates the upstream response as a JSON object.
             image = object(
-              await request(`/rest/images/${encodeURIComponent(item.source.ref.mediaId)}`, context),
+              await request(
+                `/rest/${video ? "videos" : "images"}/${encodeURIComponent(item.source.ref.mediaId)}`,
+                context,
+              ),
             ) as JsonObject;
           } catch (error) {
             if (
@@ -800,30 +1070,42 @@ export function linkedin(
             throw new SocialError({
               code: "unauthorized",
               operation: "posts.publish",
-              message: "LinkedIn image belongs to a different author.",
+              message: `LinkedIn ${video ? "video" : "image"} belongs to a different author.`,
+            });
+
+          if (video && image?.["status"] === "PROCESSING_FAILED")
+            throw new SocialError({
+              code: "media_error",
+              operation: "posts.publish",
+              message:
+                "LinkedIn could not process this video. Upload it again; no post was created.",
+              retryDisposition: { kind: "never" },
             });
 
           if (image?.["status"] !== undefined && image["status"] !== "AVAILABLE")
             throw new SocialError({
               code: "media_error",
               operation: "posts.publish",
-              message: "Image is not AVAILABLE. Check its status explicitly before publishing.",
+              message: video
+                ? "Video is not AVAILABLE. Check it later with native videoStatus before publishing."
+                : "Image is not AVAILABLE. Check its status explicitly before publishing.",
             });
-          images.push({
+          entries.push({
             id: item.source.ref.mediaId,
             // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-            ...(item.altText ? { altText: item.altText } : {}),
+            ...(!video && item.altText ? { altText: item.altText } : {}),
           });
         }
 
         // MultiImage content takes 2 to 20 image URNs. Source (accessed 2026-09-24):
         // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-09
+        // A single image or video uses content.media.
         const content: JsonObject | undefined =
-          images.length > 1
-            ? { multiImage: { images } }
-            : images[0] === undefined
+          entries.length > 1
+            ? { multiImage: { images: entries } }
+            : entries[0] === undefined
               ? undefined
-              : { media: images[0] };
+              : { media: entries[0] };
 
         const result = object(
           await request(
@@ -1182,12 +1464,42 @@ export function linkedin(
 
         return publicFields(image, ["id", "owner", "status"]);
       },
+      async videoStatus(ref: MediaRef, context: AdapterOperationContext) {
+        authorize(ref, context);
+
+        if (!linkedInVideoUrn.test(ref.mediaId))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "media.read",
+            message: "Use the urn:li:video reference returned by media.upload.",
+          });
+
+        const video = object(
+          await request(`/rest/videos/${encodeURIComponent(ref.mediaId)}`, context),
+        );
+
+        if (video["owner"] !== ref.accountId)
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "media.read",
+            message: "LinkedIn video belongs to another author.",
+          });
+
+        return publicFields(video, [
+          "id",
+          "owner",
+          "status",
+          "processingFailureReason",
+          "duration",
+        ]);
+      },
       async registerVideo({ account, context }) {
         authorize(account, context);
         throw new SocialError({
           code: "unsupported_capability",
           operation: "posts.video",
-          message: "LinkedIn video publishing is not implemented by this adapter.",
+          message:
+            "registerVideo is deprecated. Upload the video with media.upload and check it with videoStatus.",
         });
       },
       async createPoll({ account, text, options: pollOptions, duration = "THREE_DAYS", context }) {
