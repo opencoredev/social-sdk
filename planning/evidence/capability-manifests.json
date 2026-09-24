@@ -2690,6 +2690,12 @@
           "notes": "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping."
         },
         {
+          "platform": "instagram",
+          "operation": "posts.update",
+          "availability": "unsupported-by-platform",
+          "notes": "Instagram Graph API does not provide an edit endpoint for published media."
+        },
+        {
           "operation": "accounts.read",
           "platform": "instagram",
           "availability": "available"
@@ -2779,18 +2785,14 @@
         {
           "platform": "instagram",
           "operation": "posts.delete",
-          "availability": "not-implemented-by-adapter"
+          "availability": "unsupported-by-platform",
+          "notes": "Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media"
         },
         {
           "platform": "instagram",
           "operation": "posts.removeFromPlatform",
-          "availability": "not-implemented-by-adapter"
-        },
-        {
-          "platform": "instagram",
-          "operation": "posts.update",
           "availability": "unsupported-by-platform",
-          "notes": "The IG Media update endpoint only accepts comment_enabled. Captions and media cannot be edited after publication."
+          "notes": "Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media"
         },
         {
           "platform": "instagram",
