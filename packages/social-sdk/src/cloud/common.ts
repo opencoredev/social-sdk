@@ -14,6 +14,7 @@ import type {
   PreparedPublishTarget,
 } from "../core/types.js";
 import { createHttp, HttpError, type HttpOptions } from "../transport/http.js";
+import { isJsonValue } from "../transport/json.js";
 import { httpsUrl, upload } from "../transport/upload.js";
 import { definedFields } from "../core/fields.js";
 import {
@@ -183,40 +184,13 @@ export function capabilityManifest(
   };
 }
 
-/**
- * True when every member of `value` is a JSON primitive, array, or object. Object
- * properties set to `undefined` pass because reading them matches an absent key.
- */
-function isJsonTree(value: unknown, ancestors = new Set<object>()): value is JsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    typeof value === "number"
-  )
-    return true;
-
-  // A cycle is not JSON; reject it instead of recursing forever.
-  if (typeof value !== "object" || ancestors.has(value)) return false;
-
-  ancestors.add(value);
-
-  const valid = Array.isArray(value)
-    ? value.every((item) => isJsonTree(item, ancestors))
-    : Object.values(value).every((item) => item === undefined || isJsonTree(item, ancestors));
-
-  ancestors.delete(value);
-
-  return valid;
-}
-
 export function optionsObject(target: PreparedPublishTarget): JsonObject {
   const options = target.options;
 
   if (options === undefined) return {};
 
   // Reject exactly as `object` does, including options with function, symbol, or bigint members.
-  if (!isJsonTree(options))
+  if (!isJsonValue(options))
     throw new HttpError("Upstream response must be an object.", "invalid-response", true);
 
   return object(options);

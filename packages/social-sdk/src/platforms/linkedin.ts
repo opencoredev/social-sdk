@@ -782,13 +782,12 @@ export function linkedin(
           let image: JsonObject | undefined;
 
           try {
-            // SAFETY: object() validates the upstream response as a JSON object.
             image = object(
               await request(
                 `/rest/images/${encodeURIComponent(media.source.ref.mediaId)}`,
                 context,
               ),
-            ) as JsonObject;
+            );
           } catch (error) {
             if (
               !(error instanceof SocialError) ||

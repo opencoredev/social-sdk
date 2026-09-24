@@ -3,7 +3,8 @@ import { realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createSocial } from "./core/client.js";
-import type { PublishRequest, SocialAdapter } from "./core/index.js";
+import type { SocialAdapter } from "./core/index.js";
+import { decodePublishRequest, PublishRequestInputError } from "./cli-request.js";
 import { mockBackend } from "./testing/index.js";
 import { zernio } from "./cloud/zernio.js";
 import { postForMe } from "./cloud/post-for-me.js";
@@ -15,7 +16,8 @@ import { tiktok } from "./platforms/tiktok.js";
 import { instagram } from "./platforms/instagram.js";
 import { linkedin } from "./platforms/linkedin.js";
 
-const names = [
+/** Adapters the diagnostic CLI can construct offline. */
+export const adapterNames = [
   "mock",
   "zernio",
   "post-for-me",
@@ -28,24 +30,10 @@ const names = [
   "linkedin",
 ] as const;
 
-type AdapterName = (typeof names)[number];
+export type AdapterName = (typeof adapterNames)[number];
 
-function isAdapterName(value: string): value is AdapterName {
-  return names.some((name) => name === value);
-}
-
-/** The only shape the CLI checks before handing a request to `prepare`. */
-interface RequestWithTargets {
-  readonly targets: readonly unknown[];
-}
-
-function hasTargetsArray(value: unknown): value is RequestWithTargets {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "targets" in value &&
-    Array.isArray(value.targets)
-  );
+export function isAdapterName(value: string): value is AdapterName {
+  return adapterNames.some((name) => name === value);
 }
 
 type LinkedInAuthorUrn = `urn:li:person:${string}` | `urn:li:organization:${string}`;
@@ -172,12 +160,13 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
     });
   const selected = options.get("--adapter") ?? "mock";
 
-  if (!isAdapterName(selected)) return finish(2, { error: "Unknown adapter.", adapters: names });
+  if (!isAdapterName(selected))
+    return finish(2, { error: "Unknown adapter.", adapters: adapterNames });
   const name = selected;
 
   if (command === "adapters")
     return finish(0, {
-      adapters: names,
+      adapters: adapterNames,
       verification: "Local contract tests; no live checks are performed by this CLI.",
     });
 
@@ -234,26 +223,7 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
 
     if (new TextEncoder().encode(raw).byteLength > 1024 * 1024)
       return finish(2, { error: "Input exceeds the 1 MiB diagnostic limit." });
-    const request: unknown = JSON.parse(raw);
-
-    if (!hasTargetsArray(request))
-      return finish(2, { error: "Expected a JSON publish request with a targets array." });
-    // SAFETY: hasTargetsArray only proves an object with a targets array. The CLI relies
-    // on social.posts.prepare for the rest of the shape: optional fields are read with
-    // `?.`, and any malformed value that throws is caught below and reported as exit code 2.
-    const input = request as PublishRequest;
-    // JSON diagnostics deliberately accept only portable URLs, never executable streams or Blob handles.
-    const contents = [input.content, ...input.targets.map((target) => target.content)];
-
-    if (
-      contents.some((content) =>
-        content?.media?.some((media) => media.source?.kind !== "https-url"),
-      )
-    )
-      return finish(2, {
-        error:
-          "CLI media validation accepts HTTPS URL inputs only. Validate Blob/stream/media handles through the SDK.",
-      });
+    const input = decodePublishRequest(raw);
 
     const social = createSocial({
       backend: createDiagnosticAdapter(name, input.targets[0]?.account?.accountId),
@@ -272,7 +242,10 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
         targetIndex,
       })),
     });
-  } catch {
+  } catch (error) {
+    // Decoder messages name a path or rule and never repeat submitted values.
+    if (error instanceof PublishRequestInputError) return finish(2, { error: error.message });
+
     return finish(2, {
       error:
         "Unable to read or validate the JSON publish request. Check its shape and file permissions.",
