@@ -453,6 +453,16 @@ export interface XNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Hides or unhides a reply in a conversation the authenticated user started.
+   * Calls `PUT /2/tweets/:id/hidden` and returns the hidden state X reports.
+   */
+  readonly hideReply: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly replyId: string;
+    readonly hidden: boolean;
+    readonly context: AdapterOperationContext;
+  }) => Promise<{ readonly hidden: boolean }>;
 }
 
 export function x(options: XOptions): import("../core/adapter.js").SocialAdapter<XNative> {
@@ -1610,6 +1620,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           availability: "available" as const,
           requiredScopes: ["dm.write", "dm.read", "users.read", "tweet.read"],
           notes: "Requires a user-context token and an X API tier that includes Direct Messages.",
+        },
+        {
+          platform: "x",
+          operation: "comments.moderate",
+          availability: "available" as const,
+          requiredScopes: ["tweet.moderate.write", "tweet.read", "users.read"],
+          notes:
+            "Native hideReply hides or unhides replies in conversations the authenticated user started. Requires a user-context token.",
         },
         {
           platform: "x",
@@ -2792,6 +2810,34 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           {},
           "DELETE",
         );
+      },
+      async hideReply({ account, replyId, hidden, context }) {
+        authorize(account, context);
+        if (!/^[0-9]{1,19}$/.test(replyId))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.moderate",
+            message: "X reply IDs are numeric strings of 1 to 19 digits.",
+            retryDisposition: { kind: "never" },
+          });
+        const result = object(
+          await requireUserToken("comments.moderate")(
+            `/2/tweets/${encodeURIComponent(replyId)}/hidden`,
+            context,
+            { hidden },
+            {},
+            "PUT",
+          ),
+        );
+        const state = result["data"] === undefined ? undefined : object(result["data"])["hidden"];
+        if (typeof state !== "boolean")
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "comments.moderate",
+            message: "X did not report the reply's hidden state.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+        return { hidden: state };
       },
     }),
   });

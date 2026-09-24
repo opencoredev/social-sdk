@@ -66,6 +66,14 @@ await native.sendDirectMessage({ account, participantId, text: "Hello.", context
 await native.deleteComment({ account, commentId: replyPostId, context });
 ```
 
+Native `hideReply` hides or unhides a reply in a conversation the authenticated
+user started. It needs a user token with `tweet.moderate.write`, `tweet.read`, and
+`users.read`, and returns the hidden state X reports.
+
+```ts
+await native.hideReply({ account, replyId, hidden: true, context });
+```
+
 </PlatformTab>
 <PlatformTab platform="bluesky">
 
@@ -85,10 +93,23 @@ await social.messages.send(conversation, { text: "Thanks for reaching out." });
 Native `deleteComment` takes the reply's `at://` URI and calls
 `com.atproto.repo.deleteRecord`. It only deletes replies stored in the
 authenticated account's repository; a URI from another DID raises
-`unauthorized`. Bluesky has no hide operation for other users' replies.
+`unauthorized`.
+To hide another account's reply in your own thread, use `hideReply`.
 
 ```ts
 await native.deleteComment({ account, commentId: replyUri, context });
+```
+
+Native `hideReply` hides or unhides a reply by adding its AT-URI to, or removing
+it from, the `hiddenReplies` list on the root post's threadgate. Only the root
+post's author can do this, so the call raises `invalid_input` for replies in
+other accounts' threads. The adapter creates a threadgate without reply rules
+when none exists, and updates an existing one with `swapRecord` so a concurrent
+change fails instead of being overwritten. Hidden replies stay in the thread;
+Bluesky clients collapse them.
+
+```ts
+await native.hideReply({ account, replyUri, hidden: true, context });
 ```
 
 </PlatformTab>
@@ -167,7 +188,9 @@ administrator access.
 
 LinkedIn comments use Social Actions and may return composite URNs. If a write
 is accepted without a returned URN, the SDK can raise `ambiguous_outcome`.
-LinkedIn messages raise `unsupported_capability`.
+LinkedIn messages raise `unsupported_capability`. Hiding comments is
+`unsupported-by-platform`: the Comments API has no hide or moderation-status
+operation.
 
 ```ts
 const comments = await social.comments.list(post, { limit: 20 });
