@@ -95,7 +95,7 @@ it("does not invent confirmation and bounds uncooperative fetch and response rea
         { userId: "u", accessToken: "token", fetch: async () => Response.json(data) },
         { ...context },
       ),
-      (error: any) => error.code === "ambiguous_outcome",
+      { code: "ambiguous_outcome" },
     );
   }
 
@@ -113,7 +113,7 @@ it("does not invent confirmation and bounds uncooperative fetch and response rea
         { userId: "u", accessToken: "token", fetch },
         { ...context, retryBudget: { maxAttempts: 5, maxElapsedMs: 10 } },
       ),
-      (error: any) => error.code === "ambiguous_outcome",
+      { code: "ambiguous_outcome" },
     );
   }
 

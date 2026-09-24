@@ -269,6 +269,8 @@ test("maps SocialError codes to their HTTP status", async () => {
       ["invalid_input", 400],
     ] as const) {
       const base = mockBackend();
+      assert.ok(base.accounts);
+      assert.ok(base.posts);
 
       const backend = {
         ...base,
