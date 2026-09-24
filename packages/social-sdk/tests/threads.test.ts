@@ -126,7 +126,7 @@ test("Threads profile lookup requests only documented fields and namespaces the 
   assert.equal(profile.avatarUrl, "https://img");
   assert.equal(profile.bio, "Bio");
 
-  assert.equal(profile.native?._profileIdUnavailable, true);
+  assert.equal(profile.native?.["_profileIdUnavailable"], true);
   assert.equal(profile.native?.["follower_count"], 120);
 });
 
@@ -138,7 +138,7 @@ test("Threads profile lookup does not treat an unrequested id as the provider ID
 
   const profile = await adapter.graph!.getProfile!(account, { handle: "alice" }, context);
   assert.equal(profile.ref.profileId, "lookup:alice");
-  assert.equal(profile.native?._profileIdUnavailable, true);
+  assert.equal(profile.native?.["_profileIdUnavailable"], true);
 });
 
 test("Threads profile lookup encodes the username and falls back to the requested handle", async () => {
@@ -194,7 +194,7 @@ test("Threads app-scoped profile read requests documented fields and uses the re
   assert.equal(profile.displayName, "Me");
   assert.equal(profile.avatarUrl, "https://me-img");
   assert.equal(profile.bio, "My bio");
-  assert.equal(profile.native?._profileIdUnavailable, undefined);
+  assert.equal(profile.native?.["_profileIdUnavailable"], undefined);
 });
 
 test("Threads native reply management routes preserve fields and cursors", async () => {

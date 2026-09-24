@@ -278,12 +278,12 @@ export function instagram(
       "DELETE",
     );
 
-    if (
-      result === null ||
-      !isJsonObject(result) ||
-      !("success" in result) ||
-      result.success !== true
-    )
+    // SAFETY: request validates the Graph response as a JSON field before returning it.
+    const confirmed = isJsonObject(result as JsonField)
+      ? (result as JsonObject)["success"]
+      : undefined;
+
+    if (confirmed !== true)
       throw new SocialError({
         code: "ambiguous_outcome",
         operation,
