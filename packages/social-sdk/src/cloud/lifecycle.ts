@@ -1,4 +1,5 @@
 import { SocialError } from "../core/errors.js";
+import { definedFields } from "../core/fields.js";
 import type {
   AdapterOperationContext,
   BackendPostRef,
@@ -7,7 +8,7 @@ import type {
   ScheduleCancellation,
   ScheduledJobRef,
 } from "../core/types.js";
-import { array, object, string } from "../transport/validation.js";
+import { array, isString, object, string } from "../transport/validation.js";
 import { accountMatches, type managedHttp } from "./common.js";
 
 type ScopedRef = BackendPostRef | ScheduledJobRef | PlatformPostRef;
@@ -40,7 +41,7 @@ export function managedLifecycle(
     ref: ScopedRef,
     id: string,
     context: AdapterOperationContext,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<JsonObject> {
     accountMatches(ref, context);
 
     if (!id) reject("A backend record identifier is required.");
@@ -58,7 +59,7 @@ export function managedLifecycle(
       reject("This operation requires a backend record with exactly one destination.");
     const entry = entries[0]!;
     const rawId = provider === "zernio" ? entry["accountId"] : entry["id"];
-    const accountId = typeof rawId === "string" ? rawId : object(rawId)["_id"];
+    const accountId = isString(rawId) ? rawId : object(rawId)["_id"];
     const platform = entry["platform"] === "twitter" ? "x" : entry["platform"];
 
     if (accountId !== ref.accountId || platform !== ref.platform)
@@ -82,6 +83,28 @@ export function managedLifecycle(
       unconfirmed();
   }
 
+  async function removeFromPlatform(
+    ref: PlatformPostRef,
+    context: AdapterOperationContext,
+  ): Promise<void> {
+    if (!["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].includes(ref.platform))
+      reject("Zernio does not support native removal for this platform.");
+    const id = string(ref.native?.["backendRecordId"]);
+    const record = await owned(ref, id, context);
+    const entry = object(array(record["platforms"])[0]);
+
+    if (entry["status"] !== "published" || entry["platformPostId"] !== ref.postId)
+      reject("The backend record does not identify this published native post.");
+
+    const result = object(
+      await request(`${path(id)}/unpublish`, context, {
+        platform: ref.platform === "x" ? "twitter" : ref.platform,
+      }),
+    );
+
+    if (result["success"] !== true) unconfirmed();
+  }
+
   return {
     async cancelScheduled(
       ref: ScheduledJobRef,
@@ -92,7 +115,7 @@ export function managedLifecycle(
 
       if (
         record["status"] !== "scheduled" ||
-        typeof scheduledAt !== "string" ||
+        !isString(scheduledAt) ||
         !Number.isFinite(Date.parse(scheduledAt)) ||
         Date.parse(scheduledAt) <= Date.parse(now())
       )
@@ -107,22 +130,24 @@ export function managedLifecycle(
       }
 
       // A missing/null scheduled_at means publish immediately. Keep the timestamp.
-      const body: Record<string, import("../core/types.js").JsonValue> = {
-        caption: string(record["caption"]),
-        social_accounts: [ref.accountId],
-        scheduled_at: string(scheduledAt),
-        isDraft: true,
-      };
-
-      for (const key of [
+      const copied = [
         "media",
         "platform_configurations",
         "account_configurations",
         "external_id",
-      ]) {
-        if (record[key] !== undefined && record[key] !== null)
-          body[key] = record[key] as JsonObject;
-      }
+      ].flatMap((key) => {
+        const value = record[key];
+
+        return value === undefined || value === null ? [] : [[key, value] as const];
+      });
+
+      const body = {
+        caption: string(record["caption"]),
+        social_accounts: [ref.accountId],
+        scheduled_at: string(scheduledAt),
+        isDraft: true,
+        ...Object.fromEntries(copied),
+      };
 
       const result = object(await request(path(ref.jobId), context, body, {}, "PUT"));
 
@@ -142,32 +167,8 @@ export function managedLifecycle(
         );
       await deleteRecord(ref.recordId, context);
     },
-    ...(provider === "zernio"
-      ? {
-          async removeFromPlatform(
-            ref: PlatformPostRef,
-            context: AdapterOperationContext,
-          ): Promise<void> {
-            if (
-              !["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].includes(ref.platform)
-            )
-              reject("Zernio does not support native removal for this platform.");
-            const id = string(ref.native?.["backendRecordId"]);
-            const record = await owned(ref, id, context);
-            const entry = object(array(record["platforms"])[0]);
-
-            if (entry["status"] !== "published" || entry["platformPostId"] !== ref.postId)
-              reject("The backend record does not identify this published native post.");
-
-            const result = object(
-              await request(`${path(id)}/unpublish`, context, {
-                platform: ref.platform === "x" ? "twitter" : ref.platform,
-              }),
-            );
-
-            if (result["success"] !== true) unconfirmed();
-          },
-        }
-      : {}),
+    ...definedFields({
+      removeFromPlatform: provider === "zernio" ? removeFromPlatform : undefined,
+    }),
   };
 }

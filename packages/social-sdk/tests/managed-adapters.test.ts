@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { zernio } from "../src/cloud/zernio.js";
-import type { AdapterOperationContext } from "../src/core/types.js";
+import type { AdapterOperationContext, JsonValue } from "../src/core/types.js";
+import { array, object } from "../src/transport/validation.js";
 
 const context: AdapterOperationContext = {
   backendInstance: "default",
@@ -95,12 +96,10 @@ it("Zernio accounts.get lists accounts and reports an absent account as not_foun
   });
 
   assert.equal((await adapter.accounts.get(x, context)).ref.accountId, "a1");
-  await assert.rejects(
-    () => adapter.accounts.get({ ...x, accountId: "missing" }, context),
-    (error: unknown) => {
-      return error instanceof Error && "code" in error && error.code === "not_found";
-    },
-  );
+  await assert.rejects(() => adapter.accounts.get({ ...x, accountId: "missing" }, context), {
+    name: "SocialError",
+    code: "not_found",
+  });
   assert.deepEqual(paths, ["/api/v1/accounts", "/api/v1/accounts"]);
 });
 
@@ -448,7 +447,7 @@ it("a lost managed write response remains unknown and is not retried", async () 
 
 for (const provider of ["zernio", "post-for-me"] as const) {
   it(`${provider} preserves explicit TikTok interaction and disclosure choices`, async () => {
-    let payload: Record<string, unknown> = {};
+    let payload: JsonValue | undefined;
     const make = provider === "zernio" ? zernio : postForMe;
 
     const social = createSocial({
@@ -509,17 +508,14 @@ for (const provider of ["zernio", "post-for-me"] as const) {
     await social.posts.publish(request);
 
     if (provider === "zernio") {
-      const native = (
-        payload["platforms"] as { platformSpecificData: Record<string, unknown> }[]
-      )[0]!.platformSpecificData;
+      const native = object(object(array(object(payload)["platforms"])[0])["platformSpecificData"]);
 
       assert.equal(native["allowDuet"], false);
       assert.equal(native["allowStitch"], true);
       assert.equal(native["isBrandOrganicPost"], true);
       assert.equal(native["videoMadeWithAi"], true);
     } else {
-      const native = (payload["platform_configurations"] as { tiktok: Record<string, unknown> })
-        .tiktok;
+      const native = object(object(object(payload)["platform_configurations"])["tiktok"]);
 
       assert.equal(native["allow_duet"], false);
       assert.equal(native["allow_stitch"], true);

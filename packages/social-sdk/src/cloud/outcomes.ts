@@ -1,5 +1,19 @@
-import type { ConnectedAccountRef, DeliveryOutcome, DeliveryRef } from "../core/types.js";
-import { array, object, optionalString, string } from "../transport/validation.js";
+import type {
+  ConnectedAccountRef,
+  DeliveryOutcome,
+  DeliveryRef,
+  JsonValue,
+} from "../core/types.js";
+import {
+  array,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  object,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 
 export interface OutcomeContext {
   account: ConnectedAccountRef;
@@ -19,7 +33,7 @@ function delivery(context: OutcomeContext, deliveryId: string): DeliveryRef {
 }
 
 /** Never infer destination success from the aggregate HTTP/parent status. */
-export function zernioOutcome(value: unknown, context: OutcomeContext): DeliveryOutcome {
+export function zernioOutcome(value: JsonValue, context: OutcomeContext): DeliveryOutcome {
   const response = object(value);
   const post = object(response["post"] ?? response["existingPost"] ?? response);
   const postId = string(post["_id"]);
@@ -27,12 +41,13 @@ export function zernioOutcome(value: unknown, context: OutcomeContext): Delivery
   const entries = array(post["platforms"]).map(object);
 
   const matches = entries.filter((entry) => {
-    const accountId =
-      typeof entry["accountId"] === "string"
-        ? entry["accountId"]
-        : entry["accountId"] && typeof entry["accountId"] === "object"
-          ? optionalString(object(entry["accountId"])["_id"])
-          : undefined;
+    const rawAccountId = entry["accountId"];
+
+    const accountId = isString(rawAccountId)
+      ? rawAccountId
+      : isJsonObject(rawAccountId) || isJsonArray(rawAccountId)
+        ? optionalString(object(rawAccountId)["_id"])
+        : undefined;
 
     return entry["platform"] === platform && accountId === context.account.accountId;
   });
@@ -124,8 +139,8 @@ export function zernioOutcome(value: unknown, context: OutcomeContext): Delivery
 }
 
 export function postForMeOutcome(
-  parentValue: unknown,
-  resultsValue: unknown | undefined,
+  parentValue: JsonValue,
+  resultsValue: JsonField,
   context: OutcomeContext,
 ): DeliveryOutcome {
   const parent = object(parentValue);

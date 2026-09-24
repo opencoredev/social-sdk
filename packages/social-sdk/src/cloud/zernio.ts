@@ -21,7 +21,19 @@ import type {
   PlatformPostRef,
   PreparedPublishTarget,
 } from "../core/types.js";
-import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
+import { definedFields } from "../core/fields.js";
+import {
+  array,
+  isBoolean,
+  isFiniteNumber,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  object,
+  optionalNumber,
+  optionalString,
+  string,
+} from "../transport/validation.js";
 import { decodeWebhook, verifyZernioWebhook } from "../server/webhooks.js";
 import {
   accountMatches,
@@ -51,7 +63,7 @@ export function zernio(options: ManagedOptions) {
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
-  const account = (value: unknown, backend: string): AccountRecord => {
+  const account = (value: JsonValue, backend: string): AccountRecord => {
     const row = object(value);
     const handle = optionalString(row["username"]);
 
@@ -64,7 +76,7 @@ export function zernio(options: ManagedOptions) {
         accountId: string(row["_id"]),
       },
       displayName: optionalString(row["displayName"]) ?? handle ?? string(row["_id"]),
-      ...(handle ? { handle } : {}),
+      ...definedFields({ handle: handle || undefined }),
       status:
         row["isActive"] === true
           ? "connected"
@@ -74,7 +86,7 @@ export function zernio(options: ManagedOptions) {
     };
   };
 
-  const supportedAccount = (value: unknown, backend: string): AccountRecord | undefined => {
+  const supportedAccount = (value: JsonValue, backend: string): AccountRecord | undefined => {
     try {
       return account(value, backend);
     } catch (error) {
@@ -186,7 +198,9 @@ export function zernio(options: ManagedOptions) {
 
             return parsed ? [parsed] : [];
           }),
-          ...(pages !== undefined && page < pages ? { nextCursor: String(page + 1) } : {}),
+          ...definedFields({
+            nextCursor: pages !== undefined && page < pages ? String(page + 1) : undefined,
+          }),
         };
       },
       async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
@@ -276,20 +290,19 @@ export function zernio(options: ManagedOptions) {
 
         const rows = array(result["posts"])
           .map(object)
-          .flatMap((row) => {
-            const destinations = Array.isArray(row["platforms"])
+          .flatMap((row): JsonObject[] => {
+            const destinations = isJsonArray(row["platforms"])
               ? array(row["platforms"]).map(object)
               : [];
 
             const destination = destinations.find((item) => {
               const value = item["accountId"];
 
-              const id =
-                typeof value === "string"
-                  ? value
-                  : value && typeof value === "object"
-                    ? object(value)["_id"]
-                    : undefined;
+              const id = isString(value)
+                ? value
+                : isJsonObject(value) || isJsonArray(value)
+                  ? object(value)["_id"]
+                  : undefined;
 
               return (
                 id === account.accountId &&
@@ -300,20 +313,17 @@ export function zernio(options: ManagedOptions) {
 
             if (destination === undefined) return [];
 
-            const platformPostId =
-              typeof destination["platformPostId"] === "string"
-                ? destination["platformPostId"]
-                : undefined;
-
             return [
               {
-                ...(typeof row["_id"] === "string" ? { backendPostId: row["_id"] } : {}),
-                ...(platformPostId === undefined ? {} : { platformPostId }),
+                ...definedFields({
+                  backendPostId: optionalString(row["_id"]),
+                  platformPostId: optionalString(destination["platformPostId"]),
+                }),
                 platform: account.platform,
                 accountId: account.accountId,
-                ...(typeof destination["platformPostUrl"] === "string"
-                  ? { platformPostUrl: destination["platformPostUrl"] }
-                  : {}),
+                ...definedFields({
+                  platformPostUrl: optionalString(destination["platformPostUrl"]),
+                }),
                 ...publicFields(row, [
                   "content",
                   "caption",
@@ -323,7 +333,7 @@ export function zernio(options: ManagedOptions) {
                   "isExternal",
                   "syncStatus",
                 ]),
-              } as JsonObject,
+              },
             ];
           });
 
@@ -333,10 +343,11 @@ export function zernio(options: ManagedOptions) {
           optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
 
         return {
-          items: rows as JsonObject[],
-          ...(totalPages !== undefined && page < totalPages
-            ? { nextCursor: String(page + 1) }
-            : {}),
+          items: rows,
+          ...definedFields({
+            nextCursor:
+              totalPages !== undefined && page < totalPages ? String(page + 1) : undefined,
+          }),
         };
       },
       prepareTarget(target: PreparedPublishTarget) {
@@ -370,8 +381,7 @@ export function zernio(options: ManagedOptions) {
           media.push({
             type: item.kind,
             url: await mediaPipeline.resolve(item, target.account, context),
-            ...(item.altText === undefined ? {} : { altText: item.altText }),
-            ...(item.mimeType === undefined ? {} : { mimeType: item.mimeType }),
+            ...definedFields({ altText: item.altText, mimeType: item.mimeType }),
           });
         const config = optionsObject(target);
         const native: Record<string, JsonValue> = {};
@@ -380,12 +390,15 @@ export function zernio(options: ManagedOptions) {
           native["title"] = string(config["title"]);
           native["visibility"] = string(config["visibility"]);
 
-          if (typeof config["madeForKids"] === "boolean")
-            native["madeForKids"] = config["madeForKids"];
+          const madeForKids = config["madeForKids"];
+
+          if (isBoolean(madeForKids)) native["madeForKids"] = madeForKids;
         }
 
-        if (target.account.platform === "instagram" && typeof config["shareToFeed"] === "boolean")
-          native["shareToFeed"] = config["shareToFeed"];
+        const shareToFeed = config["shareToFeed"];
+
+        if (target.account.platform === "instagram" && isBoolean(shareToFeed))
+          native["shareToFeed"] = shareToFeed;
 
         if (
           target.account.platform === "x" &&
@@ -401,18 +414,26 @@ export function zernio(options: ManagedOptions) {
           native["autoAddMusic"] = false;
           native["allowDuet"] = !config["disableDuet"];
           native["allowStitch"] = !config["disableStitch"];
-          native["isBrandOrganicPost"] = config["ownBrand"] as boolean;
-          native["videoMadeWithAi"] = config["aiGenerated"] as boolean;
-          native["draft"] = config["draft"] as boolean;
 
-          if (typeof config["photoCoverIndex"] === "number")
-            native["photoCoverIndex"] = config["photoCoverIndex"];
+          // prepareTarget requires these TikTok choices to be booleans. Skipping an
+          // absent value sends the same JSON body, since serialization drops undefined.
+          for (const [nativeKey, optionKey] of [
+            ["isBrandOrganicPost", "ownBrand"],
+            ["videoMadeWithAi", "aiGenerated"],
+            ["draft", "draft"],
+          ] as const) {
+            const value = config[optionKey];
 
-          if (typeof config["disableComments"] === "boolean")
-            native["allowComment"] = !config["disableComments"];
+            if (value !== undefined) native[nativeKey] = value;
+          }
 
-          if (typeof config["brandedContent"] === "boolean")
-            native["brandPartnerPromote"] = config["brandedContent"];
+          const { photoCoverIndex, disableComments, brandedContent } = config;
+
+          if (isFiniteNumber(photoCoverIndex)) native["photoCoverIndex"] = photoCoverIndex;
+
+          if (isBoolean(disableComments)) native["allowComment"] = !disableComments;
+
+          if (isBoolean(brandedContent)) native["brandPartnerPromote"] = brandedContent;
         }
 
         const response = await request("/v1/posts", context, {
@@ -422,13 +443,15 @@ export function zernio(options: ManagedOptions) {
             {
               platform: target.account.platform === "x" ? "twitter" : target.account.platform,
               accountId: target.account.accountId,
-              ...(Object.keys(native).length ? { platformSpecificData: native } : {}),
+              ...definedFields({
+                platformSpecificData: Object.keys(native).length ? native : undefined,
+              }),
             },
           ],
           ...(target.schedule
             ? {
                 scheduledFor: target.schedule.at,
-                ...(target.schedule.timeZone ? { timezone: target.schedule.timeZone } : {}),
+                ...definedFields({ timezone: target.schedule.timeZone || undefined }),
               }
             : { publishNow: true }),
         });
@@ -583,7 +606,7 @@ export function zernio(options: ManagedOptions) {
             {
               accountId: ref.accountId,
               limit: String(limit),
-              ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+              ...definedFields({ cursor: input.cursor }),
             },
           ),
         );
@@ -609,7 +632,7 @@ export function zernio(options: ManagedOptions) {
               "canHide",
             ]),
           ),
-          ...(hasMore === false || !cursor ? {} : { nextCursor: cursor }),
+          ...definedFields({ nextCursor: hasMore === false || !cursor ? undefined : cursor }),
         };
       },
       async reply(
@@ -657,7 +680,7 @@ export function zernio(options: ManagedOptions) {
           await request("/v1/inbox/conversations", context, undefined, {
             accountId: ref.accountId,
             limit: String(limit),
-            ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+            ...definedFields({ cursor: input.cursor }),
           }),
         );
 
@@ -677,7 +700,7 @@ export function zernio(options: ManagedOptions) {
               "unreadCount",
             ]),
           ),
-          ...(cursor ? { nextCursor: cursor } : {}),
+          ...definedFields({ nextCursor: cursor || undefined }),
         };
       },
       async listMessages(
@@ -703,7 +726,7 @@ export function zernio(options: ManagedOptions) {
             {
               accountId: ref.accountId,
               limit: String(limit),
-              ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+              ...definedFields({ cursor: input.cursor }),
             },
           ),
         );
@@ -723,7 +746,7 @@ export function zernio(options: ManagedOptions) {
               "deliveryStatus",
             ]),
           ),
-          ...(cursor ? { nextCursor: cursor } : {}),
+          ...definedFields({ nextCursor: cursor || undefined }),
         };
       },
       async send(
@@ -750,7 +773,7 @@ export function zernio(options: ManagedOptions) {
         const data = object(result["data"]);
         const messageId = optionalString(data["messageId"]);
 
-        return { state: "sent", ...(messageId ? { messageId } : {}) };
+        return { state: "sent", ...definedFields({ messageId: messageId || undefined }) };
       },
     },
     webhooks: {
@@ -788,7 +811,7 @@ export function zernio(options: ManagedOptions) {
 
         return {
           url: string(response["authUrl"]),
-          ...(typeof response["state"] === "string" ? { providerState: response["state"] } : {}),
+          ...definedFields({ providerState: optionalString(response["state"]) }),
         };
       },
       async listProfiles(context: AdapterOperationContext) {
