@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { managedLifecycle } from "./lifecycle.js";
 import { managedMedia } from "./media.js";
 
@@ -19,7 +18,15 @@ import type {
   MetricValue,
   PlatformPostRef,
 } from "../core/types.js";
-import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
+import { definedFields } from "../core/fields.js";
+import {
+  array,
+  isBoolean,
+  object,
+  optionalNumber,
+  optionalString,
+  string,
+} from "../transport/validation.js";
 import { verifyPostForMeWebhook, decodeWebhook } from "../server/webhooks.js";
 import {
   accountMatches,
@@ -50,8 +57,7 @@ export function postForMe(options: ManagedOptions) {
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payload is validated at this adapter boundary.
-  const account = (value: unknown, backend: string): AccountRecord => {
+  const account = (value: JsonValue, backend: string): AccountRecord => {
     const row = object(value);
     const handle = optionalString(row["username"]);
 
@@ -64,8 +70,7 @@ export function postForMe(options: ManagedOptions) {
         accountId: string(row["id"]),
       },
       displayName: handle ?? string(row["user_id"]),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-      ...(handle ? { handle } : {}),
+      ...definedFields({ handle: handle || undefined }),
       status:
         row["status"] === "connected"
           ? "connected"
@@ -75,8 +80,7 @@ export function postForMe(options: ManagedOptions) {
     };
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated by account at this boundary.
-  const supportedAccount = (value: unknown, backend: string): AccountRecord | undefined => {
+  const supportedAccount = (value: JsonValue, backend: string): AccountRecord | undefined => {
     try {
       return account(value, backend);
     } catch (error) {
@@ -89,8 +93,7 @@ export function postForMe(options: ManagedOptions) {
     ref: PlatformPostRef,
     context: AdapterOperationContext,
     metrics: boolean,
-    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- provider payload is validated at this adapter boundary.
-  ): Promise<Record<string, unknown>> => {
+  ): Promise<JsonObject> => {
     accountMatches(ref, context);
 
     const result = object(
@@ -98,8 +101,11 @@ export function postForMe(options: ManagedOptions) {
         `/v1/social-account-feeds/${encodeURIComponent(ref.accountId)}`,
         context,
         undefined,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-        { platform_post_id: ref.postId, limit: "1", ...(metrics ? { expand: "metrics" } : {}) },
+        {
+          platform_post_id: ref.postId,
+          limit: "1",
+          ...definedFields({ expand: metrics ? "metrics" : undefined }),
+        },
       ),
     );
 
@@ -170,8 +176,7 @@ export function postForMe(options: ManagedOptions) {
 
             return parsed ? [parsed] : [];
           }),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          ...(next ? { nextCursor: next } : {}),
+          ...definedFields({ nextCursor: next }),
         };
       },
       async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
@@ -216,8 +221,7 @@ export function postForMe(options: ManagedOptions) {
             undefined,
             {
               limit: String(limit),
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-              ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+              ...definedFields({ cursor: input.cursor }),
             },
           ),
         );
@@ -253,14 +257,7 @@ export function postForMe(options: ManagedOptions) {
                 ? cursor
                 : undefined;
 
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-        return { items: rows as JsonObject[], ...(next === undefined ? {} : { nextCursor: next }) };
+        return { items: rows, ...definedFields({ nextCursor: next }) };
       },
       prepareTarget(target: Parameters<typeof managedPreparation>[0]) {
         const issues = [
@@ -305,9 +302,10 @@ export function postForMe(options: ManagedOptions) {
         const config = optionsObject(target);
         const platformConfig: Record<string, JsonValue> = {};
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-        if (target.account.platform === "instagram" && typeof config["shareToFeed"] === "boolean")
-          platformConfig["share_to_feed"] = config["shareToFeed"];
+        const shareToFeed = config["shareToFeed"];
+
+        if (target.account.platform === "instagram" && isBoolean(shareToFeed))
+          platformConfig["share_to_feed"] = shareToFeed;
 
         if (
           target.account.platform === "x" &&
@@ -320,9 +318,9 @@ export function postForMe(options: ManagedOptions) {
           platformConfig["title"] = string(config["title"]);
           platformConfig["privacy_status"] = string(config["visibility"]);
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-          if (typeof config["madeForKids"] === "boolean")
-            platformConfig["made_for_kids"] = config["madeForKids"];
+          const madeForKids = config["madeForKids"];
+
+          if (isBoolean(madeForKids)) platformConfig["made_for_kids"] = madeForKids;
         }
 
         if (target.account.platform === "tiktok") {
@@ -331,38 +329,42 @@ export function postForMe(options: ManagedOptions) {
           platformConfig["auto_add_music"] = false;
           platformConfig["allow_duet"] = !config["disableDuet"];
           platformConfig["allow_stitch"] = !config["disableStitch"];
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-          platformConfig["disclose_your_brand"] = config["ownBrand"] as boolean;
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-          platformConfig["is_ai_generated"] = config["aiGenerated"] as boolean;
-          // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-          platformConfig["is_draft"] = config["draft"] as boolean;
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-          if (typeof config["disableComments"] === "boolean")
-            platformConfig["allow_comment"] = !config["disableComments"];
+          // prepareTarget requires these TikTok choices to be booleans. Skipping an
+          // absent value sends the same JSON body, since serialization drops undefined.
+          for (const [nativeKey, optionKey] of [
+            ["disclose_your_brand", "ownBrand"],
+            ["is_ai_generated", "aiGenerated"],
+            ["is_draft", "draft"],
+          ] as const) {
+            const value = config[optionKey];
 
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- provider payload is validated at this adapter boundary.
-          if (typeof config["brandedContent"] === "boolean")
-            platformConfig["disclose_branded_content"] = config["brandedContent"];
+            if (value !== undefined) platformConfig[nativeKey] = value;
+          }
+
+          const { disableComments, brandedContent } = config;
+
+          if (isBoolean(disableComments)) platformConfig["allow_comment"] = !disableComments;
+
+          if (isBoolean(brandedContent))
+            platformConfig["disclose_branded_content"] = brandedContent;
         }
 
         const response = await request("/v1/social-posts", context, {
           caption: target.content.text ?? "",
           social_accounts: [target.account.accountId],
           media,
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          ...(target.schedule ? { scheduled_at: target.schedule.at } : {}),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          ...(context.targetIdempotencyKey ? { external_id: context.targetIdempotencyKey } : {}),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-          ...(Object.keys(platformConfig).length
-            ? { platform_configurations: { [target.account.platform]: platformConfig } }
-            : {}),
+          ...definedFields({
+            scheduled_at: target.schedule?.at,
+            external_id: context.targetIdempotencyKey || undefined,
+            platform_configurations: Object.keys(platformConfig).length
+              ? { [target.account.platform]: platformConfig }
+              : undefined,
+          }),
         });
 
         const parent = object(response);
-        let results: unknown;
+        let results: JsonValue | undefined;
 
         if (parent["status"] === "processed") {
           try {
@@ -528,8 +530,7 @@ export function postForMe(options: ManagedOptions) {
             platform: input.platform,
             external_id: input.externalId,
             permissions: input.permissions,
-            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- provider payload is validated at this adapter boundary.
-            ...(input.redirectUrl ? { redirect_url_override: input.redirectUrl } : {}),
+            ...definedFields({ redirect_url_override: input.redirectUrl || undefined }),
           }),
         );
 

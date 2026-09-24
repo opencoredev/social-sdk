@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- compact lifecycle fixture. */
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import {
@@ -10,6 +9,7 @@ import {
 it("preserves all discovered accounts for discover then select", async () => {
   const store = new MemoryConnectionStore();
   const manager = new ConnectionManager({ store, randomBytes: () => new Uint8Array(64) });
+
   const providerAccounts: readonly ConnectionAccount[] = [
     {
       ref: {
@@ -32,10 +32,12 @@ it("preserves all discovered accounts for discover then select", async () => {
       displayName: "Two",
     },
   ];
+
   const provider = {
     start: async () => ({ authorizationUrl: "https://provider.test/authorize" }),
     complete: async () => providerAccounts,
   };
+
   const started = await manager.begin({
     backend: "direct",
     tenantId: "tenant",
@@ -45,6 +47,7 @@ it("preserves all discovered accounts for discover then select", async () => {
     allowedRedirectUris: ["https://app.test/cb"],
     provider,
   });
+
   const input = {
     attemptId: started.attempt.id,
     tenantId: "tenant",
@@ -54,6 +57,7 @@ it("preserves all discovered accounts for discover then select", async () => {
     allowedRedirectUris: ["https://app.test/cb"],
     provider,
   };
+
   const discovered = await manager.discover(input);
   const grants = await manager.select({ ...input, selectedAccountIds: ["channel-2"] });
 

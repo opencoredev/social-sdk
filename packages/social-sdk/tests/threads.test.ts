@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- provider fixture setup stays grouped by scenario. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { threads, MemoryThreadsWorkflowStore } from "../src/platforms/threads.js";
@@ -15,10 +14,12 @@ const context: AdapterOperationContext = {
 
 test("Threads keyword search sends the documented q and filter parameters", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({
         data: [{ id: "post-1" }],
         paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
@@ -64,9 +65,11 @@ test("Threads search rejects empty query and invalid limits", async () => {
     adapter.native!.search({ account, query: "x", limit: 101, context }),
     /limit must be an integer from 1 through 100/,
   );
+
   const scopeError = await adapter
     .search!.posts(account, { query: "x", scope: "all" }, context)
     .catch((error) => error);
+
   assert.ok(scopeError instanceof SocialError);
   assert.equal(scopeError.code, "invalid_input");
   assert.match(scopeError.message, /scope 'all'/);
@@ -74,10 +77,12 @@ test("Threads search rejects empty query and invalid limits", async () => {
 
 test("Threads keyword search requests the documented fields", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({ data: [] });
     },
   });
@@ -91,10 +96,12 @@ test("Threads keyword search requests the documented fields", async () => {
 
 test("Threads profile lookup maps current fields without treating the handle as an ID", async () => {
   let requested: URL | undefined;
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       requested = new URL(String(input));
+
       return Response.json({
         username: "alice",
         name: "Alice",
@@ -114,16 +121,18 @@ test("Threads profile lookup maps current fields without treating the handle as 
   assert.equal(profile.avatarUrl, "https://img");
   assert.equal(profile.bio, "Bio");
   assert.notEqual(profile.ref.profileId, "alice");
-  assert.equal(profile.native?._profileIdUnavailable, true);
+  assert.equal(profile.native?.["_profileIdUnavailable"], true);
 });
 
 test("Threads native reply management routes preserve fields and cursors", async () => {
   const requests: URL[] = [];
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input) => {
       const url = new URL(String(input));
       requests.push(url);
+
       return Response.json({
         data: [],
         paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
@@ -159,18 +168,22 @@ test("Threads native reply management routes preserve fields and cursors", async
 
 test("Threads exposes normalized search, app-scoped profiles, and reply moderation", async () => {
   const requests: Array<{ url: URL; method: string }> = [];
+
   const adapter = threads({
     auth: { userId: "u1", accessToken: "fixture" },
     fetch: async (input, init) => {
       const url = new URL(String(input));
       requests.push({ url, method: init?.method ?? "GET" });
+
       if (url.pathname.endsWith("/keyword_search"))
         return Response.json({
           data: [],
           paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },
         });
+
       if (url.pathname.endsWith("/manage_reply") || url.pathname.endsWith("/manage_pending_reply"))
         return Response.json({ success: true });
+
       return Response.json({ id: "u1", username: "alice", name: "Alice" });
     },
   });

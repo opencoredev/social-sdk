@@ -1,8 +1,7 @@
-/* oxlint-disable anti-slop/no-conditional-empty-object-spread, anti-slop/require-readable-spacing -- OAuth recipe mirrors upstream provider API shape and preserves compact teaching examples. */
-
 import {
   JoseKey,
   NodeOAuthClient,
+  type NodeOAuthClientOptions,
   type NodeSavedSession,
   type NodeSavedSessionStore,
   type NodeSavedState,
@@ -32,32 +31,43 @@ export async function createBlueskyOAuthClient(
 ): Promise<NodeOAuthClient> {
   const key = await JoseKey.fromImportable(config.privateKey, config.keyId);
   const requestLock = config.requestLock ?? config.stores.requestLock;
-  return new NodeOAuthClient({
+
+  const options: NodeOAuthClientOptions = {
     clientMetadata: config.clientMetadata,
     keyset: [key],
     responseMode: "query",
     stateStore: config.stores.stateStore,
     sessionStore: config.stores.sessionStore,
-    ...(requestLock === undefined ? {} : { requestLock }),
-  });
+  };
+
+  if (requestLock !== undefined) options.requestLock = requestLock;
+
+  return new NodeOAuthClient(options);
 }
 
-export interface BlueskyOAuthClientLike {
+/** The session fields the flow reads. `NodeOAuthClient` returns full `OAuthSession` objects. */
+export interface BlueskyOAuthSessionLike {
+  readonly did: string;
+}
+
+export interface BlueskyOAuthClientLike<S extends BlueskyOAuthSessionLike = OAuthSession> {
   authorize(
     handle: string,
     options: { readonly state: string; readonly signal?: AbortSignal },
   ): Promise<URL>;
   callback(
     params: URLSearchParams,
-  ): Promise<{ readonly session: OAuthSession; readonly state: string | null }>;
-  restore(did: string): Promise<OAuthSession>;
+  ): Promise<{ readonly session: S; readonly state: string | null }>;
+  restore(did: string): Promise<S>;
 }
 
 /**
  * Framework-neutral request handlers. The OAuth client performs PKCE, PAR,
  * DPoP, issuer/identity checks, token refresh, and callback validation.
  */
-export function createBlueskyOAuthFlow(client: BlueskyOAuthClientLike) {
+export function createBlueskyOAuthFlow<S extends BlueskyOAuthSessionLike = OAuthSession>(
+  client: BlueskyOAuthClientLike<S>,
+) {
   return {
     async begin(input: {
       readonly handle: string;
@@ -69,13 +79,14 @@ export function createBlueskyOAuthFlow(client: BlueskyOAuthClientLike) {
     async callback(callbackUrl: string): Promise<{
       readonly did: string;
       readonly state: string | null;
-      readonly session: OAuthSession;
+      readonly session: S;
     }> {
       const url = new URL(callbackUrl);
       const result = await client.callback(url.searchParams);
+
       return { did: result.session.did, state: result.state, session: result.session };
     },
-    async restore(did: string): Promise<OAuthSession> {
+    async restore(did: string): Promise<S> {
       return client.restore(did);
     },
   };
@@ -95,6 +106,7 @@ export function mapBackedBlueskyStores(rows: BlueskyStoreRows): BlueskyOAuthStor
       },
       async get(key) {
         const value = rows.states.get(key);
+
         return value === undefined ? undefined : structuredClone(value);
       },
       async del(key) {
@@ -107,6 +119,7 @@ export function mapBackedBlueskyStores(rows: BlueskyStoreRows): BlueskyOAuthStor
       },
       async get(key) {
         const value = rows.sessions.get(key);
+
         return value === undefined ? undefined : structuredClone(value);
       },
       async del(key) {

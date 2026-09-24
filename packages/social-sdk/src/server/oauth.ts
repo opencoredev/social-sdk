@@ -1,9 +1,14 @@
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- OAuth responses are unknown by contract and validated at this boundary. */
 import { SocialError } from "../core/errors.js";
-import { connectedAccountRef, type Platform } from "../core/types.js";
+import { definedFields } from "../core/fields.js";
+import {
+  connectedAccountRef,
+  type JsonObject,
+  type JsonValue,
+  type Platform,
+} from "../core/types.js";
+import { isJsonValue } from "../transport/json.js";
+import { isFiniteNumber, isJsonObject, isString, type JsonField } from "../transport/validation.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
-import { readBounded, validateCallback } from "./oauth-internal.js";
-export * from "./bluesky-oauth.js";
 
 export interface OAuthTokenSet {
   readonly accessToken: string;
@@ -141,22 +146,46 @@ function fail(
   throw new SocialError({ code, operation, message, cause });
 }
 
-function asRecord(value: unknown, operation = "oauth.response"): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    fail(operation, "OAuth provider returned an invalid response");
+function asRecord(value: JsonField, operation = "oauth.response"): JsonObject {
+  if (!isJsonObject(value)) fail(operation, "OAuth provider returned an invalid response");
 
-  return value as Record<string, unknown>;
+  return value;
 }
 
-function requiredString(value: unknown, field: string, operation = "oauth.response"): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 8192)
+function requiredString(value: JsonField, field: string, operation = "oauth.response"): string {
+  if (!isString(value) || value.length === 0 || value.length > 8192)
     fail(operation, `OAuth provider response is missing ${field}`);
 
   return value;
 }
 
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 && value.length <= 8192 ? value : undefined;
+function optionalString(value: JsonField): string | undefined {
+  return isString(value) && value.length > 0 && value.length <= 8192 ? value : undefined;
+}
+
+/** Any string, including an empty one, otherwise the fallback. */
+function stringOr(value: JsonField, fallback: string): string {
+  return isString(value) ? value : fallback;
+}
+
+/**
+ * Plain `JSON.parse`, checked against the JSON grammar. OAuth bodies keep native
+ * number parsing rather than the lossless integer handling in transport/json.
+ */
+function parseJsonText(raw: string): JsonValue {
+  const parsed: unknown = JSON.parse(raw);
+
+  if (!isJsonValue(parsed)) throw new SyntaxError("Expected a JSON value");
+
+  return parsed;
+}
+
+function isAbortError(error: unknown): error is { readonly name: "AbortError" } {
+  if (error instanceof DOMException) return error.name === "AbortError";
+
+  return (
+    typeof error === "object" && error !== null && "name" in error && error.name === "AbortError"
+  );
 }
 
 function errorForResponse(status: number, operation: string, providerCode?: string): never {
@@ -197,11 +226,53 @@ function errorForResponse(status: number, operation: string, providerCode?: stri
   });
 }
 
-async function body(
+async function readBounded(
   response: Response,
-  operation: string,
   maxBytes: number,
-): Promise<Record<string, unknown>> {
+  operation: string,
+): Promise<string> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
+    fail("oauth.config", "maxResponseBytes must be a positive safe integer", "invalid_input");
+
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    for (;;) {
+      const part = await reader.read();
+
+      if (part.done) break;
+      total += part.value.byteLength;
+
+      if (total > maxBytes) {
+        await reader.cancel();
+        fail(
+          operation,
+          "OAuth provider response exceeded the configured size limit",
+          "upstream_failure",
+        );
+      }
+
+      chunks.push(part.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return new TextDecoder().decode(merged);
+}
+
+async function body(response: Response, operation: string, maxBytes: number): Promise<JsonObject> {
   const raw = await readBounded(response, maxBytes, operation);
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
 
@@ -209,13 +280,14 @@ async function body(
     let providerCode: string | undefined;
 
     try {
-      const parsed: unknown =
+      const parsed =
         contentType.includes("json") || raw.trimStart().startsWith("{")
-          ? JSON.parse(raw)
+          ? parseJsonText(raw)
           : Object.fromEntries(new URLSearchParams(raw).entries());
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        const error = (parsed as Record<string, unknown>)["error"];
-        providerCode = typeof error === "string" ? error : undefined;
+
+      if (isJsonObject(parsed)) {
+        const error = parsed["error"];
+        providerCode = isString(error) ? error : undefined;
       }
     } catch {
       // Preserve the HTTP error classification when an upstream error body is malformed.
@@ -232,7 +304,7 @@ async function body(
     raw.trimStart().startsWith("{")
   ) {
     try {
-      return asRecord(JSON.parse(raw), operation);
+      return asRecord(parseJsonText(raw), operation);
     } catch {
       fail(operation, "OAuth provider returned malformed JSON");
     }
@@ -250,24 +322,23 @@ async function body(
   fail(operation, "OAuth provider returned an unsupported response format");
 }
 
-function parseScopes(value: unknown): readonly string[] | undefined {
+function parseScopes(value: JsonField): readonly string[] | undefined {
   const scope = optionalString(value);
 
   return scope === undefined ? undefined : scope.split(/[\s,]+/).filter(Boolean);
 }
 
-function tokenSet(data: Record<string, unknown>, operation = "oauth.token"): OAuthTokenSet {
+function tokenSet(data: JsonObject, operation = "oauth.token"): OAuthTokenSet {
   const accessToken = requiredString(data["access_token"], "access_token", operation);
   const expires = data["expires_in"];
   let expiresAt: string | undefined;
 
   if (expires !== undefined) {
-    const seconds =
-      typeof expires === "number"
-        ? expires
-        : typeof expires === "string" && /^\d+(?:\.\d+)?$/.test(expires)
-          ? Number(expires)
-          : Number.NaN;
+    const seconds = isFiniteNumber(expires)
+      ? expires
+      : isString(expires) && /^\d+(?:\.\d+)?$/.test(expires)
+        ? Number(expires)
+        : Number.NaN;
 
     if (!Number.isFinite(seconds) || seconds < 0 || seconds > 31_536_000_000)
       fail(operation, "OAuth provider returned an invalid token lifetime");
@@ -278,25 +349,7 @@ function tokenSet(data: Record<string, unknown>, operation = "oauth.token"): OAu
   const scopes = parseScopes(data["scope"]);
   const tokenType = optionalString(data["token_type"]);
 
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
-  const result: {
-    accessToken: string;
-    refreshToken?: string;
-    expiresAt?: string;
-    scopes?: readonly string[];
-    tokenType?: string;
-    // oxlint-disable-next-line anti-slop/no-known-value-widening -- provider payload is validated at this adapter boundary.
-  } = { accessToken };
-
-  if (refreshToken !== undefined) result.refreshToken = refreshToken;
-
-  if (expiresAt !== undefined) result.expiresAt = expiresAt;
-
-  if (scopes !== undefined) result.scopes = scopes;
-
-  if (tokenType !== undefined) result.tokenType = tokenType;
-
-  return result;
+  return { accessToken, ...definedFields({ refreshToken, expiresAt, scopes, tokenType }) };
 }
 
 interface TokenResult {
@@ -304,10 +357,12 @@ interface TokenResult {
   readonly accountHint?: string;
 }
 
-function tokenResult(data: Record<string, unknown>, kind: ProviderKind): TokenResult {
+function tokenResult(data: JsonObject, kind: ProviderKind): TokenResult {
   let nested = data;
+
   if (kind === "tiktok" && data["data"] !== undefined)
     nested = asRecord(data["data"], "oauth.token");
+
   if (kind === "instagram" && Array.isArray(data["data"])) {
     const first = data["data"][0];
     nested = asRecord(first, "oauth.token");
@@ -325,7 +380,7 @@ async function request(
   init: RequestInit,
   operation: string,
   options: OAuthProviderOptions,
-): Promise<Record<string, unknown>> {
+): Promise<JsonObject> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
@@ -356,14 +411,7 @@ async function request(
   } catch (error) {
     if (error instanceof SocialError) throw error;
 
-    if (
-      (error instanceof DOMException && error.name === "AbortError") ||
-      (typeof error === "object" &&
-        error !== null &&
-        "name" in error &&
-        (error as { name?: unknown }).name === "AbortError")
-    )
-      fail(operation, "OAuth provider request timed out", "timeout");
+    if (isAbortError(error)) fail(operation, "OAuth provider request timed out", "timeout");
     fail(operation, "OAuth provider request failed", "upstream_failure", error);
   } finally {
     clearTimeout(timer);
@@ -383,6 +431,58 @@ function validateLinkedInVersion(value: string | undefined): string {
     fail("oauth.config", "LinkedIn OAuth requires an explicit YYYYMM API version", "invalid_input");
 
   return value;
+}
+
+function validateCallback(input: {
+  readonly callbackUrl: string;
+  readonly attempt: ConnectionAttempt;
+}): URL {
+  let callback: URL;
+
+  try {
+    callback = new URL(input.callbackUrl);
+  } catch {
+    fail("connections.complete", "OAuth callback URL is invalid", "invalid_input");
+  }
+
+  let expected: URL;
+
+  try {
+    expected = new URL(input.attempt.redirectUri);
+  } catch {
+    fail("connections.complete", "OAuth attempt redirect URI is invalid", "invalid_input");
+  }
+
+  if (
+    callback.origin !== expected.origin ||
+    callback.pathname !== expected.pathname ||
+    callback.username ||
+    callback.password ||
+    callback.hash
+  )
+    fail(
+      "connections.complete",
+      "OAuth callback does not match the registered redirect",
+      "unauthorized",
+    );
+
+  for (const [key, value] of expected.searchParams)
+    if (callback.searchParams.getAll(key).length !== 1 || callback.searchParams.get(key) !== value)
+      fail(
+        "connections.complete",
+        "OAuth callback does not match the registered redirect",
+        "unauthorized",
+      );
+  const states = callback.searchParams.getAll("state");
+
+  if (states.length !== 1 || states[0] !== input.attempt.state)
+    fail(
+      "connections.complete",
+      "OAuth callback state did not match the authenticated attempt",
+      "unauthorized",
+    );
+
+  return callback;
 }
 
 function providerIdentity(
@@ -518,6 +618,7 @@ export function oauthProvider(
         "content-type": "application/x-www-form-urlencoded",
         accept: "application/json",
       });
+
       if (kind === "x" && options.clientSecret)
         tokenHeaders.set(
           "authorization",
@@ -564,6 +665,7 @@ export function oauthProvider(
         const selectedIds = options.selectAccounts
           ? await options.selectAccounts(accounts, input.attempt)
           : accounts.map((item) => item.ref.accountId);
+
         const selected = new Set(selectedIds);
 
         if (
@@ -619,7 +721,7 @@ async function discover(
         "youtube",
         backend,
         requiredString(row["id"], "channel id", "youtube.account"),
-        typeof snippet["title"] === "string" ? snippet["title"] : "YouTube channel",
+        stringOr(snippet["title"], "YouTube channel"),
       );
     });
   }
@@ -640,7 +742,7 @@ async function discover(
         "x",
         backend,
         requiredString(row["id"], "user id", "x.account"),
-        typeof row["name"] === "string" ? row["name"] : "X account",
+        stringOr(row["name"], "X account"),
       ),
     ];
   }
@@ -664,7 +766,7 @@ async function discover(
         "threads",
         backend,
         requiredString(data["id"], "user id", "threads.account"),
-        typeof data["username"] === "string" ? data["username"] : "Threads account",
+        stringOr(data["username"], "Threads account"),
       ),
     ];
   }
@@ -686,7 +788,7 @@ async function discover(
         "tiktok",
         backend,
         requiredString(user["open_id"], "open_id", "tiktok.account"),
-        typeof user["display_name"] === "string" ? user["display_name"] : "TikTok account",
+        stringOr(user["display_name"], "TikTok account"),
       ),
     ];
   }
@@ -710,7 +812,9 @@ async function discover(
       "user id",
       "instagram.account",
     );
+
     const discoveredUserId = optionalString(data["user_id"]);
+
     const discoveredAccountId =
       hint !== undefined && (hint === discoveredId || hint === discoveredUserId)
         ? hint
@@ -721,7 +825,7 @@ async function discover(
         "instagram",
         backend,
         discoveredAccountId,
-        typeof data["username"] === "string" ? data["username"] : "Instagram account",
+        stringOr(data["username"], "Instagram account"),
       ),
     ];
   }
@@ -742,10 +846,10 @@ async function discover(
     "linkedin",
     backend,
     `urn:li:person:${subject}`,
-    typeof data["name"] === "string" ? data["name"] : "LinkedIn member",
+    stringOr(data["name"], "LinkedIn member"),
   );
 
-  let acl: Record<string, unknown>;
+  let acl: JsonObject;
 
   try {
     acl = await request(
@@ -767,12 +871,11 @@ async function discover(
   const organizations = elements.flatMap((entry) => {
     const row = asRecord(entry, "linkedin.organizations");
 
-    const target =
-      typeof row["organizationTarget"] === "string"
-        ? row["organizationTarget"]
-        : typeof row["organizationalTarget"] === "string"
-          ? row["organizationalTarget"]
-          : "";
+    const organizationTarget = row["organizationTarget"];
+
+    const target = isString(organizationTarget)
+      ? organizationTarget
+      : stringOr(row["organizationalTarget"], "");
 
     const role = row["role"];
 
@@ -898,6 +1001,7 @@ export async function refreshOAuthToken(
     "content-type": "application/x-www-form-urlencoded",
     accept: "application/json",
   });
+
   if (kind === "x" && options.clientSecret)
     refreshHeaders.set(
       "authorization",

@@ -1,6 +1,7 @@
 import { SocialError } from "../core/errors.js";
 import type { JsonObject, MediaAttachment } from "../core/types.js";
 import { readJson } from "../transport/http.js";
+import { isJsonValue } from "../transport/json.js";
 import { array, object, optionalString, string } from "../transport/validation.js";
 
 export interface YouTubeUploadSession {
@@ -276,11 +277,16 @@ export async function beginYouTubeUpload(
 
 export type YouTubeUploadStatus =
   | { state: "incomplete"; nextByte: number }
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-  | { state: "complete"; video: Record<string, unknown> };
+  | { state: "complete"; video: JsonObject };
 
 async function statusFrom(response: Response): Promise<YouTubeUploadStatus> {
-  if (response.status !== 308) return { state: "complete", video: object(await response.json()) };
+  if (response.status !== 308) {
+    const body: unknown = await response.json();
+
+    // A non-JSON value decodes like an absent body: `object` rejects it as invalid.
+    return { state: "complete", video: object(isJsonValue(body) ? body : undefined) };
+  }
+
   const range = response.headers.get("range");
 
   if (!range) return { state: "incomplete", nextByte: 0 };

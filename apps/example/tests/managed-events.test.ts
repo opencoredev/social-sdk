@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { zernio } from "@opencoredev/social-sdk/cloud/zernio";
 import { postForMe } from "@opencoredev/social-sdk/cloud/post-for-me";
-import { createExampleHandler } from "../src/app.js";
+import type { JsonValue } from "@opencoredev/social-sdk";
+import { createExampleHandler, type ExampleOptions } from "../src/app.js";
 import { openExampleDatabase } from "../src/storage.js";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-const request = (path: string, value: unknown, headers: Record<string, string> = {}) =>
+const request = (path: string, value: JsonValue, headers: Record<string, string> = {}) =>
   new Request(`http://localhost:3030${path}`, {
     method: "POST",
     headers: { host: "localhost:3030", ...headers },
@@ -18,8 +18,7 @@ const publication = { accountIds: ["a"], text: "hello", idempotencyKey: "intent"
 
 const session = { principal: "user", tenantId: "tenant" };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-const membership = (_session: unknown, id: string) => id === "a";
+const membership = (_session: NonNullable<ExampleOptions["session"]>, id: string) => id === "a";
 
 test("Zernio event survives restart, uses saved delivery, quarantines unknown mapping and preserves removal reports", async () => {
   const db = await openExampleDatabase();
@@ -42,13 +41,14 @@ test("Zernio event survives restart, uses saved delivery, quarantines unknown ma
           _id: "record",
           status: published ? "published" : "processing",
           platforms: [
-            {
-              platform: "threads",
-              accountId: "a",
-              status: published ? "published" : "processing",
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-              ...(published ? { platformPostId: "native" } : {}),
-            },
+            published
+              ? {
+                  platform: "threads",
+                  accountId: "a",
+                  status: "published",
+                  platformPostId: "native",
+                }
+              : { platform: "threads", accountId: "a", status: "processing" },
           ],
         },
       });
@@ -66,8 +66,7 @@ test("Zernio event survives restart, uses saved delivery, quarantines unknown ma
     account: { accountId: "a" },
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-  const send = (value: unknown) =>
+  const send = (value: JsonValue) =>
     request("/api/events", value, {
       "X-Zernio-Signature": createHmac("sha256", "secret")
         .update(JSON.stringify(value))

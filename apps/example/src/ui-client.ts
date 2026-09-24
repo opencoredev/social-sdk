@@ -1,26 +1,233 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
-import type {
-  AccountRecord,
-  DeliveryOutcome,
-  PublishResult,
-  PlatformPostRef,
-  PublishPreparation,
-} from "@opencoredev/social-sdk";
+import type { JsonObject, JsonValue } from "@opencoredev/social-sdk";
 
-function element<T extends HTMLElement>(id: string): T {
+function element(id: string): HTMLElement;
+function element<T extends HTMLElement>(id: string, type: abstract new () => T): T;
+function element(id: string, type: abstract new () => HTMLElement = HTMLElement): HTMLElement {
   const found = document.getElementById(id);
 
   if (!found) throw new Error(`Missing element ${id}`);
 
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-  return found as T;
+  if (!(found instanceof type)) throw new Error(`Element ${id} is not a ${type.name}`);
+
+  return found;
 }
 
-const text = element<HTMLTextAreaElement>("text");
+/** JSON.parse output is always JSON; checking it keeps `any` out of typed code. */
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
 
-const format = element<HTMLSelectElement>("format");
+  if (typeof value === "number") return Number.isFinite(value);
 
-const publish = element<HTMLButtonElement>("publish");
+  if (Array.isArray(value)) return value.every(isJsonValue);
+
+  return typeof value === "object" && Object.values(value).every(isJsonValue);
+}
+
+function parseJson(raw: string): JsonValue {
+  const parsed: unknown = JSON.parse(raw);
+
+  if (!isJsonValue(parsed)) throw new SyntaxError("Expected a JSON value");
+
+  return parsed;
+}
+
+function isJsonObject(value: JsonValue | undefined): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Turns a successful JSON response into the shape one call site reads, or throws. */
+type Decoder<T> = (value: JsonValue) => T;
+
+function malformed(what: string): never {
+  throw new Error(`Unexpected response from the example server: ${what}`);
+}
+
+function objectOf(value: JsonValue | undefined, what: string): JsonObject {
+  return isJsonObject(value) ? value : malformed(`${what} must be an object`);
+}
+
+function arrayOf(value: JsonValue | undefined, what: string): readonly JsonValue[] {
+  return Array.isArray(value) ? value : malformed(`${what} must be an array`);
+}
+
+function isString(value: JsonValue | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isNumber(value: JsonValue | undefined): value is number {
+  return typeof value === "number";
+}
+
+function isBoolean(value: JsonValue | undefined): value is boolean {
+  return typeof value === "boolean";
+}
+
+function stringOf(value: JsonValue | undefined, what: string): string {
+  return isString(value) ? value : malformed(`${what} must be a string`);
+}
+
+function numberOf(value: JsonValue | undefined, what: string): number {
+  return isNumber(value) ? value : malformed(`${what} must be a number`);
+}
+
+function booleanOf(value: JsonValue | undefined, what: string): boolean {
+  return isBoolean(value) ? value : malformed(`${what} must be a boolean`);
+}
+
+function optionalStringOf(value: JsonValue | undefined, what: string): string | undefined {
+  return value === undefined ? undefined : stringOf(value, what);
+}
+
+/** The account fields the UI shows for a destination. */
+type AccountView = { readonly platform: string; readonly accountId: string };
+
+/** A platform post reference kept verbatim so the server receives exactly what it returned. */
+type PostView = { readonly ref: JsonObject; readonly postId: string };
+
+type OutcomeView =
+  | {
+      readonly state: "published";
+      readonly account: AccountView;
+      readonly post: PostView;
+      readonly url: string | undefined;
+    }
+  | { readonly state: "failed"; readonly account: AccountView; readonly message: string }
+  | { readonly state: "not-submitted"; readonly account: AccountView; readonly reason: string }
+  | {
+      readonly state: "scheduled" | "accepted" | "processing" | "cancelled" | "unknown";
+      readonly account: AccountView;
+    };
+
+type ResultView = { readonly outcomes: readonly OutcomeView[] };
+
+const passiveStates = ["scheduled", "accepted", "processing", "cancelled", "unknown"] as const;
+
+function isPassiveState(state: string): state is (typeof passiveStates)[number] {
+  return passiveStates.some((candidate) => candidate === state);
+}
+
+function decodeAccountRef(value: JsonValue | undefined, what: string): AccountView {
+  const ref = objectOf(value, what);
+
+  return {
+    platform: stringOf(ref["platform"], `${what}.platform`),
+    accountId: stringOf(ref["accountId"], `${what}.accountId`),
+  };
+}
+
+function decodeOutcome(value: JsonValue, index: number): OutcomeView {
+  const what = `outcomes[${index}]`;
+  const outcome = objectOf(value, what);
+  const state = stringOf(outcome["state"], `${what}.state`);
+  const account = decodeAccountRef(outcome["account"], `${what}.account`);
+
+  if (state === "published") {
+    const ref = objectOf(outcome["post"], `${what}.post`);
+
+    return {
+      state,
+      account,
+      post: { ref, postId: stringOf(ref["postId"], `${what}.post.postId`) },
+      url: optionalStringOf(outcome["url"], `${what}.url`),
+    };
+  }
+
+  if (state === "failed")
+    return { state, account, message: stringOf(outcome["message"], `${what}.message`) };
+
+  if (state === "not-submitted")
+    return { state, account, reason: stringOf(outcome["reason"], `${what}.reason`) };
+
+  if (isPassiveState(state)) return { state, account };
+
+  return malformed(`${what}.state "${state}" is not a delivery state`);
+}
+
+/** Reads `{ result: PublishResult }` from /api/publish and /api/reconcile. */
+function decodeResultResponse(value: JsonValue): ResultView {
+  const result = objectOf(objectOf(value, "response")["result"], "result");
+
+  return { outcomes: arrayOf(result["outcomes"], "result.outcomes").map(decodeOutcome) };
+}
+
+function decodeAccountsResponse(value: JsonValue) {
+  const response = objectOf(value, "response");
+
+  return {
+    simulated: booleanOf(response["simulated"], "simulated"),
+    authenticatedPrincipal: stringOf(response["authenticatedPrincipal"], "authenticatedPrincipal"),
+    accounts: arrayOf(response["accounts"], "accounts").map((entry, index) => {
+      const account = objectOf(entry, `accounts[${index}]`);
+
+      return {
+        displayName: stringOf(account["displayName"], `accounts[${index}].displayName`),
+        ref: decodeAccountRef(account["ref"], `accounts[${index}].ref`),
+      };
+    }),
+  };
+}
+
+function decodePreparationResponse(value: JsonValue) {
+  const preparation = objectOf(objectOf(value, "response")["preparation"], "preparation");
+
+  return {
+    ok: booleanOf(preparation["ok"], "preparation.ok"),
+    issues: arrayOf(preparation["issues"], "preparation.issues").map((entry, index) => ({
+      message: stringOf(
+        objectOf(entry, `preparation.issues[${index}]`)["message"],
+        `preparation.issues[${index}].message`,
+      ),
+    })),
+  };
+}
+
+function decodeMetricsResponse(value: JsonValue) {
+  return arrayOf(objectOf(value, "response")["metrics"], "metrics").map((entry, index) => {
+    const metric = objectOf(entry, `metrics[${index}]`);
+
+    return {
+      name: stringOf(metric["name"], `metrics[${index}].name`),
+      value: numberOf(metric["value"], `metrics[${index}].value`),
+      unit: stringOf(metric["unit"], `metrics[${index}].unit`),
+    };
+  });
+}
+
+/** Comment items are provider JSON; the UI only reads a string `id` and `text` when present. */
+function decodeCommentsResponse(value: JsonValue) {
+  return arrayOf(objectOf(value, "response")["items"], "items").map((entry, index) => {
+    const item = objectOf(entry, `items[${index}]`);
+    const id = item["id"];
+    const text = item["text"];
+
+    return {
+      id: isString(id) ? id : undefined,
+      text: isString(text) ? text : undefined,
+    };
+  });
+}
+
+function decodeEventResponse(value: JsonValue): string {
+  return stringOf(objectOf(value, "response")["state"], "state");
+}
+
+function decodeProcessResponse(value: JsonValue) {
+  const response = objectOf(value, "response");
+
+  return {
+    applied: numberOf(response["applied"], "applied"),
+    pending: numberOf(response["pending"], "pending"),
+  };
+}
+
+/** For routes whose success body the UI does not read. */
+function ignoreBody(): void {}
+
+const text = element("text", HTMLTextAreaElement);
+
+const format = element("format", HTMLSelectElement);
+
+const publish = element("publish", HTMLButtonElement);
 
 const notice = element("notice");
 
@@ -34,14 +241,17 @@ let revision = 0;
 
 let prepared = false;
 
-let current: PublishResult | undefined;
+let current: ResultView | undefined;
 
-let selectedPost: PlatformPostRef | undefined;
+let selectedPost: PostView | undefined;
+
+/** JSON bodies the UI posts: plain JSON objects and drafts. */
+type RequestBody = JsonObject | Draft;
 
 async function api<T>(
   path: string,
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-  value?: unknown,
+  value: RequestBody | undefined,
+  decode: Decoder<T>,
   headers: Record<string, string> = {},
 ): Promise<T> {
   const response = await fetch(
@@ -56,25 +266,22 @@ async function api<T>(
   );
 
   const raw = await response.text();
-  let data: unknown;
+  let data: JsonValue;
 
   try {
-    data = JSON.parse(raw);
+    data = parseJson(raw);
   } catch {
-    // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
     data = { message: raw };
   }
 
   if (!response.ok)
     throw new Error(
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-      typeof data === "object" && data && "message" in data
-        ? String(data.message)
+      isJsonObject(data) && "message" in data
+        ? String(data["message"])
         : `Request failed (${response.status})`,
     );
 
-  // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-  return data as T;
+  return decode(data);
 }
 
 function uniqueKey(): string {
@@ -89,31 +296,34 @@ function selectedIds(): string[] {
   );
 }
 
-function draft() {
-  const options = element<HTMLTextAreaElement>("platform-options").value.trim();
+type Draft = {
+  accountIds: string[];
+  text: string;
+  format: string;
+  idempotencyKey: string;
+  mediaUrl?: string;
+  mediaMime?: string;
+  optionsByAccount?: JsonValue;
+};
 
-  return {
+function draft(): Draft {
+  const options = element("platform-options", HTMLTextAreaElement).value.trim();
+
+  const submitted: Draft = {
     accountIds: selectedIds(),
     text: text.value,
     format: format.value,
     idempotencyKey: key,
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    ...(format.value === "video"
-      ? {
-          mediaUrl: element<HTMLInputElement>("media-url").value,
-          mediaMime: element<HTMLInputElement>("media-mime").value,
-        }
-      : {}),
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated external boundary or fixture contract.
-    ...(options ? { optionsByAccount: JSON.parse(options) as unknown } : {}),
   };
+
+  if (format.value === "video") {
+    submitted.mediaUrl = element("media-url", HTMLInputElement).value;
+    submitted.mediaMime = element("media-mime", HTMLInputElement).value;
+  }
+
+  if (options) submitted.optionsByAccount = parseJson(options);
+
+  return submitted;
 }
 
 function invalidate() {
@@ -122,7 +332,7 @@ function invalidate() {
   key = uniqueKey();
   publish.disabled = true;
   element("video-fields").hidden = format.value !== "video";
-  element<HTMLInputElement>("media-url").required = format.value === "video";
+  element("media-url", HTMLInputElement).required = format.value === "video";
 }
 
 async function act(work: () => Promise<void>) {
@@ -134,7 +344,7 @@ async function act(work: () => Promise<void>) {
   }
 }
 
-function outcomeLine(outcome: DeliveryOutcome): HTMLElement {
+function outcomeLine(outcome: OutcomeView): HTMLElement {
   const row = document.createElement("div");
   row.className = "result";
   const heading = document.createElement("h3");
@@ -175,28 +385,25 @@ function outcomeLine(outcome: DeliveryOutcome): HTMLElement {
     metrics.onclick = () =>
       void act(async () => {
         selectedPost = outcome.post;
-        element<HTMLButtonElement>("reply").disabled = false;
+        element("reply", HTMLButtonElement).disabled = false;
 
-        const result = await api<{
-          metrics: readonly { name: string; value: number; unit: string }[];
-        }>("/api/metrics", outcome.post);
+        const metrics = await api("/api/metrics", outcome.post.ref, decodeMetricsResponse);
 
-        element("metrics").textContent = result.metrics.length
-          ? result.metrics
-              .map((metric) => `${metric.name}: ${metric.value} ${metric.unit}`)
-              .join("\n")
+        element("metrics").textContent = metrics.length
+          ? metrics.map((metric) => `${metric.name}: ${metric.value} ${metric.unit}`).join("\n")
           : "No metrics are available for this post.";
 
         try {
-          const comments = await api<{ items: readonly { id?: string; text?: string }[] }>(
+          const comments = await api(
             "/api/comments/list",
-            outcome.post,
+            outcome.post.ref,
+            decodeCommentsResponse,
           );
 
-          const first = comments.items[0];
+          const first = comments[0];
 
           if (first?.id) {
-            element<HTMLInputElement>("comment-id").value = first.id;
+            element("comment-id", HTMLInputElement).value = first.id;
             element("comment-status").textContent = first.text ?? "Parent comment loaded.";
           }
         } catch {
@@ -213,7 +420,7 @@ function outcomeLine(outcome: DeliveryOutcome): HTMLElement {
   return row;
 }
 
-function render(result: PublishResult) {
+function render(result: ResultView) {
   current = result;
   const output = element("results");
   output.replaceChildren(...result.outcomes.map(outcomeLine));
@@ -224,31 +431,27 @@ function render(result: PublishResult) {
 
   element("reconcile").hidden = !pending;
   element("advance").hidden = !simulated || !pending;
-  element<HTMLButtonElement>("replay").disabled = !simulated || !result.outcomes.length;
+  element("replay", HTMLButtonElement).disabled = !simulated || !result.outcomes.length;
 }
 
 async function reconcile() {
-  const response = await api<{ result: PublishResult }>("/api/reconcile", {
-    idempotencyKey: currentKey,
-  });
-
-  render(response.result);
+  render(await api("/api/reconcile", { idempotencyKey: currentKey }, decodeResultResponse));
 }
 
-const composer = element<HTMLFormElement>("composer");
+const composer = element("composer", HTMLFormElement);
 
 composer.addEventListener("input", invalidate);
 
 format.addEventListener("change", invalidate);
 
-element<HTMLButtonElement>("prepare").onclick = () =>
+element("prepare", HTMLButtonElement).onclick = () =>
   void act(async () => {
     if (!selectedIds().length) throw new Error("Select at least one destination.");
 
     if (!composer.reportValidity()) throw new Error("Complete the required fields.");
     const version = revision;
     const submitted = draft();
-    const result = await api<{ preparation: PublishPreparation }>("/api/prepare", submitted);
+    const preparation = await api("/api/prepare", submitted, decodePreparationResponse);
 
     if (version !== revision) {
       notice.textContent = "The draft changed during preparation. Check it again.";
@@ -259,11 +462,11 @@ element<HTMLButtonElement>("prepare").onclick = () =>
     const preview = element("preview");
     preview.hidden = false;
     preview.textContent = text.value;
-    prepared = result.preparation.ok;
+    prepared = preparation.ok;
     publish.disabled = !prepared;
     notice.textContent = prepared
       ? "Preparation passed. Review the preview before publishing."
-      : result.preparation.issues.map((issue) => issue.message).join(" ");
+      : preparation.issues.map((issue) => issue.message).join(" ");
   });
 
 composer.onsubmit = (event) => {
@@ -272,30 +475,30 @@ composer.onsubmit = (event) => {
   if (!prepared) return;
   publish.disabled = true;
   const submitted = draft();
-  const scenario = element<HTMLSelectElement>("scenario").value;
+  const scenario = element("scenario", HTMLSelectElement).value;
   void act(async () => {
-    if (simulated) await api("/api/mock/scenario", { scenario });
-    const response = await api<{ result: PublishResult }>("/api/publish", submitted);
+    if (simulated) await api("/api/mock/scenario", { scenario }, ignoreBody);
+    const result = await api("/api/publish", submitted, decodeResultResponse);
     currentKey = submitted.idempotencyKey;
-    render(response.result);
+    render(result);
     notice.textContent = "Publication submitted. Each destination's result is shown independently.";
   });
 };
 
-element<HTMLButtonElement>("reconcile").onclick = () =>
+element("reconcile", HTMLButtonElement).onclick = () =>
   void act(async () => {
     await reconcile();
     notice.textContent = "Delivery status checked.";
   });
 
-element<HTMLButtonElement>("advance").onclick = () =>
+element("advance", HTMLButtonElement).onclick = () =>
   void act(async () => {
-    await api("/api/mock/advance", {});
+    await api("/api/mock/advance", {}, ignoreBody);
     await reconcile();
     notice.textContent = "Simulated processing advanced and status checked.";
   });
 
-element<HTMLButtonElement>("replay").onclick = () =>
+element("replay", HTMLButtonElement).onclick = () =>
   void act(async () => {
     if (!current?.outcomes[0]) return;
 
@@ -305,22 +508,21 @@ element<HTMLButtonElement>("replay").onclick = () =>
       publicationKey: currentKey,
     };
 
-    const first = await api<{ state: string }>("/api/events", event, {
+    const first = await api("/api/events", event, decodeEventResponse, {
       "x-mock-signature": "valid",
     });
 
-    const second = await api<{ state: string }>("/api/events", event, {
+    const second = await api("/api/events", event, decodeEventResponse, {
       "x-mock-signature": "valid",
     });
 
-    element("events-status").textContent =
-      `First delivery: ${first.state}. Replay: ${second.state}.`;
+    element("events-status").textContent = `First delivery: ${first}. Replay: ${second}.`;
     notice.textContent = "Webhook replay accepted. Processing remains explicit.";
   });
 
-element<HTMLButtonElement>("process").onclick = () =>
+element("process", HTMLButtonElement).onclick = () =>
   void act(async () => {
-    const result = await api<{ applied: number; pending: number }>("/api/events/process", {});
+    const result = await api("/api/events/process", {}, decodeProcessResponse);
     element("events-status").textContent =
       `Applied ${result.applied} event(s). Pending ${result.pending}.`;
 
@@ -328,27 +530,29 @@ element<HTMLButtonElement>("process").onclick = () =>
     notice.textContent = "Pending event processing finished.";
   });
 
-element<HTMLFormElement>("comment-form").onsubmit = (event) => {
+element("comment-form", HTMLFormElement).onsubmit = (event) => {
   event.preventDefault();
 
-  if (!selectedPost) return;
+  const post = selectedPost;
+
+  if (!post) return;
   void act(async () => {
-    await api("/api/comments/reply", {
-      ...selectedPost,
-      commentId: element<HTMLInputElement>("comment-id").value,
-      text: element<HTMLInputElement>("reply-text").value,
-    });
+    await api(
+      "/api/comments/reply",
+      {
+        ...post.ref,
+        commentId: element("comment-id", HTMLInputElement).value,
+        text: element("reply-text", HTMLInputElement).value,
+      },
+      ignoreBody,
+    );
     element("comment-status").textContent = "Reply accepted by the backend.";
     notice.textContent = "Comment reply completed.";
   });
 };
 
 void act(async () => {
-  const response = await api<{
-    accounts: readonly AccountRecord[];
-    simulated: boolean;
-    authenticatedPrincipal: string;
-  }>("/api/accounts");
+  const response = await api("/api/accounts", undefined, decodeAccountsResponse);
 
   simulated = response.simulated;
   element("mode").textContent = simulated

@@ -1,5 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- this scanner intentionally keeps compact control flow. */
-
 import { readdir } from "node:fs/promises";
 
 const decoder = new TextDecoder();
@@ -86,8 +84,10 @@ for (const path of paths) {
 
   for (const [label, term] of bannedTerms) {
     let checkedContent = content;
+
     if (label === "legacy analytics service") {
       if (path === "apps/docs/blume.config.ts" || path === "apps/docs/analytics.ts") continue;
+
       // The analytics snippet is the only script allowed to name the service,
       // and it always points at the first-party proxy.
       if (path.startsWith("apps/docs/dist/") && path.endsWith(".html")) {
@@ -96,6 +96,7 @@ for (const path of paths) {
         );
       }
     }
+
     if (checkedContent.includes(term)) findings.push(`${path}: ${label}`);
   }
 }

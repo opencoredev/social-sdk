@@ -121,6 +121,7 @@ The direct Threads adapter does not advertise native scheduling. Schedule a publ
 :::
 
 - Text, one HTTPS image or video, and carousels are supported.
+- Published posts cannot be edited. The [Threads posts documentation](https://developers.facebook.com/docs/threads/posts) sets text and attachments when the container is created and has no update endpoint, so `posts.update` is declared `unsupported-by-platform`. Delete and publish again if the content must change.
 - The token, user ID, scopes, app review, and account eligibility remain server-owned setup.
 - Existing repository evidence covers adapter contract behavior and mocked transports; no live Threads account has been verified.
 

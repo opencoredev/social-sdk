@@ -1,15 +1,18 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { bluesky } from "../src/platforms/bluesky.js";
 import {
   connectedAccountRef,
   type AdapterOperationContext,
+  type JsonObject,
+  type JsonValue,
   type PreparedPublishTarget,
 } from "../src/core/index.js";
+import { definedFields } from "../src/core/fields.js";
+import { isJsonValue, parseJson } from "../src/transport/json.js";
+import { array, object } from "../src/transport/validation.js";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-function response(value: unknown, status = 200): Response {
+function response(value: JsonValue, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },
@@ -27,11 +30,13 @@ function context(): AdapterOperationContext {
 describe("Bluesky adapter", () => {
   it("searches posts with typed filters and preserves pagination metadata", async () => {
     const requests: string[] = [];
+
     const adapter = bluesky({
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async (input) => {
         requests.push(String(input));
+
         return response({
           cursor: "next-cursor",
           hitsTotal: 42,
@@ -39,6 +44,7 @@ describe("Bluesky adapter", () => {
         });
       },
     });
+
     const account = connectedAccountRef({
       backend: "direct",
       platform: "bluesky",
@@ -69,26 +75,30 @@ describe("Bluesky adapter", () => {
 
   it("rejects empty or out-of-range Bluesky search input before network access", async () => {
     let requests = 0;
+
     const adapter = bluesky({
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async () => {
         requests++;
+
         return response({ posts: [] });
       },
     });
+
     const account = connectedAccountRef({
       backend: "direct",
       platform: "bluesky",
       accountId: "did:plc:test",
     });
 
+    assert.ok(adapter.native);
     await assert.rejects(
-      adapter.native?.searchPosts({ account, query: "   ", context: context() }),
+      adapter.native.searchPosts({ account, query: "   ", context: context() }),
       /search query is required/,
     );
     await assert.rejects(
-      adapter.native?.searchPosts({ account, query: "hello", limit: 101, context: context() }),
+      adapter.native.searchPosts({ account, query: "hello", limit: 101, context: context() }),
       /page size must be between 1 and 100/,
     );
     assert.equal(requests, 0);
@@ -103,8 +113,7 @@ describe("Bluesky adapter", () => {
       fetch: async (input, init) => {
         requests.push({
           url: String(input),
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(init?.body === undefined ? {} : { body: String(init.body) }),
+          ...definedFields({ body: init?.body === undefined ? undefined : String(init.body) }),
           headers: new Headers(init?.headers),
         });
 
@@ -130,7 +139,7 @@ describe("Bluesky adapter", () => {
     assert.equal(requests[0]?.headers?.get("content-type"), "application/json");
     await adapter.native?.unlikePost({ account, likeUri: like?.uri ?? "", context: context() });
     assert.match(requests[1]?.url ?? "", /com\.atproto\.repo\.deleteRecord/);
-    await assert.rejects(() =>
+    await assert.rejects(async () =>
       adapter.native?.likePost({
         account: connectedAccountRef({
           backend: "direct",
@@ -195,22 +204,15 @@ describe("Bluesky adapter", () => {
   });
 
   it("creates a text post and encodes link facets using UTF-8 byte offsets", async () => {
-    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-    let requestBody: Record<string, unknown> | undefined;
+    let requestBody: JsonObject | undefined;
 
     const adapter = bluesky({
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async (_input, init) => {
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-        // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        const parsed: unknown = JSON.parse(String(init?.body));
+        assert.ok(isJsonValue(parsed), "Request body must be JSON");
+        requestBody = object(parsed);
 
         return response({ uri: "at://did:plc:test/app.bsky.feed.post/one", cid: "bafyreione" });
       },
@@ -232,12 +234,9 @@ describe("Bluesky adapter", () => {
     const outcome = await adapter.posts?.publishTarget(target, context());
     assert.equal(outcome?.state, "published");
 
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    const record = requestBody?.record as {
-      facets?: readonly { index: { byteStart: number; byteEnd: number } }[];
-    };
+    const facets = array(object(requestBody?.["record"])["facets"]);
 
-    assert.deepEqual(record.facets?.[0]?.index, { byteStart: 5, byteEnd: 24 });
+    assert.deepEqual(object(facets[0])["index"], { byteStart: 5, byteEnd: 24 });
   });
 
   it("uploads images and preserves native uri/cid for a strong reply reference", async () => {
@@ -311,8 +310,7 @@ describe("Bluesky adapter", () => {
         targetKey: "reply",
         account,
         content: { text: "Reply" },
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(first?.state === "published" ? { replyTo: first.post } : {}),
+        ...definedFields({ replyTo: first?.state === "published" ? first.post : undefined }),
       },
       context(),
     );
@@ -327,7 +325,7 @@ describe("Bluesky adapter", () => {
       fetch: async () => response({ did: "did:plc:other", handle: "other.example" }),
     });
 
-    await assert.rejects(() =>
+    await assert.rejects(async () =>
       adapter.accounts?.get(
         connectedAccountRef({ backend: "direct", platform: "bluesky", accountId: "did:plc:test" }),
         context(),
@@ -420,7 +418,7 @@ it("Bluesky reactions validate owned like URIs and never replay ambiguous writes
       post: { uri: "at://did:plc:someone/app.bsky.feed.post/r1", cid: "cid" },
       context: { ...context(), retryBudget: { maxAttempts: 5, maxElapsedMs: 1000 } },
     }),
-    (error: any) => error.code === "ambiguous_outcome",
+    { code: "ambiguous_outcome" },
   );
   assert.equal(
     calls,
@@ -436,13 +434,13 @@ it("serializes language tags and explicit DID mentions at UTF-8 boundaries witho
     accountId: "did:plc:test",
   });
 
-  const requests: { url: string; body: any }[] = [];
+  const requests: { url: string; body: JsonObject }[] = [];
 
   const adapter = bluesky({
     backend: "direct",
     auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
     fetch: async (url, init) => {
-      requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      requests.push({ url: String(url), body: object(parseJson(String(init?.body))) });
 
       return response({ uri: "at://did:plc:test/app.bsky.feed.post/result", cid: "cid" });
     },
@@ -464,13 +462,15 @@ it("serializes language tags and explicit DID mentions at UTF-8 boundaries witho
   assert.equal((await adapter.posts!.publishTarget(target, context())).state, "published");
   assert.equal(requests.length, 1);
   assert.match(requests[0]!.url, /createRecord$/);
-  assert.deepEqual(requests[0]!.body.record.langs, ["en-US"]);
-  assert.deepEqual(requests[0]!.body.record.facets[0], {
+  const record = object(requests[0]?.body["record"]);
+  const facets = array(record["facets"]);
+  assert.deepEqual(record["langs"], ["en-US"]);
+  assert.deepEqual(facets[0], {
     index: { byteStart: 5, byteEnd: 19 },
     features: [{ $type: "app.bsky.richtext.facet#mention", did: "did:plc:alice" }],
   });
   assert.equal(
-    requests[0]!.body.record.facets[1].features[0].$type,
+    object(array(object(facets[1])["features"])[0])["$type"],
     "app.bsky.richtext.facet#link",
   );
 
@@ -496,21 +496,23 @@ it("serializes language tags and explicit DID mentions at UTF-8 boundaries witho
 
 it("exposes Bluesky notifications through the normalized paged adapter", async () => {
   const requests: Array<{ url: string; body?: string }> = [];
+
   const adapter = bluesky({
     backend: "direct",
     auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
     fetch: async (input, init) => {
       requests.push({
         url: String(input),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(init?.body === undefined ? {} : { body: String(init.body) }),
+        ...definedFields({ body: init?.body === undefined ? undefined : String(init.body) }),
       });
+
       return response({
         cursor: "next",
         notifications: [{ reason: "like", author: { did: "did:plc:author" } }],
       });
     },
   });
+
   const account = connectedAccountRef({
     backend: "direct",
     platform: "bluesky",

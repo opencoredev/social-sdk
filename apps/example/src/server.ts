@@ -1,5 +1,4 @@
 import { createServer } from "node:http";
-import { Readable } from "node:stream";
 import { createExampleHandler } from "./app.js";
 import { exampleBackendConfig } from "./config.js";
 import { openDatabaseFromEnv } from "./storage.js";
@@ -26,6 +25,30 @@ const handler = createExampleHandler({
   ],
   database,
 });
+
+async function* binaryChunks(source: AsyncIterable<unknown>): AsyncGenerator<Uint8Array> {
+  for await (const chunk of source) {
+    if (!(chunk instanceof Uint8Array)) throw new TypeError("Request body chunk is not binary");
+    yield chunk;
+  }
+}
+
+/** Streams a Node request body into a web `ReadableStream`, one chunk per pull. */
+function requestBody(source: AsyncIterable<unknown>): ReadableStream<Uint8Array> {
+  const chunks = binaryChunks(source);
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await chunks.next();
+
+      if (next.done) controller.close();
+      else controller.enqueue(next.value);
+    },
+    async cancel() {
+      await chunks.return(undefined);
+    },
+  });
+}
 
 const allowedHosts = new Set([
   `localhost:${process.env["PORT"] ?? "3030"}`,
@@ -58,8 +81,7 @@ const server = createServer(async (request, response) => {
   const init: RequestInit & { duplex?: "half" } = { method: request.method ?? "GET", headers };
 
   if (request.method !== "GET" && request.method !== "HEAD") {
-    // SAFETY: IncomingMessage yields Buffer chunks; Buffer extends Uint8Array.
-    init.body = Readable.toWeb(request) as ReadableStream<Uint8Array>;
+    init.body = requestBody(request);
     init.duplex = "half";
   }
 

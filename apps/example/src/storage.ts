@@ -7,6 +7,8 @@ import type {
   IdempotencyClaim,
   IdempotencyClaimInput,
   IdempotencyStore,
+  JsonObject,
+  JsonValue,
   PublishResult,
 } from "@opencoredev/social-sdk";
 import type { Database } from "./db/client.js";
@@ -95,6 +97,37 @@ function keyFromSecret(secret: string): Buffer {
   return createHash("sha256").update(secret).digest();
 }
 
+function isStringValue(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every(isStringValue);
+}
+
+function isStringRecord(value: unknown): value is Readonly<Record<string, string>> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every(isStringValue)
+  );
+}
+
+/** Proves a decrypted plaintext matches `StoredCredential`, including every optional field present. */
+export function isStoredCredential(value: unknown): value is StoredCredential {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+
+  return (
+    "accessToken" in value &&
+    typeof value.accessToken === "string" &&
+    (!("refreshToken" in value) || typeof value.refreshToken === "string") &&
+    (!("expiresAt" in value) || typeof value.expiresAt === "string") &&
+    (!("scopes" in value) || isStringArray(value.scopes)) &&
+    (!("metadata" in value) || isStringRecord(value.metadata))
+  );
+}
+
 export class EncryptedPostgresCredentialStore implements CredentialStore<StoredCredential> {
   private readonly key: Buffer;
   constructor(
@@ -115,13 +148,14 @@ export class EncryptedPostgresCredentialStore implements CredentialStore<StoredC
     decipher.setAAD(Buffer.from(key));
     decipher.setAuthTag(row.tag);
 
-    return {
-      revision: row.revision,
-      // SAFETY: AES-GCM authenticated this plaintext, which only compareAndSet writes from a StoredCredential.
-      value: JSON.parse(
-        Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString("utf8"),
-      ) as StoredCredential,
-    };
+    const plaintext: unknown = JSON.parse(
+      Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString("utf8"),
+    );
+
+    if (!isStoredCredential(plaintext))
+      throw new Error("Decrypted credential does not match the StoredCredential shape");
+
+    return { revision: row.revision, value: plaintext };
   }
   async compareAndSet(input: {
     readonly key: string;
@@ -167,8 +201,7 @@ export class DrizzleEventInbox {
   constructor(private readonly db: Database) {}
   async accept(
     eventKey: string,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- provider payloads are validated by the worker.
-    payload: unknown,
+    payload: JsonValue,
     quarantined: boolean,
   ): Promise<"accepted" | "duplicate"> {
     const inserted = await this.db
@@ -179,7 +212,7 @@ export class DrizzleEventInbox {
 
     return inserted.length === 0 ? "duplicate" : "accepted";
   }
-  async pending(limit = 100): Promise<readonly { eventKey: string; payload: unknown }[]> {
+  async pending(limit = 100): Promise<readonly { eventKey: string; payload: JsonValue }[]> {
     return this.db
       .select({ eventKey: events.eventKey, payload: events.payload })
       .from(events)
@@ -331,7 +364,7 @@ export class DrizzlePublicationStore {
 
     return keys.length === 1 ? keys[0] : undefined;
   }
-  async removalReports(tenantId: string, key: string): Promise<readonly unknown[]> {
+  async removalReports(tenantId: string, key: string): Promise<readonly JsonValue[]> {
     const rows = await this.db
       .select({ payload: removalReports.payload })
       .from(removalReports)
@@ -346,8 +379,7 @@ export class DrizzlePublicationStore {
     key: string,
     result: PublishResult,
     eventKey: string,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- removal reports are opaque JSON observations.
-    removalReport?: unknown,
+    removalReport?: JsonObject,
   ): Promise<boolean> {
     return this.db.transaction(async (tx) => {
       const [row] = await tx

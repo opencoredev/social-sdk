@@ -3,7 +3,6 @@ import type { ExampleHandler } from "../app.js";
 /** Hono's app.fetch-compatible adapter; pass it to a Hono route or export it directly. */
 export function createHonoFetch(handler: ExampleHandler): (request: Request) => Promise<Response> {
   return (request) => {
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
     const url = new URL(request.url);
 
     const suffix =

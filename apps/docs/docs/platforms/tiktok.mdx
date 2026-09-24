@@ -152,6 +152,7 @@ The adapter rejects missing consent, stale creator choices, unverified origins, 
 :::
 
 - Explicit privacy and interaction choices are required on every publish, and captions are validated against the format limit.
+- Published posts cannot be edited. The [Content Posting API](https://developers.tiktok.com/doc/content-posting-api-get-started) sets the caption, privacy, and interaction settings only when a post is initialized, so `posts.update` is declared `unsupported-by-platform`.
 - Keep tokens server-side and treat media URLs, creator data, and publish IDs as sensitive.
 - Repository evidence is offline contract and mocked transport coverage; no TikTok app or creator account has been live-verified.
 
