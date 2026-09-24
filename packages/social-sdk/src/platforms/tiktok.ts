@@ -10,9 +10,8 @@ import type {
   MetricValue,
   PlatformPostRef,
 } from "../core/types.js";
-import { managedHttp, publicFields } from "../cloud/common.js";
+import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { parseJson } from "../transport/json.js";
-import { HttpError } from "../transport/http.js";
 import {
   array,
   isBoolean,
@@ -103,19 +102,6 @@ function withTikTokErrorBodies(fetch: typeof globalThis.fetch) {
   };
 }
 
-function isOptionsRecord(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Native publish options as an object; rejects non-object options as `object()` did. */
-function publishOptions(target: PreparedPublishTarget): JsonObject | undefined {
-  if (isOptionsRecord(target.options)) return target.options;
-
-  if (target.options === undefined) return undefined;
-
-  throw new HttpError("Upstream response must be an object.", "invalid-response", true);
-}
-
 export function tiktok(
   options: TikTokOptions,
 ): import("../core/adapter.js").SocialAdapter<TikTokNative> {
@@ -198,7 +184,7 @@ export function tiktok(
 
     if (target.account.platform !== "tiktok" || target.account.accountId !== options.auth.openId)
       fail("tiktok.account", "Select the configured TikTok creator.");
-    const config = publishOptions(target) ?? {};
+    const config = optionsObject(target);
     const draft = config["draft"] === true;
 
     if (config["consentGiven"] !== true)
@@ -529,7 +515,7 @@ export function tiktok(
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
         authorize(target.account, context);
-        const config = object(publishOptions(target));
+        const config = optionsObject(target);
         const draft = config["draft"] === true;
         const latest = draft ? undefined : await creatorInfo(target.account, context);
         const media = target.content.media ?? [];

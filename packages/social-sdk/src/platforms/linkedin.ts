@@ -24,7 +24,7 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { upload } from "../transport/upload.js";
-import { publicFields } from "../cloud/common.js";
+import { optionsObject, publicFields } from "../cloud/common.js";
 
 export interface LinkedInOptions {
   readonly auth: {
@@ -144,19 +144,6 @@ export interface LinkedInNative {
     readonly account: ConnectedAccountRef;
     readonly context: AdapterOperationContext;
   }) => Promise<number | undefined>;
-}
-
-function isOptionsRecord(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Native publish options as an object; rejects non-object options as `object()` did. */
-function publishOptions(target: PreparedPublishTarget): JsonObject | undefined {
-  if (isOptionsRecord(target.options)) return target.options;
-
-  if (target.options === undefined) return undefined;
-
-  throw new HttpError("Upstream response must be an object.", "invalid-response", true);
 }
 
 export function linkedin(
@@ -748,18 +735,16 @@ export function linkedin(
             "Scheduling, reply posts and structured links are not supported by this publishing slice.",
           );
 
-        const settings = publishOptions(target);
+        const settings = optionsObject(target);
 
-        if (settings !== undefined) {
-          if (
-            Object.keys(settings).some((key) => key !== "visibility") ||
-            (settings["visibility"] !== undefined && settings["visibility"] !== "public")
-          )
-            fail(
-              "linkedin.options",
-              "This slice supports public visibility only; other native options require explicit implementation.",
-            );
-        }
+        if (
+          Object.keys(settings).some((key) => key !== "visibility") ||
+          (settings["visibility"] !== undefined && settings["visibility"] !== "public")
+        )
+          fail(
+            "linkedin.options",
+            "This slice supports public visibility only; other native options require explicit implementation.",
+          );
 
         const media = target.content.media ?? [];
 

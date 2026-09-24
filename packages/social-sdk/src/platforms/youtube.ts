@@ -18,7 +18,7 @@ import type {
   PreparedPublishTarget,
   SearchPostsInput,
 } from "../core/types.js";
-import { managedHttp, publicFields } from "../cloud/common.js";
+import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { definedFields } from "../core/fields.js";
 import { createHttp, HttpError } from "../transport/http.js";
 import {
@@ -153,18 +153,6 @@ export interface YouTubeNative {
 /** Drop empty strings so optional query parameters are omitted rather than sent blank. */
 function nonEmpty(value: string | undefined): string | undefined {
   return value || undefined;
-}
-
-function isOptionsObject(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Read the caller's publish options as an object. Non-objects raise the same
- * validation error that `object()` raises, so callers see one failure shape.
- */
-function publishOptions(target: PreparedPublishTarget): JsonObject {
-  return isOptionsObject(target.options) ? target.options : object(undefined);
 }
 
 export function youtube(
@@ -665,7 +653,7 @@ export function youtube(
             fail("youtube.size", "Streaming upload requires its exact byte size.");
         }
 
-        const config = target.options === undefined ? {} : publishOptions(target);
+        const config = optionsObject(target);
         const title = config["title"];
 
         if (!isString(title) || !title || [...title].length > 100 || /[<>]/u.test(title))
@@ -704,7 +692,7 @@ export function youtube(
             operation: "posts.publish",
             message: "Video required.",
           });
-        const config = publishOptions(target);
+        const config = optionsObject(target);
 
         const uploadOptions = {
           timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
