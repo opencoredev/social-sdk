@@ -413,6 +413,7 @@ test("Threads declares profile search and relationship reads as unsupported by t
       (candidate) => candidate.operation === operation,
     );
     assert.equal(declaration?.availability, "unsupported-by-platform");
+
     assert.ok(declaration?.notes);
   }
 

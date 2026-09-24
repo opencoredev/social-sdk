@@ -227,9 +227,9 @@ export function youtube(
   /** Returns the publishAt time only while the video is private and still waiting to publish. */
   // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
   const scheduledAt = (status: Record<string, unknown>): string | undefined => {
-    const publishAt = status["publishAt"];
+    const publishAt = optionalString(status["publishAt"]);
 
-    if (status["privacyStatus"] !== "private" || typeof publishAt !== "string") return undefined;
+    if (status["privacyStatus"] !== "private" || publishAt === undefined) return undefined;
     const time = Date.parse(publishAt);
 
     return Number.isFinite(time) && time > (options.clock?.() ?? new Date()).getTime()
@@ -878,7 +878,7 @@ export function youtube(
         const flag = (key: string): boolean | undefined => {
           const value = status[key];
 
-          if (value === undefined || typeof value === "boolean") return value;
+          if (value === undefined || value === true || value === false) return value;
           throw new SocialError({
             code: "upstream_failure",
             operation: "posts.cancelScheduled",
@@ -901,14 +901,18 @@ export function youtube(
         const publicStatsViewable = flag("publicStatsViewable");
         const containsSyntheticMedia = flag("containsSyntheticMedia");
 
-        const next = {
-          privacyStatus: "private",
-          ...(license === undefined ? {} : { license }),
-          ...(embeddable === undefined ? {} : { embeddable }),
-          ...(publicStatsViewable === undefined ? {} : { publicStatsViewable }),
-          selfDeclaredMadeForKids,
-          ...(containsSyntheticMedia === undefined ? {} : { containsSyntheticMedia }),
-        } satisfies JsonObject;
+        const next = (() => {
+          const result: Record<string, JsonValue> = {};
+          result["privacyStatus"] = "private";
+          result["selfDeclaredMadeForKids"] = selfDeclaredMadeForKids;
+          if (license !== undefined) result["license"] = license;
+          if (embeddable !== undefined) result["embeddable"] = embeddable;
+          if (publicStatsViewable !== undefined)
+            result["publicStatsViewable"] = publicStatsViewable;
+          if (containsSyntheticMedia !== undefined)
+            result["containsSyntheticMedia"] = containsSyntheticMedia;
+          return result satisfies JsonObject;
+        })();
 
         const result = object(
           await request(
@@ -1596,17 +1600,20 @@ export function youtube(
         // banner URL, which channels.update would otherwise delete. Deprecated watch, hints, and
         // image fields are dropped; YouTube rejects some of them on write.
         const bannerExternalUrl = isJsonObject(branding["image"])
-          ? branding["image"]["bannerExternalUrl"]
+          ? optionalString(branding["image"]["bannerExternalUrl"])
           : undefined;
+        const brandingNext = (): JsonObject => {
+          const result: Record<string, JsonValue> = {};
+          result["channel"] = merge(branding["channel"], channelPatch as JsonObject);
+          if (bannerExternalUrl !== undefined && bannerExternalUrl !== "")
+            result["image"] = { bannerExternalUrl };
+          return result;
+        };
         const next =
           part === "brandingSettings" && isJsonObject(channelPatch)
-            ? {
-                channel: merge(branding["channel"], channelPatch),
-                ...(typeof bannerExternalUrl === "string" && bannerExternalUrl !== ""
-                  ? { image: { bannerExternalUrl } }
-                  : {}),
-              }
+            ? brandingNext()
             : merge(channel["localizations"], value);
+        // SAFETY: YouTube returns a JSON object for channels.update.
         return object(
           await request(
             "/youtube/v3/channels",

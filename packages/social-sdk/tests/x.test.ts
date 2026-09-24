@@ -104,6 +104,7 @@ it("X declares scheduling and profile writes as unavailable and rejects a schedu
     declarations.map((entry) => `${entry.operation}:${entry.availability}`),
     ["posts.schedule:not-implemented-by-adapter", "profile.update:unsupported-by-platform"],
   );
+
   assert.match(declarations[0]?.notes ?? "", /OAuth 1\.0a/);
   assert.match(declarations[0]?.notes ?? "", /nullcast=true/);
   assert.match(declarations[1]?.notes ?? "", /https:\/\/docs\.x\.com\/openapi\.json/);
@@ -114,6 +115,7 @@ it("X declares scheduling and profile writes as unavailable and rejects a schedu
     schedule: { at: "2026-12-01T09:00:00Z" },
   };
   const prepared = social.posts.prepare(request);
+
   assert.equal(prepared.ok, false);
   assert.ok(prepared.issues.some((issue) => issue.code === "x.operation"));
   await assert.rejects(social.posts.publish(request));
