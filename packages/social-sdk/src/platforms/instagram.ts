@@ -690,6 +690,13 @@ export function instagram(
           notes:
             "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping.",
         },
+        {
+          platform: "instagram",
+          operation: "posts.schedule",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "The content publishing API has no publish-time parameter; media_publish publishes immediately and unpublished containers expire after 24 hours.",
+        },
         ...[
           "accounts.read",
           "posts.list",

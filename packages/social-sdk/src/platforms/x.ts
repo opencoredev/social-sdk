@@ -1300,6 +1300,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           notes:
             "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403.",
         },
+        {
+          platform: "x",
+          operation: "posts.schedule",
+          availability: "not-implemented-by-adapter" as const,
+          notes:
+            "X API v2 POST /2/tweets has no publish-time field. X schedules posts only through the separate Ads API scheduled_tweets endpoint, which needs Ads API access, an ads account ID and OAuth 1.0a; this adapter does not implement it.",
+        },
         ...[
           "accounts.read",
           "posts.list",

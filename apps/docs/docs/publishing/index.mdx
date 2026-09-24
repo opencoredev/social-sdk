@@ -25,6 +25,21 @@ Idempotency fingerprints include target content, options, reply references, and 
 
 The client's `concurrency` limit applies to each backend across overlapping reads and writes on that client. A queued cancellation does not dispatch a write. Native adapter access bypasses client coordination and must be managed explicitly by the application.
 
+## Native scheduling on direct adapters
+
+A direct adapter accepts `schedule` only when the platform stores the post and publishes it at the requested time. The SDK does not delay a request itself. Only the YouTube adapter supports this today; see [schedule a video](/platforms/youtube#schedule-a-video). The other direct adapters reject `schedule` during preparation, before any network call, and declare `posts.schedule` in their capability manifests with the reason.
+
+| Platform  | Declaration                  | Reason                                                                                                                                                                                                                                                                 |
+| --------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| X         | `not-implemented-by-adapter` | [`POST /2/tweets`](https://docs.x.com/x-api/posts/create-post) has no publish-time field. X schedules posts only through the [Ads API `scheduled_tweets` endpoint](https://docs.x.com/x-ads-api/creatives), which needs Ads API access, an ads account and OAuth 1.0a. |
+| Threads   | `unsupported-by-platform`    | The [publishing reference](https://developers.facebook.com/docs/threads/reference/publishing) has no publish-time parameter, and `threads_publish` publishes immediately.                                                                                              |
+| Bluesky   | `unsupported-by-platform`    | A record is visible once written. The [`app.bsky.feed.post`](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/feed/post.json) `createdAt` field is a client-declared timestamp and does not delay publication.                                    |
+| Instagram | `unsupported-by-platform`    | [Content publishing](https://developers.facebook.com/docs/instagram-platform/content-publishing) has no publish-time parameter. `media_publish` publishes immediately, and unpublished containers expire after 24 hours.                                               |
+| TikTok    | `unsupported-by-platform`    | [Direct Post `post_info`](https://developers.tiktok.com/doc/content-posting-api-reference-direct-post) has no publish-time field.                                                                                                                                      |
+| LinkedIn  | `unsupported-by-platform`    | The [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api) accepts only `lifecycleState: "PUBLISHED"` on creation and has no publish-time field.                                                                      |
+
+These sources were checked on 2026-09-24. Because none of these platforms holds a scheduled post, the direct adapters do not implement `posts.cancelScheduled`. To publish later on these platforms, run the publish from your own durable job runner, or use a hosted backend that schedules on your behalf.
+
 ## Cancel a schedule or remove content
 
 Use the operation that matches the resource you intend to change. These methods authorize the reference's account before network access and check backend ownership before writing.

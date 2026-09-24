@@ -315,6 +315,12 @@ export function tiktok(
           notes:
             "Verified URL source; explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload.",
         },
+        {
+          platform: "tiktok",
+          operation: "posts.schedule",
+          availability: "unsupported-by-platform" as const,
+          notes: "Content Posting API post_info has no publish-time field.",
+        },
         { platform: "tiktok", operation: "posts.status", availability: "available" as const },
         {
           platform: "tiktok",

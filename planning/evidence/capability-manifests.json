@@ -1462,6 +1462,12 @@
           ]
         },
         {
+          "operation": "posts.schedule",
+          "platform": "bluesky",
+          "availability": "unsupported-by-platform",
+          "notes": "AT Protocol records are visible once written. The post createdAt field is a client-declared timestamp and does not delay publication."
+        },
+        {
           "operation": "posts.read",
           "platform": "bluesky",
           "availability": "available",
@@ -1723,6 +1729,12 @@
             "media.write"
           ],
           "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "not-implemented-by-adapter",
+          "notes": "X API v2 POST /2/tweets has no publish-time field. X schedules posts only through the separate Ads API scheduled_tweets endpoint, which needs Ads API access, an ads account ID and OAuth 1.0a; this adapter does not implement it."
         },
         {
           "platform": "x",
@@ -2082,6 +2094,12 @@
             "threads_basic",
             "threads_content_publish"
           ]
+        },
+        {
+          "operation": "posts.schedule",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "Threads publishing endpoints have no publish-time parameter; threads_publish publishes immediately."
         },
         {
           "operation": "posts.read",
@@ -2486,6 +2504,12 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "unsupported-by-platform",
+          "notes": "Content Posting API post_info has no publish-time field."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.status",
           "availability": "available"
         },
@@ -2582,6 +2606,12 @@
             "instagram_business_content_publish"
           ],
           "notes": "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "unsupported-by-platform",
+          "notes": "The content publishing API has no publish-time parameter; media_publish publishes immediately and unpublished containers expire after 24 hours."
         },
         {
           "operation": "accounts.read",
@@ -2727,6 +2757,12 @@
             "w_member_social"
           ],
           "notes": "Explicit author URN and public visibility. Organization role and app product approval required. Registered images must be AVAILABLE before creating a post."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "unsupported-by-platform",
+          "notes": "The Posts API accepts only lifecycleState PUBLISHED on creation and has no publish-time field."
         },
         {
           "platform": "linkedin",

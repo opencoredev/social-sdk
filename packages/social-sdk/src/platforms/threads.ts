@@ -712,6 +712,13 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         formats: ["text", "image", "video", "carousel"],
         requiredScopes: ["threads_basic", "threads_content_publish"],
       },
+      {
+        operation: "posts.schedule",
+        platform: "threads",
+        availability: "unsupported-by-platform",
+        notes:
+          "Threads publishing endpoints have no publish-time parameter; threads_publish publishes immediately.",
+      },
       { operation: "posts.read", platform: "threads", availability: "available" },
       { operation: "posts.list", platform: "threads", availability: "available" },
       { operation: "posts.status", platform: "threads", availability: "available" },
