@@ -4,9 +4,12 @@ import { definedFields } from "../src/core/fields.js";
 import { youtube } from "../src/platforms/youtube.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import { tiktok } from "../src/platforms/tiktok.js";
+import { parseJson } from "../src/transport/json.js";
+import { object } from "../src/transport/validation.js";
 import {
   connectedAccountRef,
   type AdapterOperationContext,
+  type JsonObject,
   type JsonValue,
 } from "../src/core/index.js";
 
@@ -74,21 +77,21 @@ it("LinkedIn sends plain author URN and ends paging without a next link or remai
 });
 
 it("TikTok uses video query filters and has_more to terminate its feed", async () => {
-  const requests: { url: URL; body: any }[] = [];
+  const requests: { url: URL; body: JsonObject }[] = [];
 
   const adapter = tiktok({
     auth: { accessToken: "token", openId: "u" },
     verifiedMediaOrigins: [],
     fetch: async (input, init) => {
       const url = new URL(String(input));
-      const body = JSON.parse(String(init?.body));
+      const body = object(parseJson(String(init?.body)));
       requests.push({ url, body });
 
       return json({
         data: {
           videos: [{ id: "v", title: "hello", secret: "hidden" }],
           cursor: 123,
-          has_more: body.cursor === 0,
+          has_more: body["cursor"] === 0,
         },
         error: { code: "ok" },
       });
