@@ -81,7 +81,7 @@ it("LinkedIn document upload initializes with the author and PUTs the bytes with
       kind: "document",
       mimeType: "application/pdf",
       filename: "report.pdf",
-      source: { kind: "blob", blob: pdf() },
+      source: { kind: "blob", blob: pdf(), fingerprint: "doc" },
     },
     account,
   );
@@ -119,14 +119,18 @@ it("LinkedIn document upload rejects unsupported types, empty files and oversize
     {
       kind: "document",
       mimeType: "text/plain",
-      source: { kind: "blob", blob: new Blob(["x"], { type: "text/plain" }) },
+      source: { kind: "blob", blob: new Blob(["x"], { type: "text/plain" }), fingerprint: "doc" },
     },
-    { kind: "document", mimeType: "application/pdf", source: { kind: "blob", blob: pdf(0) } },
+    {
+      kind: "document",
+      mimeType: "application/pdf",
+      source: { kind: "blob", blob: pdf(0), fingerprint: "doc" },
+    },
     {
       kind: "document",
       mimeType: "application/pdf",
       byteSize: 100_000_001,
-      source: { kind: "stream", open: () => new Blob([]).stream() },
+      source: { kind: "stream", open: () => new Blob([]).stream(), fingerprint: "doc" },
     },
     {
       kind: "document",
@@ -179,7 +183,11 @@ it("LinkedIn document upload rejects an invalid URN and maps storage failures wi
 
     await assert.rejects(
       social.media.upload(
-        { kind: "document", mimeType: "application/pdf", source: { kind: "blob", blob: pdf() } },
+        {
+          kind: "document",
+          mimeType: "application/pdf",
+          source: { kind: "blob", blob: pdf(), fingerprint: "doc" },
+        },
         account,
       ),
       expected,
@@ -312,7 +320,7 @@ it("LinkedIn prepare rejects document posts without a title, with extra media, f
       [
         documentMedia({
           mimeType: "application/pdf",
-          source: { kind: "blob", blob: pdf() },
+          source: { kind: "blob", blob: pdf(), fingerprint: "doc" },
         }),
       ],
       "linkedin.document",
@@ -330,7 +338,15 @@ it("LinkedIn prepare rejects document posts without a title, with extra media, f
 
   const fromFilename = social.posts.prepare({
     targets: [{ account }],
-    content: { media: [documentMedia({ caption: undefined, filename: "deck.pptx" })] },
+    content: {
+      media: [
+        {
+          kind: "document",
+          source: { kind: "media-ref", ref: documentRef() },
+          filename: "deck.pptx",
+        },
+      ],
+    },
   });
 
   assert.equal(fromFilename.ok, true);

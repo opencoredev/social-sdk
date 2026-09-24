@@ -1442,6 +1442,12 @@
       ],
       "capabilities": [
         {
+          "operation": "webhooks.verify",
+          "platform": "bluesky",
+          "availability": "unsupported-by-platform",
+          "notes": "Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose."
+        },
+        {
           "operation": "accounts.read",
           "platform": "bluesky",
           "availability": "available",
@@ -1455,7 +1461,8 @@
           "availability": "available",
           "formats": [
             "text",
-            "image"
+            "image",
+            "video"
           ],
           "requiredScopes": [
             "repo"
@@ -1619,13 +1626,71 @@
         {
           "operation": "posts.publish.video",
           "platform": "bluesky",
-          "availability": "not-implemented-by-adapter",
+          "availability": "available",
           "formats": [
             "video"
           ],
           "requiredScopes": [
             "repo"
-          ]
+          ],
+          "notes": "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls."
+        },
+        {
+          "operation": "comments.moderate",
+          "platform": "bluesky",
+          "availability": "available",
+          "requiredScopes": [
+            "repo"
+          ],
+          "notes": "Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies."
+        },
+        {
+          "operation": "media.upload",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "repo"
+          ],
+          "notes": "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference."
+        },
+        {
+          "operation": "media.video",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "repo"
+          ],
+          "notes": "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job."
+        },
+        {
+          "operation": "media.status",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "notes": "native.getVideoJobStatus reads app.bsky.video.getJobStatus once per call."
+        },
+        {
+          "operation": "media.limits.read",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "notes": "native.getVideoUploadLimits reads the daily video allowance. Uploads do not check it automatically."
+        },
+        {
+          "operation": "posts.update",
+          "platform": "bluesky",
+          "availability": "unsupported-by-platform",
+          "notes": "Bluesky treats posts as immutable. A putRecord rewrite succeeds on the PDS, but the Bluesky AppView ignores post updates and the new CID breaks existing strong references from replies, quotes, likes, and reposts."
         },
         {
           "operation": "posts.repost",
@@ -1707,6 +1772,12 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "x",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge."
+        },
         {
           "platform": "x",
           "operation": "posts.publish",
@@ -1873,6 +1944,20 @@
         },
         {
           "platform": "x",
+          "operation": "posts.update",
+          "availability": "available",
+          "formats": [
+            "text"
+          ],
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read"
+          ],
+          "notes": "Text-only edit through native.updatePost. X requires X Premium, the account's own post, and a recent post within X's edit window and edit count. Polls, replies to others, reposts, and scheduled posts are not editable. Each edit creates a new post ID."
+        },
+        {
+          "platform": "x",
           "operation": "graph.read",
           "availability": "available",
           "requiredScopes": [
@@ -1985,6 +2070,16 @@
         },
         {
           "platform": "x",
+          "operation": "comments.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Replies come from recent search with conversation_id, so only replies from the last 7 days are returned. Pass the conversation's root post. Page limits are 10-100. Recent search allows 450 requests per 15 minutes per app and 300 per user, and X bills post reads under the app's plan."
+        },
+        {
+          "platform": "x",
           "operation": "search.posts",
           "availability": "available",
           "requiredScopes": [
@@ -2045,6 +2140,17 @@
         },
         {
           "platform": "x",
+          "operation": "comments.moderate",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.moderate.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Native hideReply hides or unhides replies in conversations the authenticated user started. Requires a user-context token."
+        },
+        {
+          "platform": "x",
           "operation": "streams.read",
           "availability": "not-implemented-by-adapter",
           "notes": "Filtered stream rules and streaming transport are not implemented by this adapter."
@@ -2067,6 +2173,12 @@
           "operation": "accounts.read",
           "platform": "threads",
           "availability": "available"
+        },
+        {
+          "platform": "threads",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
         },
         {
           "operation": "posts.publish",
@@ -2144,6 +2256,16 @@
           "notes": "Hiding replies and pending-reply moderation require Threads reply-management permissions."
         },
         {
+          "operation": "comments.delete",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_delete"
+          ],
+          "notes": "Deletes only replies published by the authenticated user. Threads allows 100 deletions per account per day. Use hideReply for other users' replies."
+        },
+        {
           "operation": "posts.quote",
           "platform": "threads",
           "availability": "available",
@@ -2178,6 +2300,12 @@
             "threads_basic",
             "threads_delete"
           ]
+        },
+        {
+          "operation": "posts.update",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "The Threads API has no endpoint to edit a published post; text and attachments are set when the container is created."
         },
         {
           "operation": "profile.read",
@@ -2242,6 +2370,12 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "youtube",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies the PubSubHubbub X-Hub-Signature for subscriptions created with hub.secret and decodes the Atom feed. Answer the GET verification with answerYouTubeWebhookChallenge."
+        },
         {
           "operation": "accounts.read",
           "platform": "youtube",
@@ -2430,6 +2564,15 @@
           ]
         },
         {
+          "operation": "comments.delete",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.force-ssl"
+          ],
+          "notes": "comments.delete costs 50 quota units. Delete a thread through its top-level comment ID. Google does not document which comments a channel may delete; insufficient permissions return 403 forbidden."
+        },
+        {
           "operation": "analytics.youtube.read",
           "platform": "youtube",
           "availability": "available",
@@ -2470,6 +2613,12 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "tiktok",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event."
+        },
         {
           "platform": "tiktok",
           "operation": "posts.publish",
@@ -2517,6 +2666,12 @@
           "platform": "tiktok",
           "operation": "posts.status.poll",
           "availability": "available"
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.update",
+          "availability": "unsupported-by-platform",
+          "notes": "The Content Posting API sets caption and privacy only when a post is initialized. It has no endpoint to edit a published post."
         },
         {
           "platform": "tiktok",
@@ -2582,6 +2737,12 @@
             "instagram_business_content_publish"
           ],
           "notes": "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.update",
+          "availability": "unsupported-by-platform",
+          "notes": "Instagram Graph API does not provide an edit endpoint for published media."
         },
         {
           "operation": "accounts.read",
@@ -2673,12 +2834,14 @@
         {
           "platform": "instagram",
           "operation": "posts.delete",
-          "availability": "not-implemented-by-adapter"
+          "availability": "unsupported-by-platform",
+          "notes": "Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media"
         },
         {
           "platform": "instagram",
           "operation": "posts.removeFromPlatform",
-          "availability": "not-implemented-by-adapter"
+          "availability": "unsupported-by-platform",
+          "notes": "Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media"
         },
         {
           "platform": "instagram",
@@ -2699,6 +2862,12 @@
           "platform": "instagram",
           "operation": "messages.read",
           "availability": "approval-dependent"
+        },
+        {
+          "platform": "instagram",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
         }
       ]
     }
@@ -2808,6 +2977,15 @@
         },
         {
           "platform": "linkedin",
+          "operation": "comments.delete",
+          "availability": "available",
+          "requiredScopes": [
+            "w_member_social"
+          ],
+          "notes": "Native deleteComment needs the post URN and the complete commentUrn. LinkedIn does not document which comments an actor may delete; expect only the configured author's own comments to succeed."
+        },
+        {
+          "platform": "linkedin",
           "operation": "analytics.organization.read",
           "availability": "account-ineligible",
           "requiredScopes": [
@@ -2824,6 +3002,15 @@
           "platform": "linkedin",
           "operation": "messages.write",
           "availability": "unsupported-by-platform"
+        },
+        {
+          "platform": "linkedin",
+          "operation": "webhooks.verify",
+          "availability": "approval-dependent",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge."
         },
         {
           "platform": "linkedin",

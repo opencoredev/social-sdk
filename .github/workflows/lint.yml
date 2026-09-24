@@ -24,7 +24,7 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - name: Oxlint (anti-slop, shadcn)
+      - name: Oxlint (anti-slop)
         run: bun run lint
       - name: Anti-slop bundle sync
         run: bun scripts/check-anti-slop-bundle.ts

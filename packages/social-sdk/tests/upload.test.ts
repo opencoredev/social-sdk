@@ -2,6 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { httpsUrl, upload } from "../src/transport/upload.js";
 import { HttpError } from "../src/transport/http.js";
+import { definedFields } from "../src/core/fields.js";
 
 it("uploads incrementally with bounded demand, no auth, no redirect, and no replay", async () => {
   let produced = 0;
@@ -95,7 +96,7 @@ it("uploads large Blobs with Content-Length and without chunked streaming", asyn
       source: { mimeType: "video/mp4", size, body: blob, open: () => blob.stream() },
       fetch: async (_url, init) => {
         assert.equal(new Headers(init?.headers).get("content-length"), String(size));
-        assert.equal(init?.duplex, undefined);
+        assert.equal("duplex" in (init ?? {}), false);
         assert.equal(init?.body, blob);
 
         return new Response(null);
@@ -184,8 +185,8 @@ it("upload cleanup cannot hang on an uncooperative source cancellation hook", as
           timer = setTimeout(() => reject(new Error("cleanup hung")), 1000);
         }),
       ]),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-      (error: unknown) => error instanceof HttpError && error.kind === "network",
+      (error: unknown): error is HttpError =>
+        error instanceof HttpError && error.kind === "network",
     );
   } finally {
     clearTimeout(timer);
@@ -210,8 +211,7 @@ async function uploadBlob(body: Blob, onProgress?: (bytes: number) => void) {
         return body.stream();
       },
     },
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- optional fixture hook.
-    ...(onProgress ? { onProgress } : {}),
+    ...definedFields({ onProgress }),
     // Storage reads the whole body before it answers, as a real presigned PUT does.
     fetch: async (_url, init) => {
       assert.equal(init?.body, body);
@@ -277,7 +277,7 @@ it("streamed Uint8Array bodies count every byte that storage consumed", async ()
     onProgress: (value) => progress.push(value),
     fetch: async (_url, init) => {
       assert.ok(init?.body instanceof ReadableStream);
-      assert.equal(init.duplex, "half");
+      assert.ok("duplex" in init && init.duplex === "half");
       assert.equal((await new Response(init.body).arrayBuffer()).byteLength, 2500);
 
       return new Response(null);
@@ -307,8 +307,7 @@ it("storage acceptance before a streamed body is fully consumed stays an error",
         return new Response(null);
       },
     }),
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-    (error: unknown) =>
+    (error) =>
       error instanceof HttpError &&
       error.kind === "invalid-response" &&
       error.message === "Storage accepted before the full declared upload was consumed." &&

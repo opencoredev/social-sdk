@@ -1,11 +1,12 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- compact mocked transport fixtures. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { x } from "../src/platforms/x.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
+
 const auth = { userId: "u1", accessToken: "test" };
+
 const xChunkSize = 1024 * 1024;
 
 function videoBlob(bytes: number): Blob {
@@ -125,6 +126,7 @@ it("X GIF upload polls processing_info until succeeded", async () => {
   });
 
   const blob = gifBlob(100);
+
   const result = await social.posts.publish({
     targets: [{ account }],
     content: {
@@ -170,6 +172,7 @@ it("X chunked upload maps a 413 chunk rejection to media_error without retrying 
   });
 
   const blob = videoBlob(100);
+
   const result = await social.posts.publish({
     targets: [{ account }],
     content: {
@@ -222,6 +225,7 @@ it("X failed media processing never creates a post", async () => {
   });
 
   const blob = videoBlob(100);
+
   const result = await social.posts.publish({
     targets: [{ account }],
     content: {
@@ -244,6 +248,7 @@ it("X failed media processing never creates a post", async () => {
 
 it("X validates chunked media locally without network access", () => {
   let calls = 0;
+
   const social = createSocial({
     backend: x({
       auth,
@@ -329,6 +334,7 @@ it("X chunked upload follows the documented v2 wire contract", async () => {
   const seen: { url: URL; init: RequestInit | undefined }[] = [];
   const size = xChunkSize + 7;
   const bytes = new Uint8Array(size).map((_, index) => index % 251);
+
   const social = createSocial({
     backend: x({
       auth,
@@ -386,6 +392,7 @@ it("X chunked upload follows the documented v2 wire contract", async () => {
 
 it("X processing wait never outlives the operation budget", async () => {
   let statusCalls = 0;
+
   const social = createSocial({
     backend: x({
       auth,
@@ -404,6 +411,7 @@ it("X processing wait never outlives the operation budget", async () => {
   });
 
   const started = performance.now();
+
   const result = await social.posts.publish(
     { targets: [{ account }], content: videoContent(videoBlob(10)) },
     { retryBudget: { maxAttempts: 1, maxElapsedMs: 200 } },
@@ -417,6 +425,7 @@ it("X processing wait never outlives the operation budget", async () => {
 it("X processing wait reports cancellation as cancelled", async () => {
   const controller = new AbortController();
   let tweets = 0;
+
   const adapter = x({
     auth,
     fetch: chunkedFetch({
@@ -434,10 +443,11 @@ it("X processing wait reports cancellation as cancelled", async () => {
       },
     }),
   });
+
   const blob = videoBlob(10);
 
   await assert.rejects(
-    () =>
+    async () =>
       adapter.posts?.publishTarget(
         { targetIndex: 0, targetKey: "x", account, content: videoContent(blob) },
         {
@@ -501,6 +511,7 @@ it("X rejects empty video and GIF Blobs during preparation", () => {
 
 it("X native uploadVideo and uploadGif return attachable media IDs", async () => {
   const categories: string[] = [];
+
   const adapter = x({
     auth,
     fetch: async (input, init) => {
@@ -517,12 +528,14 @@ it("X native uploadVideo and uploadGif return attachable media IDs", async () =>
       return Response.json({ data: { id: "native1" } });
     },
   });
+
   const context = {
     backendInstance: "default",
     correlationId: "c",
     retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
   };
 
+  assert.ok(adapter.native);
   assert.deepEqual(await adapter.native.uploadVideo({ account, video: videoBlob(10), context }), {
     mediaId: "native1",
   });
@@ -534,6 +547,7 @@ it("X native uploadVideo and uploadGif return attachable media IDs", async () =>
 
 it("X reports a failure on the final STATUS poll as media_error", async () => {
   let statusCalls = 0;
+
   const social = createSocial({
     backend: x({
       auth,
@@ -572,6 +586,7 @@ it("X reports a failure on the final STATUS poll as media_error", async () => {
 
 it("X treats a malformed INITIALIZE response as a definite media failure", async () => {
   let tweets = 0;
+
   const social = createSocial({
     backend: x({
       auth,

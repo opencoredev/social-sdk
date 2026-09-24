@@ -2,7 +2,9 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { linkedin } from "../src/platforms/linkedin.js";
-import type { JsonObject } from "../src/core/types.js";
+import type { JsonObject, PublishRequest } from "../src/core/types.js";
+import { parseJson } from "../src/transport/json.js";
+import { object } from "../src/transport/validation.js";
 
 const nativeContext = {
   backendInstance: "default",
@@ -85,7 +87,7 @@ it("LinkedIn does not claim publication without an upstream ID or replay uncerta
 it("LinkedIn refuses unsupported formats/options and cross-author media locally", () => {
   const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
 
-  for (const request of [
+  const requests: readonly PublishRequest[] = [
     {
       targets: [{ account: { ...account, accountId: "urn:li:organization:other" } }],
       content: { text: "Hello" },
@@ -116,8 +118,9 @@ it("LinkedIn refuses unsupported formats/options and cross-author media locally"
         ],
       },
     },
-  ])
-    assert.equal(social.posts.prepare(request).ok, false);
+  ];
+
+  for (const request of requests) assert.equal(social.posts.prepare(request).ok, false);
 });
 
 it("LinkedIn validates upstream ownership and processing before any post mutation", async () => {
@@ -237,8 +240,7 @@ it("LinkedIn escapes Little Text Format commentary and continues after member im
       apiVersion: "202609",
       fetch: async (input, init) => {
         if (String(input).includes("/rest/images/")) return new Response(null, { status: 403 });
-        // SAFETY: the adapter sends a JSON object body for this test request.
-        bodies.push(JSON.parse(String(init?.body)) as JsonObject);
+        bodies.push(object(parseJson(String(init?.body))));
 
         return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
       },
@@ -269,7 +271,7 @@ it("LinkedIn escapes Little Text Format commentary and continues after member im
   });
 
   assert.equal(result.outcomes[0]?.state, "published");
-  assert.equal(bodies[0]?.commentary, "\\|\\{\\}\\@\\[\\]\\(\\)\\<\\>\\#\\\\\\*\\_\\~");
+  assert.equal(bodies[0]?.["commentary"], "\\|\\{\\}\\@\\[\\]\\(\\)\\<\\>\\#\\\\\\*\\_\\~");
 });
 
 it("LinkedIn native writes use documented poll, reaction, reshare, update, and delete shapes", async () => {
@@ -309,8 +311,8 @@ it("LinkedIn native writes use documented poll, reaction, reshare, update, and d
     context: nativeContext,
   });
   await native.deletePost({ account, postId: post, context: nativeContext });
-  assert.equal(poll.id, "urn:li:share:99");
-  assert.deepEqual(calls[0]?.body?.content, {
+  assert.equal(poll["id"], "urn:li:share:99");
+  assert.deepEqual(calls[0]?.body?.["content"], {
     poll: {
       question: "Q",
       options: [{ text: "A" }, { text: "B" }],
@@ -321,8 +323,8 @@ it("LinkedIn native writes use documented poll, reaction, reshare, update, and d
     calls[1]?.url,
     "https://api.linkedin.com/rest/reactions?actor=urn%3Ali%3Aperson%3Amember1",
   );
-  assert.deepEqual(calls[2]?.body?.reshareContext, { parent: post });
-  assert.equal(reshared.id, "urn:li:share:99");
+  assert.deepEqual(calls[2]?.body?.["reshareContext"], { parent: post });
+  assert.equal(reshared["id"], "urn:li:share:99");
   assert.equal(calls[3]?.method, "POST");
   assert.equal(calls[3]?.headers.get("X-RestLi-Method"), "PARTIAL_UPDATE");
   assert.deepEqual(calls[3]?.body, { patch: { $set: { commentary: "changed" } } });
@@ -386,16 +388,18 @@ it("LinkedIn rejects a comment whose native parent object differs from the decla
 });
 
 it("LinkedIn normalizes organization follower, page, share, and count statistics", async () => {
+  const organizationUrn = "urn:li:organization:123";
+
   const organization = connectedAccountRef({
     backend: "default",
     platform: "linkedin",
-    accountId: "urn:li:organization:123",
+    accountId: organizationUrn,
   });
 
   const calls: string[] = [];
 
   const adapter = linkedin({
-    auth: { accessToken: "secret", author: organization.accountId },
+    auth: { accessToken: "secret", author: organizationUrn },
     apiVersion: "202609",
     fetch: async (input) => {
       const url = String(input);
@@ -483,14 +487,16 @@ it("LinkedIn normalizes organization follower, page, share, and count statistics
 });
 
 it("LinkedIn returns empty organization statistics and rejects member analytics", async () => {
+  const organizationUrn = "urn:li:organization:123";
+
   const organization = connectedAccountRef({
     backend: "default",
     platform: "linkedin",
-    accountId: "urn:li:organization:123",
+    accountId: organizationUrn,
   });
 
   const adapter = linkedin({
-    auth: { accessToken: "secret", author: organization.accountId },
+    auth: { accessToken: "secret", author: organizationUrn },
     apiVersion: "202609",
     fetch: async () => Response.json({ elements: [] }),
   });
@@ -503,14 +509,16 @@ it("LinkedIn returns empty organization statistics and rejects member analytics"
     [],
   );
 
+  const memberUrn = "urn:li:person:member1";
+
   const member = connectedAccountRef({
     backend: "default",
     platform: "linkedin",
-    accountId: "urn:li:person:member1",
+    accountId: memberUrn,
   });
 
   const memberAdapter = linkedin({
-    auth: { accessToken: "secret", author: member.accountId },
+    auth: { accessToken: "secret", author: memberUrn },
     apiVersion: "202609",
   });
 
@@ -524,16 +532,18 @@ it("LinkedIn returns empty organization statistics and rejects member analytics"
 });
 
 it("LinkedIn uses literal Rest.li timeIntervals and preserves documented time buckets and nested clicks", async () => {
+  const organizationUrn = "urn:li:organization:2414183";
+
   const organization = connectedAccountRef({
     backend: "default",
     platform: "linkedin",
-    accountId: "urn:li:organization:2414183",
+    accountId: organizationUrn,
   });
 
   const urls: string[] = [];
 
   const adapter = linkedin({
-    auth: { accessToken: "secret", author: organization.accountId },
+    auth: { accessToken: "secret", author: organizationUrn },
     apiVersion: "202609",
     fetch: async (input) => {
       const url = String(input);
@@ -654,8 +664,7 @@ it("LinkedIn publishes 2 to 20 registered images as documented MultiImage conten
 
         if (url.includes("/rest/images/"))
           return Response.json({ owner: auth.author, status: "AVAILABLE" });
-        // SAFETY: the adapter sends a JSON object body for post creation.
-        bodies.push(JSON.parse(String(init?.body)) as JsonObject);
+        bodies.push(object(parseJson(String(init?.body))));
 
         return new Response(null, {
           status: 201,
@@ -712,8 +721,7 @@ it("LinkedIn keeps single images on media content and enforces multi-image limit
       fetch: async (input, init) => {
         if (String(input).includes("/rest/images/"))
           return Response.json({ owner: auth.author, status: "AVAILABLE" });
-        // SAFETY: the adapter sends a JSON object body for post creation.
-        bodies.push(JSON.parse(String(init?.body)) as JsonObject);
+        bodies.push(object(parseJson(String(init?.body))));
 
         return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
       },
@@ -741,7 +749,7 @@ it("LinkedIn keeps single images on media content and enforces multi-image limit
       imageRef("urn:li:image:a"),
       {
         kind: "video" as const,
-        source: { kind: "url" as const, url: "https://example.com/v.mp4" },
+        source: { kind: "https-url" as const, url: "https://example.com/v.mp4" },
       },
     ],
   ])

@@ -1,7 +1,5 @@
 import { parseJson, type JsonValue } from "./json.js";
 
-/* oxlint-disable anti-slop/no-unknown-returns -- Adapters validate provider-specific payloads at their boundary. */
-
 /** Portable, bounded HTTP transport. Construction performs no I/O. */
 export interface HttpOptions {
   fetch?: typeof globalThis.fetch;
@@ -209,7 +207,7 @@ export function createHttp(options: HttpOptions = {}) {
   const now = options.now ?? Date.now;
   const random = options.random ?? Math.random;
 
-  return async function request(input: HttpRequest): Promise<unknown> {
+  return async function request(input: HttpRequest): Promise<JsonValue> {
     const deadlineMs = Math.min(timeoutMs, input.timeoutMs ?? timeoutMs);
 
     if (!Number.isFinite(deadlineMs) || deadlineMs <= 0)
@@ -376,7 +374,7 @@ export function createHttp(options: HttpOptions = {}) {
               lastRequestId,
             );
           }
-          // oxlint-disable-next-line anti-slop/require-readable-spacing -- await is the guarded retry step.
+
           await abortable((options.sleep ?? sleep)(delay, controller.signal), controller.signal);
         }
       }

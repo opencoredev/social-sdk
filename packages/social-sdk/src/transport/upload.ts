@@ -164,7 +164,6 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
                 }
 
                 if (bytes + next.value.byteLength > options.maxBytes) {
-                  // oxlint-disable-next-line anti-slop/require-readable-spacing -- compact guarded error construction.
                   throw new HttpError(
                     "Upload stream exceeds its total byte limit.",
                     "invalid-input",

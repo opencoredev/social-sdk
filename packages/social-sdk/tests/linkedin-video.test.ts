@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import type { JsonObject, MediaAttachment, MediaRef } from "../src/core/types.js";
+import { definedFields } from "../src/core/fields.js";
+import { parseJson } from "../src/transport/json.js";
+import { object } from "../src/transport/validation.js";
 
 const nativeContext = {
   backendInstance: "default",
@@ -44,8 +47,12 @@ async function record(input: RequestInfo | URL, init: RequestInit | undefined): 
     return { url, method, headers, bytes, blobBody };
   }
 
-  // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- fixture contract.
-  return { url, method, headers, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) };
+  return {
+    url,
+    method,
+    headers,
+    ...definedFields({ body: init?.body ? object(parseJson(String(init.body))) : undefined }),
+  };
 }
 
 function video(size: number, extra: Partial<MediaAttachment> = {}): MediaAttachment {

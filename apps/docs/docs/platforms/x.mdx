@@ -146,6 +146,58 @@ plan and project permissions. The SDK does not grant access, widen the retention
 around a quota. A denied or unavailable route is surfaced as a structured provider error. Search
 results are not proof that every matching post exists or remains publicly readable.
 
+### Edit a recent post
+
+The native `updatePost` method edits the text of a published post. It calls `POST /2/tweets` with `edit_options.previous_post_id`, which is X's documented edit path.
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const edited = await native.updatePost({
+  account,
+  postId: "1900000000000000001",
+  text: "Corrected release notes",
+  context,
+});
+
+console.log(edited.post.postId); // the new version's ID
+console.log(edited.editHistoryPostIds); // oldest first, when X returns it
+```
+
+X gives every edited version a new post ID, so store `edited.post` as the current reference. The original ID stays in the edit chain, and deleting any version deletes the whole chain. The method validates the numeric ID and X's weighted text limit before sending, and it only changes text.
+
+X decides eligibility. Its [changelog](https://docs.x.com/changelog) (October 3, 2025) requires X Premium, the account's own post, and a post created within the last hour. The [edit posts guide](https://docs.x.com/x-api/fundamentals/edit-posts) describes a 30-minute window and at most five edits, so read `edit_controls` if you need the current limit for a post. Promoted posts, polls, replies to other accounts, reposts, community posts, collaborative posts, and scheduled posts cannot be edited. A rejected edit surfaces as the mapped provider error, usually `missing_permission` for HTTP 403.
+
+The edit is sent once. A lost response, a server failure after dispatch, or a success response without a new ID raises `ambiguous_outcome` with `reconcile-first`. Read the post and its `edit_history_tweet_ids` before trying again. See [Create or Edit Post](https://docs.x.com/x-api/posts/create-post).
+
+### List replies to a post
+
+`comments.list` returns replies to one of the account's posts. X has no replies endpoint, so the
+adapter runs a recent search for `conversation_id:<postId>`, which is the method
+[X documents](https://docs.x.com/x-api/fundamentals/conversation-id) for reading a conversation.
+
+```ts
+const post = platformPostRef({ ...account, postId: "1700000000000000000" });
+const replies = await social.comments.list(post, { limit: 25 });
+
+for (const reply of replies.items) console.log(reply["id"], reply["author_id"], reply["text"]);
+```
+
+The page includes nested replies, not only direct ones. Each item keeps `in_reply_to_user_id` and
+`referenced_tweets`, so you can rebuild the tree from the `replied_to` references. The root post is
+left out. Pass the conversation's first post; a reply's own ID matches nothing because X stores the
+root ID as every reply's `conversation_id`.
+
+Recent search sets the limits:
+
+- Only replies from the last 7 days are returned. Older replies are missing, not an error.
+- `limit` must be from 10 through 100. Omit it to let X use its default of 10.
+- X allows 450 recent search requests per 15 minutes per app and 300 per user.
+- The call works with the user token (`tweet.read` and `users.read`) or, without one, the app
+  bearer token.
+- Post reads count toward the app's X API usage and billing.
+
+The adapter does not fall back to full-archive search and does not retry on a rate limit.
+
 ### Like and unlike posts
 
 The X platform entrypoint exports `xLike` and `xUnlike` for credential-ready server code. They require an acting connected-account reference, a native numeric post ID, server-side credentials, and an operation context whose `backendInstance` matches the account. These helpers sit outside `createSocial` authorization and concurrency middleware: authorize the acting account in your application before calling them.
@@ -256,9 +308,15 @@ uses `POST /2/dm_conversations/{dm_conversation_id}/messages`. These methods req
 token with `dm.read`, `users.read`, and `tweet.read`; sending also requires `dm.write`. Availability
 still depends on the X API tier and Direct Messages access for the app.
 
+### Receive webhooks
+
+Pass the OAuth 2.0 client secret, or the legacy consumer secret, as `webhookSecret`. `adapter.webhooks.verify` checks `X-Twitter-Webhooks-Signature-OAuth2` when X sends it and falls back to `X-Twitter-Webhooks-Signature` only when that header is absent, so use the OAuth 2.0 client secret once your app has one. Answer the CRC GET with `answerXWebhookChallenge` from `@opencoredev/social-sdk/server`, using the same secret. Account Activity direct messages decode to `message.received`, post deletions to `post.removed`, and app revocations to `account.updated`. See [Process webhooks](/events).
+
 ## Native operations
 
-The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, deletion, and bookmarks. Filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
+The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, text edits, deletion, and bookmarks. Filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
+
+`deleteComment({ account, commentId, context })` deletes a reply post with `DELETE /2/tweets/{id}`. X only allows the authenticated user to delete posts they authored, so it cannot remove replies from other accounts. The adapter raises `ambiguous_outcome` unless X returns `deleted: true`.
 
 Full-archive search (`searchAllPosts`) requires an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
 
@@ -273,4 +331,4 @@ X access depends on the account's current API plan and OAuth2 scopes. API usage 
 - Keep access tokens server-side and supply an application authorization policy before publishing for multiple tenants.
 - Current repository evidence is contract and mocked transport coverage; no live X account or paid API plan has been verified here.
 
-See [X API pricing](https://docs.x.com/x-api/getting-started/pricing), [posts](https://docs.x.com/x-api/posts/creating-a-post), and [media](https://developer.x.com/en/docs/x-api/v1.1/media/upload-media/api-reference/post-media-upload) for current upstream access and limits.
+See [X API pricing](https://docs.x.com/x-api/getting-started/pricing), [posts](https://docs.x.com/x-api/posts/creating-a-post), [delete post](https://docs.x.com/x-api/posts/delete-post), and [media](https://developer.x.com/en/docs/x-api/v1.1/media/upload-media/api-reference/post-media-upload) for current upstream access and limits.
