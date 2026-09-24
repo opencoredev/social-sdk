@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createSocial } from "../src/core/client.js";
-import { connectedAccountRef } from "../src/core/types.js";
+import { connectedAccountRef, type JsonValue } from "../src/core/types.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import { youtube } from "../src/platforms/youtube.js";
 import { zernio } from "../src/cloud/zernio.js";
@@ -15,8 +15,7 @@ const post = {
   postId: "video",
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-const json = (value: unknown) =>
+const json = (value: JsonValue) =>
   new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
 
 test("YouTube comment page tokens are exposed as scoped cursors", async () => {
@@ -49,7 +48,8 @@ test("YouTube comment page tokens are exposed as scoped cursors", async () => {
     authorization: { tenantId: "tenant" },
   });
 
-  assert.match(first.nextCursor ?? "", /^social-v1\./);
+  assert.ok(first.nextCursor);
+  assert.match(first.nextCursor, /^social-v1\./);
   await social.comments.list(post, {
     limit: 1,
     cursor: first.nextCursor,
@@ -136,11 +136,13 @@ test("Zernio comment and message cursors pass through as opaque provider values"
   };
 
   const firstConversation = await social.messages.listConversations(account, { limit: 1 });
+  assert.ok(firstConversation.nextCursor);
   await social.messages.listConversations(account, {
     limit: 1,
     cursor: firstConversation.nextCursor,
   });
   const firstMessages = await social.messages.listMessages(conversation, { limit: 1 });
+  assert.ok(firstMessages.nextCursor);
   await social.messages.listMessages(conversation, { limit: 1, cursor: firstMessages.nextCursor });
   assert.ok(
     urls.some((url) => url.includes("cursor=conversations-next") && url.includes("limit=1")),

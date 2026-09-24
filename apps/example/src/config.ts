@@ -36,7 +36,6 @@ export function exampleBackendConfig(
       backendName,
       backend: mockBackend({ backendInstance: backendName, scenario }),
     };
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
   }
 
   const ids = new Set(
@@ -61,7 +60,6 @@ export function exampleBackendConfig(
       return {
         ...shared,
         backend: secret ? zernio({ ...options, webhookSecret: secret }) : zernio(options),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
       };
     }
 
@@ -71,7 +69,6 @@ export function exampleBackendConfig(
 
       return {
         ...shared,
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
         backend: secret ? postForMe({ ...options, webhookSecret: secret }) : postForMe(options),
       };
     }

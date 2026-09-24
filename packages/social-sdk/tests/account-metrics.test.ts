@@ -4,7 +4,11 @@ import { bluesky } from "../src/platforms/bluesky.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import { youtube } from "../src/platforms/youtube.js";
 import { tiktok } from "../src/platforms/tiktok.js";
-import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
+import {
+  connectedAccountRef,
+  type AdapterOperationContext,
+  type JsonValue,
+} from "../src/core/index.js";
 import { zernio } from "../src/cloud/zernio.js";
 
 const context = (backend: string): AdapterOperationContext => ({
@@ -13,8 +17,7 @@ const context = (backend: string): AdapterOperationContext => ({
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 });
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-const json = (value: unknown) =>
+const json = (value: JsonValue) =>
   new Response(JSON.stringify(value), {
     status: 200,
     headers: { "content-type": "application/json" },
@@ -41,7 +44,7 @@ it("reads Bluesky profile counts and omits absent metrics", async () => {
       ["posts", 0],
     ],
   );
-  await assert.rejects(() =>
+  await assert.rejects(async () =>
     adapter.analytics?.getAccountMetrics?.(
       connectedAccountRef({ backend: "direct", platform: "bluesky", accountId: "did:plc:b" }),
       context("direct"),

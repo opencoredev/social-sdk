@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { createSocial } from "../src/index.js";
@@ -7,12 +6,17 @@ import {
   connectedAccountRef,
   SocialError,
   type AdapterOperationContext,
+  type JsonObject,
+  type JsonValue,
   type MediaRef,
 } from "../src/core/index.js";
 
 const did = "did:plc:test";
+
 const account = connectedAccountRef({ backend: "default", platform: "bluesky", accountId: did });
+
 const cid = "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku";
+
 const processedBlob = {
   $type: "blob",
   ref: { $link: cid },
@@ -27,8 +31,7 @@ interface Seen {
   readonly body?: BodyInit | null;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-function json(value: unknown, status = 200): Response {
+function json(value: JsonValue, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },
@@ -52,6 +55,7 @@ function harness(
   extra: Partial<BlueskyOptions> = {},
 ) {
   const seen: Seen[] = [];
+
   const adapter = bluesky({
     auth: { service: "https://pds.example", did, accessJwt: "pds-access-jwt" },
     fetch: async (input, init) => {
@@ -61,29 +65,25 @@ function harness(
         headers: new Headers(init?.headers),
         body: init?.body ?? null,
       };
+
       seen.push(request);
+
       return route(request);
     },
     ...extra,
   });
+
   return { adapter, seen };
 }
 
-interface JobExtras {
-  readonly progress?: number;
-  readonly blob?: object;
-  readonly failureCode?: string;
-  readonly error?: string;
-  readonly message?: string;
-}
-
-function job(state: string, extra: JobExtras = {}) {
+function job(state: string, extra: JsonObject = {}): JsonObject {
   return { jobId: "job-1", did, state, ...extra };
 }
 
 describe("Bluesky video upload", () => {
   it("uploads with a PDS-scoped service token and returns the job without polling", async () => {
     const before = Math.floor(Date.now() / 1000);
+
     const { adapter, seen } = harness(({ url }) => {
       if (url.pathname === "/xrpc/com.atproto.server.getSession")
         return json({
@@ -100,8 +100,10 @@ describe("Bluesky video upload", () => {
             ],
           },
         });
+
       if (url.pathname === "/xrpc/com.atproto.server.getServiceAuth")
         return json({ token: "service-token" });
+
       if (url.pathname === "/xrpc/app.bsky.video.uploadVideo")
         return json(job("JOB_STATE_CREATED", { progress: 0 }));
       throw new Error(`unexpected ${url.href}`);
@@ -290,6 +292,7 @@ describe("Bluesky video job status and limits", () => {
     const other = harness(() =>
       json({ jobStatus: { ...job("JOB_STATE_CREATED"), did: "did:plc:x" } }),
     );
+
     await assert.rejects(
       other.adapter.native!.getVideoJobStatus({ account, jobId: "job-1", context: context() }),
       (error: SocialError) => error instanceof SocialError && error.code === "unauthorized",
@@ -302,6 +305,7 @@ describe("Bluesky video job status and limits", () => {
         }),
       }),
     );
+
     await assert.rejects(
       malformed.adapter.native!.getVideoJobStatus({ account, jobId: "job-1", context: context() }),
       (error: SocialError) => error instanceof SocialError && error.code === "media_error",
@@ -331,6 +335,7 @@ describe("Bluesky video job status and limits", () => {
 
   it("requests service tokens through an OAuth session's fetchHandler", async () => {
     const pds: { readonly pathname: string; readonly authorization: string | null }[] = [];
+
     const { adapter, seen } = harness(
       ({ url }) =>
         url.pathname.endsWith("getUploadLimits")
@@ -342,6 +347,7 @@ describe("Bluesky video job status and limits", () => {
           did,
           fetchHandler: async (pathname, init) => {
             pds.push({ pathname, authorization: new Headers(init?.headers).get("authorization") });
+
             return json({ token: "session-service-token" });
           },
         },
@@ -387,10 +393,13 @@ describe("Bluesky video publishing", () => {
 
   it("returns the job ID from media.upload and publishes an app.bsky.embed.video record", async () => {
     let status = "JOB_STATE_ENCODING";
+
     const { adapter, seen } = harness(
       ({ url, body }) => {
         if (url.pathname.endsWith("getServiceAuth")) return json({ token: "service-token" });
+
         if (url.pathname.endsWith("uploadVideo")) return json(job("JOB_STATE_CREATED"));
+
         if (url.pathname.endsWith("getJobStatus"))
           return json({
             jobStatus:
@@ -398,6 +407,7 @@ describe("Bluesky video publishing", () => {
                 ? job(status, { blob: processedBlob })
                 : job(status, { progress: 50 }),
           });
+
         if (url.pathname.endsWith("createRecord")) {
           const record = JSON.parse(String(body))["record"];
           assert.deepEqual(record["embed"], {
@@ -407,12 +417,15 @@ describe("Bluesky video publishing", () => {
             aspectRatio: { width: 1920, height: 1080 },
           });
           assert.equal(record["text"], "Watch this");
+
           return json({ uri: `at://${did}/app.bsky.feed.post/3kvideo`, cid: "bafyrecord" });
         }
+
         throw new Error(`unexpected ${url.href}`);
       },
       { pdsDid: "did:web:pds.example" },
     );
+
     const social = createSocial({ backend: adapter });
 
     const ref = await social.media.upload(
@@ -423,6 +436,7 @@ describe("Bluesky video publishing", () => {
       },
       account,
     );
+
     assert.deepEqual(ref, videoRef);
 
     const content = {
@@ -464,6 +478,7 @@ describe("Bluesky video publishing", () => {
     const { adapter, seen } = harness(() =>
       json({ jobStatus: job("JOB_STATE_FAILED", { failureCode: "encoding_failure" }) }),
     );
+
     const social = createSocial({ backend: adapter });
 
     const result = await social.posts.publish({
@@ -482,11 +497,14 @@ describe("Bluesky video publishing", () => {
     const { adapter, seen } = harness(() => {
       throw new Error("must not send");
     });
+
     const social = createSocial({ backend: adapter });
+
     const image = {
       kind: "image" as const,
       source: { kind: "https-url" as const, url: "https://cdn.example/a.png" },
     };
+
     const video = { kind: "video" as const, source: { kind: "media-ref" as const, ref: videoRef } };
 
     const cases = [
@@ -529,6 +547,7 @@ describe("Bluesky video publishing", () => {
     const { adapter, seen } = harness(() => {
       throw new Error("must not send");
     });
+
     const social = createSocial({ backend: adapter });
 
     await assert.rejects(
@@ -550,6 +569,7 @@ describe("Bluesky video publishing", () => {
 
   it("declares video publishing and the explicit job operations", () => {
     const { adapter } = harness(() => json({}));
+
     const available = adapter.capabilities.capabilities
       .filter((entry) => entry.availability === "available")
       .map((entry) => entry.operation);
