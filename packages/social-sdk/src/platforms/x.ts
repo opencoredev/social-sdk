@@ -1,4 +1,5 @@
 import { remainingBudget } from "../transport/budget.js";
+import { definedFields } from "../core/fields.js";
 import { isValidXText } from "./x-text.js";
 import { defineAdapter } from "../core/adapter.js";
 import { connectedAccountRef, profileRef } from "../core/types.js";
@@ -10,6 +11,7 @@ import type {
   ConversationRef,
   DeliveryOutcome,
   JsonObject,
+  JsonValue,
   MediaAttachment,
   MetricValue,
   Page,
@@ -20,17 +22,16 @@ import type {
   RelationshipRecord,
   SearchPostsInput,
 } from "../core/types.js";
-import { managedHttp, publicFields } from "../cloud/common.js";
+import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { createHttp, HttpError } from "../transport/http.js";
 import {
   array,
-  object as parseObject,
+  isString,
+  object,
   optionalNumber,
   optionalString,
   string,
 } from "../transport/validation.js";
-
-const object = (value: unknown): JsonObject => parseObject(value) as JsonObject;
 
 // 53-bit conversation ID hashes, 11 base36 characters each. listConversations returns at
 // most 1,200 distinct conversations, which keeps its cursor well under the client's 16,384
@@ -415,7 +416,7 @@ export interface XNative {
 export function x(options: XOptions): import("../core/adapter.js").SocialAdapter<XNative> {
   const request = managedHttp("https://api.x.com", {
     apiKey: options.auth.accessToken ?? "app-auth-placeholder",
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...definedFields({ fetch: options.fetch }),
   });
 
   const appRequest = () => {
@@ -428,7 +429,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     return managedHttp("https://api.x.com", {
       apiKey: options.appBearerToken,
-      ...(options.fetch ? { fetch: options.fetch } : {}),
+      ...definedFields({ fetch: options.fetch }),
     });
   };
 
@@ -452,7 +453,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         ? request
         : appRequest();
 
-  const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
+  const http = createHttp(definedFields({ fetch: options.fetch }));
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
   const authorize = (
@@ -490,7 +491,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         accountId: options.auth.userId,
       },
       displayName: string(user["name"]),
-      ...(typeof user["username"] === "string" ? { handle: user["username"] } : {}),
+      ...definedFields({ handle: optionalString(user["username"]) }),
       status: "connected" as const,
     };
   }
@@ -516,7 +517,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         message: "X post identity or author does not match the declared reference.",
       });
 
-    return result as JsonObject;
+    return result;
   }
 
   async function listPosts(
@@ -543,8 +544,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         undefined,
         {
           "tweet.fields": "id,text,author_id,created_at,conversation_id",
-          ...(input.cursor === undefined ? {} : { pagination_token: input.cursor }),
-          ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
+          ...definedFields({
+            pagination_token: input.cursor,
+            max_results: input.limit?.toString(),
+          }),
         },
       ),
     );
@@ -568,7 +571,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     return {
       items,
-      ...(nextCursor === undefined ? {} : { nextCursor }),
+      ...definedFields({ nextCursor }),
     };
   }
 
@@ -648,20 +651,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ]
             .filter((field, index, fields) => fields.indexOf(field) === index)
             .join(","),
-          ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
-          ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
-          ...(input.startTime === undefined ? {} : { start_time: input.startTime }),
-          ...(input.endTime === undefined ? {} : { end_time: input.endTime }),
-          ...(nativeInput?.sortOrder === undefined ? {} : { sort_order: nativeInput.sortOrder }),
-          ...(nativeInput?.expansions === undefined
-            ? {}
-            : { expansions: nativeInput.expansions.join(",") }),
-          ...(nativeInput?.userFields === undefined
-            ? {}
-            : { "user.fields": nativeInput.userFields.join(",") }),
-          ...(nativeInput?.mediaFields === undefined
-            ? {}
-            : { "media.fields": nativeInput.mediaFields.join(",") }),
+          ...definedFields({
+            next_token: input.cursor,
+            max_results: input.limit?.toString(),
+            start_time: input.startTime,
+            end_time: input.endTime,
+            sort_order: nativeInput?.sortOrder,
+            expansions: nativeInput?.expansions?.join(","),
+            "user.fields": nativeInput?.userFields?.join(","),
+            "media.fields": nativeInput?.mediaFields?.join(","),
+          }),
         },
       ),
     );
@@ -682,11 +681,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const items = (result["data"] === undefined ? [] : array(result["data"])).map((entry) => {
       const row = object(entry);
 
-      return Object.fromEntries(
-        ["id", "text", ...requestedFields].flatMap((field, index, fields) =>
-          fields.indexOf(field) === index && field in row ? [[field, row[field]]] : [],
-        ),
-      ) as JsonObject;
+      const picked: Record<string, JsonValue> = {};
+
+      // A Set keeps first-seen order, so "id" and "text" lead and repeated fields appear once.
+      for (const field of new Set(["id", "text", ...requestedFields])) {
+        const value = row[field];
+
+        if (value !== undefined) picked[field] = value;
+      }
+
+      return picked;
     });
 
     const meta = result["meta"] === undefined ? {} : object(result["meta"]);
@@ -696,13 +700,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     return {
       items,
-      ...(nextCursor === undefined ? {} : { nextCursor }),
-      ...(includes === undefined
-        ? {}
-        : {
-            // SAFETY: X's `includes` member is a JSON object validated by the transport boundary.
-            metadata: { includes: object(includes) as JsonObject },
-          }),
+      ...definedFields({
+        nextCursor,
+        metadata: includes === undefined ? undefined : { includes: object(includes) },
+      }),
     };
   }
 
@@ -744,19 +745,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             : fields
               ? { "user.fields": fields }
               : {}),
-        ...(input.cursor === undefined ? {} : { pagination_token: input.cursor }),
-        ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
+        ...definedFields({ pagination_token: input.cursor, max_results: input.limit?.toString() }),
       }),
     );
 
-    const items = (result["data"] === undefined ? [] : array(result["data"])).map(
-      (entry) => object(entry) as JsonObject,
-    );
+    const items = (result["data"] === undefined ? [] : array(result["data"])).map(object);
 
     const meta = result["meta"] === undefined ? {} : object(result["meta"]);
     const nextCursor = optionalString(meta["next_token"]);
 
-    return { items, ...(nextCursor === undefined ? {} : { nextCursor }) };
+    return { items, ...definedFields({ nextCursor }) };
   }
 
   async function getAccountMetrics(
@@ -834,7 +832,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
       if (
         root["id"] !== ref.postId ||
-        (typeof parent["conversation_id"] === "string" &&
+        (isString(parent["conversation_id"]) &&
           parent["conversation_id"] !== root["conversation_id"])
       )
         throw new SocialError({
@@ -864,7 +862,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const body = new FormData();
     body.set("media", media.source.blob, media.filename ?? "image");
     body.set("media_category", "tweet_image");
-    let result: unknown;
+    let result: JsonValue;
 
     try {
       result = await http({
@@ -873,7 +871,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
         body,
         timeoutMs: remainingBudget(context),
-        ...(context.signal ? { signal: context.signal } : {}),
+        ...definedFields({ signal: context.signal }),
       });
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
@@ -995,7 +993,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<JsonObject> {
     requireUserToken("media.upload");
-    let result: unknown;
+    let result: JsonValue;
 
     try {
       result = await http({
@@ -1008,9 +1006,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 Authorization: `Bearer ${options.auth.accessToken}`,
                 "Content-Type": "application/json",
               },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         timeoutMs: remainingBudget(context),
-        ...(context.signal ? { signal: context.signal } : {}),
+        ...definedFields({
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: context.signal,
+        }),
       });
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
@@ -1039,7 +1039,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
         body,
         timeoutMs: remainingBudget(context),
-        ...(context.signal ? { signal: context.signal } : {}),
+        ...definedFields({ signal: context.signal }),
       });
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
@@ -1053,7 +1053,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<XProcessing> {
     requireUserToken("media.upload");
-    let result: unknown;
+    let result: JsonValue;
 
     try {
       result = await http({
@@ -1063,7 +1063,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         method: "GET",
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
         timeoutMs: remainingBudget(context),
-        ...(context.signal ? { signal: context.signal } : {}),
+        ...definedFields({ signal: context.signal }),
       });
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
@@ -1485,16 +1485,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             accountId: account.accountId,
             profileId: id,
           }),
-          ...(typeof user["name"] === "string" ? { displayName: user["name"] } : {}),
-          ...(typeof user["username"] === "string" ? { handle: user["username"] } : {}),
-          ...(typeof user["description"] === "string" ? { bio: user["description"] } : {}),
+          ...definedFields({
+            displayName: optionalString(user["name"]),
+            handle: optionalString(user["username"]),
+            bio: optionalString(user["description"]),
+          }),
           native: user,
         };
       },
       async listRelationships(account, input, context): Promise<Page<RelationshipRecord>> {
         const pagination = {
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...definedFields({ cursor: input.cursor, limit: input.limit }),
         };
 
         const result =
@@ -1544,7 +1545,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                     : input.kind,
             };
           }),
-          ...(result.nextCursor === undefined ? {} : { nextCursor: result.nextCursor }),
+          ...definedFields({ nextCursor: result.nextCursor }),
         };
       },
       async follow(target: ProfileRef, context): Promise<RelationshipRecord> {
@@ -1647,7 +1648,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             "x.reply",
             "Use a platform-post reply reference authorized for this account and backend.",
           );
-        const settings = target.options === undefined ? {} : object(target.options);
+        const settings = optionsObject(target);
 
         if (
           Object.keys(settings).some((key) => key !== "replySettings") ||
@@ -1704,7 +1705,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         for (const media of target.content.media ?? [])
           ids.push(await uploadXMedia(media, context));
-        const settings = target.options === undefined ? {} : object(target.options);
+        const replySettings = optionsObject(target)["replySettings"];
 
         const hasVideo = (target.content.media ?? []).some(
           (media) => chunkedCategory(media) === "tweet_video",
@@ -1716,11 +1717,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             target.content.text ?? "",
             context,
             {
-              ...(ids.length ? { media: { media_ids: ids } } : {}),
-              ...(target.replyTo ? { reply: { in_reply_to_tweet_id: target.replyTo.postId } } : {}),
-              ...(settings["replySettings"] && settings["replySettings"] !== "everyone"
-                ? { reply_settings: string(settings["replySettings"]) }
-                : {}),
+              ...definedFields({
+                media: ids.length ? { media_ids: ids } : undefined,
+                reply: target.replyTo ? { in_reply_to_tweet_id: target.replyTo.postId } : undefined,
+                reply_settings:
+                  replySettings && replySettings !== "everyone" ? string(replySettings) : undefined,
+              }),
             },
             target.targetIndex,
           );
@@ -1832,7 +1834,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         if (input.cursor !== undefined) {
           try {
-            const state = parseObject(JSON.parse(input.cursor));
+            const state = object(JSON.parse(input.cursor));
             eventCursor = optionalString(state["c"]);
             const hashes = string(state["s"]);
 
@@ -1862,8 +1864,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         for (let fetches = 0; fetches < 10; fetches++) {
           const page = await nativeAdapter.listDirectMessages({
             account,
-            ...(eventCursor === undefined ? {} : { cursor: eventCursor }),
-            ...(input.limit === undefined ? {} : { limit: input.limit }),
+            ...definedFields({ cursor: eventCursor, limit: input.limit }),
             context,
           });
 
@@ -1907,8 +1908,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             accountId: conversation.accountId,
           }),
           conversationId: conversation.conversationId,
-          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...definedFields({ cursor: input.cursor, limit: input.limit }),
           context,
         });
       },
@@ -1988,14 +1988,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           await request(`/2/users/${encodeURIComponent(account.accountId)}/retweets`, context, {
             tweet_id: postId,
           }),
-        ) as JsonObject;
+        );
       },
       async quote({ account, text, quotedPostId, context }) {
         authorize(account, context);
 
-        return object(
-          await request("/2/tweets", context, { text, quote_tweet_id: quotedPostId }),
-        ) as JsonObject;
+        return object(await request("/2/tweets", context, { text, quote_tweet_id: quotedPostId }));
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
@@ -2043,14 +2041,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             text,
             poll: { options: [...pollOptions], duration_minutes: durationMinutes },
           }),
-        ) as JsonObject;
+        );
       },
       async bookmarks({ account, context }) {
         authorize(account, context);
 
         return object(
           await request(`/2/users/${encodeURIComponent(account.accountId)}/bookmarks`, context),
-        ) as JsonObject;
+        );
       },
       async bookmark({ account, postId, context }) {
         authorize(account, context);
@@ -2075,7 +2073,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           await request(`/2/users/${encodeURIComponent(account.accountId)}/following`, context, {
             target_user_id: userId,
           }),
-        ) as JsonObject;
+        );
       },
       async unfollow({ account, userId, context }) {
         authorize(account, context);
@@ -2108,8 +2106,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             "dm_event.fields":
               "id,text,event_type,created_at,dm_conversation_id,attachments,entities",
             expansions: "sender_id,participant_ids",
-            ...(cursor === undefined ? {} : { pagination_token: cursor }),
-            ...(limit === undefined ? {} : { max_results: String(limit) }),
+            ...definedFields({ pagination_token: cursor, max_results: limit?.toString() }),
           }),
         );
 
@@ -2118,7 +2115,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return {
           items: result["data"] === undefined ? [] : array(result["data"]).map(object),
-          ...(nextCursor === undefined ? {} : { nextCursor }),
+          ...definedFields({ nextCursor }),
         };
       },
       async sendDirectMessage({ account, participantId, text, context }) {
@@ -2138,7 +2135,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             context,
             { text },
           ),
-        ) as JsonObject;
+        );
       },
       async sendConversationMessage({ account, conversationId, text, attachments, context }) {
         authorize(account, context);
@@ -2154,7 +2151,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           await requireUserToken("messages.conversation.write")(
             `/2/dm_conversations/${encodeURIComponent(conversationId)}/messages`,
             context,
-            { text, ...(attachments === undefined ? {} : { attachments }) },
+            { text, ...definedFields({ attachments }) },
           ),
         );
       },
@@ -2265,7 +2262,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               target_user_id: userId,
             },
           ),
-        ) as JsonObject;
+        );
       },
       async unfollowUser({ account, userId, context }) {
         authorize(account, context);
@@ -2387,8 +2384,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         return object(
           await request("/2/lists", context, {
             name,
-            ...(description === undefined ? {} : { description }),
-            ...(isPrivate === undefined ? {} : { private: isPrivate }),
+            ...definedFields({ description, private: isPrivate }),
           }),
         );
       },
@@ -2400,9 +2396,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             `/2/lists/${encodeURIComponent(listId)}`,
             context,
             {
-              ...(name === undefined ? {} : { name }),
-              ...(description === undefined ? {} : { description }),
-              ...(isPrivate === undefined ? {} : { private: isPrivate }),
+              ...definedFields({ name, description, private: isPrivate }),
             },
             {},
             "PUT",
