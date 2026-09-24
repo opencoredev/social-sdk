@@ -7,6 +7,13 @@
  * alternate configs, and rejects copy-pasted SAFETY comments.
  */
 import { readFile } from "node:fs/promises";
+import type { JsonObject, JsonValue } from "../packages/social-sdk/src/core/types.js";
+import {
+  isJsonArray,
+  isJsonObject,
+  isString,
+  type JsonField,
+} from "../packages/social-sdk/src/transport/validation.js";
 
 // Assembled so this file does not match its own search.
 const DIRECTIVE = new RegExp(`\\b(?:oxlint|eslint)-${"disable"}|\\b(?:oxlint|eslint)-${"enable"}`);
@@ -60,6 +67,35 @@ const REQUIRED_WORKFLOW_STEPS = [
 
 const failures: string[] = [];
 
+function isJson(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+
+  if (typeof value === "number") return Number.isFinite(value);
+
+  if (Array.isArray(value)) return value.every(isJson);
+
+  return typeof value === "object" && Object.values(value).every(isJson);
+}
+
+/** Read a tracked JSON file; a file that is not a JSON object fails the policy. */
+async function readJsonObject(path: string): Promise<JsonObject> {
+  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+
+  if (isJson(parsed) && isJsonObject(parsed)) return parsed;
+
+  failures.push(`${path}: must contain a JSON object`);
+
+  return {};
+}
+
+function objectField(value: JsonField): JsonObject {
+  return isJsonObject(value) ? value : {};
+}
+
+function stringList(value: JsonField): string[] {
+  return isJsonArray(value) ? value.filter(isString) : [];
+}
+
 const tracked = (
   await new Response(Bun.spawn(["git", "ls-files", "-z"], { stdout: "pipe" }).stdout).text()
 )
@@ -107,44 +143,43 @@ for (const [comment, places] of safetyComments) {
     );
 }
 
-// SAFETY: .oxlintrc.json is validated against oxlint's schema by oxlint itself,
-// which runs before this script in `bun run lint`.
-const config = JSON.parse(await readFile(".oxlintrc.json", "utf8")) as {
-  plugins?: string[];
-  categories?: Record<string, string>;
-  rules?: Record<string, string | [string, object]>;
-  overrides?: object[];
-  ignorePatterns?: string[];
-  jsPlugins?: string[];
-};
+const config = await readJsonObject(".oxlintrc.json");
 
-if (config.overrides?.length) failures.push(".oxlintrc.json: overrides are not allowed");
+const rules = objectField(config["rules"]);
 
-for (const pattern of config.ignorePatterns ?? []) {
-  if (!ALLOWED_IGNORE_PATTERNS.includes(pattern))
-    failures.push(`.oxlintrc.json: ignore pattern "${pattern}" is not allowed`);
+const categories = objectField(config["categories"]);
+
+const plugins = stringList(config["plugins"]);
+
+const jsPlugins = stringList(config["jsPlugins"]);
+
+if (config["overrides"] !== undefined) failures.push(".oxlintrc.json: overrides are not allowed");
+
+for (const pattern of isJsonArray(config["ignorePatterns"]) ? config["ignorePatterns"] : []) {
+  if (!isString(pattern) || !ALLOWED_IGNORE_PATTERNS.includes(pattern))
+    failures.push(`.oxlintrc.json: ignore pattern ${JSON.stringify(pattern)} is not allowed`);
 }
 
 for (const plugin of REQUIRED_PLUGINS) {
-  if (!config.plugins?.includes(plugin))
+  if (!plugins.includes(plugin))
     failures.push(`.oxlintrc.json: the ${plugin} plugin must stay enabled`);
 }
 
 for (const plugin of REQUIRED_JS_PLUGINS) {
-  if (!config.jsPlugins?.includes(plugin))
+  if (!jsPlugins.includes(plugin))
     failures.push(`.oxlintrc.json: the ${plugin} plugin must stay enabled`);
 }
 
-if (config.categories?.["correctness"] !== "error")
+if (categories["correctness"] !== "error")
   failures.push('.oxlintrc.json: the correctness category must be "error"');
 
-for (const [category, severity] of Object.entries(config.categories ?? {})) {
+for (const [category, severity] of Object.entries(categories)) {
   if (severity !== "error")
     failures.push(`.oxlintrc.json: category "${category}" may only be raised to "error"`);
 }
 
-for (const [rule, setting] of Object.entries(config.rules ?? {})) {
-  const severity = Array.isArray(setting) ? setting[0] : setting;
+for (const [rule, setting] of Object.entries(rules)) {
+  const severity = isJsonArray(setting) ? setting[0] : setting;
 
   // Oxlint also accepts numeric severities: 0 is off, 1 is warn.
   if (["off", "allow", "warn", "0", "1"].includes(String(severity)))
@@ -159,8 +194,8 @@ for (const step of REQUIRED_WORKFLOW_STEPS) {
 }
 
 for (const rule of REQUIRED_RULES) {
-  const setting = config.rules?.[rule];
-  const [severity, options] = Array.isArray(setting) ? setting : [setting, undefined];
+  const setting = rules[rule];
+  const [severity, options] = isJsonArray(setting) ? setting : [setting, undefined];
 
   if (severity !== "error") failures.push(`.oxlintrc.json: ${rule} must be "error"`);
 
@@ -169,13 +204,11 @@ for (const rule of REQUIRED_RULES) {
 }
 
 for (const path of tracked.filter((file) => file.endsWith("package.json"))) {
-  // SAFETY: tracked package.json files are parsed by Bun on install, so they are
-  // valid manifests whose optional `scripts` field maps names to commands.
-  const scripts = (JSON.parse(await readFile(path, "utf8")) as { scripts?: Record<string, string> })
-    .scripts;
+  const scripts = objectField((await readJsonObject(path))["scripts"]);
 
-  for (const [name, command] of Object.entries(scripts ?? {})) {
+  for (const [name, command] of Object.entries(scripts)) {
     if (
+      isString(command) &&
       /\boxlint\b[^&|;]*\s(?:-A|--allow|-W|--warn|-c|--config|--ignore-pattern|--quiet|--disable-\S+)/.test(
         command,
       )
