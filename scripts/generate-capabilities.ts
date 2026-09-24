@@ -1,25 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createDiagnosticAdapter, isAdapterName, runCli } from "../packages/social-sdk/dist/cli.js";
+import { adapterNames, createDiagnosticAdapter } from "../packages/social-sdk/dist/cli.js";
 
-async function command(args: string[]) {
-  let output = "";
-
-  const exit = await runCli([...args, "--json"], {
-    env: {},
-    readInput: async () => "",
-    write: (text) => {
-      output += text;
-    },
-  });
-
-  if (exit !== 0) throw new Error("Offline manifest generation failed");
-
-  return JSON.parse(output).data;
-}
-
-const adapters: string[] = (await command(["adapters"])).adapters;
-
+// The same typed manifests that `social-sdk capabilities --adapter NAME --json` prints.
 const manifests = [];
 
 const implementationPaths = new Map<string, readonly string[]>([
@@ -137,13 +120,10 @@ const cell = (value: string) => value.replaceAll("|", "\\|").replaceAll("\n", " 
 
 const rows = [];
 
-for (const adapter of adapters) {
-  const { manifest } = await command(["capabilities", "--adapter", adapter]);
-  manifests.push({ adapter, manifest });
-
-  if (!isAdapterName(adapter)) throw new Error(`The CLI listed an unknown adapter: ${adapter}`);
-
+for (const adapter of adapterNames) {
   const instance = createDiagnosticAdapter(adapter);
+  const manifest = instance.capabilities;
+  manifests.push({ adapter, manifest });
 
   for (const declaration of manifest.capabilities) {
     if (declaration.availability !== "available") continue;
@@ -171,7 +151,7 @@ for (const adapter of adapters) {
 
   for (const entry of manifest.capabilities)
     rows.push(
-      `| ${cell(adapter)} | ${cell(entry.platform ?? "*")} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? []).join(", ") || "See adapter setup")} |`,
+      `| ${cell(adapter)} | ${cell(entry.platform)} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? []).join(", ") || "See adapter setup")} |`,
     );
 }
 

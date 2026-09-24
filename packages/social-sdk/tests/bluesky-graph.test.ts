@@ -10,13 +10,18 @@ import {
 import type { JsonObject, JsonValue } from "../src/core/index.js";
 import { definedFields } from "../src/core/fields.js";
 import { bluesky } from "../src/platforms/bluesky.js";
+import { isJsonValue } from "../src/transport/json.js";
 import { object } from "../src/transport/validation.js";
 
 const response = (value: JsonValue): Response => Response.json(value);
 
 /** Decode a captured request body; bodyless requests stay undefined. */
 function requestBody(body: BodyInit | null | undefined): JsonObject | undefined {
-  return body === undefined ? undefined : object(JSON.parse(String(body)));
+  if (body === undefined) return undefined;
+  const parsed: unknown = JSON.parse(String(body));
+  assert.ok(isJsonValue(parsed), "Request body must be JSON");
+
+  return object(parsed);
 }
 
 const account = connectedAccountRef({

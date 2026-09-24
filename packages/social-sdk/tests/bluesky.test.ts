@@ -9,6 +9,7 @@ import {
   type PreparedPublishTarget,
 } from "../src/core/index.js";
 import { definedFields } from "../src/core/fields.js";
+import { isJsonValue } from "../src/transport/json.js";
 import { array, object } from "../src/transport/validation.js";
 
 function response(value: JsonValue, status = 200): Response {
@@ -208,7 +209,9 @@ describe("Bluesky adapter", () => {
       backend: "direct",
       auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
       fetch: async (_input, init) => {
-        requestBody = object(JSON.parse(String(init?.body)));
+        const parsed: unknown = JSON.parse(String(init?.body));
+        assert.ok(isJsonValue(parsed), "Request body must be JSON");
+        requestBody = object(parsed);
 
         return response({ uri: "at://did:plc:test/app.bsky.feed.post/one", cid: "bafyreione" });
       },

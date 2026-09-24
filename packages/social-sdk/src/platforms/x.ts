@@ -24,6 +24,7 @@ import type {
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { createHttp, HttpError } from "../transport/http.js";
+import { isJsonValue } from "../transport/json.js";
 import {
   array,
   isString,
@@ -1834,7 +1835,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         if (input.cursor !== undefined) {
           try {
-            const state = object(JSON.parse(input.cursor));
+            const parsed: unknown = JSON.parse(input.cursor);
+
+            if (!isJsonValue(parsed)) throw new Error("bad cursor");
+            const state = object(parsed);
             eventCursor = optionalString(state["c"]);
             const hashes = string(state["s"]);
 

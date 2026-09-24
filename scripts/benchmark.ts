@@ -4,20 +4,17 @@ import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { createSocial, connectedAccountRef } from "../packages/social-sdk/src/index.js";
 import { mockBackend } from "../packages/social-sdk/src/testing/index.js";
-import type { JsonValue } from "../packages/social-sdk/src/core/types.js";
+import { isJsonValue } from "../packages/social-sdk/src/transport/json.js";
 import { isFiniteNumber, isJsonObject } from "../packages/social-sdk/src/transport/validation.js";
 
 const root = resolve(import.meta.dir, "..");
 
-function parseJson(text: string): JsonValue {
-  return JSON.parse(text);
-}
-
 /** Reads the hand-maintained regression baseline and rejects missing or non-numeric fields. */
 function readBaseline(text: string) {
-  const value = parseJson(text);
+  const value: unknown = JSON.parse(text);
 
-  if (!isJsonObject(value)) throw new Error("performance-baseline.json must contain a JSON object");
+  if (!isJsonValue(value) || !isJsonObject(value))
+    throw new Error("performance-baseline.json must contain a JSON object");
 
   const field = (key: string): number => {
     const entry = value[key];
