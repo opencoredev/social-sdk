@@ -924,7 +924,7 @@ export function youtube(
         if (
           result["id"] !== ref.jobId ||
           written?.["privacyStatus"] !== "private" ||
-          (written["publishAt"] !== undefined && written["publishAt"] !== null)
+          (written?.["publishAt"] !== undefined && written?.["publishAt"] !== null)
         )
           throw new SocialError({
             code: "ambiguous_outcome",
