@@ -8,20 +8,21 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 /**
- * True when every member of `value` is a JSON primitive, array, or object. Object
- * properties set to `undefined` pass because reading them matches an absent key.
- * Cycles are rejected rather than followed.
+ * True when every member of `value` is a JSON primitive, array, or plain object.
+ * Object properties set to `undefined` pass because reading them matches an
+ * absent key. `NaN`, `Infinity`, class instances such as `Date`, and cycles are
+ * rejected because `JSON.stringify` would change or drop them.
  */
 export function isJsonValue(value: unknown, ancestors = new Set<object>()): value is JsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    typeof value === "number"
-  )
-    return true;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+
+  if (typeof value === "number") return Number.isFinite(value);
 
   if (typeof value !== "object" || ancestors.has(value)) return false;
+
+  const prototype = Object.getPrototypeOf(value);
+
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false;
 
   ancestors.add(value);
 

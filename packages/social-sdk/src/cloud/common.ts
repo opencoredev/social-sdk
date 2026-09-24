@@ -189,7 +189,7 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
 
   if (options === undefined) return {};
 
-  // Reject exactly as `object` does, including options with function, symbol, or bigint members.
+  // Reject exactly as `object` does, including options with members JSON cannot represent.
   if (!isJsonValue(options))
     throw new HttpError("Upstream response must be an object.", "invalid-response", true);
 
