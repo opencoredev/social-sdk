@@ -1,10 +1,10 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- compact mocked transport fixtures. */
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { connectedAccountRef, createSocial, type AdapterOperationContext } from "../src/index.js";
 import { x, type XStreamEvent } from "../src/platforms/x.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
+
 const auth = { userId: "u1", accessToken: "user-token" };
 
 function context(signal?: AbortSignal): AdapterOperationContext {
@@ -15,6 +15,7 @@ function context(signal?: AbortSignal): AdapterOperationContext {
   };
 
   if (signal === undefined) return base;
+
   return { ...base, signal };
 }
 
@@ -45,22 +46,31 @@ function native(fetch: typeof globalThis.fetch, withAppToken = true) {
   const social = createSocial({
     backend: withAppToken ? x({ auth, fetch, appBearerToken: "app-token" }) : x({ auth, fetch }),
   });
-  return social.native("default", { acknowledgeUnsafe: true });
+
+  const api = social.native("default", { acknowledgeUnsafe: true });
+
+  if (api === undefined) throw new Error("The X adapter did not expose native operations.");
+
+  return api;
 }
 
 async function collect(events: AsyncIterable<XStreamEvent>): Promise<XStreamEvent[]> {
   const out: XStreamEvent[] = [];
+
   for await (const event of events) out.push(event);
+
   return out;
 }
 
 it("X filtered stream yields posts across chunk boundaries and skips keep-alives", async () => {
   const requests: { url: URL; init: RequestInit | undefined }[] = [];
+
   const post = JSON.stringify({
     data: { id: "1790000000000000001", text: "hello", edit_history_tweet_ids: ["1"] },
     includes: { users: [{ id: "u9", username: "someone" }] },
     matching_rules: [{ id: "1166916266197536768", tag: "coffee" }, { id: "2" }, { tag: "no-id" }],
   });
+
   const disconnect = JSON.stringify({
     errors: [
       {
@@ -69,8 +79,10 @@ it("X filtered stream yields posts across chunk boundaries and skips keep-alives
       },
     ],
   });
+
   const api = native(async (input, init) => {
     requests.push({ url: new URL(String(input)), init });
+
     return new Response(
       streamBody([
         "\r\n",
@@ -106,6 +118,7 @@ it("X filtered stream yields posts across chunk boundaries and skips keep-alives
   assert.equal(events.length, 4);
   const first = events[0];
   assert.equal(first?.kind, "post");
+
   if (first?.kind === "post") {
     assert.equal(first.post["id"], "1790000000000000001");
     assert.deepEqual(first.matchingRules, [
@@ -114,6 +127,7 @@ it("X filtered stream yields posts across chunk boundaries and skips keep-alives
     ]);
     assert.deepEqual(first.includes, { users: [{ id: "u9", username: "someone" }] });
   }
+
   const second = events[1];
   assert.equal(second?.kind === "post" ? second.post["text"] : undefined, "héllo");
   assert.equal(events[2]?.kind, "error");
@@ -123,8 +137,10 @@ it("X filtered stream yields posts across chunk boundaries and skips keep-alives
 it("X filtered stream closes the connection when the caller stops iterating", async () => {
   let cancelled = false;
   let fetchSignal: AbortSignal | undefined;
+
   const api = native(async (_input, init) => {
     fetchSignal = init?.signal ?? undefined;
+
     return new Response(
       openBody(['{"data":{"id":"1","text":"a"}}\r\n'], () => {
         cancelled = true;
@@ -143,9 +159,11 @@ it("X filtered stream closes the connection when the caller stops iterating", as
 
 it("X filtered stream stops with cancelled when the context signal aborts", async () => {
   const controller = new AbortController();
+
   const api = native(
     async () => new Response(openBody(['{"data":{"id":"1","text":"a"}}\n'], () => undefined)),
   );
+
   const iterator = api.stream({ account, context: context(controller.signal) });
 
   assert.equal((await iterator.next()).value?.kind, "post");
@@ -169,6 +187,7 @@ it("X filtered stream maps connection failures to structured errors", async () =
     readonly code: string;
     readonly retryDisposition?: { readonly kind: "after-delay"; readonly delayMs: number };
   }
+
   const cases: readonly [number, Record<string, string>, ExpectedError][] = [
     [401, {}, { code: "reconnect_required" }],
     [403, {}, { code: "missing_permission" }],
@@ -225,8 +244,10 @@ it("X filtered stream rejects an oversized final unterminated line", async () =>
 
 it("X filtered stream validates input and credentials before any request", async () => {
   let calls = 0;
+
   const fetch: typeof globalThis.fetch = async () => {
     calls++;
+
     return new Response(streamBody([]));
   };
 
@@ -274,8 +295,10 @@ it("X filtered stream validates input and credentials before any request", async
 
 it("X filtered stream passes Enterprise backfill and recovery parameters", async () => {
   let requested: URL | undefined;
+
   const api = native(async (input) => {
     requested = new URL(String(input));
+
     return new Response(streamBody([]));
   });
 
@@ -295,8 +318,10 @@ it("X filtered stream passes Enterprise backfill and recovery parameters", async
 
 it("X filtered stream treats backfillMinutes 0 as no backfill and rejects other out-of-range values", async () => {
   let requested: URL | undefined;
+
   const api = native(async (input) => {
     requested = new URL(String(input));
+
     return new Response(streamBody([]));
   });
 
@@ -317,6 +342,7 @@ it("X filtered stream treats backfillMinutes 0 as no backfill and rejects other 
 
 it("X stream rules list, add, and delete with the app-only token", async () => {
   const requests: { url: URL; method: string; auth: string | null; body: string }[] = [];
+
   const api = native(async (input, init) => {
     const url = new URL(String(input));
     const method = init?.method ?? "GET";
@@ -355,6 +381,7 @@ it("X stream rules list, add, and delete with the app-only token", async () => {
     limit: 10,
     context: context(),
   });
+
   assert.deepEqual(page.items, [
     { id: "1166916266197536768", value: "coffee -is:retweet", tag: "coffee" },
   ]);
@@ -366,6 +393,7 @@ it("X stream rules list, add, and delete with the app-only token", async () => {
     dryRun: true,
     context: context(),
   });
+
   assert.equal(added.dryRun, true);
   assert.deepEqual(added.rules, [{ id: "1166916266197536769", value: "tea", tag: "tea" }]);
   assert.deepEqual(added.summary, { created: 1, not_created: 1 });
@@ -376,6 +404,7 @@ it("X stream rules list, add, and delete with the app-only token", async () => {
     ids: ["1166916266197536768"],
     context: context(),
   });
+
   assert.deepEqual(deleted.rules, []);
   assert.deepEqual(deleted.errors, []);
 
@@ -397,10 +426,13 @@ it("X stream rules list, add, and delete with the app-only token", async () => {
 
 it("X stream rule methods validate input and require the app-only token", async () => {
   let calls = 0;
+
   const fetch: typeof globalThis.fetch = async () => {
     calls++;
+
     return Response.json({});
   };
+
   const api = native(fetch);
 
   await assert.rejects(

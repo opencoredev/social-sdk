@@ -1,4 +1,3 @@
-/* oxlint-disable anti-slop/require-readable-spacing -- deterministic mock adapter fixtures stay grouped by surface. */
 import {
   SocialError,
   connectedAccountRef,
@@ -17,9 +16,17 @@ import {
   type IdempotencyClaimInput,
   type IdempotencyStore,
   type JsonPrimitive,
+  type JsonValue,
   type ProfileRecord,
   type SocialAdapter,
 } from "../core/index.js";
+import { definedFields } from "../core/fields.js";
+import { isJsonValue } from "../transport/json.js";
+import { isJsonObject } from "../transport/validation.js";
+
+function isJsonPrimitive(value: JsonValue): value is JsonPrimitive {
+  return value === null || typeof value !== "object";
+}
 
 export type MockScenario =
   | "immediate-text-success"
@@ -181,12 +188,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       sequence: ++sequence,
       operation,
       backend: context.backendInstance,
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-      ...(account === undefined ? {} : { account }),
-      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-      ...(context.targetIdempotencyKey === undefined
-        ? {}
-        : { idempotencyKey: context.targetIdempotencyKey }),
+      ...definedFields({ account, idempotencyKey: context.targetIdempotencyKey }),
     });
   }
 
@@ -207,7 +209,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     webhookFixtures: webhooks,
   };
 
-  const adapter = defineAdapter({
+  return defineAdapter<MockNative, MockSocialAdapter>({
     id: "mock",
     capabilities: mockManifest(),
     testing,
@@ -238,14 +240,17 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     posts: {
       async list(account, _input, context) {
         record("posts.list", context, account);
+
         return { items: [{ id: "mock-post", text: "Mock post" }] };
       },
       async get(ref, context) {
         record("posts.get", context, connectedAccountRef(ref));
+
         return { id: ref.postId, text: "Mock post" };
       },
       async cancelScheduled(ref, context) {
         record("posts.cancelScheduled", context, connectedAccountRef(ref));
+
         return { state: "cancelled", backendRecord: "retained" } satisfies ScheduleCancellation;
       },
       async deleteBackendRecord(ref, context) {
@@ -490,6 +495,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     graph: {
       async getProfile(account, input, context): Promise<ProfileRecord> {
         record("profiles.get", context, account);
+
         const profile: ProfileRecord = {
           ref: {
             kind: "profile",
@@ -501,15 +507,19 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
           },
           displayName: "Mock Profile",
         };
+
         if (input.handle !== undefined) return { ...profile, handle: input.handle };
+
         return profile;
       },
       async listRelationships(account, _input, context) {
         record("graph.listRelationships", context, account);
+
         return { items: [] };
       },
       async follow(target, context) {
         record("graph.follow", context, connectedAccountRef(target));
+
         return { profile: target, relationship: "following" };
       },
       async unfollow(target, context) {
@@ -517,6 +527,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       },
       async block(target, context) {
         record("graph.block", context, connectedAccountRef(target));
+
         return { profile: target, relationship: "blocked" };
       },
       async unblock(target, context) {
@@ -524,6 +535,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       },
       async mute(target, context) {
         record("graph.mute", context, connectedAccountRef(target));
+
         return { profile: target, relationship: "muted" };
       },
       async unmute(target, context) {
@@ -533,6 +545,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     search: {
       async posts(account, input, context) {
         record("search.posts", context, account);
+
         return {
           items: [
             {
@@ -547,6 +560,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     analytics: {
       async getAccountMetrics(account, context) {
         record("analytics.getAccountMetrics", context, account);
+
         return [];
       },
       async getPostMetrics(post, context) {
@@ -567,12 +581,14 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       },
       async getReport(account, query, context) {
         record("analytics.getReport", context, account);
+
         return { query, rows: [], fetchedAt: clock().toISOString(), source: "mock" };
       },
     },
     media: {
       async upload(_input, account, context) {
         record("media.upload", context, account);
+
         return {
           kind: "media",
           version: 1,
@@ -586,20 +602,24 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     messages: {
       async listConversations(account, _input, context) {
         record("messages.listConversations", context, account);
+
         return { items: [{ id: "conversation-1" }] };
       },
       async listMessages(ref, _input, context) {
         record("messages.listMessages", context, connectedAccountRef(ref));
+
         return { items: [{ id: "message-1", text: "Hello" }] };
       },
       async send(ref, content, context) {
         record("messages.send", context, connectedAccountRef(ref));
+
         return { id: "message-2", text: content.text };
       },
     },
     notifications: {
       async list(account, _input, context) {
         record("notifications.list", context, account);
+
         return { items: [] };
       },
       async markSeen(account, _input, context) {
@@ -610,21 +630,19 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       async verify(input, context) {
         record("webhooks.verify", context);
 
+        const valid = input.headers.get("x-mock-signature") === "valid";
+
         return {
-          valid: input.headers.get("x-mock-signature") === "valid",
+          valid,
           method: "mock",
-          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-          ...(input.headers.get("x-mock-signature") === "valid"
-            ? {}
-            : { reason: "Invalid mock signature" }),
+          ...definedFields({ reason: valid ? undefined : "Invalid mock signature" }),
         };
       },
       async decode(input, context) {
         record("webhooks.decode", context);
         const parsed: unknown = JSON.parse(decoder.decode(input.body));
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        if (!isJsonValue(parsed) || !isJsonObject(parsed)) {
           throw new SocialError({
             code: "invalid_input",
             operation: "webhooks.decode",
@@ -635,17 +653,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
         const entries: [string, JsonPrimitive][] = [];
 
         for (const [key, value] of Object.entries(parsed)) {
-          if (
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-            typeof value === "string" ||
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-            typeof value === "number" ||
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-            typeof value === "boolean" ||
-            value === null
-          ) {
-            entries.push([key, value]);
-          }
+          if (isJsonPrimitive(value)) entries.push([key, value]);
         }
 
         return Object.fromEntries(entries);
@@ -653,9 +661,6 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     },
     native: { scenario: () => scenario },
   });
-
-  // SAFETY: defineAdapter preserves the supplied testing controller and native mock shape.
-  return adapter as MockSocialAdapter;
 }
 
 interface StoredClaim {
@@ -735,8 +740,7 @@ export function mockSharedAccountAuthorization(input: {
         account,
         allowed:
           tenant !== undefined && (input.memberships[tenant]?.includes(account.accountId) ?? false),
-        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-        ...(tenant === undefined ? { reason: "A tenant is required" } : {}),
+        ...definedFields({ reason: tenant === undefined ? "A tenant is required" : undefined }),
       }));
     },
   };

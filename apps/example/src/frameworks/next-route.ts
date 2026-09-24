@@ -33,6 +33,5 @@ export function createNextRoute(source: ExampleHandler = handler, prefix = "/api
   return {
     GET: (request: Request) => source.handle(mounted(request, prefix)),
     POST: (request: Request) => source.handle(mounted(request, prefix)),
-    // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
   };
 }

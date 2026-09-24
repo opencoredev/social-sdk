@@ -3,10 +3,9 @@ import assert from "node:assert/strict";
 import { createExampleHandler } from "../src/app.js";
 import { mockBackend } from "@opencoredev/social-sdk/testing";
 import { openExampleDatabase } from "../src/storage.js";
-import { SocialError } from "@opencoredev/social-sdk";
+import { SocialError, type JsonValue } from "@opencoredev/social-sdk";
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-function request(path: string, value?: unknown, headers: Record<string, string> = {}) {
+function request(path: string, value?: JsonValue, headers: Record<string, string> = {}) {
   return new Request(
     `http://localhost:3030${path}`,
     value === undefined
@@ -66,7 +65,15 @@ test("rejects arbitrary accounts, missing intentional keys, malformed and oversi
     403,
   );
   assert.equal(
-    (await handle(request("/api/publish", { ...publication, idempotencyKey: undefined }))).status,
+    (
+      await handle(
+        request("/api/publish", {
+          accountIds: publication.accountIds,
+          format: publication.format,
+          text: publication.text,
+        }),
+      )
+    ).status,
     400,
   );
   assert.equal(
@@ -145,8 +152,7 @@ test("applies a verified pending event after restart, deduplicates and keeps ter
     type: "post.updated",
   };
 
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-  const send = (value: unknown) => request("/api/events", value, { "x-mock-signature": "valid" });
+  const send = (value: JsonValue) => request("/api/events", value, { "x-mock-signature": "valid" });
   assert.equal((await first.handle(request("/api/events", event))).status, 401);
   assert.deepEqual(await (await first.handle(send(event))).json(), {
     state: "accepted",
@@ -263,6 +269,8 @@ test("maps SocialError codes to their HTTP status", async () => {
       ["invalid_input", 400],
     ] as const) {
       const base = mockBackend();
+      assert.ok(base.accounts);
+      assert.ok(base.posts);
 
       const backend = {
         ...base,

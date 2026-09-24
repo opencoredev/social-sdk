@@ -1,146 +1,135 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createDiagnosticAdapter, runCli } from "../packages/social-sdk/dist/cli.js";
+import { adapterNames, createDiagnosticAdapter } from "../packages/social-sdk/dist/cli.js";
 
-async function command(args: string[]) {
-  let output = "";
-
-  const exit = await runCli([...args, "--json"], {
-    env: {},
-    readInput: async () => "",
-    write: (text) => {
-      output += text;
-    },
-  });
-
-  if (exit !== 0) throw new Error("Offline manifest generation failed");
-
-  return JSON.parse(output).data;
-}
-
-const adapters: string[] = (await command(["adapters"])).adapters;
-
+// The same typed manifests that `social-sdk capabilities --adapter NAME --json` prints.
 const manifests = [];
 
-// oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
-const implementationPaths: Record<string, readonly string[]> = {
-  "accounts.read": ["accounts.list", "accounts.get"],
-  "posts.publish": ["posts.prepareTarget", "posts.publishTarget"],
-  "posts.read": ["posts.get"],
-  "posts.list": ["posts.list"],
-  "posts.status": ["posts.getDelivery"],
-  "posts.cancelScheduled": ["posts.cancelScheduled"],
-  "posts.deleteBackendRecord": ["posts.deleteBackendRecord"],
-  "posts.removeFromPlatform": ["posts.removeFromPlatform"],
-  "media.upload": ["media.upload"],
-  "analytics.read": ["analytics.getPostMetrics"],
-  "analytics.account.read": ["analytics.getAccountMetrics"],
-  "analytics.report.read": ["analytics.getReport"],
-  "search.posts": ["search.posts"],
-  "comments.read": ["comments.list"],
-  "comments.write": ["comments.reply"],
-  "messages.write": ["messages.send"],
-  "webhooks.verify": ["webhooks.verify", "webhooks.decode"],
-  "posts.publish.video": ["posts.publishTarget"],
-  "posts.repost": ["native.repostPost|native.repost"],
-  "posts.quote": ["native.quotePost|native.quote"],
-  "posts.delete": ["native.deletePost|native.deleteVideo"],
-  "graph.read": ["graph.listRelationships"],
-  "graph.follow": ["graph.follow|native.follow|native.followUser"],
-  "graph.unfollow": ["graph.unfollow|native.unfollow|native.unfollowUser"],
-  "graph.block": ["graph.block|native.block|native.blockUser"],
-  "graph.unblock": ["graph.unblock|native.unblock|native.unblockUser"],
-  "graph.mute": ["graph.mute|native.mute|native.muteUser"],
-  "graph.unmute": ["graph.unmute|native.unmute|native.unmuteUser"],
-  "notifications.read": ["notifications.list|native.listNotifications"],
-  "notifications.seen": ["notifications.markSeen|native.markNotificationsSeen"],
-  "profile.read": ["native.getProfile"],
-  "profiles.read": [
-    "graph.getProfile|native.getProfile|native.getUserById|native.businessDiscovery",
+const implementationPaths = new Map<string, readonly string[]>([
+  ["accounts.read", ["accounts.list", "accounts.get"]],
+  ["posts.publish", ["posts.prepareTarget", "posts.publishTarget"]],
+  ["posts.read", ["posts.get"]],
+  ["posts.list", ["posts.list"]],
+  ["posts.status", ["posts.getDelivery"]],
+  ["posts.cancelScheduled", ["posts.cancelScheduled"]],
+  ["posts.deleteBackendRecord", ["posts.deleteBackendRecord"]],
+  ["posts.removeFromPlatform", ["posts.removeFromPlatform"]],
+  ["media.upload", ["media.upload"]],
+  ["analytics.read", ["analytics.getPostMetrics"]],
+  ["analytics.account.read", ["analytics.getAccountMetrics"]],
+  ["analytics.report.read", ["analytics.getReport"]],
+  ["search.posts", ["search.posts"]],
+  ["comments.read", ["comments.list"]],
+  ["comments.write", ["comments.reply"]],
+  ["messages.write", ["messages.send"]],
+  ["webhooks.verify", ["webhooks.verify", "webhooks.decode"]],
+  ["posts.publish.video", ["posts.publishTarget"]],
+  ["posts.repost", ["native.repostPost|native.repost"]],
+  ["posts.quote", ["native.quotePost|native.quote"]],
+  ["posts.delete", ["native.deletePost|native.deleteVideo"]],
+  ["graph.read", ["graph.listRelationships"]],
+  ["graph.follow", ["graph.follow|native.follow|native.followUser"]],
+  ["graph.unfollow", ["graph.unfollow|native.unfollow|native.unfollowUser"]],
+  ["graph.block", ["graph.block|native.block|native.blockUser"]],
+  ["graph.unblock", ["graph.unblock|native.unblock|native.unblockUser"]],
+  ["graph.mute", ["graph.mute|native.mute|native.muteUser"]],
+  ["graph.unmute", ["graph.unmute|native.unmute|native.unmuteUser"]],
+  ["notifications.read", ["notifications.list|native.listNotifications"]],
+  ["notifications.seen", ["notifications.markSeen|native.markNotificationsSeen"]],
+  ["profile.read", ["native.getProfile"]],
+  [
+    "profiles.read",
+    ["graph.getProfile|native.getProfile|native.getUserById|native.businessDiscovery"],
   ],
-  "profiles.search": ["native.searchActors"],
-  "profile.update": ["native.updateProfile"],
-  "feeds.read": ["native.listFeeds"],
-  "chat.read": ["native.listConversations", "native.listMessages"],
-  "chat.write": ["native.sendMessage"],
-  "polls.create": ["native.createPoll"],
-  "bookmarks.read": ["native.bookmarks"],
-  "bookmarks.write": ["native.bookmark", "native.removeBookmark"],
-  "follows.write": ["native.follow", "native.unfollow"],
-  "media.video": ["native.uploadVideo"],
-  "media.gif": ["native.uploadGif"],
-  "messages.read": [
-    "messages.listConversations|native.listDirectMessages|native.listConversations",
+  ["profiles.search", ["native.searchActors"]],
+  ["profile.update", ["native.updateProfile"]],
+  ["feeds.read", ["native.listFeeds"]],
+  ["chat.read", ["native.listConversations", "native.listMessages"]],
+  ["chat.write", ["native.sendMessage"]],
+  ["polls.create", ["native.createPoll"]],
+  ["bookmarks.read", ["native.bookmarks"]],
+  ["bookmarks.write", ["native.bookmark", "native.removeBookmark"]],
+  ["follows.write", ["native.follow", "native.unfollow"]],
+  ["media.video", ["native.uploadVideo"]],
+  ["media.gif", ["native.uploadGif"]],
+  ["media.status", ["native.getVideoJobStatus"]],
+  ["media.limits.read", ["native.getVideoUploadLimits"]],
+  [
+    "messages.read",
+    ["messages.listConversations|native.listDirectMessages|native.listConversations"],
   ],
-  "streams.read": ["native.stream"],
-  "search.keyword": ["native.search"],
-  "mentions.read": ["native.mentions|native.listMentions"],
-  "timelines.read": ["native.userPosts", "native.homeTimeline"],
-  "likes.read": ["native.getLikes|native.likedPosts"],
-  "likes.write": ["native.likePost|native.like", "native.unlikePost|native.unlike"],
-  "lists.read": ["native.getList"],
-  "lists.write": ["native.createList", "native.updateList", "native.deleteList"],
-  "lists.pinned.read": ["native.pinnedLists"],
-  "lists.pinned.write": ["native.pinList", "native.unpinList"],
-  "messages.conversation.write": ["native.sendConversationMessage"],
-  "messages.group.write": ["native.createGroupConversation"],
-  "moderation.report": ["native.createModerationReport"],
-  "comments.moderate": ["native.hideReply|native.moderateComment|native.commentsModeration"],
-  "comments.delete": ["native.deleteComment"],
-  "comments.replies.read": ["native.listCommentReplies"],
-  "videos.update": ["native.updateVideo"],
-  "videos.delete": ["native.deleteVideo"],
-  "videos.rate": ["native.rateVideo", "native.getRating"],
-  "subscriptions.read": ["native.subscriptions"],
-  "subscriptions.write": ["native.subscriptions"],
-  "analytics.followers.read": [
-    "native.getOrganizationFollowerStatistics",
-    "native.getOrganizationFollowerCount",
+  ["streams.read", ["native.stream"]],
+  ["search.keyword", ["native.search"]],
+  ["mentions.read", ["native.mentions|native.listMentions"]],
+  ["timelines.read", ["native.userPosts", "native.homeTimeline"]],
+  ["likes.read", ["native.getLikes|native.likedPosts"]],
+  ["likes.write", ["native.likePost|native.like", "native.unlikePost|native.unlike"]],
+  ["lists.read", ["native.getList"]],
+  ["lists.write", ["native.createList", "native.updateList", "native.deleteList"]],
+  ["lists.pinned.read", ["native.pinnedLists"]],
+  ["lists.pinned.write", ["native.pinList", "native.unpinList"]],
+  ["messages.conversation.write", ["native.sendConversationMessage"]],
+  ["messages.group.write", ["native.createGroupConversation"]],
+  ["moderation.report", ["native.createModerationReport"]],
+  ["comments.moderate", ["native.hideReply|native.moderateComment|native.commentsModeration"]],
+  ["comments.delete", ["native.deleteComment"]],
+  ["comments.replies.read", ["native.listCommentReplies"]],
+  ["videos.update", ["native.updateVideo"]],
+  ["videos.delete", ["native.deleteVideo"]],
+  ["videos.rate", ["native.rateVideo", "native.getRating"]],
+  ["subscriptions.read", ["native.subscriptions"]],
+  ["subscriptions.write", ["native.subscriptions"]],
+  [
+    "analytics.followers.read",
+    ["native.getOrganizationFollowerStatistics", "native.getOrganizationFollowerCount"],
   ],
-  "analytics.page.read": ["native.getOrganizationPageStatistics"],
-  "analytics.shares.read": ["native.getOrganizationShareStatistics"],
-  "posts.draft": ["native.uploadDraft"],
-  "posts.status.poll": ["native.publishStatus"],
-  "reels.publish": ["native.publishReel"],
-  "stories.publish": ["native.publishStory"],
-  "hashtags.search": ["native.hashtagSearch"],
-  "publishing.limit.read": ["native.publishingLimit"],
-  "product.tagging": ["native.publishReel"],
-  "thumbnails.write": ["native.setThumbnail"],
-  "captions.read": ["native.captions"],
-  "captions.write": ["native.captions"],
-  "playlists.read": ["native.playlists"],
-  "playlists.write": ["native.playlists"],
-  "posts.schedule": ["posts.publishTarget"],
-  "posts.update": ["native.updateVideo|native.updatePost"],
-  "analytics.youtube.read": ["native.analytics"],
-  "live.broadcasts": ["native.liveBroadcasts"],
-  "posts.multi-image": ["native.createPoll"],
-  "posts.video": ["native.registerVideo"],
-  "posts.document": ["native.registerVideo"],
-  "reactions.write": ["native.react"],
-  "reshares.write": ["native.reshare"],
-  "analytics.organization.read": ["native.organizationAnalytics"],
-  "articles.create": ["native.updatePost"],
-};
+  ["analytics.page.read", ["native.getOrganizationPageStatistics"]],
+  ["analytics.shares.read", ["native.getOrganizationShareStatistics"]],
+  ["posts.draft", ["native.uploadDraft"]],
+  ["posts.status.poll", ["native.publishStatus"]],
+  ["reels.publish", ["native.publishReel"]],
+  ["stories.publish", ["native.publishStory"]],
+  ["hashtags.search", ["native.hashtagSearch"]],
+  ["publishing.limit.read", ["native.publishingLimit"]],
+  ["product.tagging", ["native.publishReel"]],
+  ["thumbnails.write", ["native.setThumbnail"]],
+  ["captions.read", ["native.captions"]],
+  ["captions.write", ["native.captions"]],
+  ["playlists.read", ["native.playlists"]],
+  ["playlists.write", ["native.playlists"]],
+  ["posts.schedule", ["posts.publishTarget"]],
+  ["posts.update", ["native.updateVideo|native.updatePost"]],
+  ["analytics.youtube.read", ["native.analytics"]],
+  ["live.broadcasts", ["native.liveBroadcasts"]],
+  ["posts.multi-image", ["native.createPoll"]],
+  ["posts.video", ["native.registerVideo"]],
+  ["posts.document", ["native.registerVideo"]],
+  ["reactions.write", ["native.react"]],
+  ["reshares.write", ["native.reshare"]],
+  ["analytics.organization.read", ["native.organizationAnalytics"]],
+  ["articles.create", ["native.updatePost"]],
+]);
+
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function isCallable(value: unknown): value is CallableFunction {
+  return typeof value === "function";
+}
 
 const cell = (value: string) => value.replaceAll("|", "\\|").replaceAll("\n", " ");
 
 const rows = [];
 
-for (const adapter of adapters) {
-  const { manifest } = await command(["capabilities", "--adapter", adapter]);
+for (const adapter of adapterNames) {
+  const instance = createDiagnosticAdapter(adapter);
+  const manifest = instance.capabilities;
   manifests.push({ adapter, manifest });
-
-  const instance = createDiagnosticAdapter(
-    // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-    adapter as Parameters<typeof createDiagnosticAdapter>[0],
-  );
 
   for (const declaration of manifest.capabilities) {
     if (declaration.availability !== "available") continue;
-    const paths = implementationPaths[declaration.operation];
+    const paths = implementationPaths.get(declaration.operation);
 
     if (!paths)
       throw new Error(`No conformance mapping for available operation ${declaration.operation}`);
@@ -150,22 +139,9 @@ for (const adapter of adapters) {
         let value: unknown = instance;
 
         for (const key of candidate.split("."))
-          value =
-            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-            value && typeof value === "object"
-              ? // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- provider payload is validated at this adapter boundary.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/require-safety-comment-for-type-assertion -- validated external boundary or fixture contract.
-                // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated external boundary or fixture contract.
-                (value as Record<string, unknown>)[key]
-              : undefined;
+          value = isObject(value) ? Object.getOwnPropertyDescriptor(value, key)?.value : undefined;
 
-        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-        return typeof value === "function";
+        return isCallable(value);
       });
 
       if (!found)
@@ -177,7 +153,7 @@ for (const adapter of adapters) {
 
   for (const entry of manifest.capabilities)
     rows.push(
-      `| ${cell(adapter)} | ${cell(entry.platform ?? "*")} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? []).join(", ") || "See adapter setup")} |`,
+      `| ${cell(adapter)} | ${cell(entry.platform)} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? []).join(", ") || "See adapter setup")} |`,
     );
 }
 

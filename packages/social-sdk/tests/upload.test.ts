@@ -95,7 +95,7 @@ it("uploads large Blobs with Content-Length and without chunked streaming", asyn
       source: { mimeType: "video/mp4", size, body: blob, open: () => blob.stream() },
       fetch: async (_url, init) => {
         assert.equal(new Headers(init?.headers).get("content-length"), String(size));
-        assert.equal(init?.duplex, undefined);
+        assert.equal("duplex" in (init ?? {}), false);
         assert.equal(init?.body, blob);
 
         return new Response(null);
@@ -184,8 +184,8 @@ it("upload cleanup cannot hang on an uncooperative source cancellation hook", as
           timer = setTimeout(() => reject(new Error("cleanup hung")), 1000);
         }),
       ]),
-      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-      (error: unknown) => error instanceof HttpError && error.kind === "network",
+      (error: unknown): error is HttpError =>
+        error instanceof HttpError && error.kind === "network",
     );
   } finally {
     clearTimeout(timer);

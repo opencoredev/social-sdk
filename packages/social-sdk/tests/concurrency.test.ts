@@ -37,14 +37,13 @@ function post(ref: ConnectedAccountRef) {
   return platformPostRef({ ...ref, postId: "post-1" });
 }
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
+function deferred() {
   let resolve!: () => void;
 
   const promise = new Promise<void>((next) => {
     resolve = next;
   });
 
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated boundary or fixture contract.
   return { promise, resolve };
 }
 
@@ -190,8 +189,8 @@ test("queue overflow rejects before the adapter is called", async () => {
   await eventually(() => state.calls === 1);
   await assert.rejects(
     social.accounts.get(account("default", "account-2")),
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-    (error: unknown) => error instanceof SocialError && error.code === "rate_limited",
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError && error.code === "rate_limited",
   );
   assert.equal(state.calls, 1);
   gate.resolve();
@@ -220,8 +219,8 @@ test("cancelling a queued call frees its queue slot", async () => {
   controller.abort();
   await assert.rejects(
     cancelled,
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated boundary or fixture contract.
-    (error: unknown) => error instanceof SocialError && error.code === "cancelled",
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError && error.code === "cancelled",
   );
   const third = social.accounts.get(account("default", "account-3"));
   gate.resolve();

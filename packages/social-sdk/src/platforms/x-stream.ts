@@ -1,9 +1,10 @@
-/* oxlint-disable anti-slop/no-conditional-empty-object-spread, anti-slop/require-readable-spacing -- validated external boundary or fixture contract. */
 import { SocialError } from "../core/errors.js";
+import { definedFields } from "../core/fields.js";
 import type { AdapterOperationContext, JsonObject, JsonValue } from "../core/types.js";
 import { remainingBudget } from "../transport/budget.js";
 import { abortable, retryDelay } from "../transport/http.js";
 import { parseJson } from "../transport/json.js";
+import { isJsonObject, isString } from "../transport/validation.js";
 import type { XMediaField, XTweetExpansion, XTweetField, XUserField } from "./x.js";
 
 // Filtered stream contract, checked 2026-09-24 against X API v2 OpenAPI 2.168:
@@ -88,10 +89,7 @@ interface StreamConfig {
 }
 
 function jsonObjectValue(value: JsonValue | undefined): JsonObject | undefined {
-  // SAFETY: parseJson produces the recursive JSON grammar; a non-null, non-array object is a JsonObject.
-  return value !== null && value !== undefined && !Array.isArray(value) && Object(value) === value
-    ? (value as JsonObject)
-    : undefined;
+  return value !== undefined && isJsonObject(value) ? value : undefined;
 }
 
 function objectArray(value: JsonValue | undefined): readonly JsonObject[] | undefined {
@@ -99,14 +97,13 @@ function objectArray(value: JsonValue | undefined): readonly JsonObject[] | unde
 
   return value.flatMap((entry: JsonValue) => {
     const row = jsonObjectValue(entry);
+
     return row === undefined ? [] : [row];
   });
 }
 
 function stringValue(value: JsonValue | undefined): string | undefined {
-  // SAFETY: the typeof guard narrows the JSON value to a string.
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated external boundary.
-  return typeof value === "string" ? value : undefined;
+  return value !== undefined && isString(value) ? value : undefined;
 }
 
 function invalidResponse(operation: string, message: string): SocialError {
@@ -128,7 +125,7 @@ export function parseStreamRule(value: JsonValue | undefined, operation: string)
   if (id === undefined || !ruleIdPattern.test(id) || ruleValue === undefined)
     throw invalidResponse(operation, "X returned a filtered-stream rule without an id or value.");
 
-  return { id, value: ruleValue, ...(tag === undefined ? {} : { tag }) };
+  return { id, value: ruleValue, ...definedFields({ tag }) };
 }
 
 /** Parse the rule-mutation response while keeping per-rule errors. */
@@ -148,7 +145,7 @@ export function parseRulesUpdate(value: JsonValue, dryRun: boolean): XStreamRule
   return {
     dryRun,
     rules: (data ?? []).map((entry: JsonValue) => parseStreamRule(entry, operation)),
-    ...(summary === undefined ? {} : { summary }),
+    ...definedFields({ summary }),
     errors: objectArray(body["errors"]) ?? [],
   };
 }
@@ -207,10 +204,13 @@ export function parseStreamMessage(line: string): XStreamEvent {
       matchingRules: rules.flatMap((rule) => {
         const id = stringValue(rule["id"]);
         const tag = stringValue(rule["tag"]);
-        return id === undefined ? [] : [{ id, ...(tag === undefined ? {} : { tag }) }];
+
+        return id === undefined ? [] : [{ id, ...definedFields({ tag }) }];
       }),
-      ...(includes === undefined ? {} : { includes }),
-      ...(errors === undefined || errors.length === 0 ? {} : { errors }),
+      ...definedFields({
+        includes,
+        errors: errors !== undefined && errors.length > 0 ? errors : undefined,
+      }),
     };
   }
 
@@ -263,6 +263,7 @@ export function streamUrl(options: XStreamOptions): URL {
     });
 
   const url = new URL("https://api.x.com/2/tweets/search/stream");
+
   const unique = (values: readonly string[]) =>
     values.filter((value, index) => values.indexOf(value) === index).join(",");
 
@@ -358,6 +359,7 @@ export async function* readFilteredStream(
   const url = streamUrl(options);
   const stallTimeoutMs = options.stallTimeoutMs ?? xStreamDefaultStallTimeoutMs;
   const outer = context.signal;
+
   const common = {
     operation: "streams.read",
     backend: context.backendInstance,
@@ -422,6 +424,7 @@ export async function* readFilteredStream(
         signal: controller.signal,
         redirect: "error",
       });
+
       void pending.then(
         (late) => {
           if (controller.signal.aborted) void late.body?.cancel().catch(() => undefined);
@@ -485,6 +488,7 @@ export async function* readFilteredStream(
   } finally {
     clearTimeout(timer);
     outer?.removeEventListener("abort", onAbort);
+
     if (!controller.signal.aborted) controller.abort(new Error("stream closed"));
     void reader?.cancel().catch(() => undefined);
   }

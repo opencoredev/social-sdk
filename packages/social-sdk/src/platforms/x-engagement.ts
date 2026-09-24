@@ -1,6 +1,8 @@
 import { SocialError } from "../core/errors.js";
 import type { AdapterOperationContext, ConnectedAccountRef } from "../core/types.js";
 import { managedHttp } from "../cloud/common.js";
+import { definedFields } from "../core/fields.js";
+import { isBoolean, isJsonObject } from "../transport/validation.js";
 
 /** Credential-ready helper. Applications must authorize the acting account before calling. */
 export interface XEngagementOptions {
@@ -44,8 +46,7 @@ async function mutate(
 
   const request = managedHttp("https://api.x.com", {
     apiKey: options.accessToken,
-    // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...definedFields({ fetch: options.fetch }),
   });
 
   const result = await request(
@@ -56,18 +57,10 @@ async function mutate(
     action === "like" ? "POST" : "DELETE",
   );
 
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-  const data = result && typeof result === "object" && "data" in result ? result.data : undefined;
+  const data = isJsonObject(result) ? result["data"] : undefined;
+  const liked = isJsonObject(data) ? data["liked"] : undefined;
 
-  if (
-    !data ||
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-    typeof data !== "object" ||
-    !("liked" in data) ||
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated boundary or fixture contract.
-    typeof data.liked !== "boolean" ||
-    data.liked !== (action === "like")
-  )
+  if (!isBoolean(liked) || liked !== (action === "like"))
     throw new SocialError({
       code: "ambiguous_outcome",
       operation: `x.${action}`,
@@ -75,7 +68,7 @@ async function mutate(
       retryDisposition: { kind: "reconcile-first" },
     });
 
-  return { liked: data.liked, tweetId, userId: options.userId };
+  return { liked, tweetId, userId: options.userId };
 }
 
 /** Requires like.write, tweet.read, users.read and the app's current API access. Never retries writes. */

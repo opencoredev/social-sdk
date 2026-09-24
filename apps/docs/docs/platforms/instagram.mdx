@@ -231,6 +231,10 @@ const metrics = await social.analytics.getPostMetrics(postRef);
 for (const metric of metrics) console.log(metric.name, metric.value, metric.unit);
 ```
 
+### Receive webhooks
+
+Pass the Meta app secret as `webhookSecret` to verify `X-Hub-Signature-256` through `adapter.webhooks.verify`. Answer Meta's GET verification with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`. Comments and live comments decode to `comment.received` and incoming messages to `message.received`; other fields stay `unknown`. See [Process webhooks](/events) for the handler and the batching rules.
+
 ## Native operations
 
 The typed native module exposes Reels and Stories container publishing, post deletion, publishing-limit reads, comment moderation, comment replies, tagged and mentioned media reads, business discovery, and hashtag search. Product tagging and messaging are declared approval dependent and require the corresponding Meta products and app review.
@@ -238,6 +242,7 @@ The typed native module exposes Reels and Stories container publishing, post del
 ## Limits and requirements
 
 - Media must be publicly reachable over HTTPS; the adapter does not upload local bytes.
+- Published captions and media cannot be edited. The [IG Media reference](https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/) only documents `comment_enabled` as an update field, so `posts.update` is declared `unsupported-by-platform`.
 - Account authorization and Instagram professional-account eligibility remain application responsibilities.
 - Instagram Login uses `graph.instagram.com`; Facebook Login uses `graph.facebook.com`. Facebook Login operations require the Facebook token, connected Page access, and the permissions listed in Meta's [Instagram Platform documentation](https://developers.facebook.com/documentation/instagram-platform/).
 - Meta may require Advanced Access or App Review for accounts outside your own organization, comment moderation, business discovery, and public hashtag content.
