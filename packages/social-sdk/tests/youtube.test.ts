@@ -30,7 +30,7 @@ it("YouTube preserves empty permission and server failures without replay", asyn
           },
         },
       ),
-      (error: unknown) =>
+      (error: unknown): error is SocialError =>
         error instanceof SocialError &&
         error.upstreamStatus === status &&
         error.code === (status === 503 ? "ambiguous_outcome" : "media_error"),
@@ -111,11 +111,13 @@ it("YouTube normalized search rejects unsupported scope and oversized limits", a
 
   await assert.rejects(
     () => adapter.search!.posts(account, { query: "x", scope: "all" }, context),
-    (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError && error.code === "invalid_input",
   );
   await assert.rejects(
     () => adapter.search!.posts(account, { query: "x", limit: 51 }, context),
-    (error: unknown) => error instanceof SocialError && error.code === "invalid_input",
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError && error.code === "invalid_input",
   );
 });
 
@@ -189,7 +191,7 @@ it("YouTube comment updates send the selected comment ID", async () => {
 });
 
 it("YouTube captions use resource download route and related multipart metadata", async () => {
-  const calls: { url: URL; init?: RequestInit }[] = [];
+  const calls: { url: URL; init: RequestInit | undefined }[] = [];
 
   const adapter = youtube({
     auth: { accessToken: "test", channelId: "channel1" },
