@@ -298,6 +298,7 @@ it("LinkedIn lists administered organizations from organizationAcls with offset 
 
   assert.equal(urls[0]?.pathname, "/rest/organizationAcls");
   assert.equal(urls[0]?.searchParams.get("q"), "roleAssignee");
+  assert.equal(urls[0]?.searchParams.get("roleAssignee"), "urn:li:person:782bbtaQ");
   assert.equal(urls[0]?.searchParams.get("role"), "ADMINISTRATOR");
   assert.equal(urls[0]?.searchParams.get("state"), "APPROVED");
   assert.equal(urls[0]?.searchParams.get("count"), "3");
@@ -339,6 +340,19 @@ it("LinkedIn administered organization lookup validates input and reports missin
   await assert.rejects(
     adapter.native!.listAdministeredOrganizations({
       account: { ...member, accountId: "urn:li:person:other" },
+      context: nativeContext,
+    }),
+    (error) => error instanceof SocialError && error.code === "unauthorized",
+  );
+
+  const organizationAdapter = linkedin({
+    auth: { accessToken: "secret", author: "urn:li:organization:79988552" },
+    apiVersion: "202609",
+    fetch: async () => Response.json({ elements: [] }),
+  });
+  await assert.rejects(
+    organizationAdapter.native!.listAdministeredOrganizations({
+      account: organization,
       context: nativeContext,
     }),
     (error) => error instanceof SocialError && error.code === "unauthorized",

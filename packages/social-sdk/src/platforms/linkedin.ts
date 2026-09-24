@@ -428,9 +428,18 @@ export function linkedin(
         message: "LinkedIn requires a nonnegative offset and page size from 1 to 100.",
       });
 
+    const memberUrn = options.auth.author;
+    if (!memberUrn.startsWith("urn:li:person:"))
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "accounts.read",
+        message:
+          "LinkedIn administered organization lookup requires a member account authorization.",
+      });
+
     const result = object(
       await accountRequest(
-        `/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&start=${start}&count=${count}`,
+        `/rest/organizationAcls?q=roleAssignee&roleAssignee=${encodeURIComponent(memberUrn)}&role=ADMINISTRATOR&state=APPROVED&start=${start}&count=${count}`,
         context,
         "rw_organization_admin or r_organization_admin",
       ),
@@ -1535,6 +1544,13 @@ export function linkedin(
     native: {
       async listAdministeredOrganizations({ account, cursor, limit, context }) {
         authorize(account, context);
+        if (!account.accountId.startsWith("urn:li:person:"))
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "accounts.read",
+            message:
+              "LinkedIn administered organization lookup requires a member account reference.",
+          });
 
         return listAdministeredOrganizations(
           {
