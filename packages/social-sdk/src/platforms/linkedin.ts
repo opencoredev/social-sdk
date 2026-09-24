@@ -649,6 +649,13 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "profile.update",
+          availability: "approval-dependent" as const,
+          notes:
+            "Member profile writes use the Profile Edit API, which LinkedIn restricts to approved developers. This adapter does not implement it.",
+        },
+        {
+          platform: "linkedin",
           operation: "messages.write",
           availability: "unsupported-by-platform" as const,
         },

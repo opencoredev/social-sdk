@@ -12,6 +12,7 @@ import type {
   ConnectedAccountRef,
   DeliveryOutcome,
   JsonObject,
+  JsonValue,
   MediaAttachment,
   MetricValue,
   Page,
@@ -131,6 +132,16 @@ export interface YouTubeNative {
     readonly videoId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Update the configured channel with channels.update. One part is written per call. The adapter
+   * reads the current part first and merges `value` into it, because YouTube deletes any mutable
+   * property omitted from the write. A `null` field removes that property or localization.
+   */
+  readonly updateProfile: (input: {
+    readonly part: "brandingSettings" | "localizations";
+    readonly value: JsonObject;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
   readonly analytics: (input: {
     readonly query: Record<string, string>;
     readonly context: AdapterOperationContext;
@@ -475,6 +486,14 @@ export function youtube(
           platform: "youtube",
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+        },
+        {
+          operation: "profile.update",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Native access: updateProfile. Writes brandingSettings.channel or localizations through channels.update. Each call reads the channel (1 quota unit) and then writes it (50 units).",
         },
         {
           operation: "videos.delete",
@@ -1516,6 +1535,75 @@ export function youtube(
         } as unknown as JsonObject;
         return object(
           await request("/youtube/v3/videos", context, merged, { part: "snippet,status" }, "PUT"),
+        ) as JsonObject;
+      },
+      async updateProfile({ part, value, context }) {
+        nativeAuthorize(context);
+        const operation = "profile.update";
+        const isJsonObject = (input: JsonValue | undefined): input is JsonObject =>
+          typeof input === "object" && input !== null && !Array.isArray(input);
+        const invalid = (message: string) =>
+          new SocialError({ code: "invalid_input", operation, message });
+        if (part !== "brandingSettings" && part !== "localizations")
+          throw invalid("part must be brandingSettings or localizations.");
+        if (!isJsonObject(value) || Object.keys(value).length === 0)
+          throw invalid("value must be a non-empty object.");
+        const channelPatch = value["channel"];
+        if (
+          part === "brandingSettings" &&
+          (Object.keys(value).some((key) => key !== "channel") || !isJsonObject(channelPatch))
+        )
+          throw invalid("brandingSettings updates accept only a channel object.");
+        if (
+          part === "localizations" &&
+          Object.entries(value).some(
+            ([key, entry]) => key.trim() === "" || (entry !== null && !isJsonObject(entry)),
+          )
+        )
+          throw invalid(
+            "Each localization must be an object keyed by language, or null to remove it.",
+          );
+
+        // channels.update deletes omitted mutable properties, so merge into the current part.
+        const merge = (current: JsonValue | undefined, patch: JsonObject): JsonObject =>
+          Object.fromEntries(
+            Object.entries({ ...(isJsonObject(current) ? current : {}), ...patch }).filter(
+              ([, entry]) => entry !== null,
+            ),
+          );
+
+        const channel = array(
+          object(
+            await request("/youtube/v3/channels", context, undefined, {
+              id: options.auth.channelId,
+              part,
+            }),
+          )["items"],
+        )
+          .map((item) => object(item) as JsonObject)
+          .find((item) => item["id"] === options.auth.channelId);
+        if (!channel)
+          throw new SocialError({
+            code: "unauthorized",
+            operation,
+            message: "Configured channel is absent or inaccessible to this authorization.",
+          });
+
+        const branding = isJsonObject(channel["brandingSettings"])
+          ? channel["brandingSettings"]
+          : {};
+        const next =
+          part === "brandingSettings" && isJsonObject(channelPatch)
+            ? { ...branding, channel: merge(branding["channel"], channelPatch) }
+            : merge(channel["localizations"], value);
+        return object(
+          await request(
+            "/youtube/v3/channels",
+            context,
+            { id: options.auth.channelId, [part]: next },
+            { part },
+            "PUT",
+          ),
         ) as JsonObject;
       },
       async deleteVideo({ videoId, context }) {

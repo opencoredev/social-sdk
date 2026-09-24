@@ -1473,6 +1473,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           notes:
             "Filtered stream rules and streaming transport are not implemented by this adapter.",
         },
+        {
+          platform: "x",
+          operation: "profile.update",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "X API v2 has no profile write endpoint. The legacy v1.1 account/update_profile method is no longer in the X documentation and requires OAuth 1.0a, which this adapter does not use.",
+        },
       ],
     },
     accounts: {

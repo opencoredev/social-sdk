@@ -370,6 +370,12 @@ export function tiktok(
           availability: "available" as const,
           requiredScopes: ["video.list"],
         },
+        {
+          platform: "tiktok",
+          operation: "profile.update",
+          availability: "unsupported-by-platform" as const,
+          notes: "The Display API reads user info only. TikTok has no profile write endpoint.",
+        },
       ],
     },
     accounts: {

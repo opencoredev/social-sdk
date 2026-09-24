@@ -780,6 +780,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       },
       { operation: "profile.read", platform: "threads", availability: "available" },
       {
+        operation: "profile.update",
+        platform: "threads",
+        availability: "unsupported-by-platform",
+        notes: "The Threads API exposes profile reads only. It has no profile write endpoint.",
+      },
+      {
         operation: "search.keyword",
         platform: "threads",
         availability: "available",

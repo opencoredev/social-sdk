@@ -758,6 +758,12 @@ export function instagram(
         { platform: "instagram", operation: "stories.publish", availability: "available" as const },
         {
           platform: "instagram",
+          operation: "profile.update",
+          availability: "unsupported-by-platform" as const,
+          notes: "The IG User node supports reads only. Updating it is not supported.",
+        },
+        {
+          platform: "instagram",
           operation: "posts.delete",
           availability:
             flavor === "facebook-login"
