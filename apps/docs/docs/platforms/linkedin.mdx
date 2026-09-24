@@ -1,9 +1,9 @@
 ---
 title: LinkedIn
-description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image processing states, comments, and metrics.
+description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image, video, and document processing states, comments, and metrics.
 ---
 
-The direct LinkedIn adapter supports normalized text, single-image, multi-image, and single-video publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds polls, reactions, reshares, updates, deletion, video status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
+The direct LinkedIn adapter supports normalized text, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds polls, reactions, reshares, updates, deletion, video and document status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
 
 ## Setup
 
@@ -151,6 +151,51 @@ if (video.status === "AVAILABLE") {
 }
 ```
 
+### Upload a document, then publish it
+
+A document post carries one PDF, PPT, PPTX, DOC, or DOCX file. LinkedIn accepts files up to 100 MB and 300 pages. The adapter rejects other MIME types, empty files, and files over 100,000,000 bytes before sending a request. It cannot count pages offline, so LinkedIn enforces the page limit while it processes the file.
+
+`social.media.upload` calls the Documents API `initializeUpload` action with the configured author as owner, then sends the bytes to the returned upload URL. The upload URL is not stored or included in errors. The result is an account-bound reference to the `urn:li:document:` URN.
+
+LinkedIn requires a title for document posts. The adapter uses the attachment `caption`, or `filename` when no caption is set. Preparation fails without a title, when the document shares the post with other media, or when `altText` is set, because LinkedIn documents have no alt text field.
+
+```ts
+const documentRef = await social.media.upload(
+  {
+    kind: "document",
+    source: { kind: "blob", blob: pdf },
+    mimeType: "application/pdf",
+    filename: "q3-report.pdf",
+  },
+  account,
+);
+
+// Later, after LinkedIn finishes processing the file.
+const status = await social
+  .native("default", { acknowledgeUnsafe: true })
+  .documentStatus(documentRef, context);
+
+if (status.status === "AVAILABLE") {
+  const result = await social.posts.publish({
+    targets: [{ account }],
+    content: {
+      text: "Our Q3 report",
+      media: [
+        {
+          kind: "document",
+          caption: "Q3 report",
+          source: { kind: "media-ref", ref: documentRef },
+        },
+      ],
+    },
+  });
+}
+```
+
+Before creating the post, the adapter reads the document, checks that its owner is the configured author, and requires the `AVAILABLE` status. A document in `WAITING_UPLOAD`, `PROCESSING`, or `PROCESSING_FAILED` fails the target without creating a post. The adapter does not poll in the background. `documentStatus` returns only `id`, `owner`, and `status`; it drops the signed `downloadUrl`.
+
+Upload failures are not retried. If a storage upload times out or fails after the bytes were sent, upload the file again to get a new document URN.
+
 ### Handle the returned URN
 
 Post creation returns its native URN in the `x-restli-id` header. Missing native identity produces an unknown outcome. Preserve the result and reconcile before retrying.
@@ -233,7 +278,7 @@ Page statistics preserve nested click metrics such as `careersPageClicks` and
 
 ## Native operations
 
-The native module covers polls, reactions, reshares, updates, deletion, video status checks, and organization analytics. Multi-image and video posts go through `social.posts.publish`. Document posts are not supported yet. Articles remain approval dependent.
+The native module covers polls, reactions, reshares, updates, deletion, video and document status checks, and organization analytics. Multi-image, video, and document posts go through `social.posts.publish`. Articles remain approval dependent.
 
 ## Limits and requirements
 
@@ -241,4 +286,4 @@ The native module covers polls, reactions, reshares, updates, deletion, video st
 - Messaging is unsupported.
 - Current evidence is offline contract tests; no account, app approval, or live post has been verified.
 
-Sources: [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [MultiImage API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api) (API version 202609, checked 2026-09-24), [Videos API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).
+Sources: [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [MultiImage API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api) (API version 202609, checked 2026-09-24), [Videos API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api), [Documents API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api), [Post API schema](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).

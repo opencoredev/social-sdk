@@ -863,6 +863,9 @@ export function instagram(
               fail("instagram.url", "Use public HTTPS media without local hosts or credentials.");
             }
 
+          if (item.kind === "document")
+            fail("instagram.document", "Instagram publishing accepts image and video media only.");
+
           if (item.kind === "image" && item.mimeType !== "image/jpeg")
             fail("instagram.jpeg", "Instagram image publishing requires JPEG media.");
 

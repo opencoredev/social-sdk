@@ -1129,6 +1129,9 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           if (item.kind === "video" && item.mimeType && item.mimeType !== "video/mp4")
             add("media.format", "Threads videos must be MP4.");
 
+          if (item.kind === "document")
+            add("media.format", "Threads publishing accepts image and video media only.");
+
           if (item.altText && item.altText.length > 1000)
             add("media.alt_text", "Alt text is limited to 1,000 characters.");
         }

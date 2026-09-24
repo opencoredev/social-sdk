@@ -49,6 +49,13 @@ export function managedMedia(
   ): Promise<string> {
     accountMatches(account, context);
 
+    if (item.kind === "document")
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation: "media.resolve",
+        message: "Managed backends accept image and video media only through this adapter.",
+      });
+
     if (item.source.kind !== "media-ref")
       return uploadManagedMedia(item, (body) => presign(body, context), {
         options,
@@ -112,6 +119,13 @@ export function managedMedia(
       context: AdapterOperationContext,
     ): Promise<MediaRef> {
       accountMatches(account, context);
+
+      if (item.kind === "document")
+        throw new SocialError({
+          code: "unsupported_capability",
+          operation: "media.upload",
+          message: "Managed backends accept image and video media only through this adapter.",
+        });
 
       if (item.source.kind === "media-ref") {
         await resolve(item, account, context);

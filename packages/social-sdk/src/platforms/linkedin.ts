@@ -19,6 +19,20 @@ import { publicFields } from "../cloud/common.js";
 
 /* oxlint-disable anti-slop/require-readable-spacing -- Existing adapter style keeps compact guards and native dispatch blocks. */
 
+/** Documents API file types (PDF, PPT, PPTX, DOC, DOCX), checked 2026-09-24 against version 202609. */
+const linkedInDocumentMimeTypes: readonly string[] = [
+  "application/pdf",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
+/** LinkedIn documents "100MB"; the decimal reading is the conservative local bound. */
+const linkedInDocumentMaxBytes = 100_000_000;
+
+const linkedInDocumentUrn = /^urn:li:document:[a-zA-Z0-9_-]+$/;
+
 export interface LinkedInOptions {
   readonly auth: {
     readonly accessToken: string;
@@ -84,6 +98,8 @@ export interface LinkedInNative {
    * while the status is PROCESSING or WAITING_UPLOAD; the adapter never polls on its own.
    */
   readonly videoStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
+  /** Reads `id`, `owner` and `status` (`WAITING_UPLOAD`, `PROCESSING`, `AVAILABLE`, `PROCESSING_FAILED`). */
+  readonly documentStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
   /**
    * @deprecated Upload video bytes with `social.media.upload` and check processing with
    * `videoStatus`. This method always throws `unsupported_capability`.
@@ -568,6 +584,199 @@ export function linkedin(
     }
   }
 
+  async function uploadDocument(
+    media: MediaAttachment,
+    account: ConnectedAccountRef,
+    context: AdapterOperationContext,
+  ): Promise<MediaRef> {
+    authorize(account, context);
+    const source = media.source;
+    const size = media.byteSize ?? (source.kind === "blob" ? source.blob.size : undefined);
+    const mimeType = media.mimeType ?? "";
+
+    if (
+      media.kind !== "document" ||
+      !linkedInDocumentMimeTypes.includes(mimeType) ||
+      (source.kind !== "blob" && source.kind !== "stream")
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "Provide PDF, PPT, PPTX, DOC or DOCX bytes as a Blob or replayable stream.",
+      });
+
+    if (
+      size !== undefined &&
+      (!Number.isSafeInteger(size) || size <= 0 || size > linkedInDocumentMaxBytes)
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "LinkedIn documents must be non-empty and at most 100 MB.",
+      });
+
+    const initialized = object(
+      object(
+        await request("/rest/documents?action=initializeUpload", context, {
+          initializeUploadRequest: { owner: account.accountId },
+        }),
+      )["value"],
+    );
+
+    const mediaId = string(initialized["document"]);
+
+    if (!linkedInDocumentUrn.test(mediaId))
+      throw new SocialError({
+        code: "media_error",
+        operation: "media.upload",
+        message: "LinkedIn returned an invalid document identifier.",
+      });
+
+    try {
+      await upload({
+        url: string(initialized["uploadUrl"]),
+        source: {
+          mimeType,
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(size === undefined ? {} : { size }),
+          open: source.kind === "blob" ? () => source.blob.stream() : source.open,
+        },
+        allowHost: (host) => host === "www.linkedin.com",
+        maxBytes: linkedInDocumentMaxBytes,
+        timeoutMs: remainingBudget(context),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      throw new SocialError({
+        code:
+          error.kind === "timeout"
+            ? "timeout"
+            : error.kind === "cancelled"
+              ? "cancelled"
+              : error.kind === "invalid-input"
+                ? "invalid_input"
+                : "media_error",
+        operation: "media.upload",
+        message: `LinkedIn document upload for ${mediaId} did not complete: ${error.message}`,
+        upstreamStatus: error.status,
+        retryDisposition: { kind: "never" },
+      });
+    }
+
+    return {
+      kind: "media",
+      version: 1,
+      backend: account.backend,
+      platform: "linkedin",
+      accountId: account.accountId,
+      mediaId,
+    };
+  }
+
+  async function readDocument(ref: MediaRef, context: AdapterOperationContext, operation: string) {
+    authorize(ref, context);
+
+    if (!linkedInDocumentUrn.test(ref.mediaId))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Use the urn:li:document reference returned by media.upload.",
+      });
+
+    const document = object(
+      await request(`/rest/documents/${encodeURIComponent(ref.mediaId)}`, context),
+    );
+
+    if (
+      document["owner"] !== ref.accountId ||
+      (document["id"] !== undefined && document["id"] !== ref.mediaId)
+    )
+      throw new SocialError({
+        code: "unauthorized",
+        operation,
+        message: "LinkedIn document belongs to another author.",
+      });
+
+    return document;
+  }
+
+  /** The Posts API requires a title for documents; take it from caption, then filename. */
+  const documentTitle = (media: MediaAttachment) => (media.caption ?? media.filename ?? "").trim();
+
+  const documentIssues = (target: PreparedPublishTarget): [string, string][] => {
+    const media = target.content.media ?? [];
+    if (!media.some((item) => item.kind === "document")) return [];
+    const issues: [string, string][] = [];
+
+    if (media.length !== 1)
+      issues.push([
+        "linkedin.document_count",
+        "A LinkedIn document post carries exactly one document and no other media.",
+      ]);
+
+    for (const item of media) {
+      if (item.kind !== "document") continue;
+
+      if (item.source.kind !== "media-ref")
+        issues.push([
+          "linkedin.document",
+          "Upload the document first with media.upload, then publish its account-bound reference.",
+        ]);
+      else if (
+        item.source.ref.backend !== target.account.backend ||
+        item.source.ref.accountId !== target.account.accountId ||
+        item.source.ref.platform !== "linkedin" ||
+        !linkedInDocumentUrn.test(item.source.ref.mediaId)
+      )
+        issues.push([
+          "linkedin.media_owner",
+          "Document reference belongs to another author/backend or has an invalid URN.",
+        ]);
+
+      if (!documentTitle(item))
+        issues.push([
+          "linkedin.document_title",
+          "LinkedIn requires a document title. Set caption or filename on the attachment.",
+        ]);
+
+      if (item.altText !== undefined)
+        issues.push([
+          "linkedin.document_alt_text",
+          "LinkedIn documents have no verified alt text mapping. Remove altText.",
+        ]);
+    }
+
+    return issues;
+  };
+
+  async function documentContent(
+    media: MediaAttachment,
+    context: AdapterOperationContext,
+  ): Promise<JsonObject> {
+    if (media.source.kind !== "media-ref")
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "posts.publish",
+        message: "Upload the document first with media.upload.",
+      });
+
+    const document = await readDocument(media.source.ref, context, "posts.publish");
+
+    if (document["status"] !== "AVAILABLE")
+      throw new SocialError({
+        code: "media_error",
+        operation: "posts.publish",
+        message:
+          "Document is not AVAILABLE. Check its status with the native documentStatus helper before publishing.",
+      });
+
+    return { media: { id: media.source.ref.mediaId, title: documentTitle(media) } };
+  }
+
   /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing -- These helpers normalize documented LinkedIn response facets at the transport boundary. */
   const organizationOnly = (
     account: ConnectedAccountRef,
@@ -816,14 +1025,20 @@ export function linkedin(
           platform: "linkedin",
           operation: "posts.publish",
           availability: "available" as const,
-          formats: ["text" as const, "image" as const, "carousel" as const, "video" as const],
+          formats: [
+            "text" as const,
+            "image" as const,
+            "carousel" as const,
+            "video" as const,
+            "document" as const,
+          ],
           requiredScopes: [
             options.auth.author.startsWith("urn:li:organization:")
               ? "w_organization_social"
               : "w_member_social",
           ],
           notes:
-            "Explicit author URN and public visibility. Organization role and app product approval required. One registered image or MP4 video per post; the asset must be AVAILABLE before creating a post.",
+            "Explicit author URN and public visibility. Organization role and app product approval required. One registered image, 2 to 20 images, one MP4 video, or one document per post; every asset must be AVAILABLE before creating a post.",
         },
         {
           platform: "linkedin",
@@ -866,7 +1081,15 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "posts.document",
-          availability: "not-implemented-by-adapter" as const,
+          availability: "available" as const,
+          formats: ["document" as const],
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "w_organization_social"
+              : "w_member_social",
+          ],
+          notes:
+            "One PDF, PPT, PPTX, DOC or DOCX file up to 100 MB and 300 pages, uploaded through the Documents API. LinkedIn enforces the page limit during processing. Requires a title and AVAILABLE status.",
         },
         { platform: "linkedin", operation: "polls.create", availability: "available" as const },
         { platform: "linkedin", operation: "reactions.write", availability: "available" as const },
@@ -935,7 +1158,7 @@ export function linkedin(
           platform: "linkedin",
           operation: "media.upload",
           availability: "available" as const,
-          formats: ["image" as const, "video" as const],
+          formats: ["image" as const, "video" as const, "document" as const],
         },
         ...["comments.read", "comments.write", "analytics.read"].map((operation) => ({
           platform: "linkedin" as const,
@@ -957,7 +1180,9 @@ export function linkedin(
       ) =>
         media.kind === "video"
           ? uploadVideo(media, account, context)
-          : uploadImage(media, account, context),
+          : media.kind === "document"
+            ? uploadDocument(media, account, context)
+            : uploadImage(media, account, context),
     },
     posts: {
       prepareTarget(target: PreparedPublishTarget) {
@@ -997,6 +1222,8 @@ export function linkedin(
 
         const media = target.content.media ?? [];
 
+        for (const [code, message] of documentIssues(target)) fail(code, message);
+
         // A MultiImage post takes 2 to 20 images; alt text is at most 4,086 characters.
         // A video post carries exactly one video and cannot be mixed with images.
         if (media.length > 20)
@@ -1014,6 +1241,8 @@ export function linkedin(
         for (const item of media) {
           if (media.length > 1 && (item.altText?.length ?? 0) > 4086)
             fail("linkedin.alt_text", "LinkedIn multi-image alt text exceeds 4,086 characters.");
+
+          if (item.kind === "document") continue;
 
           if ((item.kind !== "image" && item.kind !== "video") || item.source.kind !== "media-ref")
             fail(
@@ -1044,7 +1273,8 @@ export function linkedin(
         const entries: JsonObject[] = [];
 
         for (const item of media) {
-          if (item.source.kind !== "media-ref") continue;
+          // Documents are read and validated by documentContent below.
+          if (item.kind === "document" || item.source.kind !== "media-ref") continue;
           authorize(item.source.ref, context);
 
           const video = item.kind === "video";
@@ -1099,13 +1329,13 @@ export function linkedin(
 
         // MultiImage content takes 2 to 20 image URNs. Source (accessed 2026-09-24):
         // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-09
-        // A single image or video uses content.media.
-        const content: JsonObject | undefined =
-          entries.length > 1
-            ? { multiImage: { images: entries } }
-            : entries[0] === undefined
-              ? undefined
-              : { media: entries[0] };
+        // A single image or video uses content.media; a document post carries only its document.
+        const document = media.find((item) => item.kind === "document");
+        let content: JsonObject | undefined;
+
+        if (document) content = await documentContent(document, context);
+        else if (entries.length > 1) content = { multiImage: { images: entries } };
+        else if (entries[0] !== undefined) content = { media: entries[0] };
 
         const result = object(
           await request(
@@ -1491,6 +1721,13 @@ export function linkedin(
           "status",
           "processingFailureReason",
           "duration",
+        ]);
+      },
+      async documentStatus(ref: MediaRef, context: AdapterOperationContext) {
+        return publicFields(await readDocument(ref, context, "media.read"), [
+          "id",
+          "owner",
+          "status",
         ]);
       },
       async registerVideo({ account, context }) {
