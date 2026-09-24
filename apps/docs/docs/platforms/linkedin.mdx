@@ -3,7 +3,7 @@ title: LinkedIn
 description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image processing states, comments, and metrics.
 ---
 
-The direct LinkedIn adapter supports normalized text and registered-image publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds polls, reactions, reshares, updates, deletion, and organization analytics operations. Video posts are not supported yet. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
+The direct LinkedIn adapter supports account reads, normalized text and registered-image publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, and organization analytics operations. Video posts are not supported yet. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
 
 ## Setup
 
@@ -11,7 +11,9 @@ The direct LinkedIn adapter supports normalized text and registered-image publis
   <Step title="Check product approvals and scopes">
     Member publishing needs `w_member_social`; organization publishing needs `w_organization_social`
     and an eligible page role. Community Management comments and social actions use separate feed
-    permissions. A token that publishes successfully may still lack read permission.
+    permissions. A token that publishes successfully may still lack read permission. Account reads
+    need `openid` and `profile` for a member author, or `rw_organization_admin` for an organization
+    author.
   </Step>
   <Step title="Pick the author URN and API version">
     Configure a member or organization author URN and an explicit monthly API version such as
@@ -44,6 +46,46 @@ const account = connectedAccountRef({
 ```
 
 ## Examples
+
+### Read the connected account
+
+`accounts.list` and `accounts.get` return the configured author only. A member author reads the
+OpenID Connect `userinfo` endpoint, which requires the `openid` and `profile` scopes from the Sign In
+with LinkedIn using OpenID Connect product. The adapter checks that the returned `sub` matches the
+author URN (`urn:li:person:{sub}`) and uses the member's `name` as the display name. The email
+address and picture are not returned.
+
+An organization author reads `/rest/organizations/{id}`. LinkedIn returns `403` unless the member
+behind the token holds an approved `ADMINISTRATOR` role for that organization, and the call needs
+`rw_organization_admin`. The record uses `localizedName` as the display name and `vanityName` as the
+handle.
+
+```ts
+const page = await social.accounts.list();
+const record = await social.accounts.get(account);
+console.log(record.displayName, record.handle);
+```
+
+A `403` becomes `missing_permission` with the required scopes in the message. A `401` becomes
+`reconnect_required`. A returned member or organization that differs from the configured author
+becomes `unauthorized`.
+
+### Find administered organizations
+
+A member token with `rw_organization_admin` or `r_organization_admin` can list the organizations
+the member administers through the `organizationAcls` roleAssignee finder. Only approved
+`ADMINISTRATOR` roles are returned. Pagination uses the returned offset cursor with a page size from
+1 to 100.
+
+```ts
+const organizations = await social
+  .native("default", { acknowledgeUnsafe: true })
+  .listAdministeredOrganizations({ account, limit: 25, context });
+for (const item of organizations.items) console.log(item.organization);
+```
+
+This adapter instance still acts only as its configured author. To publish or read as one of the
+returned organizations, create another `linkedin` backend with that organization URN as its author.
 
 ### Publish a text post
 
@@ -160,21 +202,14 @@ Page statistics preserve nested click metrics such as `careersPageClicks` and
 `mobileCareersPageClicks`, as well as nested view counts such as `allPageViews` and
 `uniquePageViews`.
 
-### Receive webhooks
-
-LinkedIn enables webhooks only for apps with an approved webhook use case, so `webhooks.verify` is `approval-dependent`. Organization social action notifications also need the Community Management API and `rw_organization_admin`. Pass the app client secret as `webhookSecret`. `adapter.webhooks.verify` checks `X-LI-Signature`, and `answerLinkedInWebhookChallenge` from `@opencoredev/social-sdk/server` answers the GET validation that LinkedIn repeats every 2 hours. Member `COMMENT` notifications decode to `comment.received`; other actions stay `unknown`. See [Process webhooks](/events).
-
 ## Native operations
 
-The native module covers polls, reactions, reshares, updates, deletion, comment deletion, and organization analytics. Multi-image, video, and document posts are not supported yet. Articles remain approval dependent.
-
-`deleteComment({ account, postId, commentId, context })` calls `DELETE /rest/socialActions/{postUrn}/comments/{commentId}`. Pass the `urn:li:share` or `urn:li:ugcPost` URN and the full comment URN returned by comment reads. Organization authors need `w_organization_social`, and the SDK adds the required `actor` query. Member authors need `w_member_social`. LinkedIn does not document which comments an actor may delete.
+The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, and organization analytics. Multi-image, video, and document posts are not supported yet. Articles remain approval dependent.
 
 ## Limits and requirements
 
 - Member read access is restricted; check the current LinkedIn product approvals and role rules before enabling read operations.
 - Messaging is unsupported.
-- Hiding comments is unsupported. The Comments API documents get, create, edit, and delete, with no hide or moderation-status operation.
 - Current evidence is offline contract tests; no account, app approval, or live post has been verified.
 
-Sources: [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).
+Sources: [Sign In with LinkedIn using OpenID Connect](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2), [Organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [Organization lookup](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api), [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).

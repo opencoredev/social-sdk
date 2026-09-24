@@ -2908,6 +2908,16 @@
         },
         {
           "platform": "linkedin",
+          "operation": "accounts.read",
+          "availability": "available",
+          "requiredScopes": [
+            "openid",
+            "profile"
+          ],
+          "notes": "Returns the configured member only. Reads the OpenID Connect userinfo endpoint and checks that sub matches the author URN. Requires the Sign In with LinkedIn using OpenID Connect product."
+        },
+        {
+          "platform": "linkedin",
           "operation": "posts.multi-image",
           "availability": "not-implemented-by-adapter",
           "formats": [
