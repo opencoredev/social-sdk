@@ -428,3 +428,135 @@ it("LinkedIn declares video posts and video media uploads as available", () => {
   }
   assert.equal(entries.length, 3);
 });
+
+it("LinkedIn sends a non-blank video caption as the optional media title", async () => {
+  const bodies: (JsonObject | undefined)[] = [];
+
+  const social = createSocial({
+    backend: linkedin({
+      auth,
+      apiVersion: "202609",
+      fetch: async (input, init) => {
+        const call = await record(input, init);
+
+        if (call.method === "GET")
+          return Response.json({ id: videoRef.mediaId, owner: auth.author, status: "AVAILABLE" });
+
+        bodies.push(call.body);
+
+        return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:7" } });
+      },
+    }),
+  });
+
+  await social.posts.publish(videoPost({ caption: "  Launch recap  " }));
+  await social.posts.publish(videoPost({ caption: "   " }));
+
+  assert.deepEqual(bodies[0]?.["content"], {
+    media: { id: videoRef.mediaId, title: "Launch recap" },
+  });
+  assert.deepEqual(bodies[1]?.["content"], { media: { id: videoRef.mediaId } });
+});
+
+it("LinkedIn marks a processing video as safe to publish later and a failed one as final", async () => {
+  for (const [status, kind] of [
+    ["PROCESSING", "after-delay"],
+    ["WAITING_UPLOAD", "after-delay"],
+    ["PROCESSING_FAILED", "never"],
+  ]) {
+    const social = createSocial({
+      backend: linkedin({
+        auth,
+        apiVersion: "202609",
+        fetch: async () => Response.json({ id: videoRef.mediaId, owner: auth.author, status }),
+      }),
+    });
+
+    const outcome = (await social.posts.publish(videoPost())).outcomes[0];
+    assert.equal(outcome?.state, "failed");
+    if (outcome?.state === "failed") assert.equal(outcome.retryDisposition.kind, kind);
+  }
+});
+
+function statusSequence(statuses: string[], urls: string[]) {
+  return linkedin({
+    auth,
+    apiVersion: "202609",
+    fetch: async (input) => {
+      urls.push(String(input));
+      const status = statuses[Math.min(urls.length - 1, statuses.length - 1)];
+
+      return Response.json({ id: videoRef.mediaId, owner: auth.author, status });
+    },
+  });
+}
+
+/** Each call gets its own context because the elapsed budget is tracked per context object. */
+const freshContext = (maxElapsedMs: number) => ({
+  ...nativeContext,
+  retryBudget: { maxAttempts: 1, maxElapsedMs },
+});
+
+it("LinkedIn waitForVideo reads again after the interval until the video is AVAILABLE", async () => {
+  const urls: string[] = [];
+  const adapter = statusSequence(["PROCESSING", "AVAILABLE"], urls);
+
+  const status = await adapter.native!.waitForVideo(videoRef, freshContext(10_000), {
+    intervalMs: 1_000,
+  });
+  assert.equal(status["status"], "AVAILABLE");
+  assert.equal(urls.length, 2);
+});
+
+it("LinkedIn waitForVideo stops on terminal status, check limit, or budget", async () => {
+  const failedUrls: string[] = [];
+  const failed = await statusSequence(["PROCESSING_FAILED"], failedUrls).native!.waitForVideo(
+    videoRef,
+    freshContext(60_000),
+  );
+  assert.equal(failed["status"], "PROCESSING_FAILED");
+  assert.equal(failedUrls.length, 1);
+
+  const limitUrls: string[] = [];
+  const limited = await statusSequence(["PROCESSING"], limitUrls).native!.waitForVideo(
+    videoRef,
+    freshContext(60_000),
+    { maxChecks: 1 },
+  );
+  assert.equal(limited["status"], "PROCESSING");
+  assert.equal(limitUrls.length, 1);
+
+  // A 1,000 ms budget cannot fit the default 5,000 ms wait, so the pending status returns at once.
+  const budgetUrls: string[] = [];
+  const pending = await statusSequence(["PROCESSING"], budgetUrls).native!.waitForVideo(
+    videoRef,
+    freshContext(1_000),
+  );
+  assert.equal(pending["status"], "PROCESSING");
+  assert.equal(budgetUrls.length, 1);
+});
+
+it("LinkedIn waitForVideo validates options and honors cancellation", async () => {
+  const urls: string[] = [];
+  const adapter = statusSequence(["PROCESSING"], urls);
+
+  for (const options of [
+    { intervalMs: 999 },
+    { intervalMs: 1_500.5 },
+    { maxChecks: 0 },
+    { maxChecks: 61 },
+  ])
+    await assert.rejects(adapter.native!.waitForVideo(videoRef, freshContext(60_000), options), {
+      name: "SocialError",
+      code: "invalid_input",
+    });
+  assert.equal(urls.length, 0);
+
+  const controller = new AbortController();
+  const context = { ...freshContext(60_000), signal: controller.signal };
+  const waiting = adapter.native!.waitForVideo(videoRef, context, { intervalMs: 30_000 });
+  setTimeout(() => controller.abort(), 20);
+
+  await assert.rejects(waiting, { name: "SocialError", code: "cancelled" });
+  assert.equal(urls.length, 1);
+});

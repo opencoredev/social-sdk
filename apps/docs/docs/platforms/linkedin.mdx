@@ -122,7 +122,11 @@ LinkedIn accepts JPEG, PNG, and GIF images under 36,152,320 pixels, and GIFs of 
 
 A LinkedIn post can carry one MP4 video of 75 KB to 500 MB and 3 seconds to 30 minutes. Pass the file as a Blob, for example from `fs.openAsBlob` in Node.js. The upload sends the parts LinkedIn asks for, finalizes the video, and returns its `urn:li:video` reference without waiting for processing.
 
-LinkedIn processes the video after the upload. Check it with the native `videoStatus` helper, which sends one request per call. Your application decides when to check again; the SDK never polls. Publishing reads the status once and creates no post unless the video is `AVAILABLE`. A `PROCESSING_FAILED` video has to be uploaded again. A video post carries exactly one video and no images. Video posts do not accept alt text, and thumbnails and captions are not implemented.
+LinkedIn processes the video after the upload and does not document how long that takes. The native `videoStatus` helper sends one request per call, so your application decides when to check again. If you would rather wait in the same call, the native `waitForVideo` helper is an opt-in, bounded version: it reads the status, and while the video is `PROCESSING` or `WAITING_UPLOAD` it waits `intervalMs` (default 5,000) and reads again, up to `maxChecks` reads (default 12, at most 60). It stops early when the next wait would not fit the context's elapsed budget, and it rejects with `cancelled` when the context signal aborts. It returns the last status it read, which can still be `PROCESSING`, and it never creates a post.
+
+Publishing does not wait. It reads the status once and creates no post unless the video is `AVAILABLE`. A video that is still processing gives a `failed` outcome with a `media_error` code and an `after-delay` retry disposition: no post exists, so publishing again later is safe. The SDK does not retry for you. A `PROCESSING_FAILED` video gives a `failed` outcome with a `never` disposition and has to be uploaded again.
+
+A video post carries exactly one video and no images. The attachment `caption`, when it is not blank, becomes the video's `title` in the Posts API; LinkedIn requires a title only for documents. Video posts do not accept alt text, and thumbnails and subtitle files are not implemented.
 
 ```ts
 const videoRef = await social.media.upload(
@@ -135,17 +139,25 @@ const videoRef = await social.media.upload(
   account,
 );
 
-// Later, from your own job or request handler:
-const video = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .videoStatus(videoRef, context);
+// Later, from your own job or request handler, check once:
+const native = social.native("default", { acknowledgeUnsafe: true });
+let video = await native.videoStatus(videoRef, context);
+
+// Or wait in this call, bounded by the checks and the context's elapsed budget:
+video = await native.waitForVideo(videoRef, context, { intervalMs: 5_000, maxChecks: 12 });
 
 if (video.status === "AVAILABLE") {
   await social.posts.publish({
     targets: [{ account }],
     content: {
       text: "Launch recap",
-      media: [{ kind: "video", source: { kind: "media-ref", ref: videoRef } }],
+      media: [
+        {
+          kind: "video",
+          source: { kind: "media-ref", ref: videoRef },
+          caption: "Launch recap",
+        },
+      ],
     },
   });
 }

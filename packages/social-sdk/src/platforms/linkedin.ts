@@ -95,9 +95,22 @@ export interface LinkedInNative {
   readonly imageStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
   /**
    * Reads one uploaded video's owner and processing status with a single GET. Call it again later
-   * while the status is PROCESSING or WAITING_UPLOAD; the adapter never polls on its own.
+   * while the status is PROCESSING or WAITING_UPLOAD, or use `waitForVideo`. Other methods never
+   * poll on their own.
    */
   readonly videoStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
+  /**
+   * Opt-in bounded wait for one uploaded video. Reads the status like `videoStatus`, and while it is
+   * PROCESSING or WAITING_UPLOAD waits `intervalMs` and reads again, up to `maxChecks` reads. It
+   * stops early when the next wait would exceed the context's elapsed budget, and throws
+   * `cancelled` when the context signal aborts. Returns the last status it read, which may still be
+   * PROCESSING; it never throws for slow processing and never creates a post.
+   */
+  readonly waitForVideo: (
+    ref: MediaRef,
+    context: AdapterOperationContext,
+    options?: LinkedInVideoWaitOptions,
+  ) => Promise<JsonObject>;
   /** Reads `id`, `owner` and `status` (`WAITING_UPLOAD`, `PROCESSING`, `AVAILABLE`, `PROCESSING_FAILED`). */
   readonly documentStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
   /**
@@ -177,6 +190,17 @@ const linkedInVideoMinBytes = 75_000;
 const linkedInVideoMaxBytes = 500 * 1024 * 1024;
 const linkedInVideoUrn = /^urn:li:video:[a-zA-Z0-9_-]+$/;
 const linkedInImageUrn = /^urn:li:image:[a-zA-Z0-9_-]+$/;
+/* LinkedIn documents no processing time or polling interval; these bounds are the SDK's own. */
+const linkedInVideoRetryDelayMs = 5_000;
+const linkedInVideoWaitDefaults = { intervalMs: 5_000, maxChecks: 12 } as const;
+const linkedInVideoWaitLimits = { minIntervalMs: 1_000, maxIntervalMs: 60_000, maxChecks: 60 };
+
+export interface LinkedInVideoWaitOptions {
+  /** Delay between status reads. Integer from 1,000 to 60,000 ms; defaults to 5,000. */
+  readonly intervalMs?: number;
+  /** Maximum status reads, including the first. Integer from 1 to 60; defaults to 12. */
+  readonly maxChecks?: number;
+}
 
 export function linkedin(
   options: LinkedInOptions,
@@ -405,6 +429,55 @@ export function linkedin(
           : `LinkedIn did not accept video part ${part}. Start a new upload; no post was created.`,
       upstreamStatus: error.status,
       retryDisposition: { kind: "never" },
+    });
+  }
+
+  /** Reads one video's public status fields with a single GET after checking the grant and owner. */
+  async function readVideoStatus(ref: MediaRef, context: AdapterOperationContext) {
+    authorize(ref, context);
+
+    if (!linkedInVideoUrn.test(ref.mediaId))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.read",
+        message: "Use the urn:li:video reference returned by media.upload.",
+      });
+
+    const video = object(await request(`/rest/videos/${encodeURIComponent(ref.mediaId)}`, context));
+
+    if (video["owner"] !== ref.accountId)
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "media.read",
+        message: "LinkedIn video belongs to another author.",
+      });
+
+    return publicFields(video, ["id", "owner", "status", "processingFailureReason", "duration"]);
+  }
+
+  function videoWaitCancelled(): SocialError {
+    return new SocialError({
+      code: "cancelled",
+      operation: "media.read",
+      message: "Waiting for the LinkedIn video was cancelled. No post was created.",
+    });
+  }
+
+  /** Sleeps between explicit waitForVideo reads and rejects as soon as the context aborts. */
+  function videoWaitDelay(milliseconds: number, context: AdapterOperationContext): Promise<void> {
+    if (context.signal?.aborted) return Promise.reject(videoWaitCancelled());
+
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(videoWaitCancelled());
+      };
+      const timer = setTimeout(() => {
+        context.signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, milliseconds);
+
+      context.signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
@@ -1077,7 +1150,7 @@ export function linkedin(
               : "w_member_social",
           ],
           notes:
-            "Upload one MP4 Blob (75 KB to 500 MB, 3 seconds to 30 minutes) with media.upload, then publish the video URN once native videoStatus reports AVAILABLE. Processing is checked explicitly, never polled.",
+            "Upload one MP4 Blob (75 KB to 500 MB, 3 seconds to 30 minutes) with media.upload, then publish the video URN once it is AVAILABLE. Check processing with native videoStatus (one read) or the opt-in native waitForVideo (bounded reads within the operation budget). Publishing reads the status once and never waits; a processing video fails with no post created. The attachment caption becomes the optional video title.",
         },
         {
           platform: "linkedin",
@@ -1313,16 +1386,33 @@ export function linkedin(
               retryDisposition: { kind: "never" },
             });
 
+          if (
+            video &&
+            (image?.["status"] === "PROCESSING" || image?.["status"] === "WAITING_UPLOAD")
+          )
+            // No post exists yet, so publishing again later is safe. The SDK does not retry.
+            throw new SocialError({
+              code: "media_error",
+              operation: "posts.publish",
+              message:
+                "Video is still processing; no post was created. Wait with native waitForVideo or check videoStatus, then publish again.",
+              retryDisposition: { kind: "after-delay", delayMs: linkedInVideoRetryDelayMs },
+            });
+
           if (image?.["status"] !== undefined && image["status"] !== "AVAILABLE")
             throw new SocialError({
               code: "media_error",
               operation: "posts.publish",
               message: video
-                ? "Video is not AVAILABLE. Check it later with native videoStatus before publishing."
+                ? "Video is not AVAILABLE. Check it with native videoStatus before publishing."
                 : "Image is not AVAILABLE. Check its status explicitly before publishing.",
             });
+          // Posts API media.title is optional for video and required only for documents.
+          const title = video ? item.caption?.trim() : undefined;
           entries.push({
             id: item.source.ref.mediaId,
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+            ...(title ? { title } : {}),
             // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
             ...(!video && item.altText ? { altText: item.altText } : {}),
           });
@@ -1695,34 +1785,52 @@ export function linkedin(
 
         return publicFields(image, ["id", "owner", "status"]);
       },
-      async videoStatus(ref: MediaRef, context: AdapterOperationContext) {
-        authorize(ref, context);
+      videoStatus: readVideoStatus,
+      async waitForVideo(
+        ref: MediaRef,
+        context: AdapterOperationContext,
+        waitOptions: LinkedInVideoWaitOptions = {},
+      ) {
+        const intervalMs = waitOptions.intervalMs ?? linkedInVideoWaitDefaults.intervalMs;
+        const maxChecks = waitOptions.maxChecks ?? linkedInVideoWaitDefaults.maxChecks;
 
-        if (!linkedInVideoUrn.test(ref.mediaId))
+        if (
+          !Number.isInteger(intervalMs) ||
+          intervalMs < linkedInVideoWaitLimits.minIntervalMs ||
+          intervalMs > linkedInVideoWaitLimits.maxIntervalMs ||
+          !Number.isInteger(maxChecks) ||
+          maxChecks < 1 ||
+          maxChecks > linkedInVideoWaitLimits.maxChecks
+        )
           throw new SocialError({
             code: "invalid_input",
             operation: "media.read",
-            message: "Use the urn:li:video reference returned by media.upload.",
+            message:
+              "waitForVideo takes an integer intervalMs from 1,000 to 60,000 and maxChecks from 1 to 60.",
           });
 
-        const video = object(
-          await request(`/rest/videos/${encodeURIComponent(ref.mediaId)}`, context),
-        );
+        let status = await readVideoStatus(ref, context);
 
-        if (video["owner"] !== ref.accountId)
-          throw new SocialError({
-            code: "unauthorized",
-            operation: "media.read",
-            message: "LinkedIn video belongs to another author.",
-          });
+        for (let check = 1; check < maxChecks; check++) {
+          if (status["status"] !== "PROCESSING" && status["status"] !== "WAITING_UPLOAD") break;
 
-        return publicFields(video, [
-          "id",
-          "owner",
-          "status",
-          "processingFailureReason",
-          "duration",
-        ]);
+          // Leave room for the next read; return the pending status instead of timing out.
+          if (context.signal?.aborted) throw videoWaitCancelled();
+
+          let remaining = 0;
+          try {
+            remaining = remainingBudget(context);
+          } catch {
+            // An exhausted budget ends the wait with the status already read.
+          }
+
+          if (intervalMs >= remaining) break;
+
+          await videoWaitDelay(intervalMs, context);
+          status = await readVideoStatus(ref, context);
+        }
+
+        return status;
       },
       async documentStatus(ref: MediaRef, context: AdapterOperationContext) {
         return publicFields(await readDocument(ref, context, "media.read"), [

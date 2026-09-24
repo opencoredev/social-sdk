@@ -2762,7 +2762,7 @@
           "requiredScopes": [
             "w_member_social"
           ],
-          "notes": "Upload one MP4 Blob (75 KB to 500 MB, 3 seconds to 30 minutes) with media.upload, then publish the video URN once native videoStatus reports AVAILABLE. Processing is checked explicitly, never polled."
+          "notes": "Upload one MP4 Blob (75 KB to 500 MB, 3 seconds to 30 minutes) with media.upload, then publish the video URN once it is AVAILABLE. Check processing with native videoStatus (one read) or the opt-in native waitForVideo (bounded reads within the operation budget). Publishing reads the status once and never waits; a processing video fails with no post created. The attachment caption becomes the optional video title."
         },
         {
           "platform": "linkedin",
