@@ -905,6 +905,22 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "notifications.read",
+          availability: options.auth.author.startsWith("urn:li:organization:")
+            ? ("available" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["rw_organization_admin"],
+          notes:
+            "Organization social-action notifications from the last 60 days, pulled with offset paging. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API.",
+        },
+        {
+          platform: "linkedin",
+          operation: "notifications.seen",
+          availability: "unsupported-by-platform" as const,
+          notes: "LinkedIn does not expose a seen or read state for notifications.",
+        },
+        {
+          platform: "linkedin",
           operation: "analytics.account.read",
           availability: options.auth.author.startsWith("urn:li:organization:")
             ? ("available" as const)
@@ -1341,6 +1357,94 @@ export function linkedin(
           });
 
         return { ...ref, commentId };
+      },
+    },
+    notifications: {
+      async list(
+        account: ConnectedAccountRef,
+        input: { readonly cursor?: string; readonly limit?: number },
+        context: AdapterOperationContext,
+      ) {
+        authorize(account, context);
+
+        if (!account.accountId.startsWith("urn:li:organization:"))
+          throw new SocialError({
+            code: "unsupported_capability",
+            operation: "notifications.read",
+            message:
+              "LinkedIn notifications are available for organization accounts only, not member accounts.",
+          });
+
+        const start = input.cursor === undefined ? 0 : Number(input.cursor);
+        const count = input.limit ?? 25;
+
+        if (
+          !Number.isSafeInteger(start) ||
+          start < 0 ||
+          input.cursor === "" ||
+          !Number.isSafeInteger(count) ||
+          count < 1 ||
+          count > 100
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "notifications.read",
+            message: "LinkedIn requires a nonnegative offset and page size from 1 to 100.",
+          });
+
+        const actions =
+          "LIKE,COMMENT,SHARE,SHARE_MENTION,ADMIN_COMMENT,COMMENT_EDIT,COMMENT_DELETE";
+
+        const result = object(
+          await request(
+            `/rest/organizationalEntityNotifications?q=criteria&actions=List(${actions})&organizationalEntity=${encodeURIComponent(account.accountId)}&start=${start}&count=${count}`,
+            context,
+          ),
+        );
+
+        const rows = array(result["elements"]).map(object);
+
+        if (rows.some((row) => row["organizationalEntity"] !== account.accountId))
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "notifications.read",
+            message: "LinkedIn returned a notification for another organization.",
+          });
+
+        const items = rows.map((row) =>
+          publicFields(row, [
+            "notificationId",
+            "organizationalEntity",
+            "action",
+            "sourcePost",
+            "generatedActivity",
+            "lastModifiedAt",
+          ]),
+        );
+
+        const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+        const total = optionalNumber(paging["total"]);
+        const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
+
+        return {
+          items,
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
+            ? { nextCursor: String(start + items.length) }
+            : {}),
+        };
+      },
+      async markSeen(
+        account: ConnectedAccountRef,
+        _input: { readonly seenAt?: string },
+        context: AdapterOperationContext,
+      ): Promise<void> {
+        authorize(account, context);
+        throw new SocialError({
+          code: "unsupported_capability",
+          operation: "notifications.seen",
+          message: "LinkedIn does not expose a seen state for organization notifications.",
+        });
       },
     },
     analytics: {

@@ -202,6 +202,25 @@ Page statistics preserve nested click metrics such as `careersPageClicks` and
 `mobileCareersPageClicks`, as well as nested view counts such as `allPageViews` and
 `uniquePageViews`.
 
+### Read organization notifications
+
+`social.notifications.list` pulls social-action notifications for an organization page: likes,
+comments, shares, mentions, admin comments, and comment edits and deletions. It needs the Community
+Management API product, `rw_organization_admin`, and an administrator role on the organization.
+Member accounts declare `notifications.read` as `account-ineligible` and fail before a request is sent.
+
+```ts
+const page = await social.notifications.list(account, { limit: 50 });
+for (const item of page.items) console.log(item.action, item.sourcePost);
+```
+
+The adapter calls `organizationalEntityNotifications` with the criteria finder and all seven action
+types. Each item keeps `notificationId`, `organizationalEntity`, `action`, `sourcePost`,
+`generatedActivity`, and `lastModifiedAt`. The cursor is a Rest.li offset. LinkedIn keeps
+notifications for 60 days and recommends webhooks for ongoing delivery, so treat this read as a
+backfill or recovery path. LinkedIn has no seen state, so `notifications.seen` is
+`unsupported-by-platform`.
+
 ## Native operations
 
 The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, and organization analytics. Multi-image, video, and document posts are not supported yet. Articles remain approval dependent.
@@ -212,4 +231,4 @@ The native module covers administered-organization discovery, polls, reactions, 
 - Messaging is unsupported.
 - Current evidence is offline contract tests; no account, app approval, or live post has been verified.
 
-Sources: [Sign In with LinkedIn using OpenID Connect](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2), [Organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [Organization lookup](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api), [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).
+Sources: [Sign In with LinkedIn using OpenID Connect](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2), [Organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [Organization lookup](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api), [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api), [Organization social action notifications](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications) (accessed 2026-09-24).

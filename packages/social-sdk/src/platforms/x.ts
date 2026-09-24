@@ -1671,6 +1671,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         },
         {
           platform: "x",
+          operation: "notifications.read",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "X API v2 has no notifications list endpoint. Use mentions.read, or the Account Activity or X Activity API webhooks and streams.",
+        },
+        {
+          platform: "x",
           operation: "messages.write",
           availability: "available" as const,
           requiredScopes: ["dm.write", "dm.read", "users.read", "tweet.read"],
