@@ -3,6 +3,7 @@ import { definedFields } from "../core/fields.js";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError } from "../core/errors.js";
 import type {
+  AccountRecord,
   AdapterOperationContext,
   CommentRef,
   ConnectedAccountRef,
@@ -10,6 +11,7 @@ import type {
   MediaAttachment,
   MediaRef,
   MetricValue,
+  Page,
   PlatformPostRef,
   PreparedPublishTarget,
 } from "../core/types.js";
@@ -88,7 +90,25 @@ export interface LinkedInShareStatistics {
   readonly metrics: Readonly<Record<string, number>>;
 }
 
+/** One approved organization role returned by LinkedIn's `organizationAcls` roleAssignee finder. */
+export interface LinkedInOrganizationRole {
+  readonly organization: `urn:li:organization:${string}`;
+  readonly role: "ADMINISTRATOR";
+  readonly state: "APPROVED";
+}
+
 export interface LinkedInNative {
+  /**
+   * Lists organizations the authenticated member administers (approved `ADMINISTRATOR` roles).
+   * Requires `rw_organization_admin` or `r_organization_admin`. Use the result to configure
+   * another adapter instance; this instance still acts only as its configured author.
+   */
+  readonly listAdministeredOrganizations: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<LinkedInOrganizationRole>>;
   readonly imageStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
   readonly registerVideo: (input: {
     readonly account: ConnectedAccountRef;
@@ -212,13 +232,15 @@ export function linkedin(
       return await http({
         timeoutMs: remainingBudget(context),
         url: new URL(`https://api.linkedin.com${path}`),
-        headers: {
-          Authorization: `Bearer ${options.auth.accessToken}`,
-          "Content-Type": "application/json",
-          "Linkedin-Version": options.apiVersion,
-          "X-Restli-Protocol-Version": "2.0.0",
-          ...extraHeaders,
-        },
+        headers: path.startsWith("/v2/")
+          ? { Authorization: `Bearer ${options.auth.accessToken}` }
+          : {
+              Authorization: `Bearer ${options.auth.accessToken}`,
+              "Content-Type": "application/json",
+              "Linkedin-Version": options.apiVersion,
+              "X-Restli-Protocol-Version": "2.0.0",
+              ...extraHeaders,
+            },
         method,
         ...definedFields({
           body: body === undefined ? undefined : JSON.stringify(body),
@@ -291,6 +313,175 @@ export function linkedin(
       });
 
     return result;
+  }
+
+  /*
+   * Account identity sources (accessed 2026-09-24):
+   * - Member: OpenID Connect userinfo, GET https://api.linkedin.com/v2/userinfo, scopes `openid` and
+   *   `profile`. `sub` is the member ID used in `urn:li:person:{sub}`.
+   *   https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2
+   *   https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/share-on-linkedin
+   * - Organization: GET /rest/organizations/{id} ("Retrieve an Administered Organization"), scope
+   *   `rw_organization_admin`, 403 unless the member has the ADMINISTRATOR role.
+   *   https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api?view=li-lms-2026-09
+   * - Administered organizations: GET /rest/organizationAcls?q=roleAssignee, scope
+   *   `rw_organization_admin` or `r_organization_admin`.
+   *   https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role?view=li-lms-2026-09
+   */
+  async function accountRequest(path: string, context: AdapterOperationContext, scopes: string) {
+    try {
+      return await request(path, context);
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "missing_permission")
+        throw new SocialError({
+          code: "missing_permission",
+          operation: "accounts.read",
+          message: `LinkedIn denied the account read. The token needs ${scopes}.`,
+          upstreamStatus: error.upstreamStatus,
+          retryDisposition: { kind: "never" },
+        });
+      throw error;
+    }
+  }
+
+  async function readAccount(context: AdapterOperationContext): Promise<AccountRecord> {
+    const ref = {
+      kind: "connected-account" as const,
+      version: 1 as const,
+      backend: context.backendInstance,
+      platform: "linkedin",
+      accountId: options.auth.author,
+    };
+
+    if (options.auth.author.startsWith("urn:li:person:")) {
+      const user = object(
+        await accountRequest(
+          "/v2/userinfo",
+          context,
+          "the openid and profile scopes (Sign In with LinkedIn using OpenID Connect)",
+        ),
+      );
+
+      const sub = optionalString(user["sub"]);
+
+      if (sub === undefined || `urn:li:person:${sub}` !== options.auth.author)
+        throw new SocialError({
+          code: "unauthorized",
+          operation: "accounts.read",
+          message: "The authenticated LinkedIn member differs from the configured author URN.",
+        });
+
+      const fullName =
+        optionalString(user["name"]) ??
+        [optionalString(user["given_name"]), optionalString(user["family_name"])]
+          .filter((part) => part !== undefined && part !== "")
+          .join(" ");
+
+      return { ref, displayName: fullName || options.auth.author, status: "connected" };
+    }
+
+    const organizationId = options.auth.author.slice("urn:li:organization:".length);
+
+    const organization = object(
+      await accountRequest(
+        `/rest/organizations/${encodeURIComponent(organizationId)}`,
+        context,
+        "rw_organization_admin and an approved ADMINISTRATOR role for the organization",
+      ),
+    );
+
+    const returnedId = optionalNumber(organization["id"]);
+
+    if (returnedId === undefined || String(returnedId) !== organizationId)
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "accounts.read",
+        message: "LinkedIn returned a different organization than the configured author URN.",
+      });
+
+    const vanityName = optionalString(organization["vanityName"]);
+
+    return Object.assign(
+      {
+        ref,
+        displayName: optionalString(organization["localizedName"]) || options.auth.author,
+        status: "connected" as const,
+      },
+      vanityName === undefined ? {} : { handle: vanityName },
+    );
+  }
+
+  async function listAdministeredOrganizations(
+    input: { readonly cursor?: string; readonly limit?: number },
+    context: AdapterOperationContext,
+  ): Promise<Page<LinkedInOrganizationRole>> {
+    const start = input.cursor === undefined ? 0 : Number(input.cursor);
+    const count = input.limit ?? 25;
+
+    if (
+      input.cursor === "" ||
+      !Number.isSafeInteger(start) ||
+      start < 0 ||
+      !Number.isSafeInteger(count) ||
+      count < 1 ||
+      count > 100
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "accounts.read",
+        message: "LinkedIn requires a nonnegative offset and page size from 1 to 100.",
+      });
+
+    const memberUrn = options.auth.author;
+
+    if (!memberUrn.startsWith("urn:li:person:"))
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "accounts.read",
+        message:
+          "LinkedIn administered organization lookup requires a member account authorization.",
+      });
+
+    const result = object(
+      await accountRequest(
+        `/rest/organizationAcls?q=roleAssignee&roleAssignee=${encodeURIComponent(memberUrn)}&role=ADMINISTRATOR&state=APPROVED&start=${start}&count=${count}`,
+        context,
+        "rw_organization_admin or r_organization_admin",
+      ),
+    );
+
+    const rows = array(result["elements"]).map(object);
+    const items: LinkedInOrganizationRole[] = [];
+
+    for (const row of rows) {
+      // LinkedIn documents both `organization` and `organizationTarget` for this field.
+      const organization =
+        optionalString(row["organization"]) ?? optionalString(row["organizationTarget"]);
+
+      if (
+        organization === undefined ||
+        !/^urn:li:organization:[0-9]+$/.test(organization) ||
+        row["role"] !== "ADMINISTRATOR" ||
+        row["state"] !== "APPROVED"
+      )
+        continue;
+      items.push({
+        organization: `urn:li:organization:${organization.slice("urn:li:organization:".length)}`,
+        role: "ADMINISTRATOR",
+        state: "APPROVED",
+      });
+    }
+
+    const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+    const total = optionalNumber(paging["total"]);
+    const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
+
+    return Object.assign(
+      { items },
+      rows.length > 0 && (hasNext || (total !== undefined && start + rows.length < total))
+        ? { nextCursor: String(start + rows.length) }
+        : {},
+    );
   }
 
   async function uploadImage(
@@ -657,6 +848,17 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "accounts.read",
+          availability: "available" as const,
+          requiredScopes: options.auth.author.startsWith("urn:li:organization:")
+            ? ["rw_organization_admin"]
+            : ["openid", "profile"],
+          notes: options.auth.author.startsWith("urn:li:organization:")
+            ? "Returns the configured organization only. Reads /rest/organizations/{id}, which LinkedIn restricts to members with an approved ADMINISTRATOR role."
+            : "Returns the configured member only. Reads the OpenID Connect userinfo endpoint and checks that sub matches the author URN. Requires the Sign In with LinkedIn using OpenID Connect product.",
+        },
+        {
+          platform: "linkedin",
           operation: "posts.multi-image",
           availability: "not-implemented-by-adapter" as const,
           formats: ["carousel" as const],
@@ -731,6 +933,22 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "notifications.read",
+          availability: options.auth.author.startsWith("urn:li:organization:")
+            ? ("available" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["rw_organization_admin"],
+          notes:
+            "Organization social-action notifications from the last 60 days, pulled with offset paging. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API.",
+        },
+        {
+          platform: "linkedin",
+          operation: "notifications.seen",
+          availability: "unsupported-by-platform" as const,
+          notes: "LinkedIn does not expose a seen or read state for notifications.",
+        },
+        {
+          platform: "linkedin",
           operation: "analytics.account.read",
           availability: options.auth.author.startsWith("urn:li:organization:")
             ? ("available" as const)
@@ -779,6 +997,16 @@ export function linkedin(
             "Community Management product permissions and author post read access required. Analytics contains returned social-action counts only.",
         })),
       ],
+    },
+    accounts: {
+      async list(_input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
+        return { items: [await readAccount(context)] };
+      },
+      async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
+        authorize(ref, context);
+
+        return readAccount(context);
+      },
     },
     media: { upload: uploadImage },
     posts: {
@@ -1159,6 +1387,93 @@ export function linkedin(
         return { ...ref, commentId };
       },
     },
+    notifications: {
+      async list(
+        account: ConnectedAccountRef,
+        input: { readonly cursor?: string; readonly limit?: number },
+        context: AdapterOperationContext,
+      ) {
+        authorize(account, context);
+
+        if (!account.accountId.startsWith("urn:li:organization:"))
+          throw new SocialError({
+            code: "unsupported_capability",
+            operation: "notifications.read",
+            message:
+              "LinkedIn notifications are available for organization accounts only, not member accounts.",
+          });
+
+        const start = input.cursor === undefined ? 0 : Number(input.cursor);
+        const count = input.limit ?? 25;
+
+        if (
+          !Number.isSafeInteger(start) ||
+          start < 0 ||
+          input.cursor === "" ||
+          !Number.isSafeInteger(count) ||
+          count < 1 ||
+          count > 100
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "notifications.read",
+            message: "LinkedIn requires a nonnegative offset and page size from 1 to 100.",
+          });
+
+        const actions =
+          "LIKE,COMMENT,SHARE,SHARE_MENTION,ADMIN_COMMENT,COMMENT_EDIT,COMMENT_DELETE";
+
+        const result = object(
+          await request(
+            `/rest/organizationalEntityNotifications?q=criteria&actions=List(${actions})&organizationalEntity=${encodeURIComponent(account.accountId)}&start=${start}&count=${count}`,
+            context,
+          ),
+        );
+
+        const rows = array(result["elements"]).map(object);
+
+        if (rows.some((row) => row["organizationalEntity"] !== account.accountId))
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "notifications.read",
+            message: "LinkedIn returned a notification for another organization.",
+          });
+
+        const items = rows.map((row) =>
+          publicFields(row, [
+            "notificationId",
+            "organizationalEntity",
+            "action",
+            "sourcePost",
+            "generatedActivity",
+            "lastModifiedAt",
+          ]),
+        );
+
+        const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+        const total = optionalNumber(paging["total"]);
+        const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
+
+        return Object.assign(
+          { items },
+          items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
+            ? { nextCursor: String(start + items.length) }
+            : {},
+        );
+      },
+      async markSeen(
+        account: ConnectedAccountRef,
+        _input: { readonly seenAt?: string },
+        context: AdapterOperationContext,
+      ): Promise<void> {
+        authorize(account, context);
+        throw new SocialError({
+          code: "unsupported_capability",
+          operation: "notifications.seen",
+          message: "LinkedIn does not expose a seen state for organization notifications.",
+        });
+      },
+    },
     analytics: {
       async getAccountMetrics(
         account: ConnectedAccountRef,
@@ -1245,6 +1560,26 @@ export function linkedin(
       now,
     ),
     native: {
+      async listAdministeredOrganizations({ account, cursor, limit, context }) {
+        authorize(account, context);
+
+        if (!account.accountId.startsWith("urn:li:person:"))
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "accounts.read",
+            message:
+              "LinkedIn administered organization lookup requires a member account reference.",
+          });
+
+        return listAdministeredOrganizations(
+          Object.assign(
+            {},
+            cursor === undefined ? {} : { cursor },
+            limit === undefined ? {} : { limit },
+          ),
+          context,
+        );
+      },
       async imageStatus(ref: MediaRef, context: AdapterOperationContext) {
         authorize(ref, context);
 

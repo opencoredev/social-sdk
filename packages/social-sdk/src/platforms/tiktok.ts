@@ -382,6 +382,12 @@ export function tiktok(
         },
         {
           platform: "tiktok",
+          operation: "notifications.read",
+          availability: "unsupported-by-platform" as const,
+          notes: "TikTok for Developers APIs do not expose a user notification inbox.",
+        },
+        {
+          platform: "tiktok",
           operation: "accounts.read",
           availability: "available" as const,
           requiredScopes: ["user.info.basic"],

@@ -499,6 +499,13 @@ export function youtube(
           requiredScopes: ["https://www.googleapis.com/auth/youtube"],
         },
         {
+          operation: "notifications.read",
+          platform: "youtube",
+          availability: "unsupported-by-platform",
+          notes:
+            "The YouTube Data API has no notifications resource. activities.list reports actions a channel took, not notifications it received.",
+        },
+        {
           operation: "playlists.read",
           platform: "youtube",
           availability: "available",

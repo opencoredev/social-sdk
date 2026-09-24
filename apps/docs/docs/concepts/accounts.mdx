@@ -20,6 +20,8 @@ for (const account of page.items) {
 }
 ```
 
+Direct adapters return the single account their credentials are configured for, after checking that the platform reports the same identity. A LinkedIn member token can administer several organizations; the LinkedIn native module lists them so you can configure one backend per organization. See [LinkedIn](/platforms/linkedin).
+
 Discovery tells you what the credential can act as. It does not prove a frontend-selected handle belongs to the current tenant; that mapping is application data.
 
 ## The account reference

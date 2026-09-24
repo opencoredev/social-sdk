@@ -824,6 +824,13 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         availability: "unsupported-by-platform",
         notes: "Threads does not expose messaging APIs to standard apps.",
       },
+      {
+        operation: "notifications.read",
+        platform: "threads",
+        availability: "unsupported-by-platform",
+        notes:
+          "The Threads API has no notifications endpoint. Use mentions.read, reply reads, or webhooks instead.",
+      },
     ],
   };
 

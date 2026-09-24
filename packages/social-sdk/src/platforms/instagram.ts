@@ -899,6 +899,13 @@ export function instagram(
           "instagram",
           "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
         ),
+        {
+          platform: "instagram",
+          operation: "notifications.read",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "The Instagram API has no notifications edge. Use mentions.read, tags, comments, or webhooks instead.",
+        },
       ],
     },
     webhooks: directWebhooks(
