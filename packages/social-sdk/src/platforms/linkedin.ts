@@ -124,6 +124,18 @@ export interface LinkedInNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Deletes a comment with the Comments API. `postId` is the share or ugcPost URN, and
+   * `commentId` is the complete `commentUrn` from comment reads. Organization authors are sent
+   * as the `actor`. LinkedIn does not document which comments an actor may delete, so expect
+   * only the configured author's own comments to succeed.
+   */
+  readonly deleteComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly commentId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
   readonly organizationAnalytics: (input: {
     readonly account: ConnectedAccountRef;
     readonly query?: JsonObject;
@@ -643,6 +655,18 @@ export function linkedin(
           platform: "linkedin",
           operation: "posts.removeFromPlatform",
           availability: "available" as const,
+        },
+        {
+          platform: "linkedin",
+          operation: "comments.delete",
+          availability: "available" as const,
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "w_organization_social"
+              : "w_member_social",
+          ],
+          notes:
+            "Native deleteComment needs the post URN and the complete commentUrn. LinkedIn does not document which comments an actor may delete; expect only the configured author's own comments to succeed.",
         },
         {
           platform: "linkedin",
@@ -1283,6 +1307,33 @@ export function linkedin(
         authorize(account, context);
         await request(
           `/rest/posts/${encodeURIComponent(postId)}`,
+          context,
+          undefined,
+          undefined,
+          "DELETE",
+        );
+      },
+      async deleteComment({ account, postId, commentId, context }) {
+        // Source: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api#delete-a-comment
+        // (li-lms-2026-09, page updated 2026-04-28, accessed 2026-09-24).
+        authorize(account, context);
+        const match = /^urn:li:comment:\(urn:li:(?:activity|share|ugcPost):\d+,(\d+)\)$/.exec(
+          commentId,
+        );
+
+        if (!/^urn:li:(share|ugcPost):\d+$/.test(postId) || !match)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.delete",
+            message:
+              "Provide the share or ugcPost URN and the complete commentUrn returned by comment reads.",
+          });
+
+        const actor = options.auth.author.startsWith("urn:li:organization:")
+          ? `?actor=${encodeURIComponent(options.auth.author)}`
+          : "";
+        await request(
+          `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[1]}${actor}`,
           context,
           undefined,
           undefined,

@@ -127,6 +127,18 @@ export interface YouTubeNative {
     readonly body?: JsonObject;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject | void>;
+  /**
+   * Deletes one comment with `comments.delete`. For a top-level comment, pass the thread's
+   * `snippet.topLevelComment.id`; `commentThreads` has no delete method. Google documents a
+   * 403 `forbidden` for insufficient permissions and does not list which comments a channel
+   * may delete. Use `commentsModeration` with `setModerationStatus: "rejected"` to remove
+   * another user's comment from your video.
+   */
+  readonly deleteComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly commentId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
   readonly heldComments: (input: {
     readonly pageToken?: string;
     readonly maxResults?: number;
@@ -516,6 +528,14 @@ export function youtube(
           platform: "youtube",
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube.force-ssl"],
+        },
+        {
+          operation: "comments.delete",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube.force-ssl"],
+          notes:
+            "comments.delete costs 50 quota units. Delete a thread through its top-level comment ID. Google does not document which comments a channel may delete; insufficient permissions return 403 forbidden.",
         },
         {
           operation: "analytics.youtube.read",
@@ -1575,6 +1595,17 @@ export function youtube(
             "PUT",
           ),
         );
+      },
+      async deleteComment({ account, commentId, context }) {
+        // Source: https://developers.google.com/youtube/v3/docs/comments/delete (accessed 2026-09-24).
+        authorize(account, context);
+        if (!commentId.trim())
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.delete",
+            message: "commentId is required.",
+          });
+        await request("/youtube/v3/comments", context, undefined, { id: commentId }, "DELETE");
       },
       async heldComments({ pageToken, maxResults, context }) {
         nativeAuthorize(context);
