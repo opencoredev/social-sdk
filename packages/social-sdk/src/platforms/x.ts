@@ -125,6 +125,17 @@ export interface XUploadedMedia {
   readonly mediaId: string;
 }
 
+/** A confirmed X post edit. X assigns every edited version a new post ID. */
+export interface XUpdatedPost {
+  /** Reference to the new version created by the edit. */
+  readonly post: PlatformPostRef;
+  /** The post ID that was passed as `previous_post_id`. */
+  readonly previousPostId: string;
+  readonly text: string;
+  /** Oldest-first edit chain, when X returns it. The first entry is the original post ID. */
+  readonly editHistoryPostIds?: readonly string[];
+}
+
 export interface XNative {
   readonly searchRecentPosts: (input: {
     readonly account: ConnectedAccountRef;
@@ -156,6 +167,18 @@ export interface XNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Edits the text of a recent post with `POST /2/tweets` and `edit_options.previous_post_id`.
+   * X decides eligibility (X Premium, own post, edit window, edit count) and returns a new post ID.
+   * Sources, accessed 2026-09-24: https://docs.x.com/x-api/posts/create-post,
+   * https://docs.x.com/x-api/fundamentals/edit-posts, https://docs.x.com/changelog (2025-10-03).
+   */
+  readonly updatePost: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly text: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<XUpdatedPost>;
   /** Uploads one MP4 Blob (up to 512 MiB) and waits for processing. Returns an attachable media ID. */
   readonly uploadVideo: (input: {
     readonly account: ConnectedAccountRef;
@@ -1335,6 +1358,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         },
         {
           platform: "x",
+          operation: "posts.update",
+          availability: "available" as const,
+          formats: ["text" as const],
+          requiredScopes: ["tweet.read", "tweet.write", "users.read"],
+          notes:
+            "Text-only edit through native.updatePost. X requires X Premium, the account's own post, and a recent post within X's edit window and edit count. Polls, replies to others, reposts, and scheduled posts are not editable. Each edit creates a new post ID.",
+        },
+        {
+          platform: "x",
           operation: "graph.read",
           availability: "available" as const,
           requiredScopes: ["users.read", "follows.read", "mute.read", "block.read"],
@@ -2002,6 +2034,64 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async deletePost({ account, postId, context }) {
         authorize(account, context);
         await request(`/2/tweets/${encodeURIComponent(postId)}`, context, undefined, {}, "DELETE");
+      },
+      async updatePost({ account, postId, text, context }) {
+        authorize(account, context);
+
+        if (!/^[0-9]{1,19}$/.test(postId))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.update",
+            message: "X post edits require a numeric post ID.",
+          });
+
+        if (!text || !isValidXText(text))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.update",
+            message:
+              "Edited text is empty, exceeds X's weighted 280-character limit, or contains invalid characters.",
+          });
+
+        const result = object(
+          await request("/2/tweets", context, {
+            text,
+            edit_options: { previous_post_id: postId },
+          }),
+        );
+
+        const data = result["data"] === undefined ? {} : object(result["data"]);
+        const id = optionalString(data["id"]);
+
+        if (!id)
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "posts.update",
+            backend: context.backendInstance,
+            correlationId: context.correlationId,
+            message: "X edit response lacks a new post ID. Reconcile before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        const history = data["edit_history_post_ids"] ?? data["edit_history_tweet_ids"];
+
+        const editHistoryPostIds = Array.isArray(history)
+          ? history.filter((entry): entry is string => typeof entry === "string")
+          : undefined;
+
+        return {
+          post: {
+            kind: "platform-post",
+            version: 1,
+            backend: account.backend,
+            platform: "x",
+            accountId: account.accountId,
+            postId: id,
+          },
+          previousPostId: postId,
+          text: optionalString(data["text"]) ?? text,
+          ...definedFields({ editHistoryPostIds }),
+        };
       },
       async uploadVideo({ account, video, context }) {
         authorize(account, context);

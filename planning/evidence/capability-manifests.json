@@ -1455,7 +1455,8 @@
           "availability": "available",
           "formats": [
             "text",
-            "image"
+            "image",
+            "video"
           ],
           "requiredScopes": [
             "repo"
@@ -1619,13 +1620,62 @@
         {
           "operation": "posts.publish.video",
           "platform": "bluesky",
-          "availability": "not-implemented-by-adapter",
+          "availability": "available",
           "formats": [
             "video"
           ],
           "requiredScopes": [
             "repo"
-          ]
+          ],
+          "notes": "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls."
+        },
+        {
+          "operation": "media.upload",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "repo"
+          ],
+          "notes": "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference."
+        },
+        {
+          "operation": "media.video",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "repo"
+          ],
+          "notes": "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job."
+        },
+        {
+          "operation": "media.status",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "notes": "native.getVideoJobStatus reads app.bsky.video.getJobStatus once per call."
+        },
+        {
+          "operation": "media.limits.read",
+          "platform": "bluesky",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "notes": "native.getVideoUploadLimits reads the daily video allowance. Uploads do not check it automatically."
+        },
+        {
+          "operation": "posts.update",
+          "platform": "bluesky",
+          "availability": "unsupported-by-platform",
+          "notes": "Bluesky treats posts as immutable. A putRecord rewrite succeeds on the PDS, but the Bluesky AppView ignores post updates and the new CID breaks existing strong references from replies, quotes, likes, and reposts."
         },
         {
           "operation": "posts.repost",
@@ -1870,6 +1920,20 @@
             "tweet.write",
             "users.read"
           ]
+        },
+        {
+          "platform": "x",
+          "operation": "posts.update",
+          "availability": "available",
+          "formats": [
+            "text"
+          ],
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read"
+          ],
+          "notes": "Text-only edit through native.updatePost. X requires X Premium, the account's own post, and a recent post within X's edit window and edit count. Polls, replies to others, reposts, and scheduled posts are not editable. Each edit creates a new post ID."
         },
         {
           "platform": "x",
@@ -2178,6 +2242,12 @@
             "threads_basic",
             "threads_delete"
           ]
+        },
+        {
+          "operation": "posts.update",
+          "platform": "threads",
+          "availability": "unsupported-by-platform",
+          "notes": "The Threads API has no endpoint to edit a published post; text and attachments are set when the container is created."
         },
         {
           "operation": "profile.read",
@@ -2520,6 +2590,12 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.update",
+          "availability": "unsupported-by-platform",
+          "notes": "The Content Posting API sets caption and privacy only when a post is initialized. It has no endpoint to edit a published post."
+        },
+        {
+          "platform": "tiktok",
           "operation": "comments.read",
           "availability": "unsupported-by-platform",
           "notes": "Standard Content Posting and Display APIs do not expose comments."
@@ -2679,6 +2755,12 @@
           "platform": "instagram",
           "operation": "posts.removeFromPlatform",
           "availability": "not-implemented-by-adapter"
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.update",
+          "availability": "unsupported-by-platform",
+          "notes": "The IG Media update endpoint only accepts comment_enabled. Captions and media cannot be edited after publication."
         },
         {
           "platform": "instagram",

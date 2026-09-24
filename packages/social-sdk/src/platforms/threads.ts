@@ -700,6 +700,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         availability: "available",
         requiredScopes: ["threads_basic", "threads_delete"],
       },
+      // Source, accessed 2026-09-24: https://developers.facebook.com/docs/threads/posts
+      {
+        operation: "posts.update",
+        platform: "threads",
+        availability: "unsupported-by-platform",
+        notes:
+          "The Threads API has no endpoint to edit a published post; text and attachments are set when the container is created.",
+      },
       { operation: "profile.read", platform: "threads", availability: "available" },
       {
         operation: "search.keyword",
