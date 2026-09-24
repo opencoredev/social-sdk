@@ -222,6 +222,11 @@ upload, job status, and upload limits (`uploadVideo`, `getVideoJobStatus`, and
 `getVideoUploadLimits`). Chat responses remain provider-controlled moderation states; persist native
 references and reconcile explicitly. Bluesky chat consent and moderation requirements still apply.
 
+`deleteComment({ account, commentId, context })` takes a reply's `at://` URI and calls
+[`com.atproto.repo.deleteRecord`](https://docs.bsky.app/docs/api/com-atproto-repo-delete-record)
+for the `app.bsky.feed.post` record. It only deletes records in the authenticated account's
+repository. A URI from another DID raises `unauthorized` before any request is sent.
+
 ## Limits and requirements
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.

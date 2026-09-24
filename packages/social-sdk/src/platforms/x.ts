@@ -31,6 +31,7 @@ import {
   array,
   isString,
   object,
+  optionalBoolean,
   optionalNumber,
   optionalString,
   string,
@@ -39,12 +40,32 @@ import {
 // 53-bit conversation ID hashes, 11 base36 characters each. listConversations returns at
 // most 1,200 distinct conversations, which keeps its cursor well under the client's 16,384
 // character cursor limit.
+
+interface XRecentSearchQuery extends Record<string, string> {
+  query: string;
+  "tweet.fields": string;
+  next_token?: string;
+  max_results?: string;
+}
+
 const conversationHashWidth = 11;
 
 const maxConversationHashes = 1200;
 
+const replyFields = [
+  "id",
+  "text",
+  "author_id",
+  "created_at",
+  "conversation_id",
+  "in_reply_to_user_id",
+  "referenced_tweets",
+  "public_metrics",
+] as const;
+
 function conversationHash(id: string): string {
   let h1 = 0xdeadbeef;
+
   let h2 = 0x41c6ce57;
 
   for (let index = 0; index < id.length; index++) {
@@ -55,6 +76,7 @@ function conversationHash(id: string): string {
 
   h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+
   const value = 4294967296 * (2097151 & h2) + (h1 >>> 0);
 
   return value.toString(36).padStart(conversationHashWidth, "0");
@@ -442,6 +464,16 @@ export interface XNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Hides or unhides a reply in a conversation the authenticated user started.
+   * Calls `PUT /2/tweets/:id/hidden` and returns the hidden state X reports.
+   */
+  readonly hideReply: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly replyId: string;
+    readonly hidden: boolean;
+    readonly context: AdapterOperationContext;
+  }) => Promise<{ readonly hidden: boolean }>;
 }
 
 export function x(options: XOptions): import("../core/adapter.js").SocialAdapter<XNative> {
@@ -485,6 +517,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         : appRequest();
 
   const http = createHttp(definedFields({ fetch: options.fetch }));
+
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
   const authorize = (
@@ -585,6 +618,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const items = (result["data"] === undefined ? [] : array(result["data"])).map((entry) => {
       const row = object(entry);
+
       const authorId = optionalString(row["author_id"]);
 
       if (authorId !== account.accountId)
@@ -598,6 +632,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     });
 
     const meta = result["meta"] === undefined ? {} : object(result["meta"]);
+
     const nextCursor = optionalString(meta["next_token"]);
 
     return {
@@ -615,7 +650,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     authorize(account, context);
 
     const query = input.query;
+
     const scope = input.scope ?? "recent";
+
     const maxLimit = scope === "all" ? 500 : 100;
 
     if (!query.trim() || query.length > 4096)
@@ -725,6 +762,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     });
 
     const meta = result["meta"] === undefined ? {} : object(result["meta"]);
+
     const nextCursor = optionalString(meta["next_token"]);
 
     const includes = result["includes"];
@@ -738,6 +776,115 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     };
   }
 
+  // Replies come from recent search with the standalone `conversation_id:` operator, which is
+  // the method X documents for reading a conversation. Sources, accessed 2026-09-24:
+  // https://docs.x.com/x-api/fundamentals/conversation-id
+  // https://docs.x.com/x-api/posts/search/integrate/operators
+  // https://docs.x.com/x-api/posts/search-recent-posts (max_results 10-100, next_token)
+  // https://docs.x.com/x-api/posts/search/introduction (recent search covers the last 7 days)
+  // https://docs.x.com/x-api/fundamentals/rate-limits (450/15min per app, 300/15min per user)
+  async function listReplies(
+    post: PlatformPostRef,
+    input: { readonly cursor?: string | undefined; readonly limit?: number | undefined },
+    context: AdapterOperationContext,
+  ): Promise<Page<JsonObject>> {
+    authorize(post, context);
+
+    if (!/^[0-9]{1,19}$/.test(post.postId))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "comments.read",
+        message: "X post IDs must be numeric.",
+      });
+
+    if (
+      input.limit !== undefined &&
+      (!Number.isSafeInteger(input.limit) || input.limit < 10 || input.limit > 100)
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "comments.read",
+        message: "X reply limits must be integers from 10 through 100.",
+      });
+
+    const query: XRecentSearchQuery = {
+      query: `conversation_id:${post.postId}`,
+      "tweet.fields": replyFields.join(","),
+    };
+
+    if (input.cursor !== undefined) {
+      query["next_token"] = input.cursor;
+    }
+
+    if (input.limit !== undefined) {
+      query["max_results"] = String(input.limit);
+    }
+
+    const result = object(
+      await (options.auth.accessToken?.trim() ? request : appRequest())(
+        "/2/tweets/search/recent",
+        context,
+        undefined,
+        query,
+      ),
+    );
+
+    const items = (result["data"] === undefined ? [] : array(result["data"])).flatMap((entry) => {
+      const row = object(entry);
+
+      const id = string(row["id"]);
+
+      if (row["conversation_id"] !== post.postId)
+        throw new SocialError({
+          code: "unauthorized",
+          operation: "comments.read",
+          message: "X returned a post from a different conversation.",
+        });
+
+      // The conversation root shares its own conversation_id; it is not a reply.
+      if (id === post.postId) return [];
+
+      const references =
+        row["referenced_tweets"] === undefined
+          ? undefined
+          : array(row["referenced_tweets"]).map((reference) => {
+              const item = object(reference);
+
+              return { type: string(item["type"]), id: string(item["id"]) };
+            });
+
+      const counts =
+        row["public_metrics"] === undefined ? undefined : object(row["public_metrics"]);
+
+      const metrics =
+        counts === undefined
+          ? undefined
+          : Object.fromEntries(
+              Object.keys(counts).flatMap((name) => {
+                const value = optionalNumber(counts[name]);
+
+                return value === undefined ? [] : [[name, value]];
+              }),
+            );
+
+      const itemFields = definedFields({
+        ...publicFields(row, replyFields),
+        referenced_tweets: references,
+        public_metrics: metrics,
+      });
+
+      return [itemFields];
+    });
+
+    const meta = result["meta"] === undefined ? {} : object(result["meta"]);
+
+    const nextCursor = optionalString(meta["next_token"]);
+
+    if (nextCursor === undefined) return { items };
+
+    return { items, nextCursor };
+  }
+
   async function pageRequest(
     path: string,
     account: ConnectedAccountRef,
@@ -748,8 +895,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     resource: "users" | "tweets" = "users",
   ): Promise<Page<JsonObject>> {
     authorize(account, context);
+
     const isTweets = resource === "tweets";
+
     const minLimit = 1;
+
     const maxLimit = 100;
 
     if (
@@ -783,6 +933,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const items = (result["data"] === undefined ? [] : array(result["data"])).map(object);
 
     const meta = result["meta"] === undefined ? {} : object(result["meta"]);
+
     const nextCursor = optionalString(meta["next_token"]);
 
     return { items, ...definedFields({ nextCursor }) };
@@ -801,6 +952,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     );
 
     const data = object(result["data"]);
+
     const id = optionalString(data["id"]);
 
     if (id !== account.accountId)
@@ -809,7 +961,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         operation: "analytics.read",
         message: "X returned metrics for a different account.",
       });
+
     const counts = data["public_metrics"] === undefined ? {} : object(data["public_metrics"]);
+
     const fields = ["followers_count", "following_count", "tweet_count", "listed_count"] as const;
 
     return fields.flatMap((name) => {
@@ -890,9 +1044,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         operation: "media.upload",
         message: "This X slice uploads image Blobs up to 5 MiB.",
       });
+
     const body = new FormData();
     body.set("media", media.source.blob, media.filename ?? "image");
     body.set("media_category", "tweet_image");
+
     let result: JsonValue;
 
     try {
@@ -906,6 +1062,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       });
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
+
       throw new SocialError({
         code: "media_error",
         operation: "media.upload",
@@ -928,8 +1085,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   }
 
   const xChunkBytes = 1024 * 1024;
+
   const xMaxVideoBytes = 512 * 1024 * 1024;
+
   const xMaxGifBytes = 15 * 1024 * 1024;
+
   const xMaxStatusPolls = 30;
 
   type XChunkedCategory = "tweet_video" | "tweet_gif";
@@ -948,6 +1108,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
   function chunkedLimits(media: MediaAttachment, category: XChunkedCategory): void {
     const size = media.source.kind === "blob" ? media.source.blob.size : 0;
+
     const maxBytes = category === "tweet_video" ? xMaxVideoBytes : xMaxGifBytes;
 
     if (size <= 0 || size > maxBytes)
@@ -1024,6 +1185,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<JsonObject> {
     requireUserToken("media.upload");
+
     let result: JsonValue;
 
     try {
@@ -1059,6 +1221,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<void> {
     requireUserToken("media.upload");
+
     const body = new FormData();
     body.set("segment_index", String(segmentIndex));
     body.set("media", chunk, `chunk-${segmentIndex}`);
@@ -1084,6 +1247,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<XProcessing> {
     requireUserToken("media.upload");
+
     let result: JsonValue;
 
     try {
@@ -1103,6 +1267,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     }
 
     const data = object(object(result)["data"]);
+
     const processing = data["processing_info"];
 
     if (processing === undefined) return { state: "succeeded", checkAfterSecs: 0 };
@@ -1182,6 +1347,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<string> {
     requireUserToken("media.upload");
+
     const category = chunkedCategory(media);
 
     if (category === undefined || media.source.kind !== "blob")
@@ -1192,7 +1358,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       });
 
     chunkedLimits(media, category);
+
     const blob = media.source.blob;
+
     const totalBytes = blob.size;
 
     const initialized = await chunkedPost(
@@ -1206,12 +1374,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     );
 
     const mediaId = string(initialized["id"]);
+
     const segmentCount = Math.ceil(totalBytes / xChunkBytes);
 
     for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
       throwIfUploadCancelled(context);
+
       const start = segmentIndex * xChunkBytes;
+
       const end = Math.min(start + xChunkBytes, totalBytes);
+
       const chunk = blob.slice(start, end, media.mimeType ?? "");
 
       await appendChunk(mediaId, segmentIndex, chunk, context);
@@ -1224,6 +1396,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     );
 
     const finalizedId = optionalString(finalized["id"]) ?? mediaId;
+
     const processing = finalized["processing_info"];
 
     if (processing === undefined) return finalizedId;
@@ -1273,9 +1446,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     targetIndex = 0,
   ): Promise<DeliveryOutcome> {
     authorize(account, context);
+
     const result = object(await request("/2/tweets", context, { text, ...extra }));
+
     const data = result["data"] ? object(result["data"]) : {};
+
     const id = optionalString(data["id"]);
+
     const base = { account, targetIndex, observedAt: now() };
 
     if (!id)
@@ -1455,6 +1632,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         },
         {
           platform: "x",
+          operation: "comments.read",
+          availability: "available" as const,
+          requiredScopes: ["tweet.read", "users.read"],
+          notes:
+            "Replies come from recent search with conversation_id, so only replies from the last 7 days are returned. Pass the conversation's root post. Page limits are 10-100. Recent search allows 450 requests per 15 minutes per app and 300 per user, and X bills post reads under the app's plan.",
+        },
+        {
+          platform: "x",
           operation: "search.posts",
           availability: "available" as const,
           requiredScopes: ["tweet.read", "users.read"],
@@ -1493,6 +1678,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         },
         {
           platform: "x",
+          operation: "comments.moderate",
+          availability: "available" as const,
+          requiredScopes: ["tweet.moderate.write", "tweet.read", "users.read"],
+          notes:
+            "Native hideReply hides or unhides replies in conversations the authenticated user started. Requires a user-context token.",
+        },
+        {
+          platform: "x",
           operation: "streams.read",
           availability: "not-implemented-by-adapter" as const,
           notes:
@@ -1520,6 +1713,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               : await nativeAdapter.getMe({ account, context });
 
         const user = object(object(value)["data"]);
+
         const id = string(user["id"]);
 
         return {
@@ -1572,6 +1766,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         return {
           items: result.items.map((entry) => {
             const user = object(entry);
+
             const id = string(user["id"]);
 
             return {
@@ -1667,6 +1862,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         if (target.account.platform !== "x" || target.account.accountId !== options.auth.userId)
           fail("x.account", "Select the configured X user.");
+
         const text = target.content.text ?? "";
 
         if (text && !isValidXText(text))
@@ -1692,6 +1888,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             "x.reply",
             "Use a platform-post reply reference authorized for this account and backend.",
           );
+
         const settings = optionsObject(target);
 
         if (
@@ -1702,7 +1899,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             ))
         )
           fail("x.options", "Provide only a supported replySettings value.");
+
         const media = target.content.media ?? [];
+
         const hasChunked = media.some((item) => chunkedCategory(item) !== undefined);
 
         if (hasChunked && media.length !== 1)
@@ -1745,10 +1944,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async publishTarget(target: PreparedPublishTarget, context: AdapterOperationContext) {
         authorize(target.account, context);
+
         const ids: string[] = [];
 
         for (const media of target.content.media ?? [])
           ids.push(await uploadXMedia(media, context));
+
         const replySettings = optionsObject(target)["replySettings"];
 
         const hasVideo = (target.content.media ?? []).some(
@@ -1799,6 +2000,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
         authorize(ref, context);
+
         await nativeAdapter.deletePost({
           account: connectedAccountRef({
             backend: ref.backend,
@@ -1811,12 +2013,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
     },
     comments: {
-      async list() {
-        throw new SocialError({
-          code: "unsupported_capability",
-          operation: "comments.read",
-          message: "X reply search is not implemented in this slice.",
-        });
+      async list(
+        ref: PlatformPostRef,
+        input: { readonly cursor?: string; readonly limit?: number },
+        context: AdapterOperationContext,
+      ): Promise<Page<JsonObject>> {
+        return listReplies(ref, input, context);
       },
       async reply(
         ref: CommentRef,
@@ -1874,6 +2076,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         // size limit, the walk ends after maxConversationHashes distinct conversations
         // rather than forgetting earlier ones and returning them again.
         let eventCursor: string | undefined;
+
         const seen: string[] = [];
 
         if (input.cursor !== undefined) {
@@ -1881,8 +2084,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             const parsed: unknown = JSON.parse(input.cursor);
 
             if (!isJsonValue(parsed)) throw new Error("bad cursor");
+
             const state = object(parsed);
             eventCursor = optionalString(state["c"]);
+
             const hashes = string(state["s"]);
 
             if (hashes.length % conversationHashWidth !== 0) throw new Error("bad cursor");
@@ -1899,7 +2104,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         }
 
         const seenSet = new Set(seen);
+
         const target = input.limit ?? 100;
+
         const items: JsonObject[] = [];
 
         // A walk that has reached the conversation cap has no next page.
@@ -1992,6 +2199,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         context: AdapterOperationContext,
       ): Promise<readonly MetricValue[]> {
         const row = await readPost(ref, context);
+
         const counts = row["public_metrics"] ? object(row["public_metrics"]) : {};
 
         return [
@@ -2049,6 +2257,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
+
         await request(`/2/tweets/${encodeURIComponent(postId)}`, context, undefined, {}, "DELETE");
       },
       async updatePost({ account, postId, text, context }) {
@@ -2077,6 +2286,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         );
 
         const data = result["data"] === undefined ? {} : object(result["data"]);
+
         const id = optionalString(data["id"]);
 
         if (!id)
@@ -2162,12 +2372,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async bookmark({ account, postId, context }) {
         authorize(account, context);
+
         await request(`/2/users/${encodeURIComponent(account.accountId)}/bookmarks`, context, {
           tweet_id: postId,
         });
       },
       async removeBookmark({ account, postId, context }) {
         authorize(account, context);
+
         await request(
           `/2/users/${encodeURIComponent(account.accountId)}/bookmarks/${encodeURIComponent(postId)}`,
           context,
@@ -2187,6 +2399,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async unfollow({ account, userId, context }) {
         authorize(account, context);
+
         await request(
           `/2/users/${encodeURIComponent(account.accountId)}/following/${encodeURIComponent(userId)}`,
           context,
@@ -2221,6 +2434,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         );
 
         const meta = result["meta"] === undefined ? {} : object(result["meta"]);
+
         const nextCursor = optionalString(meta["next_token"]);
 
         return {
@@ -2230,6 +2444,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async sendDirectMessage({ account, participantId, text, context }) {
         authorize(account, context);
+
         const userRequest = requireUserToken("messages.write");
 
         if (!text.trim())
@@ -2323,6 +2538,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         if (result["errors"] !== undefined && result["data"] === undefined) {
           const first = array(result["errors"])[0];
+
           throw new SocialError({
             code: "not_found",
             operation: "profiles.read",
@@ -2376,6 +2592,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async unfollowUser({ account, userId, context }) {
         authorize(account, context);
+
         await requireUserToken("graph.unfollow")(
           `/2/users/${encodeURIComponent(account.accountId)}/following/${encodeURIComponent(userId)}`,
           context,
@@ -2399,6 +2616,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async unmuteUser({ account, userId, context }) {
         authorize(account, context);
+
         await requireUserToken("graph.unmute")(
           `/2/users/${encodeURIComponent(account.accountId)}/muting/${encodeURIComponent(userId)}`,
           context,
@@ -2430,6 +2648,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async unblockUser({ account, userId, context }) {
         authorize(account, context);
+
         await requireUserToken("graph.unblock")(
           `/2/users/${encodeURIComponent(account.accountId)}/blocking/${encodeURIComponent(userId)}`,
           context,
@@ -2448,6 +2667,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async like({ account, postId, context }) {
         authorize(account, context);
+
         await requireUserToken("likes.write")(
           `/2/users/${encodeURIComponent(account.accountId)}/likes`,
           context,
@@ -2458,6 +2678,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async unlike({ account, postId, context }) {
         authorize(account, context);
+
         await requireUserToken("likes.write")(
           `/2/users/${encodeURIComponent(account.accountId)}/likes/${encodeURIComponent(postId)}`,
           context,
@@ -2515,6 +2736,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async deleteList({ account, listId, context }) {
         authorize(account, context);
+
         await request(`/2/lists/${encodeURIComponent(listId)}`, context, undefined, {}, "DELETE");
       },
       async getList({ account, listId, context }) {
@@ -2543,6 +2765,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async removeListMember({ account, listId, userId, context }) {
         authorize(account, context);
+
         await request(
           `/2/lists/${encodeURIComponent(listId)}/members/${encodeURIComponent(userId)}`,
           context,
@@ -2564,6 +2787,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async unfollowList({ account, listId, context }) {
         authorize(account, context);
+
         await request(
           `/2/users/${encodeURIComponent(account.accountId)}/followed_lists/${encodeURIComponent(listId)}`,
           context,
@@ -2597,6 +2821,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async unpinList({ account, listId, context }) {
         authorize(account, context);
+
         await requireUserToken("lists.pinned.write")(
           `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists/${encodeURIComponent(listId)}`,
           context,
@@ -2665,6 +2890,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
       async undoRepost({ account, postId, context }) {
         authorize(account, context);
+
         await request(
           `/2/users/${encodeURIComponent(account.accountId)}/retweets/${encodeURIComponent(postId)}`,
           context,
@@ -2672,6 +2898,42 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           {},
           "DELETE",
         );
+      },
+      async hideReply({ account, replyId, hidden, context }) {
+        authorize(account, context);
+
+        if (!/^[0-9]{1,19}$/.test(replyId))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.moderate",
+            message: "X reply IDs are numeric strings of 1 to 19 digits.",
+            retryDisposition: { kind: "never" },
+          });
+
+        const result = object(
+          await requireUserToken("comments.moderate")(
+            `/2/tweets/${encodeURIComponent(replyId)}/hidden`,
+            context,
+            { hidden },
+            {},
+            "PUT",
+          ),
+        );
+
+        const state =
+          result["data"] === undefined
+            ? undefined
+            : optionalBoolean(object(result["data"])["hidden"]);
+
+        if (state === undefined)
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "comments.moderate",
+            message: "X did not report the reply's hidden state.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        return { hidden: state };
       },
     }),
   });

@@ -166,12 +166,15 @@ LinkedIn enables webhooks only for apps with an approved webhook use case, so `w
 
 ## Native operations
 
-The native module covers polls, reactions, reshares, updates, deletion, and organization analytics. Multi-image, video, and document posts are not supported yet. Articles remain approval dependent.
+The native module covers polls, reactions, reshares, updates, deletion, comment deletion, and organization analytics. Multi-image, video, and document posts are not supported yet. Articles remain approval dependent.
+
+`deleteComment({ account, postId, commentId, context })` calls `DELETE /rest/socialActions/{postUrn}/comments/{commentId}`. Pass the `urn:li:share` or `urn:li:ugcPost` URN and the full comment URN returned by comment reads. Organization authors need `w_organization_social`, and the SDK adds the required `actor` query. Member authors need `w_member_social`. LinkedIn does not document which comments an actor may delete.
 
 ## Limits and requirements
 
 - Member read access is restricted; check the current LinkedIn product approvals and role rules before enabling read operations.
 - Messaging is unsupported.
+- Hiding comments is unsupported. The Comments API documents get, create, edit, and delete, with no hide or moderation-status operation.
 - Current evidence is offline contract tests; no account, app approval, or live post has been verified.
 
 Sources: [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api).
