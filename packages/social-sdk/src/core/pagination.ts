@@ -1,5 +1,5 @@
 import { SocialError } from "./errors.js";
-import type { Page } from "./types.js";
+import type { JsonValue, Page } from "./types.js";
 
 export interface IterationOptions {
   readonly maxPages?: number;
@@ -76,19 +76,22 @@ export function encodeCursor(scope: string, value: string): string {
   return `social-v1.${encodeURIComponent(JSON.stringify([scope, value]))}`;
 }
 
+/** A decoded cursor body: `[scope, upstreamCursor]`. */
+function isCursorPayload(value: JsonValue): value is readonly [string, string] {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === "string" &&
+    typeof value[1] === "string"
+  );
+}
+
 export function decodeCursor(scope: string, cursor: string): string {
   try {
     if (!cursor.startsWith("social-v1.") || cursor.length > 100_000) throw new Error();
-    const parsed: unknown = JSON.parse(decodeURIComponent(cursor.slice(10)));
+    const parsed: JsonValue = JSON.parse(decodeURIComponent(cursor.slice(10)));
 
-    if (
-      !Array.isArray(parsed) ||
-      parsed.length !== 2 ||
-      parsed[0] !== scope ||
-      typeof parsed[1] !== "string" ||
-      !parsed[1] ||
-      parsed[1].length > 16_384
-    )
+    if (!isCursorPayload(parsed) || parsed[0] !== scope || !parsed[1] || parsed[1].length > 16_384)
       throw new Error();
 
     return parsed[1];

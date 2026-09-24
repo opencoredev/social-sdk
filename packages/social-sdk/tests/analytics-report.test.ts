@@ -1,7 +1,11 @@
 import { strict as assert } from "node:assert";
 import { it } from "node:test";
 import { youtube } from "../src/platforms/youtube.js";
-import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
+import {
+  connectedAccountRef,
+  type AdapterOperationContext,
+  type JsonValue,
+} from "../src/core/index.js";
 
 const context = (backend: string): AdapterOperationContext => ({
   backendInstance: backend,
@@ -9,7 +13,7 @@ const context = (backend: string): AdapterOperationContext => ({
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 });
 
-const json = (value: unknown) =>
+const json = (value: JsonValue) =>
   new Response(JSON.stringify(value), {
     status: 200,
     headers: { "content-type": "application/json" },

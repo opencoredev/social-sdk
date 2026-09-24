@@ -1,7 +1,8 @@
 import { decodeCursor, encodeCursor, iterateItems, type IterationOptions } from "./pagination.js";
 import { createConcurrencyLimiter } from "./concurrency.js";
-import type { AuthorizationPolicy, SocialAdapter } from "./adapter.js";
+import type { AuthorizationPolicy, GraphAdapter, SocialAdapter } from "./adapter.js";
 import { SocialError } from "./errors.js";
+import { definedFields } from "./fields.js";
 import {
   deriveTargetIdempotencyKey,
   fingerprint,
@@ -356,12 +357,25 @@ function unsupported(operation: string, backend: string): never {
   });
 }
 
+/**
+ * Runtime guards for JavaScript callers that bypass the facade's static types.
+ * They are generic so a typed argument keeps its declared type when narrowed.
+ */
+function isObjectInput<Value>(value: Value): value is Value & object {
+  return typeof value === "object" && value !== null;
+}
+
+function isNonBlankStringInput<Value>(value: Value): value is Value & string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+/** `error` is the rejection when it was a SocialError, or undefined for any other thrown value. */
 function outcomeFromError(
-  error: unknown, // Transport and adapter rejections can be arbitrary JavaScript values.
+  error: SocialError | undefined,
   target: PreparedPublishTarget,
   observedAt: string,
 ): DeliveryOutcome {
-  if (error instanceof SocialError) {
+  if (error !== undefined) {
     if (error.code === "cancelled") {
       return {
         state: "unknown",
@@ -481,14 +495,14 @@ export function createSocial(
       });
     }
 
-    return limiter(signal, operation, work).catch((error: unknown) => {
-      if (error instanceof SocialError) throw error;
+    return limiter(signal, operation, work).catch((cause: unknown) => {
+      if (cause instanceof SocialError) throw cause;
       throw new SocialError({
         code: "upstream_failure",
         operation,
         backend,
         message: "The adapter failed while processing the request",
-        cause: error,
+        cause,
       });
     });
   }
@@ -682,15 +696,12 @@ export function createSocial(
 
   function validateAccountRef(account: ConnectedAccountRef, operation: string): void {
     if (
-      account === null ||
-      typeof account !== "object" ||
+      !isObjectInput(account) ||
       account.kind !== "connected-account" ||
       account.version !== 1 ||
-      typeof account.backend !== "string" ||
-      !account.backend.trim() ||
+      !isNonBlankStringInput(account.backend) ||
       !account.platform ||
-      typeof account.accountId !== "string" ||
-      !account.accountId.trim()
+      !isNonBlankStringInput(account.accountId)
     )
       throw new SocialError({
         code: "invalid_input",
@@ -923,7 +934,11 @@ export function createSocial(
                     observedAt: observedAt(),
                     reason: "capacity",
                   }
-                : outcomeFromError(error, target, observedAt());
+                : outcomeFromError(
+                    error instanceof SocialError ? error : undefined,
+                    target,
+                    observedAt(),
+                  );
         }
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
@@ -1061,16 +1076,9 @@ export function createSocial(
       validateAccountRef(account, "profiles.read");
 
       if (
-        input === null ||
-        typeof input !== "object" ||
-        (input.profileId !== undefined &&
-          input.handle !== undefined &&
-          typeof input.profileId !== "string" &&
-          typeof input.handle !== "string") ||
-        (input.profileId !== undefined &&
-          (typeof input.profileId !== "string" || input.profileId.trim() === "")) ||
-        (input.handle !== undefined &&
-          (typeof input.handle !== "string" || input.handle.trim() === ""))
+        !isObjectInput(input) ||
+        (input.profileId !== undefined && !isNonBlankStringInput(input.profileId)) ||
+        (input.handle !== undefined && !isNonBlankStringInput(input.handle))
       )
         throw new SocialError({
           code: "invalid_input",
@@ -1104,8 +1112,7 @@ export function createSocial(
       validateAccountRef(account, "graph.read");
 
       if (
-        input === null ||
-        typeof input !== "object" ||
+        !isObjectInput(input) ||
         !["following", "followers", "blocked", "muted"].includes(input.kind) ||
         (input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1))
       )
@@ -1139,7 +1146,9 @@ export function createSocial(
           account,
           {
             ...input,
-            ...(input.cursor === undefined ? {} : { cursor: decodeCursor(scope, input.cursor) }),
+            ...definedFields({
+              cursor: input.cursor === undefined ? undefined : decodeCursor(scope, input.cursor),
+            }),
           },
           makeContext(account.backend, correlationId, callOptions),
         ),
@@ -1148,20 +1157,42 @@ export function createSocial(
       return encodePage(scope, page);
     },
     follow: (target: ProfileRef, options?: PublishCallOptions) =>
-      graphMutation(target, "graph.follow", options) as Promise<RelationshipRecord>,
+      graphMutation(target, "graph.follow", options, async (graph, context) => {
+        if (graph.follow === undefined) unsupported("graph.follow", target.backend);
+
+        return await graph.follow(target, context);
+      }),
     unfollow: (target: ProfileRef, options?: PublishCallOptions) =>
-      graphMutation(target, "graph.unfollow", options) as Promise<void>,
+      graphMutation(target, "graph.unfollow", options, async (graph, context) => {
+        if (graph.unfollow === undefined) unsupported("graph.unfollow", target.backend);
+        await graph.unfollow(target, context);
+      }),
     block: (target: ProfileRef, options?: PublishCallOptions) =>
-      graphMutation(target, "graph.block", options) as Promise<RelationshipRecord>,
+      graphMutation(target, "graph.block", options, async (graph, context) => {
+        if (graph.block === undefined) unsupported("graph.block", target.backend);
+
+        return await graph.block(target, context);
+      }),
     unblock: (target: ProfileRef, options?: PublishCallOptions) =>
-      graphMutation(target, "graph.unblock", options) as Promise<void>,
+      graphMutation(target, "graph.unblock", options, async (graph, context) => {
+        if (graph.unblock === undefined) unsupported("graph.unblock", target.backend);
+        await graph.unblock(target, context);
+      }),
     mute: (target: ProfileRef, options?: PublishCallOptions) =>
-      graphMutation(target, "graph.mute", options) as Promise<RelationshipRecord>,
+      graphMutation(target, "graph.mute", options, async (graph, context) => {
+        if (graph.mute === undefined) unsupported("graph.mute", target.backend);
+
+        return await graph.mute(target, context);
+      }),
     unmute: (target: ProfileRef, options?: PublishCallOptions) =>
-      graphMutation(target, "graph.unmute", options) as Promise<void>,
+      graphMutation(target, "graph.unmute", options, async (graph, context) => {
+        if (graph.unmute === undefined) unsupported("graph.unmute", target.backend);
+        await graph.unmute(target, context);
+      }),
   };
 
-  async function graphMutation(
+  /** Validates and authorizes a graph mutation, then runs `mutate` inside the backend limiter. */
+  async function graphMutation<Result>(
     target: ProfileRef,
     operation:
       | "graph.follow"
@@ -1171,20 +1202,16 @@ export function createSocial(
       | "graph.mute"
       | "graph.unmute",
     callOptions: PublishCallOptions | undefined,
-  ): Promise<RelationshipRecord | void> {
+    mutate: (graph: GraphAdapter, context: AdapterOperationContext) => Promise<Result>,
+  ): Promise<Result> {
     if (
-      target === null ||
-      typeof target !== "object" ||
+      !isObjectInput(target) ||
       target.kind !== "profile" ||
       target.version !== 1 ||
-      typeof target.backend !== "string" ||
-      target.backend.trim() === "" ||
-      typeof target.platform !== "string" ||
-      target.platform.trim() === "" ||
-      typeof target.accountId !== "string" ||
-      target.accountId.trim() === "" ||
-      typeof target.profileId !== "string" ||
-      target.profileId.trim() === ""
+      !isNonBlankStringInput(target.backend) ||
+      !isNonBlankStringInput(target.platform) ||
+      !isNonBlankStringInput(target.accountId) ||
+      !isNonBlankStringInput(target.profileId)
     )
       throw new SocialError({
         code: "invalid_input",
@@ -1208,42 +1235,9 @@ export function createSocial(
     if (adapter.graph === undefined) unsupported(operation, target.backend);
     const context = makeContext(target.backend, correlationId, callOptions);
 
-    return dispatch<RelationshipRecord | void>(
-      target.backend,
-      callOptions?.signal,
-      operation,
-      async () => {
-        switch (operation) {
-          case "graph.follow":
-            if (adapter.graph!.follow === undefined) unsupported(operation, target.backend);
+    const graph = adapter.graph;
 
-            return await adapter.graph!.follow(target, context);
-          case "graph.unfollow":
-            if (adapter.graph!.unfollow === undefined) unsupported(operation, target.backend);
-            await adapter.graph!.unfollow(target, context);
-
-            return undefined;
-          case "graph.block":
-            if (adapter.graph!.block === undefined) unsupported(operation, target.backend);
-
-            return await adapter.graph!.block(target, context);
-          case "graph.unblock":
-            if (adapter.graph!.unblock === undefined) unsupported(operation, target.backend);
-            await adapter.graph!.unblock(target, context);
-
-            return undefined;
-          case "graph.mute":
-            if (adapter.graph!.mute === undefined) unsupported(operation, target.backend);
-
-            return await adapter.graph!.mute(target, context);
-          case "graph.unmute":
-            if (adapter.graph!.unmute === undefined) unsupported(operation, target.backend);
-            await adapter.graph!.unmute(target, context);
-
-            return undefined;
-        }
-      },
-    );
+    return dispatch(target.backend, callOptions?.signal, operation, () => mutate(graph, context));
   }
 
   async function lifecycle<R extends PlatformPostRef | BackendPostRef | ScheduledJobRef>(
@@ -1384,7 +1378,7 @@ export function createSocial(
           message: "A sequence requires at least one item",
         });
 
-      if (typeof request.idempotencyKey !== "string" || request.idempotencyKey.trim() === "")
+      if (!isNonBlankStringInput(request.idempotencyKey))
         throw new SocialError({
           code: "invalid_input",
           operation: "posts.publishSequence",
@@ -1572,13 +1566,10 @@ export function createSocial(
       if (
         input === null ||
         input === undefined ||
-        typeof input.query !== "string" ||
-        !input.query.trim() ||
+        !isNonBlankStringInput(input.query) ||
         (input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1)) ||
-        (input.startTime !== undefined &&
-          (typeof input.startTime !== "string" || !validTimestamp(input.startTime))) ||
-        (input.endTime !== undefined &&
-          (typeof input.endTime !== "string" || !validTimestamp(input.endTime))) ||
+        (input.startTime !== undefined && !validTimestamp(input.startTime)) ||
+        (input.endTime !== undefined && !validTimestamp(input.endTime)) ||
         (input.startTime !== undefined &&
           input.endTime !== undefined &&
           Date.parse(input.startTime) > Date.parse(input.endTime)) ||
@@ -1736,12 +1727,10 @@ export function createSocial(
         query.from > query.to ||
         !Array.isArray(query.metrics) ||
         query.metrics.length === 0 ||
-        query.metrics.some((metric) => typeof metric !== "string" || !metric.trim()) ||
+        query.metrics.some((metric) => !isNonBlankStringInput(metric)) ||
         (query.dimensions !== undefined &&
           (!Array.isArray(query.dimensions) ||
-            query.dimensions.some(
-              (dimension) => typeof dimension !== "string" || !dimension.trim(),
-            )))
+            query.dimensions.some((dimension) => !isNonBlankStringInput(dimension))))
       )
         throw new SocialError({
           code: "invalid_input",
@@ -2053,11 +2042,7 @@ export function createSocial(
     ): Promise<void> {
       validateAccountRef(account, "notifications.seen");
 
-      if (
-        input === null ||
-        typeof input !== "object" ||
-        (input.seenAt !== undefined && !validTimestamp(input.seenAt))
-      )
+      if (!isObjectInput(input) || (input.seenAt !== undefined && !validTimestamp(input.seenAt)))
         throw new SocialError({
           code: "invalid_input",
           operation: "notifications.seen",
@@ -2136,13 +2121,10 @@ function decodePageOptions(
   scope: string,
   options?: { readonly cursor?: string; readonly limit?: number },
 ) {
-  const input: { cursor?: string; limit?: number } = {};
-
-  if (options?.cursor !== undefined) input.cursor = decodeCursor(scope, options.cursor);
-
-  if (options?.limit !== undefined) input.limit = options.limit;
-
-  return input;
+  return definedFields({
+    cursor: options?.cursor === undefined ? undefined : decodeCursor(scope, options.cursor),
+    limit: options?.limit,
+  });
 }
 
 function encodePage<T>(scope: string, page: Page<T>): Page<T> {

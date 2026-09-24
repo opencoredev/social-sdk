@@ -30,6 +30,30 @@ const names = [
 
 type AdapterName = (typeof names)[number];
 
+function isAdapterName(value: string): value is AdapterName {
+  return names.some((name) => name === value);
+}
+
+/** The only shape the CLI checks before handing a request to `prepare`. */
+interface RequestWithTargets {
+  readonly targets: readonly unknown[];
+}
+
+function hasTargetsArray(value: unknown): value is RequestWithTargets {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "targets" in value &&
+    Array.isArray(value.targets)
+  );
+}
+
+type LinkedInAuthorUrn = `urn:li:person:${string}` | `urn:li:organization:${string}`;
+
+function isLinkedInAuthorUrn(value: string): value is LinkedInAuthorUrn {
+  return value.startsWith("urn:li:person:") || value.startsWith("urn:li:organization:");
+}
+
 const environmentNames: Record<AdapterName, readonly string[]> = {
   mock: [],
   zernio: ["ZERNIO_API_KEY"],
@@ -92,9 +116,7 @@ export function createDiagnosticAdapter(
     case "linkedin":
       return linkedin({
         auth: {
-          author: accountId.startsWith("urn:li:")
-            ? (accountId as `urn:li:person:${string}`)
-            : "urn:li:person:diagnostic",
+          author: isLinkedInAuthorUrn(accountId) ? accountId : "urn:li:person:diagnostic",
           accessToken: "offline-placeholder",
         },
         apiVersion: "202609",
@@ -114,7 +136,8 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   const command = args[0] ?? "help";
   const json = args.includes("--json");
 
-  const finish = (code: number, data: unknown) => {
+  // `data` is any report shape this command builds; it is only passed to JSON.stringify.
+  const finish = <Data>(code: number, data: Data) => {
     const result = { schemaVersion: 1, command, ok: code === 0, data };
     io.write(json ? JSON.stringify(result) + "\n" : JSON.stringify(result, null, 2) + "\n");
 
@@ -149,9 +172,8 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
     });
   const selected = options.get("--adapter") ?? "mock";
 
-  if (!names.includes(selected as AdapterName))
-    return finish(2, { error: "Unknown adapter.", adapters: names });
-  const name = selected as AdapterName;
+  if (!isAdapterName(selected)) return finish(2, { error: "Unknown adapter.", adapters: names });
+  const name = selected;
 
   if (command === "adapters")
     return finish(0, {
@@ -214,12 +236,11 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
       return finish(2, { error: "Input exceeds the 1 MiB diagnostic limit." });
     const request: unknown = JSON.parse(raw);
 
-    if (
-      !request ||
-      typeof request !== "object" ||
-      !Array.isArray((request as Record<string, unknown>)["targets"])
-    )
+    if (!hasTargetsArray(request))
       return finish(2, { error: "Expected a JSON publish request with a targets array." });
+    // SAFETY: hasTargetsArray only proves an object with a targets array. The CLI relies
+    // on social.posts.prepare for the rest of the shape: optional fields are read with
+    // `?.`, and any malformed value that throws is caught below and reported as exit code 2.
     const input = request as PublishRequest;
     // JSON diagnostics deliberately accept only portable URLs, never executable streams or Blob handles.
     const contents = [input.content, ...input.targets.map((target) => target.content)];

@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createSocial } from "../src/core/client.js";
-import { connectedAccountRef } from "../src/core/types.js";
+import { connectedAccountRef, type JsonValue } from "../src/core/types.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import { youtube } from "../src/platforms/youtube.js";
 import { zernio } from "../src/cloud/zernio.js";
@@ -15,7 +15,7 @@ const post = {
   postId: "video",
 };
 
-const json = (value: unknown) =>
+const json = (value: JsonValue) =>
   new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
 
 test("YouTube comment page tokens are exposed as scoped cursors", async () => {

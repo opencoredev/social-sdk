@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createSocial, iterateItems } from "../src/index.js";
+import { createSocial, iterateItems, type ConnectedAccountRef } from "../src/index.js";
+import { definedFields } from "../src/core/fields.js";
 import { mockBackend } from "../src/testing/index.js";
 
 test("account cursors bind backend, tenant and page size before any dispatch", async () => {
@@ -109,12 +110,12 @@ test("post feeds bind cursors to account and traverse lazily through the public 
     },
     posts: {
       ...base.posts!,
-      async list(_account: unknown, input: { cursor?: string }) {
+      async list(_account: ConnectedAccountRef, input: { cursor?: string }) {
         calls++;
 
         return {
           items: [{ postId: input.cursor ? "second" : "first" }],
-          ...(input.cursor ? {} : { nextCursor: "upstream" }),
+          ...definedFields({ nextCursor: input.cursor ? undefined : "upstream" }),
         };
       },
     },
