@@ -33,11 +33,11 @@ A production `ConnectionStore` must persist attempts and discovered accounts, at
 
 Repeated callbacks can read a saved discovery result without exchanging the code again. If a code exchange is still running, or the process lost its response before saving discovery, the manager reports `reconnect_required`. Let an in-flight exchange finish or start a fresh connection. Replaying a one-use authorization code cannot safely recover missing credentials.
 
-Connection attempts expire after ten minutes by default. Account selection must finish before expiry. Keep the PKCE verifier and provider state private in server storage; encrypt stored credentials separately and use compare-and-set token revisions when refreshing.
+Connection attempts expire after ten minutes by default. Account selection must finish before expiry. The PKCE verifier stays in the store, and `begin` never returns it. `begin` returns `providerState` unless the provider's `start` result sets `providerStateSecret: true`, in which case that value also stays in the store. The Bluesky provider sets it because its provider state holds the DPoP private key. Keep them private in server storage, encrypt stored credentials separately, and use compare-and-set token revisions when refreshing.
 
 ## Direct OAuth providers
 
-The server package includes direct OAuth factories for YouTube, X, TikTok, Threads, Instagram Login, and LinkedIn. Create them only in server code. Each factory accepts an injected `fetch` for deterministic tests, an optional `credentialSink`, and provider credentials. The `redirectUri` passed to the factory must match the exact callback URI registered with the provider and with `ConnectionManager.begin`. When one callback discovers several accounts, the sink's `save` runs once per selected account in order. If a later save fails, the earlier ones stay stored, so make `save` an idempotent upsert and let the user retry the connection.
+The server package includes direct OAuth factories for YouTube, X, TikTok, Threads, Instagram Login, LinkedIn, and Bluesky. Create them only in server code. Each factory accepts an injected `fetch` for deterministic tests, an optional `credentialSink`, and provider credentials. The `redirectUri` passed to the factory must match the exact callback URI registered with the provider and with `ConnectionManager.begin`. When one callback discovers several accounts, the sink's `save` runs once per selected account in order. If a later save fails, the earlier ones stay stored, so make `save` an idempotent upsert and let the user retry the connection.
 
 <PlatformTabs>
 <PlatformTab platform="youtube">
@@ -137,6 +137,32 @@ const provider = linkedinOAuth({
   linkedinApiVersion: "202609",
 });
 ```
+
+</PlatformTab>
+<PlatformTab platform="bluesky">
+
+**Default scopes:** `atproto` and `transition:generic`. **PKCE:** S256, sent in a
+pushed authorization request with DPoP-bound tokens.
+
+Bluesky uses `blueskyOAuth`, which follows the AT Protocol OAuth profile instead
+of a fixed provider endpoint. Pass the handle, DID, or server URL the user typed
+as `loginHint` to `begin`. There is no client secret: `clientId` is the URL of
+your client metadata document, and confidential clients sign with an ES256
+`clientKey`. The verified session goes to `sessionSink` rather than
+`credentialSink`. Refresh tokens rotate.
+
+```ts
+const provider = blueskyOAuth({ clientId, clientKey, redirectUri, sessionSink });
+await manager.begin({
+  ...request,
+  platforms: ["bluesky"],
+  provider,
+  loginHint: "alice.bsky.social",
+});
+const next = await refreshBlueskyOAuthSession(current, { clientId, clientKey });
+```
+
+See the [Bluesky page](/platforms/bluesky) for client metadata and the adapter transport.
 
 </PlatformTab>
 </PlatformTabs>

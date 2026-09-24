@@ -829,6 +829,13 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "posts.schedule",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "The Posts API accepts only lifecycleState PUBLISHED on creation and has no publish-time field.",
+        },
+        {
+          platform: "linkedin",
           operation: "posts.read",
           availability: "available" as const,
           requiredScopes: [
@@ -903,6 +910,13 @@ export function linkedin(
           platform: "linkedin",
           operation: "articles.create",
           availability: "approval-dependent" as const,
+        },
+        {
+          platform: "linkedin",
+          operation: "profile.update",
+          availability: "approval-dependent" as const,
+          notes:
+            "Member profile writes use the Profile Edit API, which LinkedIn restricts to approved developers. This adapter does not implement it.",
         },
         {
           platform: "linkedin",

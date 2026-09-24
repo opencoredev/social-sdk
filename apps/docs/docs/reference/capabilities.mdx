@@ -236,6 +236,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | bluesky | bluesky | webhooks.verify | unsupported-by-platform | None declared | See adapter setup |
 | bluesky | bluesky | accounts.read | available | None declared | repo |
 | bluesky | bluesky | posts.publish | available | text, image, video | repo |
+| bluesky | bluesky | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
 | bluesky | bluesky | posts.read | available | text, image | See adapter setup |
 | bluesky | bluesky | graph.read | available | None declared | repo |
 | bluesky | bluesky | graph.follow | available | None declared | repo |
@@ -318,10 +319,13 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | x | x | notifications.read | unsupported-by-platform | None declared | See adapter setup |
 | x | x | messages.write | available | None declared | dm.write, dm.read, users.read, tweet.read |
 | x | x | comments.moderate | available | None declared | tweet.moderate.write, tweet.read, users.read |
-| x | x | streams.read | not-implemented-by-adapter | None declared | See adapter setup |
+| x | x | streams.read | available | None declared | See adapter setup |
+| x | x | posts.schedule | not-implemented-by-adapter | None declared | See adapter setup |
+| x | x | profile.update | unsupported-by-platform | None declared | See adapter setup |
 | threads | threads | accounts.read | available | None declared | See adapter setup |
 | threads | threads | webhooks.verify | available | None declared | See adapter setup |
 | threads | threads | posts.publish | available | text, image, video, carousel | threads_basic, threads_content_publish |
+| threads | threads | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
 | threads | threads | posts.read | available | None declared | See adapter setup |
 | threads | threads | posts.list | available | None declared | See adapter setup |
 | threads | threads | posts.status | available | None declared | See adapter setup |
@@ -337,8 +341,11 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | threads | threads | posts.removeFromPlatform | available | None declared | threads_basic, threads_delete |
 | threads | threads | posts.update | unsupported-by-platform | None declared | See adapter setup |
 | threads | threads | profile.read | available | None declared | See adapter setup |
+| threads | threads | profile.update | unsupported-by-platform | None declared | See adapter setup |
 | threads | threads | search.keyword | available | None declared | threads_basic, threads_keyword_search |
 | threads | threads | profiles.read | available | None declared | threads_basic |
+| threads | threads | profiles.search | unsupported-by-platform | None declared | See adapter setup |
+| threads | threads | graph.read | unsupported-by-platform | None declared | See adapter setup |
 | threads | threads | search.posts | available | None declared | threads_basic, threads_keyword_search |
 | threads | threads | mentions.read | available | None declared | threads_basic, threads_manage_mentions |
 | threads | threads | messages.read | unsupported-by-platform | None declared | See adapter setup |
@@ -354,6 +361,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | youtube | youtube | comments.write | available | None declared | See adapter setup |
 | youtube | youtube | posts.publish | available | video | https://www.googleapis.com/auth/youtube.upload |
 | youtube | youtube | posts.schedule | available | None declared | https://www.googleapis.com/auth/youtube.upload |
+| youtube | youtube | posts.cancelScheduled | available | None declared | https://www.googleapis.com/auth/youtube |
 | youtube | youtube | posts.removeFromPlatform | available | None declared | https://www.googleapis.com/auth/youtube |
 | youtube | youtube | notifications.read | unsupported-by-platform | None declared | See adapter setup |
 | youtube | youtube | playlists.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly |
@@ -361,6 +369,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | youtube | youtube | thumbnails.write | available | None declared | https://www.googleapis.com/auth/youtube |
 | youtube | youtube | videos.update | available | None declared | https://www.googleapis.com/auth/youtube |
 | youtube | youtube | posts.update | available | None declared | https://www.googleapis.com/auth/youtube |
+| youtube | youtube | profile.update | available | None declared | https://www.googleapis.com/auth/youtube |
 | youtube | youtube | videos.delete | available | None declared | https://www.googleapis.com/auth/youtube |
 | youtube | youtube | posts.delete | available | None declared | https://www.googleapis.com/auth/youtube |
 | youtube | youtube | videos.rate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl |
@@ -377,6 +386,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | youtube | youtube | live.broadcasts | available | None declared | https://www.googleapis.com/auth/youtube |
 | tiktok | tiktok | webhooks.verify | available | None declared | See adapter setup |
 | tiktok | tiktok | posts.publish | available | image, video, carousel | video.publish |
+| tiktok | tiktok | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
 | tiktok | tiktok | posts.status | available | None declared | See adapter setup |
 | tiktok | tiktok | posts.read | available | None declared | video.list |
 | tiktok | tiktok | posts.list | available | None declared | video.list |
@@ -389,7 +399,9 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | tiktok | tiktok | accounts.read | available | None declared | user.info.basic |
 | tiktok | tiktok | analytics.account.read | available | None declared | user.info.stats |
 | tiktok | tiktok | analytics.read | available | None declared | video.list |
+| tiktok | tiktok | profile.update | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | posts.publish | available | image, video, carousel | instagram_business_basic, instagram_business_content_publish |
+| instagram | instagram | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | posts.update | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | accounts.read | available | None declared | See adapter setup |
 | instagram | instagram | posts.list | available | None declared | See adapter setup |
@@ -405,15 +417,17 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | instagram | instagram | profiles.read | available | None declared | instagram_business_basic, instagram_business_manage_insights |
 | instagram | instagram | reels.publish | available | video | See adapter setup |
 | instagram | instagram | stories.publish | available | None declared | See adapter setup |
+| instagram | instagram | profile.update | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | posts.delete | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | posts.removeFromPlatform | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | publishing.limit.read | available | None declared | See adapter setup |
-| instagram | instagram | mentions.read | not-implemented-by-adapter | None declared | See adapter setup |
+| instagram | instagram | mentions.read | available | None declared | instagram_business_basic, instagram_business_manage_comments |
 | instagram | instagram | product.tagging | approval-dependent | None declared | See adapter setup |
 | instagram | instagram | messages.read | approval-dependent | None declared | See adapter setup |
 | instagram | instagram | webhooks.verify | available | None declared | See adapter setup |
 | instagram | instagram | notifications.read | unsupported-by-platform | None declared | See adapter setup |
 | linkedin | linkedin | posts.publish | available | text, image | w_member_social |
+| linkedin | linkedin | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
 | linkedin | linkedin | posts.read | available | None declared | r_member_social |
 | linkedin | linkedin | accounts.read | available | None declared | openid, profile |
 | linkedin | linkedin | posts.multi-image | not-implemented-by-adapter | carousel | See adapter setup |
@@ -428,6 +442,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | linkedin | linkedin | comments.delete | available | None declared | w_member_social |
 | linkedin | linkedin | analytics.organization.read | account-ineligible | None declared | rw_organization_admin |
 | linkedin | linkedin | articles.create | approval-dependent | None declared | See adapter setup |
+| linkedin | linkedin | profile.update | approval-dependent | None declared | See adapter setup |
 | linkedin | linkedin | messages.write | unsupported-by-platform | None declared | See adapter setup |
 | linkedin | linkedin | webhooks.verify | approval-dependent | None declared | rw_organization_admin |
 | linkedin | linkedin | notifications.read | account-ineligible | None declared | rw_organization_admin |
