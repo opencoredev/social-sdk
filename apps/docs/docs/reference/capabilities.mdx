@@ -259,6 +259,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | bluesky | bluesky | media.video | available | video | repo |
 | bluesky | bluesky | media.status | available | video | See adapter setup |
 | bluesky | bluesky | media.limits.read | available | video | See adapter setup |
+| bluesky | bluesky | posts.update | unsupported-by-platform | None declared | See adapter setup |
 | bluesky | bluesky | posts.repost | available | None declared | See adapter setup |
 | bluesky | bluesky | posts.quote | available | None declared | See adapter setup |
 | bluesky | bluesky | posts.delete | available | None declared | See adapter setup |
@@ -293,6 +294,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | x | x | lists.write | available | None declared | list.write, tweet.read, users.read |
 | x | x | timelines.read | available | None declared | tweet.read, users.read |
 | x | x | posts.removeFromPlatform | available | None declared | tweet.read, tweet.write, users.read |
+| x | x | posts.update | available | text | tweet.read, tweet.write, users.read |
 | x | x | graph.read | available | None declared | users.read, follows.read, mute.read, block.read |
 | x | x | profiles.read | available | None declared | users.read |
 | x | x | graph.follow | available | None declared | users.read, follows.write |
@@ -325,6 +327,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | threads | threads | posts.repost | available | None declared | threads_basic, threads_content_publish |
 | threads | threads | posts.delete | available | None declared | threads_basic, threads_delete |
 | threads | threads | posts.removeFromPlatform | available | None declared | threads_basic, threads_delete |
+| threads | threads | posts.update | unsupported-by-platform | None declared | See adapter setup |
 | threads | threads | profile.read | available | None declared | See adapter setup |
 | threads | threads | search.keyword | available | None declared | threads_basic, threads_keyword_search |
 | threads | threads | profiles.read | available | None declared | threads_basic |
@@ -366,6 +369,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | tiktok | tiktok | posts.list | available | None declared | video.list |
 | tiktok | tiktok | posts.draft | available | None declared | video.upload |
 | tiktok | tiktok | posts.status.poll | available | None declared | See adapter setup |
+| tiktok | tiktok | posts.update | unsupported-by-platform | None declared | See adapter setup |
 | tiktok | tiktok | comments.read | unsupported-by-platform | None declared | See adapter setup |
 | tiktok | tiktok | messages.read | unsupported-by-platform | None declared | See adapter setup |
 | tiktok | tiktok | accounts.read | available | None declared | user.info.basic |
@@ -388,6 +392,7 @@ An omitted operation is unsupported through the normalized API. Some operations 
 | instagram | instagram | stories.publish | available | None declared | See adapter setup |
 | instagram | instagram | posts.delete | not-implemented-by-adapter | None declared | See adapter setup |
 | instagram | instagram | posts.removeFromPlatform | not-implemented-by-adapter | None declared | See adapter setup |
+| instagram | instagram | posts.update | unsupported-by-platform | None declared | See adapter setup |
 | instagram | instagram | publishing.limit.read | available | None declared | See adapter setup |
 | instagram | instagram | mentions.read | not-implemented-by-adapter | None declared | See adapter setup |
 | instagram | instagram | product.tagging | approval-dependent | None declared | See adapter setup |

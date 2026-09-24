@@ -964,6 +964,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         notes:
           "native.getVideoUploadLimits reads the daily video allowance. Uploads do not check it automatically.",
       },
+      // Source, accessed 2026-09-24: https://github.com/bluesky-social/atproto/discussions/3038
+      {
+        operation: "posts.update",
+        platform: "bluesky",
+        availability: "unsupported-by-platform",
+        notes:
+          "Bluesky treats posts as immutable. A putRecord rewrite succeeds on the PDS, but the Bluesky AppView ignores post updates and the new CID breaks existing strong references from replies, quotes, likes, and reposts.",
+      },
       ...[
         "posts.repost",
         "posts.quote",

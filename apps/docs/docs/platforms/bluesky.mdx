@@ -221,6 +221,7 @@ references and reconcile explicitly. Bluesky chat consent and moderation require
 ## Limits and requirements
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.
+- Published posts cannot be edited, so `posts.update` is declared `unsupported-by-platform`. `com.atproto.repo.putRecord` can rewrite an `app.bsky.feed.post` record on the PDS, but the Bluesky AppView ignores post updates ([atproto discussion #3038](https://github.com/bluesky-social/atproto/discussions/3038)). The rewrite would also produce a new CID, while replies, quotes, likes, and reposts keep strong references to the old one. The SDK does not offer that rewrite as an edit. Delete and publish again if the content must change.
 - OAuth session refresh remains owned by the official session transport.
 - App-password policy and application account membership remain application responsibilities.
 - These are fixture-tested protocol operations; no live account verification is recorded in this repository.

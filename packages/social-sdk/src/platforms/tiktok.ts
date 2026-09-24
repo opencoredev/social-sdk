@@ -335,6 +335,14 @@ export function tiktok(
           requiredScopes: ["video.upload"],
         },
         { platform: "tiktok", operation: "posts.status.poll", availability: "available" as const },
+        // Source, accessed 2026-09-24: https://developers.tiktok.com/doc/content-posting-api-get-started
+        {
+          platform: "tiktok",
+          operation: "posts.update",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "The Content Posting API sets caption and privacy only when a post is initialized. It has no endpoint to edit a published post.",
+        },
         {
           platform: "tiktok",
           operation: "comments.read",

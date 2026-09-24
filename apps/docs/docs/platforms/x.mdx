@@ -146,6 +146,29 @@ plan and project permissions. The SDK does not grant access, widen the retention
 around a quota. A denied or unavailable route is surfaced as a structured provider error. Search
 results are not proof that every matching post exists or remains publicly readable.
 
+### Edit a recent post
+
+The native `updatePost` method edits the text of a published post. It calls `POST /2/tweets` with `edit_options.previous_post_id`, which is X's documented edit path.
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+const edited = await native.updatePost({
+  account,
+  postId: "1900000000000000001",
+  text: "Corrected release notes",
+  context,
+});
+
+console.log(edited.post.postId); // the new version's ID
+console.log(edited.editHistoryPostIds); // oldest first, when X returns it
+```
+
+X gives every edited version a new post ID, so store `edited.post` as the current reference. The original ID stays in the edit chain, and deleting any version deletes the whole chain. The method validates the numeric ID and X's weighted text limit before sending, and it only changes text.
+
+X decides eligibility. Its [changelog](https://docs.x.com/changelog) (October 3, 2025) requires X Premium, the account's own post, and a post created within the last hour. The [edit posts guide](https://docs.x.com/x-api/fundamentals/edit-posts) describes a 30-minute window and at most five edits, so read `edit_controls` if you need the current limit for a post. Promoted posts, polls, replies to other accounts, reposts, community posts, collaborative posts, and scheduled posts cannot be edited. A rejected edit surfaces as the mapped provider error, usually `missing_permission` for HTTP 403.
+
+The edit is sent once. A lost response, a server failure after dispatch, or a success response without a new ID raises `ambiguous_outcome` with `reconcile-first`. Read the post and its `edit_history_tweet_ids` before trying again. See [Create or Edit Post](https://docs.x.com/x-api/posts/create-post).
+
 ### Like and unlike posts
 
 The X platform entrypoint exports `xLike` and `xUnlike` for credential-ready server code. They require an acting connected-account reference, a native numeric post ID, server-side credentials, and an operation context whose `backendInstance` matches the account. These helpers sit outside `createSocial` authorization and concurrency middleware: authorize the acting account in your application before calling them.
@@ -258,7 +281,7 @@ still depends on the X API tier and Direct Messages access for the app.
 
 ## Native operations
 
-The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, deletion, and bookmarks. Filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
+The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, text edits, deletion, and bookmarks. Filtered streams are not supported yet. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
 
 Full-archive search (`searchAllPosts`) requires an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
 

@@ -768,6 +768,14 @@ export function instagram(
               ? ("available" as const)
               : ("not-implemented-by-adapter" as const),
         },
+        // Source, accessed 2026-09-24: https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/
+        {
+          platform: "instagram",
+          operation: "posts.update",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "The IG Media update endpoint only accepts comment_enabled. Captions and media cannot be edited after publication.",
+        },
         ...(flavor === "facebook-login"
           ? [
               {
