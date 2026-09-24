@@ -383,6 +383,57 @@ for (const provider of ["zernio", "post-for-me"] as const) {
   });
 }
 
+for (const provider of ["zernio", "post-for-me"] as const) {
+  it(`${provider} managed Blob uploads succeed when storage reads the whole body first`, async () => {
+    const blob = new Blob([new Uint8Array(3000)]).slice(1000, 2500);
+    let stored = 0;
+
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+
+      if (url.hostname === "storage.example.test") {
+        assert.equal(init?.body, blob);
+        stored = (await new Response(init.body).arrayBuffer()).byteLength;
+
+        return new Response(null, { status: 200 });
+      }
+
+      return provider === "zernio"
+        ? Response.json({
+            uploadUrl: "https://storage.example.test/video?signature=private",
+            publicUrl: "https://media.example.test/video.mp4",
+          })
+        : Response.json({
+            upload_url: "https://storage.example.test/video?signature=private",
+            media_url: "https://media.example.test/video.mp4",
+          });
+    };
+
+    const options = {
+      apiKey: "test",
+      fetch: fetcher,
+      uploadHostAllowed: (hostname: string) => hostname === "storage.example.test",
+    };
+
+    const social = createSocial({
+      backend: provider === "zernio" ? zernio(options) : postForMe(options),
+    });
+
+    const ref = await social.media.upload(
+      {
+        kind: "video",
+        mimeType: "video/mp4",
+        filename: "part.mp4",
+        source: { kind: "blob", blob, fingerprint: "blob-part" },
+      },
+      videoAccount,
+    );
+
+    assert.equal(ref.kind, "media");
+    assert.equal(stored, 1500);
+  });
+}
+
 it("enforces all tenant targets and video-only content before managed dispatch", async () => {
   let calls = 0;
 
