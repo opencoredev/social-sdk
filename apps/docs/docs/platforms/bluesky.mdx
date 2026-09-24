@@ -210,6 +210,10 @@ mutes use `app.bsky.graph.muteActorList` and `unmuteActorList`. List blocks are
 Moderation reports call `com.atproto.moderation.createReport` and require an authenticated
 moderation service.
 
+### Receive events
+
+Bluesky has no webhooks, so `webhooks.verify` is `unsupported-by-platform` and the adapter has no `webhooks` member. Subscribe to the relay firehose (`com.atproto.sync.subscribeRepos`) or Jetstream over WebSocket instead. See [Consuming the firehose](https://bsky.network/docs/consuming-the-firehose).
+
 ## Native operations
 
 The typed native module covers reposts and quote posts, deletion, graph relationships,
@@ -217,6 +221,11 @@ likes, actor search, lists, moderation reports, notification reads and seen stat
 reads/updates, feed discovery, search, and `chat.bsky` conversation/message operations. Video upload
 is not supported yet. Chat responses remain provider-controlled moderation states; persist native
 references and reconcile explicitly. Bluesky chat consent and moderation requirements still apply.
+
+`deleteComment({ account, commentId, context })` takes a reply's `at://` URI and calls
+[`com.atproto.repo.deleteRecord`](https://docs.bsky.app/docs/api/com-atproto-repo-delete-record)
+for the `app.bsky.feed.post` record. It only deletes records in the authenticated account's
+repository. A URI from another DID raises `unauthorized` before any request is sent.
 
 ## Limits and requirements
 

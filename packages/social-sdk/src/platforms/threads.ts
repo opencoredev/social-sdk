@@ -33,6 +33,8 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { verifyMetaWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
 export interface ThreadsAuthorization {
   readonly userId: string;
@@ -93,6 +95,7 @@ export class MemoryThreadsWorkflowStore implements ThreadsWorkflowStore {
     const row = this.rows.get(id);
 
     if (!row) throw new Error("Threads workflow not found");
+
     const next = { ...row, ...update, id };
     this.rows.set(id, structuredClone(next));
 
@@ -116,6 +119,8 @@ export interface ThreadsOptions {
   readonly graphVersion?: string;
   readonly workflowStore?: ThreadsWorkflowStore;
   readonly clock?: () => Date;
+  /** App secret that Meta uses to sign Threads webhook deliveries (`X-Hub-Signature-256`). */
+  readonly webhookSecret?: string;
 }
 
 export interface ThreadsNative {
@@ -158,6 +163,16 @@ export interface ThreadsNative {
     readonly hide: boolean;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /**
+   * Deletes a reply the authenticated user published, using `DELETE /{threads-media-id}`.
+   * Threads deletes only media created by the authenticated user, allows 100 deletions per
+   * account per day, and needs `threads_delete`. Use `hideReply` for other users' replies.
+   */
+  readonly deleteComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly commentId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
   readonly listConversation: (input: {
     readonly account: ConnectedAccountRef;
     readonly mediaId: string;
@@ -214,6 +229,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     context: AdapterOperationContext,
   ): Promise<JsonObject> {
     const [raw = "", qs] = path.split("?", 2);
+
     const query = Object.fromEntries(new URLSearchParams(qs ?? ""));
 
     try {
@@ -245,6 +261,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     const items = array(result["data"]).map((entry) => object(entry));
 
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
 
     // Graph omits paging.next on the last page even when cursors.after is present.
@@ -315,8 +332,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     );
 
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
+
     const hasNext = isString(paging["next"]) && paging["next"].length > 0;
+
     const nextCursor = hasNext ? optionalString(cursors["after"]) : undefined;
 
     return {
@@ -352,12 +372,17 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     return array(result["data"]).flatMap((entry) => {
       const row = object(entry);
+
       const name = optionalString(row["name"]);
 
       if (name === undefined || !allowed.has(name)) return [];
+
       const total = row["total_value"] === undefined ? undefined : object(row["total_value"]);
+
       const values = row["values"] === undefined ? [] : array(row["values"]);
+
       const latest = values.at(-1);
+
       const totalValue = optionalNumber(total?.["value"]);
 
       const value =
@@ -496,12 +521,16 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         w.backendState,
         "Threads publish acceptance is unknown; no replay was attempted.",
       );
+
     let cur = w;
+
     const items = optionalArray(cur.options["_mediaItems"]) ?? [];
 
     while (cur.childIds.length < items.length) {
       const item = object(items[cur.childIds.length]);
+
       const url = String(item["url"]);
+
       const isVideo = item["kind"] === "video";
 
       const p = new URLSearchParams({
@@ -535,6 +564,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     for (const id of cur.childIds) {
       const s = await status(id, c);
+
       const st = optionalString(s["status"]) ?? "";
 
       if (st === "ERROR" || st === "EXPIRED") return terminalFailure(a, w.id, st);
@@ -544,7 +574,9 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     if (!cur.parentId) {
       const singleKind = cur.options["_mediaKind"];
+
       const singleUrl = optionalString(cur.options["_mediaUrl"]);
+
       const replyControl = optionalString(cur.options["replyControl"]);
 
       const p = new URLSearchParams({
@@ -581,7 +613,9 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     const parentId = cur.parentId;
 
     if (!parentId) fail("threads.container.create", "Missing parent container ID.");
+
     const ps = await status(parentId, c);
+
     const pst = optionalString(ps["status"]) ?? "";
 
     if (pst === "ERROR" || pst === "EXPIRED") return terminalFailure(a, cur.id, pst);
@@ -593,6 +627,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     }
 
     if (pst !== "FINISHED") return processing(a, cur.id, pst || "PROCESSING");
+
     await store.update(cur.id, { stage: "unknown", backendState: "PUBLISHING" });
 
     try {
@@ -623,6 +658,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       await store.update(cur.id, { stage: "unknown", backendState: "AMBIGUOUS" });
 
       if (e instanceof SocialError) return ambiguous(a, cur.id, "AMBIGUOUS", e.message);
+
       throw e;
     }
   }
@@ -634,6 +670,10 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     runtime: ["node>=22.12", "bun"],
     capabilities: [
       { operation: "accounts.read", platform: "threads", availability: "available" },
+      webhookCapability(
+        "threads",
+        "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
+      ),
       {
         operation: "posts.publish",
         platform: "threads",
@@ -675,6 +715,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         requiredScopes: ["threads_manage_replies"],
         notes:
           "Hiding replies and pending-reply moderation require Threads reply-management permissions.",
+      },
+      {
+        operation: "comments.delete",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_delete"],
+        notes:
+          "Deletes only replies published by the authenticated user. Threads allows 100 deletions per account per day. Use hideReply for other users' replies.",
       },
       {
         operation: "posts.quote",
@@ -757,6 +805,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     getContainer: (id, c) => status(id, c),
     resumePublication: async (a, id, c) => {
       authorize(a, "threads.posts.resume");
+
       const w = await store.get(id);
 
       if (!w || w.backend !== backend || w.accountId !== a.accountId)
@@ -808,6 +857,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     },
     async deletePost({ account, postId, context }) {
       authorize(account, "threads.posts.delete");
+
       await request(
         encodeURIComponent(postId),
         { method: "DELETE" },
@@ -899,6 +949,28 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         context,
       );
     },
+    async deleteComment({ account, commentId, context }) {
+      // Sources (accessed 2026-09-24): https://developers.facebook.com/docs/threads/posts/delete-posts
+      // and https://developers.facebook.com/docs/threads/retrieve-and-manage-replies/create-replies
+      authorize(account, "threads.comments.delete");
+
+      if (!/^\d+$/.test(commentId))
+        fail(
+          "threads.comments.delete",
+          "Provide the numeric Threads reply media ID.",
+          "invalid_input",
+        );
+
+      const result = await request(
+        encodeURIComponent(commentId),
+        { method: "DELETE" },
+        "threads.comments.delete",
+        context,
+      );
+
+      if (result["success"] !== true)
+        fail("threads.comments.delete", "Threads did not confirm the reply deletion.");
+    },
     async listConversation({ account, mediaId, cursor, context }) {
       authorize(account, "threads.comments.conversation");
 
@@ -943,6 +1015,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     id: backend,
     capabilities,
     native,
+    webhooks: directWebhooks(
+      "threads",
+      (input) => verifyMetaWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     accounts: {
       list: async (_input, context) => ({ items: [await readAccount(context)] }),
       get: async (ref, context) => {
@@ -954,11 +1031,12 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     graph: {
       async getProfile(account, input, context): Promise<ProfileRecord> {
         authorize(account, "profiles.read");
+
         let result: JsonObject;
 
         if (input.handle !== undefined) {
           result = await request(
-            `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=id,username,name,profile_picture_url,biography,is_verified`,
+            `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=username,name,profile_picture_url,biography,is_verified`,
             { method: "GET" },
             "profiles.read",
             context,
@@ -980,7 +1058,8 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           );
         }
 
-        const returnedProfileId = optionalString(result["id"]);
+        const returnedProfileId =
+          input.handle === undefined ? optionalString(result["id"]) : undefined;
 
         const profileId =
           returnedProfileId ??
@@ -989,7 +1068,9 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         if (profileId === undefined)
           fail("profiles.read", "Threads profile response did not return a profile ID.");
+
         const handle = optionalString(result["username"]) ?? input.handle;
+
         const displayName = optionalString(result["name"]);
 
         const avatarUrl =
@@ -1018,6 +1099,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         if (input.scope === "all")
           fail("search.posts", "Threads search does not support scope 'all'.", "invalid_input");
+
         const query = input.query.trim();
 
         if (!query) fail("search.posts", "A search query is required.", "invalid_input");
@@ -1064,6 +1146,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
 
         authorize(target.account, "threads.posts.prepare");
+
         const media = target.content.media ?? [];
 
         if ((target.content.text?.length ?? 0) > 500)
@@ -1108,6 +1191,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
           if (Object.keys(o).some((key) => key !== "replyControl"))
             add("options.unmapped", "A supplied option has no Threads mapping.");
+
           const replyControl = o["replyControl"];
 
           if (
@@ -1126,6 +1210,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       },
       async publishTarget(target, context) {
         authorize(target.account, "threads.posts.publish");
+
         const media = target.content.media ?? [];
 
         const item = media.length === 1 ? media[0] : undefined;
@@ -1175,6 +1260,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
                 ...ambiguous(target.account, w.id, "AMBIGUOUS", error.message),
                 targetIndex: target.targetIndex,
               };
+
             throw error;
           }
         } finally {
@@ -1197,6 +1283,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       },
       async getDelivery(ref, c): Promise<DeliveryOutcome> {
         authorize(ref, "threads.posts.status");
+
         const w = await store.get(ref.deliveryId);
 
         if (!w || w.backend !== backend || w.accountId !== ref.accountId)
@@ -1234,6 +1321,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         );
 
         const rows = (optionalArray(result["data"]) ?? []).filter(isJsonObject);
+
         const cursors = optionalObject(optionalObject(result["paging"])?.["cursors"]);
 
         return {
@@ -1283,6 +1371,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         return array(r["data"]).flatMap((x) => {
           const row = object(x);
+
           const first = optionalArray(row["values"])?.[0];
 
           const value =
@@ -1291,6 +1380,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
               : optionalNumber(row["value"]);
 
           const rawName = optionalString(row["name"]);
+
           const name = rawName === "link_total_values" ? "clicks" : rawName;
 
           return value === undefined || name === undefined

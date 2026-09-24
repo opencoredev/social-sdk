@@ -38,8 +38,13 @@ messages.
 <PlatformTab platform="x">
 
 **Comments** list and reply. **Messages:** conversations, messages, and send.
-**Access:** user token. DM reads need `dm.read`, `users.read`, and `tweet.read`;
-writes also need `dm.write`.
+**Access:** user token. Listing replies needs `tweet.read` and `users.read`. DM
+reads need `dm.read`, `users.read`, and `tweet.read`; writes also need
+`dm.write`.
+
+`comments.list` runs X recent search for `conversation_id:<postId>`, so it only
+returns replies from the last 7 days, includes nested replies, and accepts a
+`limit` from 10 through 100. Pass the conversation's root post.
 
 Configure `x({ auth: { userId, accessToken } })`. Normalized DMs need a user
 token; an app bearer token is rejected with `missing_permission`.
@@ -50,9 +55,23 @@ keeps only 30 days of DM events, so it is not a complete historical inbox.
 Native `sendDirectMessage`, `sendConversationMessage`, and
 `createGroupConversation` are available from the acknowledged X native adapter.
 
+Native `deleteComment` deletes a reply post with `DELETE /2/tweets/{id}`. X only
+lets the authenticated user delete their own posts, so you cannot remove someone
+else's reply. If X does not confirm `deleted: true`, the SDK raises
+`ambiguous_outcome`.
+
 ```ts
 const conversations = await social.messages.listConversations(account, { limit: 20 });
 await native.sendDirectMessage({ account, participantId, text: "Hello.", context });
+await native.deleteComment({ account, commentId: replyPostId, context });
+```
+
+Native `hideReply` hides or unhides a reply in a conversation the authenticated
+user started. It needs a user token with `tweet.moderate.write`, `tweet.read`, and
+`users.read`, and returns the hidden state X reports.
+
+```ts
+await native.hideReply({ account, replyId, hidden: true, context });
 ```
 
 </PlatformTab>
@@ -71,8 +90,27 @@ const messages = await social.messages.listMessages(conversation, { limit: 50 })
 await social.messages.send(conversation, { text: "Thanks for reaching out." });
 ```
 
-Bluesky has no normalized hide or delete comment operation. Use native AT
-Protocol operations behind your own authorization policy.
+Native `deleteComment` takes the reply's `at://` URI and calls
+`com.atproto.repo.deleteRecord`. It only deletes replies stored in the
+authenticated account's repository; a URI from another DID raises
+`unauthorized`.
+To hide another account's reply in your own thread, use `hideReply`.
+
+```ts
+await native.deleteComment({ account, commentId: replyUri, context });
+```
+
+Native `hideReply` hides or unhides a reply by adding its AT-URI to, or removing
+it from, the `hiddenReplies` list on the root post's threadgate. Only the root
+post's author can do this, so the call raises `invalid_input` for replies in
+other accounts' threads. The adapter creates a threadgate without reply rules
+when none exists, and updates an existing one with `swapRecord` so a concurrent
+change fails instead of being overwritten. Hidden replies stay in the thread;
+Bluesky clients collapse them.
+
+```ts
+await native.hideReply({ account, replyUri, hidden: true, context });
+```
 
 </PlatformTab>
 <PlatformTab platform="threads">
@@ -87,8 +125,13 @@ Moderation is native. `hideReply` hides or unhides a reply, and
 `listConversation`, `listPendingReplies`, and `managePendingReply` cover the
 rest:
 
+Native `deleteComment` deletes a reply the authenticated user published, using
+`DELETE /{threads-media-id}`. It needs `threads_delete` and counts toward Meta's
+limit of 100 deletions per 24 hours. Use `hideReply` for other users' replies.
+
 ```ts
 await native.hideReply({ account, replyId, hide: true, context });
+await native.deleteComment({ account, commentId: replyMediaId, context });
 ```
 
 </PlatformTab>
@@ -102,6 +145,11 @@ channel. Native `heldComments` lists comments held for review. Native
 `commentsModeration` supports `setModerationStatus`, `update`, and `delete`.
 `setModerationStatus` requires a `moderationStatus` such as `published`,
 `heldForReview`, or `rejected`; omitting it raises `invalid_input`.
+
+Native `deleteComment` calls `comments.delete` with a comment ID. Pass the
+top-level comment ID, not the thread ID. Google does not document which comments
+a channel may delete; a 403 raises `missing_permission`. To remove another
+user's comment from your video, set its moderation status to `rejected`.
 
 ```ts
 const held = await native.heldComments({ maxResults: 20, context });
@@ -140,11 +188,22 @@ administrator access.
 
 LinkedIn comments use Social Actions and may return composite URNs. If a write
 is accepted without a returned URN, the SDK can raise `ambiguous_outcome`.
-LinkedIn messages raise `unsupported_capability`.
+LinkedIn messages raise `unsupported_capability`. Hiding comments is
+`unsupported-by-platform`: the Comments API has no hide or moderation-status
+operation.
 
 ```ts
 const comments = await social.comments.list(post, { limit: 20 });
 await social.comments.reply({ ...post, kind: "comment", commentId }, { text: "Thanks." });
+```
+
+Native `deleteComment` takes the share or UGC post URN and the full comment
+URN, and calls `DELETE /rest/socialActions/{postUrn}/comments/{commentId}`. The
+SDK adds the `actor` query when the author is an organization. LinkedIn does not
+document which comments an actor may delete.
+
+```ts
+await native.deleteComment({ account, postId: "urn:li:share:123", commentId, context });
 ```
 
 </PlatformTab>

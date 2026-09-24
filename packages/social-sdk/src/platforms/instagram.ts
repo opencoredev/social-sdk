@@ -19,6 +19,7 @@ import { definedFields } from "../core/fields.js";
 import {
   array,
   isBoolean,
+  isJsonObject,
   isString,
   object,
   optionalNumber,
@@ -27,6 +28,8 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { verifyMetaWebhook } from "../server/webhooks.js";
+import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
 export interface InstagramOptions {
   /** Instagram Login by default. Facebook Login is required for business discovery and hashtags. */
@@ -38,6 +41,8 @@ export interface InstagramOptions {
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
   readonly workflowStore?: InstagramWorkflowStore;
+  /** App secret that Meta uses to sign webhook deliveries (`X-Hub-Signature-256`). */
+  readonly webhookSecret?: string;
 }
 
 export interface InstagramNative {
@@ -246,6 +251,44 @@ export function instagram(
         operation,
         message: `${operation} requires a Facebook Login Graph API access token for an Instagram professional account.`,
         retryDisposition: { kind: "never" },
+      });
+  };
+
+  // Meta documents `DELETE /{ig-media-id}` for Instagram API with Facebook Login only.
+  // Source: https://developers.facebook.com/docs/instagram-platform/reference/instagram-media
+  // (accessed 2026-09-24, Graph API v25.0).
+  const deleteMedia = async (
+    mediaId: string,
+    context: AdapterOperationContext,
+    operation: "instagram.posts.delete" | "instagram.posts.removeFromPlatform",
+  ): Promise<void> => {
+    if (flavor !== "facebook-login")
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation,
+        message: `${operation} is not supported with Instagram Login. Meta supports media deletion only through Instagram API with Facebook Login.`,
+        retryDisposition: { kind: "never" },
+      });
+
+    const result: unknown = await request(
+      `/${encodeURIComponent(mediaId)}`,
+      context,
+      undefined,
+      {},
+      "DELETE",
+    );
+
+    // SAFETY: request validates the Graph response as a JSON field before returning it.
+    const confirmed = isJsonObject(result as JsonField)
+      ? (result as JsonObject)["success"]
+      : undefined;
+
+    if (confirmed !== true)
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message: "Instagram did not confirm the media deletion. Reconcile before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
       });
   };
 
@@ -696,6 +739,12 @@ export function instagram(
           notes:
             "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping.",
         },
+        {
+          platform: "instagram",
+          operation: "posts.update",
+          availability: "unsupported-by-platform" as const,
+          notes: "Instagram Graph API does not provide an edit endpoint for published media.",
+        },
         ...[
           "accounts.read",
           "posts.list",
@@ -755,36 +804,26 @@ export function instagram(
           formats: ["video" as const],
         },
         { platform: "instagram", operation: "stories.publish", availability: "available" as const },
-        {
-          platform: "instagram",
-          operation: "posts.delete",
-          availability:
-            flavor === "facebook-login"
-              ? ("available" as const)
-              : ("not-implemented-by-adapter" as const),
-          ...definedFields({
-            requiredScopes:
-              flavor === "facebook-login"
-                ? ["instagram_basic", "pages_read_engagement"]
-                : undefined,
-          }),
-        },
-        {
-          platform: "instagram",
-          operation: "posts.removeFromPlatform",
-          availability:
-            flavor === "facebook-login"
-              ? ("available" as const)
-              : ("not-implemented-by-adapter" as const),
-        },
-        // Source, accessed 2026-09-24: https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/
-        {
-          platform: "instagram",
-          operation: "posts.update",
-          availability: "unsupported-by-platform" as const,
-          notes:
-            "The IG Media update endpoint only accepts comment_enabled. Captions and media cannot be edited after publication.",
-        },
+
+        ...(["posts.delete", "posts.removeFromPlatform"] as const).map((operation) =>
+          flavor === "facebook-login"
+            ? {
+                platform: "instagram",
+                operation,
+                availability: "available" as const,
+                requiredScopes: ["instagram_basic", "instagram_manage_contents"],
+                notes:
+                  "Deletes non-ad posts, Stories, Reels, and whole carousel albums through DELETE /{ig-media-id}. Individual carousel children cannot be deleted.",
+              }
+            : {
+                platform: "instagram",
+                operation,
+                availability: "unsupported-by-platform" as const,
+                notes:
+                  "Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media",
+              },
+        ),
+
         ...(flavor === "facebook-login"
           ? [
               {
@@ -833,8 +872,17 @@ export function instagram(
           operation: "messages.read",
           availability: "approval-dependent" as const,
         },
+        webhookCapability(
+          "instagram",
+          "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
+        ),
       ],
     },
+    webhooks: directWebhooks(
+      "instagram",
+      (input) => verifyMetaWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     accounts: {
       async list(_input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         return { items: [await readAccount(context)] };
@@ -1101,8 +1149,7 @@ export function instagram(
         context: AdapterOperationContext,
       ): Promise<void> {
         authorize(ref, context);
-        requireFacebookLogin("instagram.posts.removeFromPlatform");
-        await request(`/${encodeURIComponent(ref.postId)}`, context, undefined, {}, "DELETE");
+        await deleteMedia(ref.postId, context, "instagram.posts.removeFromPlatform");
       },
     },
     comments: {
@@ -1475,8 +1522,7 @@ export function instagram(
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
-        requireFacebookLogin("instagram.posts.delete");
-        await request(`/${encodeURIComponent(postId)}`, context, undefined, {}, "DELETE");
+        await deleteMedia(postId, context, "instagram.posts.delete");
       },
       async hashtagSearch({ account, hashtag, context }) {
         authorize(account, context);

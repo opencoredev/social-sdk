@@ -25,6 +25,8 @@ import {
 } from "../transport/validation.js";
 import { upload } from "../transport/upload.js";
 import { optionsObject, publicFields } from "../cloud/common.js";
+import { verifyLinkedInWebhook } from "../server/webhooks.js";
+import { directWebhooks } from "./webhook-adapter.js";
 
 export interface LinkedInOptions {
   readonly auth: {
@@ -35,6 +37,8 @@ export interface LinkedInOptions {
   readonly apiVersion: string;
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
+  /** App client secret that LinkedIn uses to sign webhook deliveries (`X-LI-Signature`). */
+  readonly webhookSecret?: string;
 }
 
 export interface LinkedInTimeInterval {
@@ -120,6 +124,18 @@ export interface LinkedInNative {
     readonly postId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Deletes a comment with the Comments API. `postId` is the share or ugcPost URN, and
+   * `commentId` is the complete `commentUrn` from comment reads. Organization authors are sent
+   * as the `actor`. LinkedIn does not document which comments an actor may delete, so expect
+   * only the configured author's own comments to succeed.
+   */
+  readonly deleteComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly commentId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
   readonly organizationAnalytics: (input: {
     readonly account: ConnectedAccountRef;
     readonly query?: JsonObject;
@@ -163,7 +179,9 @@ export function linkedin(
   }
 
   const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
+
   const now = () => (options.clock?.() ?? new Date()).toISOString();
+
   const escapeCommentary = (text: string) => text.replace(/[|{}@()[\]<>#\\*_~]/g, "\\$&");
 
   const authorize = (
@@ -247,6 +265,7 @@ export function linkedin(
 
   async function readPost(ref: PlatformPostRef, context: AdapterOperationContext) {
     authorize(ref, context);
+
     const result = object(await request(`/rest/posts/${encodeURIComponent(ref.postId)}`, context));
 
     if (result["author"] !== ref.accountId)
@@ -261,6 +280,7 @@ export function linkedin(
 
   async function readCommentablePost(ref: PlatformPostRef, context: AdapterOperationContext) {
     authorize(ref, context);
+
     const result = object(await request(`/rest/posts/${encodeURIComponent(ref.postId)}`, context));
 
     if (result["id"] !== undefined && result["id"] !== ref.postId)
@@ -279,6 +299,7 @@ export function linkedin(
     context: AdapterOperationContext,
   ): Promise<MediaRef> {
     authorize(account, context);
+
     const source = media.source;
 
     if (
@@ -308,7 +329,9 @@ export function linkedin(
         operation: "media.upload",
         message: "LinkedIn returned an invalid image identifier.",
       });
+
     const size = media.byteSize ?? (source.kind === "blob" ? source.blob.size : undefined);
+
     await upload({
       url: string(initialized["uploadUrl"]),
       source: {
@@ -412,6 +435,7 @@ export function linkedin(
 
   const numberMap = (value: JsonField) => {
     const row = value === undefined ? {} : object(value);
+
     const output: Record<string, number> = {};
 
     for (const [key, item] of Object.entries(row)) {
@@ -457,9 +481,11 @@ export function linkedin(
 
       for (const value of array(row[field])) {
         const item = object(value);
+
         const label = optionalString(item[key]);
 
         if (!label) continue;
+
         const counts = item["followerCounts"] === undefined ? {} : object(item["followerCounts"]);
         output.push({
           dimension,
@@ -480,9 +506,13 @@ export function linkedin(
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInTimeInterval | undefined => {
     if (row["timeRange"] === undefined) return undefined;
+
     const range = object(row["timeRange"]);
+
     const start = optionalNumber(range["start"]);
+
     const end = optionalNumber(range["end"]);
+
     const granularity = requestedGranularity ?? optionalString(row["timeGranularityType"]);
 
     if (
@@ -500,6 +530,7 @@ export function linkedin(
   ): LinkedInFollowerStatistics[] =>
     array(result["elements"]).map((value) => {
       const row = object(value);
+
       const gains = row["followerGains"] === undefined ? {} : object(row["followerGains"]);
 
       return {
@@ -529,11 +560,15 @@ export function linkedin(
 
       for (const value of array(row[field])) {
         const item = object(value);
+
         const label = optionalString(item[key]);
 
         if (!label) continue;
+
         const stats = item["pageStatistics"] === undefined ? {} : object(item["pageStatistics"]);
+
         const views = stats["views"] === undefined ? {} : object(stats["views"]);
+
         const clicks = stats["clicks"] === undefined ? {} : object(stats["clicks"]);
         output.push({
           dimension,
@@ -642,6 +677,18 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "comments.delete",
+          availability: "available" as const,
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "w_organization_social"
+              : "w_member_social",
+          ],
+          notes:
+            "Native deleteComment needs the post URN and the complete commentUrn. LinkedIn does not document which comments an actor may delete; expect only the configured author's own comments to succeed.",
+        },
+        {
+          platform: "linkedin",
           operation: "analytics.organization.read",
           availability: options.auth.author.startsWith("urn:li:organization:")
             ? ("available" as const)
@@ -659,6 +706,14 @@ export function linkedin(
           platform: "linkedin",
           operation: "messages.write",
           availability: "unsupported-by-platform" as const,
+        },
+        {
+          platform: "linkedin",
+          operation: "webhooks.verify",
+          availability: "approval-dependent" as const,
+          requiredScopes: ["rw_organization_admin"],
+          notes:
+            "LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge.",
         },
         {
           platform: "linkedin",
@@ -773,7 +828,9 @@ export function linkedin(
       },
       async publishTarget(target: PreparedPublishTarget, context: AdapterOperationContext) {
         authorize(target.account, context);
+
         const media = target.content.media?.[0];
+
         let content: JsonObject | undefined;
 
         if (media?.source.kind === "media-ref") {
@@ -886,7 +943,9 @@ export function linkedin(
         context: AdapterOperationContext,
       ) {
         authorize(account, context);
+
         const start = input.cursor === undefined ? 0 : Number(input.cursor);
+
         const count = input.limit ?? 25;
 
         if (
@@ -932,7 +991,9 @@ export function linkedin(
         );
 
         const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+
         const total = optionalNumber(paging["total"]);
+
         const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
 
         const nextCursor =
@@ -944,6 +1005,7 @@ export function linkedin(
       },
       async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
         authorize(ref, context);
+
         await request(
           `/rest/posts/${encodeURIComponent(ref.postId)}`,
           context,
@@ -960,7 +1022,9 @@ export function linkedin(
         context: AdapterOperationContext,
       ) {
         await readPost(ref, context);
+
         const start = input.cursor === undefined ? 0 : Number(input.cursor);
+
         const count = input.limit ?? 25;
 
         if (
@@ -994,6 +1058,7 @@ export function linkedin(
         });
 
         const paging = result["paging"] === undefined ? {} : object(result["paging"]);
+
         const total = optionalNumber(paging["total"]);
 
         const next =
@@ -1014,7 +1079,9 @@ export function linkedin(
             operation: "comments.write",
             message: "Provide a comment of 1 to 1,250 characters.",
           });
+
         await readCommentablePost({ ...ref, kind: "platform-post" }, context);
+
         const match = /^urn:li:comment:\(urn:li:activity:(\d+),(\d+)\)$/.exec(ref.commentId);
 
         if (!match)
@@ -1132,6 +1199,7 @@ export function linkedin(
             operation: "analytics.read",
             message: "LinkedIn returned social actions for a different post.",
           });
+
         const metrics: MetricValue[] = [];
 
         for (const [summary, field, name] of [
@@ -1139,6 +1207,7 @@ export function linkedin(
           ["commentsSummary", "totalFirstLevelComments", "comments"],
         ] as const) {
           if (result[summary] === undefined) continue;
+
           const value = optionalNumber(object(result[summary])[field]);
 
           if (value !== undefined)
@@ -1156,6 +1225,11 @@ export function linkedin(
         return metrics;
       },
     },
+    webhooks: directWebhooks(
+      "linkedin",
+      (input) => verifyLinkedInWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     native: {
       async imageStatus(ref: MediaRef, context: AdapterOperationContext) {
         authorize(ref, context);
@@ -1175,6 +1249,7 @@ export function linkedin(
       },
       async registerVideo({ account, context }) {
         authorize(account, context);
+
         throw new SocialError({
           code: "unsupported_capability",
           operation: "posts.video",
@@ -1216,6 +1291,7 @@ export function linkedin(
       },
       async react({ account, postId, reaction, context }) {
         authorize(account, context);
+
         await request(`/rest/reactions?actor=${encodeURIComponent(account.accountId)}`, context, {
           root: postId,
           reactionType: reaction,
@@ -1264,8 +1340,38 @@ export function linkedin(
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
+
         await request(
           `/rest/posts/${encodeURIComponent(postId)}`,
+          context,
+          undefined,
+          undefined,
+          "DELETE",
+        );
+      },
+      async deleteComment({ account, postId, commentId, context }) {
+        // Source: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api#delete-a-comment
+        // (li-lms-2026-09, page updated 2026-04-28, accessed 2026-09-24).
+        authorize(account, context);
+
+        const match = /^urn:li:comment:\(urn:li:(?:activity|share|ugcPost):\d+,(\d+)\)$/.exec(
+          commentId,
+        );
+
+        if (!/^urn:li:(share|ugcPost):\d+$/.test(postId) || !match)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.delete",
+            message:
+              "Provide the share or ugcPost URN and the complete commentUrn returned by comment reads.",
+          });
+
+        const actor = options.auth.author.startsWith("urn:li:organization:")
+          ? `?actor=${encodeURIComponent(options.auth.author)}`
+          : "";
+
+        await request(
+          `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[1]}${actor}`,
           context,
           undefined,
           undefined,
