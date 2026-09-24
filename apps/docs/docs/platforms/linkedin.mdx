@@ -166,7 +166,7 @@ A LinkedIn post can carry one MP4 video of 75 KB to 500 MB and 3 seconds to 30 m
 
 LinkedIn processes the video after the upload and does not document how long that takes. The native `videoStatus` helper sends one request per call, so your application decides when to check again. If you would rather wait in the same call, the native `waitForVideo` helper is an opt-in, bounded version: it reads the status, and while the video is `PROCESSING` or `WAITING_UPLOAD` it waits `intervalMs` (default 5,000) and reads again, up to `maxChecks` reads (default 12, at most 60). It stops early when the next wait would not fit the context's elapsed budget, and it rejects with `cancelled` when the context signal aborts. It returns the last status it read, which can still be `PROCESSING`, and it never creates a post.
 
-Publishing does not wait. It reads the status once and creates no post unless the video is `AVAILABLE`. A video that is still processing gives a `failed` outcome with a `media_error` code and an `after-delay` retry disposition: no post exists, so publishing again later is safe. The SDK does not retry for you. A `PROCESSING_FAILED` video gives a `failed` outcome with a `never` disposition and has to be uploaded again.
+Publishing does not wait. It reads the status once and creates no post unless the video is `AVAILABLE`. A video that is still processing gives a `failed` outcome with a `media_error` code and an `after-delay` retry disposition: no post exists, so publishing again later is safe. The SDK does not retry for you. If you configured an idempotency store, use a new idempotency key for that retry, because the store replays the saved `failed` outcome for a key it has already seen. A `PROCESSING_FAILED` video gives a `failed` outcome with a `never` disposition and has to be uploaded again.
 
 A video post carries exactly one video and no images. The attachment `caption`, when it is not blank, becomes the video's `title` in the Posts API; LinkedIn requires a title only for documents. Video posts do not accept alt text, and thumbnails and subtitle files are not implemented. The image 403 exception does not apply to video: the adapter creates a video post only after LinkedIn reports the video `AVAILABLE`.
 
@@ -246,7 +246,7 @@ if (status.status === "AVAILABLE") {
 }
 ```
 
-Before creating the post, the adapter reads the document, checks that its owner is the configured author, and requires the `AVAILABLE` status. A document in `WAITING_UPLOAD`, `PROCESSING`, or `PROCESSING_FAILED` fails the target without creating a post. The adapter does not poll in the background. `documentStatus` returns only `id`, `owner`, and `status`; it drops the signed `downloadUrl`.
+Before creating the post, the adapter reads the document, checks that its owner is the configured author, and requires the `AVAILABLE` status. A document in `WAITING_UPLOAD`, `PROCESSING`, or `PROCESSING_FAILED` fails the target without creating a post. The adapter does not poll in the background. As with video, retry a still-processing document with a new idempotency key once it is `AVAILABLE`. `documentStatus` returns only `id`, `owner`, and `status`; it drops the signed `downloadUrl`.
 
 Upload failures are not retried. If a storage upload times out or fails after the bytes were sent, upload the file again to get a new document URN.
 

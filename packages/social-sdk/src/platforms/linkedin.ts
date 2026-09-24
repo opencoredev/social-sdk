@@ -1093,7 +1093,7 @@ export function linkedin(
         code: "media_error",
         operation: "posts.publish",
         message:
-          "Document is not AVAILABLE. Check its status with the native documentStatus helper before publishing.",
+          "Document is not AVAILABLE. Check its status with the native documentStatus helper, then publish again with a new idempotency key.",
       });
 
     return { media: { id: media.source.ref.mediaId, title: documentTitle(media) } };
@@ -1746,7 +1746,7 @@ export function linkedin(
               code: "media_error",
               operation: "posts.publish",
               message:
-                "Video is still processing; no post was created. Wait with native waitForVideo or check videoStatus, then publish again.",
+                "Video is still processing; no post was created. Wait with native waitForVideo or check videoStatus, then publish again with a new idempotency key.",
               retryDisposition: { kind: "after-delay", delayMs: linkedInVideoRetryDelayMs },
             });
 
