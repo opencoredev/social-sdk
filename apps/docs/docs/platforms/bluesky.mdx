@@ -1,36 +1,95 @@
 ---
 title: Bluesky
-description: Publish Bluesky records and use typed AT Protocol parity operations with existing session authorization and explicit reconciliation.
+description: Connect Bluesky accounts with AT Protocol OAuth, publish records, and use typed AT Protocol operations with explicit reconciliation.
 ---
 
-The direct Bluesky adapter accepts an existing access JWT or a restored OAuth session, together with a DID and HTTPS service URL. It intentionally leaves user-facing OAuth to the maintained `@atproto/oauth-client-node` library. That client implements the AT Protocol requirements for PKCE, PAR, DPoP, issuer checks, token refresh, and identity verification; do not replace it with a generic code exchange.
+The direct Bluesky adapter accepts an access JWT or a DPoP-bound OAuth session, together with a DID and HTTPS service URL. For user-facing sign-in, use `blueskyOAuth` from `@opencoredev/social-sdk/server`. It implements the [AT Protocol OAuth profile](https://atproto.com/specs/oauth): handle and DID resolution, PDS and authorization server discovery, pushed authorization requests, PKCE, DPoP-bound tokens, the `iss` callback check, and identity verification after the token exchange. It has no runtime dependencies. The official `@atproto/oauth-client-node` client remains a supported alternative.
 
 ## Setup
 
 <Steps>
-  <Step title="Choose a session source">
-    For a server flow, install `@atproto/oauth-client-node@0.5.7` as an application runtime
-    dependency and use `examples/snippets/bluesky-oauth.ts`. Host the client metadata and JWKS at
-    the URLs named by `clientMetadata`, keep the private signing key server-side, and inject durable
-    state/session stores. Read the [AT Protocol OAuth
-    specification](https://atproto.com/specs/oauth) before registering metadata or callbacks.
+  <Step title="Publish client metadata">
+    Serve a client metadata document at an HTTPS URL. That URL is your `clientId`. Build the
+    document with `blueskyOAuthClientMetadata` so the required fields are present. A confidential
+    client adds an ES256 public key through `jwks` or `jwksUri` and keeps the private key in a
+    server-side secret store. For local development, `blueskyLoopbackClientId` returns an
+    `http://localhost` client ID, which is always a public client.
   </Step>
-  <Step title="Bind state to the tenant">
-    Bind the application state supplied to `authorize` to the authenticated tenant and principal in
-    durable storage, and validate that binding when the callback returns, before granting the
-    session to an account. Parsing a valid OAuth callback alone does not establish tenant ownership.
+  <Step title="Start the connection with a login hint">
+    Pass the handle, DID, or server URL the user typed as `loginHint` to `ConnectionManager.begin`.
+    A handle is resolved through DNS and then HTTPS and must match its DID document. A server URL
+    such as `https://bsky.social` starts a flow where the user picks the account at the server. Set
+    `defaultServer` on the provider to use a server when no hint is given.
+  </Step>
+  <Step title="Store the session">
+    On completion the provider checks the callback `iss`, exchanges the code with DPoP, and confirms
+    that the returned DID's PDS names the same authorization server. The verified session goes to
+    `sessionSink`. It contains the access token, refresh token, and private DPoP key, so encrypt it
+    and scope reads to the tenant.
   </Step>
   <Step title="Configure the adapter">
-    Use `examples/snippets/bluesky-sdk-session.ts` to construct the SDK adapter from the restored
-    session, or supply an access JWT directly. Never put access JWTs in browser code or public
-    references.
+    Load the stored session with `parseBlueskyOAuthSession` and pass
+    `blueskyOAuthTransport(session)` as the adapter's `session`. Never put tokens or DPoP keys in
+    browser code.
   </Step>
 </Steps>
 
 ```ts
+import { ConnectionManager, blueskyOAuth } from "@opencoredev/social-sdk/server";
+
+const provider = blueskyOAuth({
+  clientId: "https://app.example.com/oauth/client-metadata.json",
+  clientKey: { kid: "key-1", privateJwk: signingKey }, // omit for a public client
+  redirectUri: "https://app.example.com/oauth/bluesky/callback",
+  scope: "atproto transition:generic",
+  sessionSink: {
+    async save({ account, session, attempt }) {
+      // Encrypt and store the session for attempt.tenantId and account.ref.accountId.
+    },
+  },
+});
+
+const started = await manager.begin({
+  backend: "direct",
+  tenantId,
+  principalId,
+  platforms: ["bluesky"],
+  redirectUri: "https://app.example.com/oauth/bluesky/callback",
+  allowedRedirectUris: ["https://app.example.com/oauth/bluesky/callback"],
+  provider,
+  loginHint: "alice.bsky.social",
+});
+```
+
+Then build the adapter from the stored session:
+
+```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
 import { bluesky } from "@opencoredev/social-sdk/bluesky";
+import { blueskyOAuthTransport, parseBlueskyOAuthSession } from "@opencoredev/social-sdk/server";
 
+const session = parseBlueskyOAuthSession(await loadDecryptedSession(accountId));
+const transport = blueskyOAuthTransport(session);
+
+const social = createSocial({
+  backend: bluesky({
+    auth: { service: transport.service, did: transport.did },
+    session: transport,
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "bluesky",
+  accountId: session.did,
+});
+```
+
+The transport sends each request to the session's PDS with `Authorization: DPoP` and a fresh proof bound to the access token. When the PDS asks for a new DPoP nonce, it sends the request once more with that nonce. It does not refresh tokens. Call `refreshBlueskyOAuthSession(session, { clientId, clientKey })` before `expiresAt`. Refresh re-resolves the account's DID and fails if its PDS now names a different authorization server. Refresh tokens rotate, so save the result with a compare-and-set write. A reused or expired refresh token returns `reconnect_required`.
+
+An access JWT from an app password still works:
+
+```ts
 const social = createSocial({
   backend: bluesky({
     auth: {
@@ -40,15 +99,9 @@ const social = createSocial({
     },
   }),
 });
-
-const account = connectedAccountRef({
-  backend: "default",
-  platform: "bluesky",
-  accountId: process.env.BLUESKY_DID!,
-});
 ```
 
-When restoring an OAuth session, the adapter sends relative XRPC paths to `session.fetchHandler`, so the official client selects the verified token audience and attaches DPoP authentication. Do not extract an OAuth token into `accessJwt`.
+The adapter sends relative XRPC paths to `session.fetchHandler`, so a session from the official client also works. `examples/snippets/bluesky-oauth.ts` and `examples/snippets/bluesky-sdk-session.ts` show that route. Do not extract an OAuth token into `accessJwt`; OAuth tokens are DPoP-bound and fail as bearer tokens.
 
 ## Examples
 
@@ -79,58 +132,6 @@ const result = await social.posts.publish({
   },
 });
 ```
-
-### Publish a video
-
-Video publishing follows Bluesky's documented video service flow in three explicit steps. The adapter never polls on your behalf.
-
-1. `media.upload` sends one MP4 file to `app.bsky.video.uploadVideo` and returns a media reference. The reference's `mediaId` holds the processing job ID.
-2. Your code calls `native.getVideoJobStatus` until the job reports a blob or fails. You decide the interval, the deadline, and whether to keep waiting.
-3. `posts.publish` with that media reference reads the job status once. It writes an `app.bsky.embed.video` record when the blob is ready. If the job is still processing, the target fails with `media_error` and a one-second `after-delay` retry hint, and no post is created. A failed job returns `media_error` that should not be retried, with the provider's failure code in `upstreamCode`.
-
-```ts
-const adapter = bluesky({ auth: { service, did, accessJwt } });
-const social = createSocial({ backend: adapter });
-
-const video = await social.media.upload(
-  {
-    kind: "video",
-    source: { kind: "blob", blob: file, fingerprint: "launch-clip" },
-    mimeType: "video/mp4",
-    filename: "launch.mp4",
-  },
-  account,
-);
-
-// Poll on your own schedule. Stop at your own deadline.
-let job = await adapter.native!.getVideoJobStatus({ account, jobId: video.mediaId });
-while (!job.blob && job.state !== "JOB_STATE_FAILED") {
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  job = await adapter.native!.getVideoJobStatus({ account, jobId: video.mediaId });
-}
-
-const result = await social.posts.publish({
-  targets: [{ account }],
-  content: {
-    text: "Launch clip",
-    media: [
-      {
-        kind: "video",
-        source: { kind: "media-ref", ref: video },
-        altText: "Product walkthrough",
-        width: 1920,
-        height: 1080,
-      },
-    ],
-  },
-});
-```
-
-A post takes exactly one video and no images. The video must be a `video/mp4` blob of at most 300,000,000 bytes, which is the `app.bsky.embed.video` lexicon limit. Other sources, such as HTTPS URLs and streams, are rejected before any request. `width` and `height` are optional but must be supplied together; they become the embed's `aspectRatio`. Captions and the `presentation` hint are not supported yet. Bluesky's own client also rejects videos longer than ten minutes. The adapter does not read video duration, so check it before uploading.
-
-To upload, the adapter first requests a 30-minute service token from `com.atproto.server.getServiceAuth`. The token is scoped to `com.atproto.repo.uploadBlob`, and its audience is the account's PDS. The PDS DID comes from the `didDoc` that `com.atproto.server.getSession` returns. If your session does not return a DID document, set `pdsDid`, for example `did:web:pds.example.com`. `videoService` overrides the default `https://video.bsky.app` origin and must be an HTTPS origin. Job status reads carry no account credentials, and the adapter rejects any job whose DID differs from the configured account.
-
-Accounts hosted by Bluesky need a verified email address to upload video and are subject to daily limits. `native.getVideoUploadLimits` returns `canUpload` and, when the service reports them, the remaining daily video count and byte allowance. The upload is a mutation that is never retried. A lost response is reported as `ambiguous_outcome`, so check the job or the limits before you upload again. If the service already processed the same file, it returns the existing job with its blob, and the adapter passes that job through.
 
 ### Languages and mentions
 
@@ -217,9 +218,8 @@ Bluesky has no webhooks, so `webhooks.verify` is `unsupported-by-platform` and t
 
 The typed native module covers reposts and quote posts, deletion, graph relationships,
 likes, actor search, lists, moderation reports, notification reads and seen state, profile
-reads/updates, feed discovery, search, `chat.bsky` conversation/message operations, and video
-upload, job status, and upload limits (`uploadVideo`, `getVideoJobStatus`, and
-`getVideoUploadLimits`). Chat responses remain provider-controlled moderation states; persist native
+reads/updates, feed discovery, search, and `chat.bsky` conversation/message operations. Video upload
+is not supported yet. Chat responses remain provider-controlled moderation states; persist native
 references and reconcile explicitly. Bluesky chat consent and moderation requirements still apply.
 
 `deleteComment({ account, commentId, context })` takes a reply's `at://` URI and calls
@@ -230,7 +230,14 @@ repository. A URI from another DID raises `unauthorized` before any request is s
 ## Limits and requirements
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.
-- Published posts cannot be edited, so `posts.update` is declared `unsupported-by-platform`. `com.atproto.repo.putRecord` can rewrite an `app.bsky.feed.post` record on the PDS, but the Bluesky AppView ignores post updates ([atproto discussion #3038](https://github.com/bluesky-social/atproto/discussions/3038)). The rewrite would also produce a new CID, while replies, quotes, likes, and reposts keep strong references to the old one. The SDK does not offer that rewrite as an edit. Delete and publish again if the content must change.
-- OAuth session refresh remains owned by the official session transport.
+- Published posts cannot be edited, so `posts.update` is declared `unsupported-by-platform`.
+- The built-in OAuth transport does not refresh tokens on its own. Refresh with `refreshBlueskyOAuthSession`, or let the official client's session handle it if you use that client.
+- If a token exchange or refresh returns a usable token but the response then fails validation (missing `DPoP-Nonce`, wrong `token_type`, missing `atproto` scope, bad `sub`) or identity verification fails, the helper tries once to revoke the new tokens at the authorization server's `revocation_endpoint`, when the server advertises one. It revokes the refresh token, or the access token if no refresh token was issued. This is a single best-effort request with no retry. A failed revocation is ignored, and the original error is thrown. The helper does not revoke tokens in any other case, such as when an account disconnects.
+- Handle, DID, PDS, and authorization server URLs come from documents other parties control, so every request passes an egress check first. Only HTTPS is allowed. `localhost` names, URLs with credentials, and IP-literal hosts in loopback, private, link-local, carrier-grade NAT, multicast, documentation, and other reserved IPv4 and IPv6 ranges are rejected with `unauthorized`, including IPv4-mapped IPv6 addresses. `blueskyOAuthTransport` applies the same check to the stored `pdsUrl`.
+- The egress check does not resolve DNS, so a public hostname that resolves to a private address still passes. On servers that can reach internal networks, pass `assertEgressAllowed` to `blueskyOAuth`, `refreshBlueskyOAuthSession`, and `blueskyOAuthTransport`, and inject a `fetch` that pins resolved addresses. The hook runs before every request and redirect hop; throwing from it rejects the request.
+- Handle resolution through `https://<handle>/.well-known/atproto-did` follows up to three HTTP redirects, as the handle specification allows. Each hop is followed manually and checked again. OAuth metadata requests do not follow redirects.
+- Pushed authorization, token, and refresh responses must carry a `DPoP-Nonce` header, as the AT Protocol OAuth specification requires; a response without one fails with `upstream_failure`. PDS responses without a nonce are returned as they are, because the PDS has already processed the request and rejecting it would hide the outcome of a write.
+- `blueskyOAuthClientMetadata` publishes only EC P-256 public keys. It rejects any key with private members (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`), any other key type or curve, and any `alg` other than `ES256` or `use` other than `sig`. Unknown members are dropped from the published key.
+- Public clients get sessions of about two weeks and must reconnect after that. Confidential clients can refresh for longer, as set by the authorization server.
 - App-password policy and application account membership remain application responsibilities.
-- These are fixture-tested protocol operations; no live account verification is recorded in this repository.
+- These are fixture-tested protocol operations, including the OAuth flow against mocked servers. No live account verification is recorded in this repository.
