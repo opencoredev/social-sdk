@@ -358,12 +358,20 @@ export async function acceptWebhook(input: {
  *   https://docs.x.com/x-api/account-activity/introduction
  * - YouTube: https://developers.google.com/youtube/v3/guides/push_notifications,
  *   https://www.w3.org/TR/websub/, https://pubsubhubbub.github.io/PubSubHubbub/pubsubhubbub-core-0.4.html
+ * - LinkedIn: https://learn.microsoft.com/en-us/linkedin/shared/api-guide/webhook-validation,
+ *   https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications
  * - TikTok: https://developers.tiktok.com/doc/webhooks-verification,
  *   https://developers.tiktok.com/doc/webhooks-events,
  *   https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status
  */
 
-export type DirectWebhookPlatform = "instagram" | "threads" | "x" | "youtube" | "tiktok";
+export type DirectWebhookPlatform =
+  | "instagram"
+  | "threads"
+  | "x"
+  | "youtube"
+  | "tiktok"
+  | "linkedin";
 
 /** Framework-neutral answer to a provider GET handshake. */
 export interface WebhookChallengeResponse {
@@ -726,6 +734,90 @@ export async function verifyTikTokWebhook(input: {
   };
 }
 
+/**
+ * Verify a LinkedIn webhook POST. `X-LI-Signature` carries only the lowercase hex
+ * HMAC-SHA256 of the literal `hmacsha256=` followed by the raw body, keyed with the
+ * app's client secret. LinkedIn sends no signed timestamp.
+ */
+export async function verifyLinkedInWebhook(input: {
+  secret: string;
+  headers: Headers;
+  body: Uint8Array;
+  maxBytes?: number;
+}): Promise<VerifiedWebhook> {
+  const body = checkedBytes(input.body, input.maxBytes ?? defaultMaxBytes);
+
+  if (!input.secret) denied();
+
+  const signature = hexBytes((input.headers.get("X-LI-Signature") ?? "").trim(), 32);
+
+  if (!signature) denied();
+
+  const prefix = encoder.encode("hmacsha256=");
+  const signed = new Uint8Array(prefix.byteLength + body.byteLength);
+  signed.set(prefix);
+  signed.set(body, prefix.byteLength);
+
+  if (!(await hmacMatches(input.secret, "SHA-256", signature, signed))) denied();
+
+  return bodyVerified("hmac-sha256");
+}
+
+export interface LinkedInWebhookChallengeResponse extends WebhookChallengeResponse {
+  readonly challengeCode: string;
+  readonly challengeResponse: string;
+  readonly applicationId?: string;
+}
+
+/**
+ * Answer LinkedIn's GET validation, which LinkedIn repeats every 2 hours. The
+ * response is `{ challengeCode, challengeResponse }`, where `challengeResponse` is the
+ * lowercase hex HMAC-SHA256 of `challengeCode` keyed with the client secret. For
+ * parent-child applications LinkedIn adds `applicationId`; pass `secretForApplication`
+ * to pick that application's client secret. An unknown application is refused.
+ */
+export async function answerLinkedInWebhookChallenge(input: {
+  secret: string;
+  query: URLSearchParams;
+  secretForApplication?: (applicationId: string) => string | undefined;
+}): Promise<LinkedInWebhookChallengeResponse> {
+  const challengeCode = input.query.get("challengeCode");
+  const applicationId = input.query.get("applicationId");
+
+  if (!challengeCode || !/^[A-Za-z0-9-]{1,128}$/.test(challengeCode))
+    challengeRefused("unauthorized");
+
+  if (applicationId !== null && !/^[A-Za-z0-9_-]{1,128}$/.test(applicationId))
+    challengeRefused("unauthorized");
+
+  const secret =
+    applicationId !== null && input.secretForApplication
+      ? input.secretForApplication(applicationId)
+      : input.secret;
+
+  if (!secret) challengeRefused("unauthorized");
+
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    await hmacKey(secret, "SHA-256", ["sign"]),
+    encoder.encode(challengeCode),
+  );
+
+  const challengeResponse = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+
+  const response: LinkedInWebhookChallengeResponse = {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ challengeCode, challengeResponse }),
+    challengeCode,
+    challengeResponse,
+  };
+
+  return applicationId === null ? response : { ...response, applicationId };
+}
+
 interface DecodedItem {
   readonly originalType: string;
   readonly type: SocialEvent["type"];
@@ -970,6 +1062,43 @@ function decodeYouTube(text: string): DecodedDelivery {
   return { items, accountIds, data: { videos, deleted } };
 }
 
+function decodeLinkedIn(payload: Record<string, unknown>): DecodedDelivery {
+  const kind = string(payload["type"]);
+  const items: DecodedItem[] = [];
+  const accountIds: string[] = [];
+  let lastModifiedAt: number | undefined;
+
+  if (kind === "ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS" && payload["notifications"] !== undefined)
+    for (const value of array(payload["notifications"])) {
+      const notification = object(value);
+      const action = string(notification["action"]);
+      const organization = optionalString(notification["organizationalEntity"]);
+      const modified = notification["lastModifiedAt"];
+
+      if (organization) accountIds.push(organization);
+
+      if (typeof modified === "number" && Number.isSafeInteger(modified) && modified > 0)
+        lastModifiedAt = Math.max(lastModifiedAt ?? 0, modified);
+
+      // Only a member comment is clearly an inbound comment. ADMIN_COMMENT is the
+      // page's own comment, and edits, deletions, likes, shares, and mentions have no
+      // normalized type, so they stay `unknown` with the action as originalType.
+      items.push({
+        originalType: action,
+        type: action === "COMMENT" ? "comment.received" : "unknown",
+      });
+    }
+
+  if (items.length === 0) items.push({ originalType: kind, type: "unknown" });
+
+  return {
+    items,
+    accountIds,
+    data: payload,
+    occurredAt: lastModifiedAt === undefined ? undefined : new Date(lastModifiedAt).toISOString(),
+  };
+}
+
 function tiktokEventType(event: string): SocialEvent["type"] {
   if (event === "authorization.removed") return "account.updated";
 
@@ -1029,6 +1158,8 @@ function decodeDelivery(platform: DirectWebhookPlatform, text: string): DecodedD
   if (platform === "threads") return decodeThreads(payload);
 
   if (platform === "x") return decodeX(payload);
+
+  if (platform === "linkedin") return decodeLinkedIn(payload);
 
   return decodeTikTok(payload);
 }

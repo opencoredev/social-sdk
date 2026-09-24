@@ -1442,6 +1442,12 @@
       ],
       "capabilities": [
         {
+          "operation": "webhooks.verify",
+          "platform": "bluesky",
+          "availability": "unsupported-by-platform",
+          "notes": "Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose."
+        },
+        {
           "operation": "accounts.read",
           "platform": "bluesky",
           "availability": "available",
@@ -2836,6 +2842,15 @@
           "platform": "linkedin",
           "operation": "messages.write",
           "availability": "unsupported-by-platform"
+        },
+        {
+          "platform": "linkedin",
+          "operation": "webhooks.verify",
+          "availability": "approval-dependent",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge."
         },
         {
           "platform": "linkedin",

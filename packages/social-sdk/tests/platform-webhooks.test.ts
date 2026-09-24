@@ -2,10 +2,12 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
 import {
+  answerLinkedInWebhookChallenge,
   answerMetaWebhookChallenge,
   answerXWebhookChallenge,
   answerYouTubeWebhookChallenge,
   decodePlatformWebhook,
+  verifyLinkedInWebhook,
   verifyMetaWebhook,
   verifyTikTokWebhook,
   verifyXWebhook,
@@ -17,6 +19,8 @@ import { threads } from "../src/platforms/threads.js";
 import { x } from "../src/platforms/x.js";
 import { youtube } from "../src/platforms/youtube.js";
 import { tiktok } from "../src/platforms/tiktok.js";
+import { linkedin } from "../src/platforms/linkedin.js";
+import { bluesky } from "../src/platforms/bluesky.js";
 
 const secret = "test-webhook-secret";
 
@@ -626,6 +630,261 @@ it("decodes TikTok events with the publish ID and creation time", async () => {
     }),
     "invalid_input",
   );
+});
+
+const linkedInBody = json({
+  type: "ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS",
+  notifications: [
+    {
+      notificationId: 1001,
+      organizationalEntity: "urn:li:organization:12345",
+      action: "COMMENT",
+      sourcePost: "urn:li:share:1",
+      generatedActivity: "urn:li:comment:(urn:li:activity:1,2)",
+      lastModifiedAt: 1_790_000_000_000,
+      subscriber: "urn:li:person:fixture",
+    },
+  ],
+});
+
+const linkedInHeaders = (body: Uint8Array, key = secret) =>
+  new Headers({
+    "X-LI-Signature": createHmac("sha256", key).update("hmacsha256=").update(body).digest("hex"),
+  });
+
+it("verifies X-LI-Signature over the hmacsha256= prefix and raw body", async () => {
+  assert.deepEqual(
+    await verifyLinkedInWebhook({
+      secret,
+      headers: linkedInHeaders(linkedInBody),
+      body: linkedInBody,
+    }),
+    { valid: true, method: "hmac-sha256", bodyAuthenticated: true, signedTimestamp: false },
+  );
+
+  const bodyOnly = new Headers({ "X-LI-Signature": hmac("sha256", linkedInBody).digest("hex") });
+  await rejects(
+    verifyLinkedInWebhook({ secret, headers: bodyOnly, body: linkedInBody }),
+    "unauthorized",
+    "webhooks.verify",
+  );
+
+  const prefixed = new Headers({
+    "X-LI-Signature": `sha256=${linkedInHeaders(linkedInBody).get("X-LI-Signature")}`,
+  });
+
+  await rejects(
+    verifyLinkedInWebhook({ secret, headers: prefixed, body: linkedInBody }),
+    "unauthorized",
+  );
+
+  await rejects(
+    verifyLinkedInWebhook({
+      secret,
+      headers: linkedInHeaders(linkedInBody, "other-secret"),
+      body: linkedInBody,
+    }),
+    "unauthorized",
+  );
+
+  await rejects(
+    verifyLinkedInWebhook({
+      secret,
+      headers: linkedInHeaders(linkedInBody),
+      body: json({ type: "ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS", notifications: [] }),
+    }),
+    "unauthorized",
+  );
+
+  await rejects(
+    verifyLinkedInWebhook({
+      secret: "",
+      headers: linkedInHeaders(linkedInBody),
+      body: linkedInBody,
+    }),
+    "unauthorized",
+  );
+});
+
+it("answers the LinkedIn challenge with an HMAC of the challenge code", async () => {
+  const challengeCode = "890e4a1b-0000-4c2d-8e5f-000000000001";
+  const expected = createHmac("sha256", secret).update(challengeCode).digest("hex");
+
+  const answer = await answerLinkedInWebhookChallenge({
+    secret,
+    query: new URLSearchParams({ challengeCode }),
+  });
+
+  assert.equal(answer.status, 200);
+  assert.equal(answer.headers["Content-Type"], "application/json");
+  assert.equal(answer.challengeResponse, expected);
+  assert.deepEqual(JSON.parse(answer.body), { challengeCode, challengeResponse: expected });
+  assert.equal(answer.applicationId, undefined);
+
+  const childSecret = "child-app-secret";
+
+  const child = await answerLinkedInWebhookChallenge({
+    secret,
+    query: new URLSearchParams({ challengeCode, applicationId: "child-app" }),
+    secretForApplication: (applicationId) =>
+      applicationId === "child-app" ? childSecret : undefined,
+  });
+
+  assert.equal(child.applicationId, "child-app");
+  assert.equal(
+    child.challengeResponse,
+    createHmac("sha256", childSecret).update(challengeCode).digest("hex"),
+  );
+
+  await rejects(
+    answerLinkedInWebhookChallenge({
+      secret,
+      query: new URLSearchParams({ challengeCode, applicationId: "unknown-app" }),
+      secretForApplication: () => undefined,
+    }),
+    "unauthorized",
+    "webhooks.challenge",
+  );
+
+  await rejects(
+    answerLinkedInWebhookChallenge({ secret, query: new URLSearchParams() }),
+    "unauthorized",
+  );
+
+  await rejects(
+    answerLinkedInWebhookChallenge({
+      secret,
+      query: new URLSearchParams({ challengeCode: "<script>" }),
+    }),
+    "unauthorized",
+  );
+
+  await rejects(
+    answerLinkedInWebhookChallenge({ secret: "", query: new URLSearchParams({ challengeCode }) }),
+    "unauthorized",
+  );
+});
+
+it("decodes LinkedIn organization social actions and keeps unclear actions unknown", async () => {
+  const event = await decodePlatformWebhook({
+    platform: "linkedin",
+    backend: "direct",
+    body: linkedInBody,
+  });
+
+  assert.equal(event.provider, "linkedin");
+  assert.equal(event.type, "comment.received");
+  assert.equal(event.originalType, "COMMENT");
+  assert.equal(event.identity, "body-digest");
+  assert.deepEqual(event.accountIds, ["urn:li:organization:12345"]);
+  assert.equal(event.occurredAt, new Date(1_790_000_000_000).toISOString());
+
+  const mixed = await decodePlatformWebhook({
+    platform: "linkedin",
+    backend: "direct",
+    body: json({
+      type: "ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS",
+      notifications: [
+        {
+          notificationId: 1,
+          organizationalEntity: "urn:li:organization:1",
+          action: "LIKE",
+          lastModifiedAt: 1_790_000_000_000,
+        },
+        {
+          notificationId: 2,
+          organizationalEntity: "urn:li:organization:2",
+          action: "ADMIN_COMMENT",
+          lastModifiedAt: 1_790_000_060_000,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(mixed.type, "unknown");
+  assert.equal(mixed.originalType, "LIKE,ADMIN_COMMENT");
+  assert.deepEqual(mixed.accountIds, ["urn:li:organization:1", "urn:li:organization:2"]);
+  assert.equal(mixed.occurredAt, new Date(1_790_000_060_000).toISOString());
+
+  const other = await decodePlatformWebhook({
+    platform: "linkedin",
+    backend: "direct",
+    body: json({ type: "LEAD_ACTION", leadGenFormResponse: "urn:li:leadGenFormResponse:1" }),
+  });
+
+  assert.equal(other.type, "unknown");
+  assert.equal(other.originalType, "LEAD_ACTION");
+  assert.deepEqual(other.accountIds, []);
+
+  await rejects(
+    decodePlatformWebhook({
+      platform: "linkedin",
+      backend: "direct",
+      body: json({ notifications: [] }),
+    }),
+    "invalid_input",
+  );
+});
+
+it("wires LinkedIn as approval-dependent and declares Bluesky unsupported", async () => {
+  const noFetch = async (): Promise<Response> => {
+    throw new Error("webhook handling must not call the network");
+  };
+
+  const adapter = linkedin({
+    auth: { accessToken: "token", author: "urn:li:organization:12345" },
+    apiVersion: "202609",
+    fetch: noFetch,
+    webhookSecret: secret,
+  });
+
+  const declaration = adapter.capabilities.capabilities.find(
+    (entry) => entry.operation === "webhooks.verify",
+  );
+
+  assert.equal(declaration?.availability, "approval-dependent");
+  assert.deepEqual(declaration?.requiredScopes, ["rw_organization_admin"]);
+
+  const webhooks = adapter.webhooks;
+  assert.ok(webhooks);
+  const headers = linkedInHeaders(linkedInBody);
+  assert.deepEqual(await webhooks.verify({ headers, body: linkedInBody }, context), {
+    valid: true,
+    method: "hmac",
+  });
+
+  const event = await webhooks.decode({ headers, body: linkedInBody }, context);
+  assert.equal(event["provider"], "linkedin");
+  assert.equal(event["type"], "comment.received");
+
+  await rejects(
+    webhooks.verify({ headers: new Headers(), body: linkedInBody }, context),
+    "unauthorized",
+  );
+
+  const unconfigured = linkedin({
+    auth: { accessToken: "token", author: "urn:li:organization:12345" },
+    apiVersion: "202609",
+    fetch: noFetch,
+  });
+
+  await rejects(
+    unconfigured.webhooks!.verify({ headers, body: linkedInBody }, context),
+    "unauthorized",
+  );
+
+  const sky = bluesky({
+    auth: { service: "https://pds.example.test", did: "did:plc:fixture", accessJwt: "token" },
+    fetch: noFetch,
+  });
+
+  const skyDeclaration = sky.capabilities.capabilities.find(
+    (entry) => entry.operation === "webhooks.verify",
+  );
+
+  assert.equal(skyDeclaration?.availability, "unsupported-by-platform");
+  assert.match(skyDeclaration?.notes ?? "", /firehose/);
+  assert.equal(sky.webhooks, undefined);
 });
 
 it("wires webhook verification into each direct adapter", async () => {

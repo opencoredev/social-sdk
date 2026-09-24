@@ -16,6 +16,8 @@ import { createHttp, HttpError } from "../transport/http.js";
 import { array, object, string, optionalString, optionalNumber } from "../transport/validation.js";
 import { upload } from "../transport/upload.js";
 import { publicFields } from "../cloud/common.js";
+import { verifyLinkedInWebhook } from "../server/webhooks.js";
+import { directWebhooks } from "./webhook-adapter.js";
 
 /* oxlint-disable anti-slop/require-readable-spacing -- Existing adapter style keeps compact guards and native dispatch blocks. */
 
@@ -28,6 +30,8 @@ export interface LinkedInOptions {
   readonly apiVersion: string;
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
+  /** App client secret that LinkedIn uses to sign webhook deliveries (`X-LI-Signature`). */
+  readonly webhookSecret?: string;
 }
 
 export interface LinkedInTimeInterval {
@@ -647,6 +651,14 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "webhooks.verify",
+          availability: "approval-dependent" as const,
+          requiredScopes: ["rw_organization_admin"],
+          notes:
+            "LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge.",
+        },
+        {
+          platform: "linkedin",
           operation: "analytics.account.read",
           availability: options.auth.author.startsWith("urn:li:organization:")
             ? ("available" as const)
@@ -1146,6 +1158,11 @@ export function linkedin(
         return metrics;
       },
     },
+    webhooks: directWebhooks(
+      "linkedin",
+      (input) => verifyLinkedInWebhook({ ...input, secret: options.webhookSecret ?? "" }),
+      now,
+    ),
     native: {
       async imageStatus(ref: MediaRef, context: AdapterOperationContext) {
         authorize(ref, context);
