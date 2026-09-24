@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import type { JsonObject } from "../src/core/types.js";
+import { parseJson } from "../src/transport/json.js";
+import { object } from "../src/transport/validation.js";
 
 const nativeContext = {
   backendInstance: "default",
@@ -237,8 +239,7 @@ it("LinkedIn escapes Little Text Format commentary and continues after member im
       apiVersion: "202609",
       fetch: async (input, init) => {
         if (String(input).includes("/rest/images/")) return new Response(null, { status: 403 });
-        // SAFETY: the adapter sends a JSON object body for this test request.
-        bodies.push(JSON.parse(String(init?.body)) as JsonObject);
+        bodies.push(object(parseJson(String(init?.body))));
 
         return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
       },

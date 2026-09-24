@@ -6,6 +6,7 @@ import {
   type JsonValue,
   type Platform,
 } from "../core/types.js";
+import { isJsonValue } from "../transport/json.js";
 import { isFiniteNumber, isJsonObject, isString, type JsonField } from "../transport/validation.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
 
@@ -168,11 +169,15 @@ function stringOr(value: JsonField, fallback: string): string {
 }
 
 /**
- * Plain `JSON.parse`, typed as the JSON grammar it produces. OAuth bodies keep
- * native number parsing rather than the lossless integer handling in transport/json.
+ * Plain `JSON.parse`, checked against the JSON grammar. OAuth bodies keep native
+ * number parsing rather than the lossless integer handling in transport/json.
  */
 function parseJsonText(raw: string): JsonValue {
-  return JSON.parse(raw);
+  const parsed: unknown = JSON.parse(raw);
+
+  if (!isJsonValue(parsed)) throw new SyntaxError("Expected a JSON value");
+
+  return parsed;
 }
 
 function isAbortError(error: unknown): error is { readonly name: "AbortError" } {

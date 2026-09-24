@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createDiagnosticAdapter, runCli } from "../packages/social-sdk/dist/cli.js";
+import { createDiagnosticAdapter, isAdapterName, runCli } from "../packages/social-sdk/dist/cli.js";
 
 async function command(args: string[]) {
   let output = "";
@@ -141,11 +141,9 @@ for (const adapter of adapters) {
   const { manifest } = await command(["capabilities", "--adapter", adapter]);
   manifests.push({ adapter, manifest });
 
-  // SAFETY: `adapter` comes from the CLI `adapters` command, which prints the same `names` tuple
-  // that types the `createDiagnosticAdapter` parameter in packages/social-sdk/src/cli.ts.
-  const instance = createDiagnosticAdapter(
-    adapter as Parameters<typeof createDiagnosticAdapter>[0],
-  );
+  if (!isAdapterName(adapter)) throw new Error(`The CLI listed an unknown adapter: ${adapter}`);
+
+  const instance = createDiagnosticAdapter(adapter);
 
   for (const declaration of manifest.capabilities) {
     if (declaration.availability !== "available") continue;

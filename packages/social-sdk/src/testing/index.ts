@@ -21,6 +21,7 @@ import {
   type SocialAdapter,
 } from "../core/index.js";
 import { definedFields } from "../core/fields.js";
+import { isJsonValue } from "../transport/json.js";
 import { isJsonObject } from "../transport/validation.js";
 
 function isJsonPrimitive(value: JsonValue): value is JsonPrimitive {
@@ -208,7 +209,7 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     webhookFixtures: webhooks,
   };
 
-  const adapter = defineAdapter({
+  return defineAdapter<MockNative, MockSocialAdapter>({
     id: "mock",
     capabilities: mockManifest(),
     testing,
@@ -639,9 +640,9 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       },
       async decode(input, context) {
         record("webhooks.decode", context);
-        const parsed: JsonValue = JSON.parse(decoder.decode(input.body));
+        const parsed: unknown = JSON.parse(decoder.decode(input.body));
 
-        if (!isJsonObject(parsed)) {
+        if (!isJsonValue(parsed) || !isJsonObject(parsed)) {
           throw new SocialError({
             code: "invalid_input",
             operation: "webhooks.decode",
@@ -660,9 +661,6 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
     },
     native: { scenario: () => scenario },
   });
-
-  // SAFETY: defineAdapter preserves the supplied testing controller and native mock shape.
-  return adapter as MockSocialAdapter;
 }
 
 interface StoredClaim {
