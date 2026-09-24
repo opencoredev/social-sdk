@@ -8,6 +8,7 @@ import {
   verifyZernioWebhook,
   type EventInbox,
 } from "../src/server/webhooks.js";
+import type { JsonValue } from "../src/core/types.js";
 
 const secret = "test-endpoint-secret";
 
@@ -231,7 +232,7 @@ it("quarantines partially mapped and cross-tenant payloads instead of exposing o
 });
 
 it("maps documented provider record IDs and keeps backend deletion distinct from native removal", async () => {
-  const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+  const encode = (value: JsonValue) => new TextEncoder().encode(JSON.stringify(value));
 
   const zernio = await decodeWebhook({
     provider: "zernio",

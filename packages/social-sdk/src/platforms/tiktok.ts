@@ -1,4 +1,5 @@
 import { defineAdapter } from "../core/adapter.js";
+import { definedFields } from "../core/fields.js";
 import { SocialError } from "../core/errors.js";
 import type {
   AdapterOperationContext,
@@ -10,7 +11,21 @@ import type {
   PlatformPostRef,
 } from "../core/types.js";
 import { managedHttp, publicFields } from "../cloud/common.js";
-import { array, object, optionalNumber, optionalString, string } from "../transport/validation.js";
+import { parseJson } from "../transport/json.js";
+import { HttpError } from "../transport/http.js";
+import {
+  array,
+  isBoolean,
+  isFiniteNumber,
+  isJsonArray,
+  isJsonObject,
+  isString,
+  object,
+  optionalNumber,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
 
 export interface TikTokOptions {
@@ -60,38 +75,57 @@ const videoFields = [
   "view_count",
 ];
 
+/**
+ * TikTok reports some rejections as 4xx responses with a structured `error.code`.
+ * Pass those through as 200 so `data()` can map the provider code.
+ */
+function withTikTokErrorBodies(fetch: typeof globalThis.fetch) {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetch(input, init);
+
+    if (response.status < 400 || response.status >= 500) return response;
+
+    const body = await response.clone().text();
+
+    try {
+      const errorObject = object(object(parseJson(body))["error"]);
+
+      if (errorObject["code"] !== undefined)
+        return new Response(body, {
+          status: 200,
+          headers: response.headers,
+        });
+    } catch {
+      // Preserve ordinary HTTP error handling for non-JSON responses.
+    }
+
+    return response;
+  };
+}
+
+function isOptionsRecord(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Native publish options as an object; rejects non-object options as `object()` did. */
+function publishOptions(target: PreparedPublishTarget): JsonObject | undefined {
+  if (isOptionsRecord(target.options)) return target.options;
+
+  if (target.options === undefined) return undefined;
+
+  throw new HttpError("Upstream response must be an object.", "invalid-response", true);
+}
+
 export function tiktok(
   options: TikTokOptions,
 ): import("../core/adapter.js").SocialAdapter<TikTokNative> {
+  const userFetch = options.fetch;
+
   const request = managedHttp("https://open.tiktokapis.com", {
     apiKey: options.auth.accessToken,
-    ...(options.fetch
-      ? {
-          fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-            const response = await options.fetch!(input, init);
-
-            if (response.status < 400 || response.status >= 500) return response;
-
-            const body = await response.clone().text();
-
-            try {
-              const parsed: unknown = JSON.parse(body);
-              const parsedObject = object(parsed);
-              const errorObject = object(parsedObject["error"]);
-
-              if (errorObject["code"] !== undefined)
-                return new Response(body, {
-                  status: 200,
-                  headers: response.headers,
-                });
-            } catch {
-              // Preserve ordinary HTTP error handling for non-JSON responses.
-            }
-
-            return response;
-          },
-        }
-      : {}),
+    ...definedFields({
+      fetch: userFetch === undefined ? undefined : withTikTokErrorBodies(userFetch),
+    }),
   });
 
   const origins = new Set(options.verifiedMediaOrigins.map((value) => httpsUrl(value).origin));
@@ -113,7 +147,7 @@ export function tiktok(
       });
   };
 
-  const data = (value: unknown): Record<string, unknown> => {
+  const data = (value: JsonField): JsonObject => {
     const response = object(value);
     const error = object(response["error"]);
 
@@ -164,7 +198,7 @@ export function tiktok(
 
     if (target.account.platform !== "tiktok" || target.account.accountId !== options.auth.openId)
       fail("tiktok.account", "Select the configured TikTok creator.");
-    const config = target.options === undefined ? {} : object(target.options);
+    const config = publishOptions(target) ?? {};
     const draft = config["draft"] === true;
 
     if (config["consentGiven"] !== true)
@@ -182,16 +216,17 @@ export function tiktok(
       "aiGenerated",
       "draft",
     ])
-      if (typeof config[key] !== "boolean")
-        fail(`tiktok.${key}`, `Explicit ${key} choice is required.`);
+      if (!isBoolean(config[key])) fail(`tiktok.${key}`, `Explicit ${key} choice is required.`);
 
-    if (!draft && (!config["creatorInfo"] || typeof config["creatorInfo"] !== "object"))
+    const creatorInfoValue = config["creatorInfo"];
+
+    if (!draft && !isJsonObject(creatorInfoValue) && !isJsonArray(creatorInfoValue))
       fail(
         "tiktok.creator_info",
         "Query creator information explicitly and render its choices before preparation.",
       );
     else if (!draft) {
-      const creator = object(config["creatorInfo"]);
+      const creator = object(creatorInfoValue);
 
       if (
         creator["accountId"] !== target.account.accountId ||
@@ -202,7 +237,10 @@ export function tiktok(
           "Creator information belongs to a different account or backend.",
         );
 
-      if (!array(creator["privacyLevels"]).includes(config["privacy"]))
+      const privacyLevels = array(creator["privacyLevels"]);
+      const privacy = config["privacy"];
+
+      if (privacy === undefined || !privacyLevels.includes(privacy))
         fail("tiktok.privacy", "Choose a privacy level returned by this creator's information.");
     }
 
@@ -218,22 +256,22 @@ export function tiktok(
     if ((target.content.text?.length ?? 0) > (video ? 2200 : 4000))
       fail("tiktok.caption", "Caption exceeds TikTok's UTF-16 limit for this format.");
 
-    if (
-      !video &&
-      config["title"] !== undefined &&
-      (typeof config["title"] !== "string" || config["title"].length > 90)
-    )
+    const title = config["title"];
+
+    if (!video && title !== undefined && (!isString(title) || title.length > 90))
       fail("tiktok.title", "Photo titles are limited to 90 UTF-16 code units.");
 
-    if (video && config["title"] !== undefined)
+    if (video && title !== undefined)
       fail("tiktok.title", "Video captions use content.text; title is a photo-only option.");
+
+    const photoCoverIndex = config["photoCoverIndex"];
 
     if (
       !video &&
-      (typeof config["photoCoverIndex"] !== "number" ||
-        !Number.isInteger(config["photoCoverIndex"]) ||
-        config["photoCoverIndex"] < 0 ||
-        config["photoCoverIndex"] >= media.length)
+      (!isFiniteNumber(photoCoverIndex) ||
+        !Number.isInteger(photoCoverIndex) ||
+        photoCoverIndex < 0 ||
+        photoCoverIndex >= media.length)
     )
       fail("tiktok.cover", "Select a photo cover index within the attached images.");
 
@@ -470,14 +508,19 @@ export function tiktok(
           ),
         );
 
+        const nextOffset = result["cursor"];
+
+        const nextCursor =
+          result["has_more"] === true &&
+          isFiniteNumber(nextOffset) &&
+          Number.isSafeInteger(nextOffset) &&
+          nextOffset >= 0
+            ? String(nextOffset)
+            : undefined;
+
         return {
           items: array(result["videos"]).map((row) => publicFields(row, videoFields)),
-          ...(result["has_more"] === true &&
-          typeof result["cursor"] === "number" &&
-          Number.isSafeInteger(result["cursor"]) &&
-          result["cursor"] >= 0
-            ? { nextCursor: String(result["cursor"]) }
-            : {}),
+          ...definedFields({ nextCursor }),
         };
       },
       prepareTarget: prepare,
@@ -486,13 +529,15 @@ export function tiktok(
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
         authorize(target.account, context);
-        const config = object(target.options);
+        const config = object(publishOptions(target));
         const draft = config["draft"] === true;
         const latest = draft ? undefined : await creatorInfo(target.account, context);
         const media = target.content.media ?? [];
         const first = media[0];
 
-        if (latest && !array(latest["privacyLevels"]).includes(config["privacy"]))
+        const privacy = config["privacy"];
+
+        if (latest && (privacy === undefined || !array(latest["privacyLevels"]).includes(privacy)))
           throw new SocialError({
             code: "invalid_input",
             operation: "posts.publish",
@@ -527,11 +572,12 @@ export function tiktok(
             message: "Verified media URL required.",
           });
 
+        const maxDuration = latest?.["maxVideoDurationSeconds"];
+
         if (
           first.kind === "video" &&
-          latest &&
-          typeof latest["maxVideoDurationSeconds"] === "number" &&
-          (first.durationSeconds ?? Infinity) > latest["maxVideoDurationSeconds"]
+          isFiniteNumber(maxDuration) &&
+          (first.durationSeconds ?? Infinity) > maxDuration
         )
           throw new SocialError({
             code: "invalid_input",
@@ -547,7 +593,7 @@ export function tiktok(
           brand_organic_toggle: config["ownBrand"] === true,
         };
 
-        let result: Record<string, unknown>;
+        let result: JsonObject;
 
         if (first.kind === "video")
           result = data(
@@ -555,16 +601,16 @@ export function tiktok(
               draft ? "/v2/post/publish/inbox/video/init/" : "/v2/post/publish/video/init/",
               context,
               {
-                ...(draft
-                  ? {}
-                  : {
-                      post_info: {
+                ...definedFields({
+                  post_info: draft
+                    ? undefined
+                    : {
                         ...postInfo,
                         disable_duet: config["disableDuet"] === true,
                         disable_stitch: config["disableStitch"] === true,
                         is_aigc: config["aiGenerated"] === true,
                       },
-                    }),
+                }),
                 source_info: { source: "PULL_FROM_URL", video_url: first.source.url },
               },
             ),
@@ -574,14 +620,13 @@ export function tiktok(
             await request("/v2/post/publish/content/init/", context, {
               post_info: {
                 ...postInfo,
-                title: typeof config["title"] === "string" ? config["title"] : "",
+                title: optionalString(config["title"]) ?? "",
                 description: target.content.text ?? "",
                 auto_add_music: false,
               },
               source_info: {
                 source: "PULL_FROM_URL",
-                photo_cover_index:
-                  typeof config["photoCoverIndex"] === "number" ? config["photoCoverIndex"] : 0,
+                photo_cover_index: optionalNumber(config["photoCoverIndex"]) ?? 0,
                 photo_images: media.map((item) =>
                   item.source.kind === "https-url" ? item.source.url : "",
                 ),
@@ -656,12 +701,11 @@ export function tiktok(
           const ids = result["publicaly_available_post_id"];
           const id = Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
 
-          const nativeId =
-            typeof id === "string"
-              ? id
-              : typeof id === "number" && Number.isSafeInteger(id)
-                ? String(id)
-                : undefined;
+          const nativeId = isString(id)
+            ? id
+            : isFiniteNumber(id) && Number.isSafeInteger(id)
+              ? String(id)
+              : undefined;
 
           if (nativeId)
             return {
@@ -714,12 +758,14 @@ export function tiktok(
         const fetchedAt = now();
 
         return (["like_count", "comment_count", "share_count", "view_count"] as const).flatMap(
-          (field) =>
-            typeof row[field] === "number" && Number.isFinite(row[field])
+          (field) => {
+            const value = row[field];
+
+            return isFiniteNumber(value)
               ? [
                   {
                     name: field,
-                    value: row[field] as number,
+                    value,
                     unit: "count" as const,
                     period: "lifetime" as const,
                     fetchedAt,
@@ -727,7 +773,8 @@ export function tiktok(
                     source: "tiktok:video.query",
                   },
                 ]
-              : [],
+              : [];
+          },
         );
       },
       async getAccountMetrics(
@@ -755,12 +802,14 @@ export function tiktok(
 
         return (
           ["follower_count", "following_count", "likes_count", "video_count"] as const
-        ).flatMap((field) =>
-          typeof user[field] === "number" && Number.isFinite(user[field])
+        ).flatMap((field) => {
+          const value = user[field];
+
+          return isFiniteNumber(value)
             ? [
                 {
                   name: field,
-                  value: user[field] as number,
+                  value,
                   unit: "count" as const,
                   period: "lifetime" as const,
                   fetchedAt,
@@ -768,8 +817,8 @@ export function tiktok(
                   source: "tiktok:user.info.stats",
                 },
               ]
-            : [],
-        );
+            : [];
+        });
       },
     },
     native: {
@@ -777,16 +826,14 @@ export function tiktok(
       async uploadDraft({ account, video, context }) {
         authorize(account, context);
 
-        return data(
-          await request("/v2/post/publish/inbox/video/init/", context, video),
-        ) as JsonObject;
+        return data(await request("/v2/post/publish/inbox/video/init/", context, video));
       },
       async listVideos({ account, cursor, maxCount, context }) {
         authorize(account, context);
 
         const parsedCursor = cursor === undefined ? 0 : Number(cursor);
 
-        const result = data(
+        return data(
           await request(
             "/v2/video/list/",
             context,
@@ -794,16 +841,13 @@ export function tiktok(
             { fields: videoFields.join(",") },
           ),
         );
-
-        // SAFETY: data() validates the provider response as a JSON object.
-        return result as JsonObject;
       },
       async publishStatus({ account, publishId, context }) {
         authorize(account, context);
 
         return data(
           await request("/v2/post/publish/status/fetch/", context, { publish_id: publishId }),
-        ) as JsonObject;
+        );
       },
     },
   });

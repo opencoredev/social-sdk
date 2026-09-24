@@ -1,5 +1,12 @@
 import { SocialError } from "../core/errors.js";
-import { connectedAccountRef, type Platform } from "../core/types.js";
+import { definedFields } from "../core/fields.js";
+import {
+  connectedAccountRef,
+  type JsonObject,
+  type JsonValue,
+  type Platform,
+} from "../core/types.js";
+import { isFiniteNumber, isJsonObject, isString, type JsonField } from "../transport/validation.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
 
 export interface OAuthTokenSet {
@@ -138,22 +145,42 @@ function fail(
   throw new SocialError({ code, operation, message, cause });
 }
 
-function asRecord(value: unknown, operation = "oauth.response"): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    fail(operation, "OAuth provider returned an invalid response");
+function asRecord(value: JsonField, operation = "oauth.response"): JsonObject {
+  if (!isJsonObject(value)) fail(operation, "OAuth provider returned an invalid response");
 
-  return value as Record<string, unknown>;
+  return value;
 }
 
-function requiredString(value: unknown, field: string, operation = "oauth.response"): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > 8192)
+function requiredString(value: JsonField, field: string, operation = "oauth.response"): string {
+  if (!isString(value) || value.length === 0 || value.length > 8192)
     fail(operation, `OAuth provider response is missing ${field}`);
 
   return value;
 }
 
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 && value.length <= 8192 ? value : undefined;
+function optionalString(value: JsonField): string | undefined {
+  return isString(value) && value.length > 0 && value.length <= 8192 ? value : undefined;
+}
+
+/** Any string, including an empty one, otherwise the fallback. */
+function stringOr(value: JsonField, fallback: string): string {
+  return isString(value) ? value : fallback;
+}
+
+/**
+ * Plain `JSON.parse`, typed as the JSON grammar it produces. OAuth bodies keep
+ * native number parsing rather than the lossless integer handling in transport/json.
+ */
+function parseJsonText(raw: string): JsonValue {
+  return JSON.parse(raw);
+}
+
+function isAbortError(error: unknown): error is { readonly name: "AbortError" } {
+  if (error instanceof DOMException) return error.name === "AbortError";
+
+  return (
+    typeof error === "object" && error !== null && "name" in error && error.name === "AbortError"
+  );
 }
 
 function errorForResponse(status: number, operation: string, providerCode?: string): never {
@@ -240,11 +267,7 @@ async function readBounded(
   return new TextDecoder().decode(merged);
 }
 
-async function body(
-  response: Response,
-  operation: string,
-  maxBytes: number,
-): Promise<Record<string, unknown>> {
+async function body(response: Response, operation: string, maxBytes: number): Promise<JsonObject> {
   const raw = await readBounded(response, maxBytes, operation);
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
 
@@ -252,14 +275,14 @@ async function body(
     let providerCode: string | undefined;
 
     try {
-      const parsed: unknown =
+      const parsed =
         contentType.includes("json") || raw.trimStart().startsWith("{")
-          ? JSON.parse(raw)
+          ? parseJsonText(raw)
           : Object.fromEntries(new URLSearchParams(raw).entries());
 
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        const error = (parsed as Record<string, unknown>)["error"];
-        providerCode = typeof error === "string" ? error : undefined;
+      if (isJsonObject(parsed)) {
+        const error = parsed["error"];
+        providerCode = isString(error) ? error : undefined;
       }
     } catch {
       // Preserve the HTTP error classification when an upstream error body is malformed.
@@ -276,7 +299,7 @@ async function body(
     raw.trimStart().startsWith("{")
   ) {
     try {
-      return asRecord(JSON.parse(raw), operation);
+      return asRecord(parseJsonText(raw), operation);
     } catch {
       fail(operation, "OAuth provider returned malformed JSON");
     }
@@ -294,24 +317,23 @@ async function body(
   fail(operation, "OAuth provider returned an unsupported response format");
 }
 
-function parseScopes(value: unknown): readonly string[] | undefined {
+function parseScopes(value: JsonField): readonly string[] | undefined {
   const scope = optionalString(value);
 
   return scope === undefined ? undefined : scope.split(/[\s,]+/).filter(Boolean);
 }
 
-function tokenSet(data: Record<string, unknown>, operation = "oauth.token"): OAuthTokenSet {
+function tokenSet(data: JsonObject, operation = "oauth.token"): OAuthTokenSet {
   const accessToken = requiredString(data["access_token"], "access_token", operation);
   const expires = data["expires_in"];
   let expiresAt: string | undefined;
 
   if (expires !== undefined) {
-    const seconds =
-      typeof expires === "number"
-        ? expires
-        : typeof expires === "string" && /^\d+(?:\.\d+)?$/.test(expires)
-          ? Number(expires)
-          : Number.NaN;
+    const seconds = isFiniteNumber(expires)
+      ? expires
+      : isString(expires) && /^\d+(?:\.\d+)?$/.test(expires)
+        ? Number(expires)
+        : Number.NaN;
 
     if (!Number.isFinite(seconds) || seconds < 0 || seconds > 31_536_000_000)
       fail(operation, "OAuth provider returned an invalid token lifetime");
@@ -322,23 +344,7 @@ function tokenSet(data: Record<string, unknown>, operation = "oauth.token"): OAu
   const scopes = parseScopes(data["scope"]);
   const tokenType = optionalString(data["token_type"]);
 
-  const result: {
-    accessToken: string;
-    refreshToken?: string;
-    expiresAt?: string;
-    scopes?: readonly string[];
-    tokenType?: string;
-  } = { accessToken };
-
-  if (refreshToken !== undefined) result.refreshToken = refreshToken;
-
-  if (expiresAt !== undefined) result.expiresAt = expiresAt;
-
-  if (scopes !== undefined) result.scopes = scopes;
-
-  if (tokenType !== undefined) result.tokenType = tokenType;
-
-  return result;
+  return { accessToken, ...definedFields({ refreshToken, expiresAt, scopes, tokenType }) };
 }
 
 interface TokenResult {
@@ -346,7 +352,7 @@ interface TokenResult {
   readonly accountHint?: string;
 }
 
-function tokenResult(data: Record<string, unknown>, kind: ProviderKind): TokenResult {
+function tokenResult(data: JsonObject, kind: ProviderKind): TokenResult {
   let nested = data;
 
   if (kind === "tiktok" && data["data"] !== undefined)
@@ -369,7 +375,7 @@ async function request(
   init: RequestInit,
   operation: string,
   options: OAuthProviderOptions,
-): Promise<Record<string, unknown>> {
+): Promise<JsonObject> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
@@ -400,14 +406,7 @@ async function request(
   } catch (error) {
     if (error instanceof SocialError) throw error;
 
-    if (
-      (error instanceof DOMException && error.name === "AbortError") ||
-      (typeof error === "object" &&
-        error !== null &&
-        "name" in error &&
-        (error as { name?: unknown }).name === "AbortError")
-    )
-      fail(operation, "OAuth provider request timed out", "timeout");
+    if (isAbortError(error)) fail(operation, "OAuth provider request timed out", "timeout");
     fail(operation, "OAuth provider request failed", "upstream_failure", error);
   } finally {
     clearTimeout(timer);
@@ -717,7 +716,7 @@ async function discover(
         "youtube",
         backend,
         requiredString(row["id"], "channel id", "youtube.account"),
-        typeof snippet["title"] === "string" ? snippet["title"] : "YouTube channel",
+        stringOr(snippet["title"], "YouTube channel"),
       );
     });
   }
@@ -738,7 +737,7 @@ async function discover(
         "x",
         backend,
         requiredString(row["id"], "user id", "x.account"),
-        typeof row["name"] === "string" ? row["name"] : "X account",
+        stringOr(row["name"], "X account"),
       ),
     ];
   }
@@ -762,7 +761,7 @@ async function discover(
         "threads",
         backend,
         requiredString(data["id"], "user id", "threads.account"),
-        typeof data["username"] === "string" ? data["username"] : "Threads account",
+        stringOr(data["username"], "Threads account"),
       ),
     ];
   }
@@ -784,7 +783,7 @@ async function discover(
         "tiktok",
         backend,
         requiredString(user["open_id"], "open_id", "tiktok.account"),
-        typeof user["display_name"] === "string" ? user["display_name"] : "TikTok account",
+        stringOr(user["display_name"], "TikTok account"),
       ),
     ];
   }
@@ -821,7 +820,7 @@ async function discover(
         "instagram",
         backend,
         discoveredAccountId,
-        typeof data["username"] === "string" ? data["username"] : "Instagram account",
+        stringOr(data["username"], "Instagram account"),
       ),
     ];
   }
@@ -842,10 +841,10 @@ async function discover(
     "linkedin",
     backend,
     `urn:li:person:${subject}`,
-    typeof data["name"] === "string" ? data["name"] : "LinkedIn member",
+    stringOr(data["name"], "LinkedIn member"),
   );
 
-  let acl: Record<string, unknown>;
+  let acl: JsonObject;
 
   try {
     acl = await request(
@@ -867,12 +866,11 @@ async function discover(
   const organizations = elements.flatMap((entry) => {
     const row = asRecord(entry, "linkedin.organizations");
 
-    const target =
-      typeof row["organizationTarget"] === "string"
-        ? row["organizationTarget"]
-        : typeof row["organizationalTarget"] === "string"
-          ? row["organizationalTarget"]
-          : "";
+    const organizationTarget = row["organizationTarget"];
+
+    const target = isString(organizationTarget)
+      ? organizationTarget
+      : stringOr(row["organizationalTarget"], "");
 
     const role = row["role"];
 
