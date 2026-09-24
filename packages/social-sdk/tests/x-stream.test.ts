@@ -199,6 +199,30 @@ it("X filtered stream rejects malformed messages", async () => {
   });
 });
 
+it("X filtered stream rejects an oversized complete line in one chunk", async () => {
+  const oversized = JSON.stringify({ data: { id: "1", text: "x".repeat(1024 * 1024) } });
+  assert.ok(oversized.length > 1024 * 1024);
+  const api = native(async () => new Response(streamBody([`${oversized}\n`])));
+
+  await assert.rejects(collect(api.stream({ account, context: context() })), {
+    name: "SocialError",
+    code: "upstream_failure",
+    message: /exceeds 1 MiB/,
+  });
+});
+
+it("X filtered stream rejects an oversized final unterminated line", async () => {
+  const oversized = JSON.stringify({ data: { id: "1", text: "x".repeat(1024 * 1024) } });
+  assert.ok(oversized.length > 1024 * 1024);
+  const api = native(async () => new Response(streamBody([oversized])));
+
+  await assert.rejects(collect(api.stream({ account, context: context() })), {
+    name: "SocialError",
+    code: "upstream_failure",
+    message: /exceeds 1 MiB/,
+  });
+});
+
 it("X filtered stream validates input and credentials before any request", async () => {
   let calls = 0;
   const fetch: typeof globalThis.fetch = async () => {

@@ -471,6 +471,9 @@ export async function* readFilteredStream(
         throw invalidResponse("streams.read", "X filtered stream message exceeds 1 MiB.");
 
       for (const line of lines) {
+        if (line.length > maxMessageLength)
+          throw invalidResponse("streams.read", "X filtered stream message exceeds 1 MiB.");
+
         const text = line.trim();
 
         // Blank lines are X keep-alive heartbeats.
