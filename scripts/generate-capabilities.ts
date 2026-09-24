@@ -22,106 +22,116 @@ const adapters: string[] = (await command(["adapters"])).adapters;
 
 const manifests = [];
 
-const implementationPaths: Record<string, readonly string[]> = {
-  "accounts.read": ["accounts.list", "accounts.get"],
-  "posts.publish": ["posts.prepareTarget", "posts.publishTarget"],
-  "posts.read": ["posts.get"],
-  "posts.list": ["posts.list"],
-  "posts.status": ["posts.getDelivery"],
-  "posts.cancelScheduled": ["posts.cancelScheduled"],
-  "posts.deleteBackendRecord": ["posts.deleteBackendRecord"],
-  "posts.removeFromPlatform": ["posts.removeFromPlatform"],
-  "media.upload": ["media.upload"],
-  "analytics.read": ["analytics.getPostMetrics"],
-  "analytics.account.read": ["analytics.getAccountMetrics"],
-  "analytics.report.read": ["analytics.getReport"],
-  "search.posts": ["search.posts"],
-  "comments.read": ["comments.list"],
-  "comments.write": ["comments.reply"],
-  "messages.write": ["messages.send"],
-  "webhooks.verify": ["webhooks.verify", "webhooks.decode"],
-  "posts.publish.video": ["posts.publishTarget"],
-  "posts.repost": ["native.repostPost|native.repost"],
-  "posts.quote": ["native.quotePost|native.quote"],
-  "posts.delete": ["native.deletePost|native.deleteVideo"],
-  "graph.read": ["graph.listRelationships"],
-  "graph.follow": ["graph.follow|native.follow|native.followUser"],
-  "graph.unfollow": ["graph.unfollow|native.unfollow|native.unfollowUser"],
-  "graph.block": ["graph.block|native.block|native.blockUser"],
-  "graph.unblock": ["graph.unblock|native.unblock|native.unblockUser"],
-  "graph.mute": ["graph.mute|native.mute|native.muteUser"],
-  "graph.unmute": ["graph.unmute|native.unmute|native.unmuteUser"],
-  "notifications.read": ["notifications.list|native.listNotifications"],
-  "notifications.seen": ["notifications.markSeen|native.markNotificationsSeen"],
-  "profile.read": ["native.getProfile"],
-  "profiles.read": [
-    "graph.getProfile|native.getProfile|native.getUserById|native.businessDiscovery",
+const implementationPaths = new Map<string, readonly string[]>([
+  ["accounts.read", ["accounts.list", "accounts.get"]],
+  ["posts.publish", ["posts.prepareTarget", "posts.publishTarget"]],
+  ["posts.read", ["posts.get"]],
+  ["posts.list", ["posts.list"]],
+  ["posts.status", ["posts.getDelivery"]],
+  ["posts.cancelScheduled", ["posts.cancelScheduled"]],
+  ["posts.deleteBackendRecord", ["posts.deleteBackendRecord"]],
+  ["posts.removeFromPlatform", ["posts.removeFromPlatform"]],
+  ["media.upload", ["media.upload"]],
+  ["analytics.read", ["analytics.getPostMetrics"]],
+  ["analytics.account.read", ["analytics.getAccountMetrics"]],
+  ["analytics.report.read", ["analytics.getReport"]],
+  ["search.posts", ["search.posts"]],
+  ["comments.read", ["comments.list"]],
+  ["comments.write", ["comments.reply"]],
+  ["messages.write", ["messages.send"]],
+  ["webhooks.verify", ["webhooks.verify", "webhooks.decode"]],
+  ["posts.publish.video", ["posts.publishTarget"]],
+  ["posts.repost", ["native.repostPost|native.repost"]],
+  ["posts.quote", ["native.quotePost|native.quote"]],
+  ["posts.delete", ["native.deletePost|native.deleteVideo"]],
+  ["graph.read", ["graph.listRelationships"]],
+  ["graph.follow", ["graph.follow|native.follow|native.followUser"]],
+  ["graph.unfollow", ["graph.unfollow|native.unfollow|native.unfollowUser"]],
+  ["graph.block", ["graph.block|native.block|native.blockUser"]],
+  ["graph.unblock", ["graph.unblock|native.unblock|native.unblockUser"]],
+  ["graph.mute", ["graph.mute|native.mute|native.muteUser"]],
+  ["graph.unmute", ["graph.unmute|native.unmute|native.unmuteUser"]],
+  ["notifications.read", ["notifications.list|native.listNotifications"]],
+  ["notifications.seen", ["notifications.markSeen|native.markNotificationsSeen"]],
+  ["profile.read", ["native.getProfile"]],
+  [
+    "profiles.read",
+    ["graph.getProfile|native.getProfile|native.getUserById|native.businessDiscovery"],
   ],
-  "profiles.search": ["native.searchActors"],
-  "profile.update": ["native.updateProfile"],
-  "feeds.read": ["native.listFeeds"],
-  "chat.read": ["native.listConversations", "native.listMessages"],
-  "chat.write": ["native.sendMessage"],
-  "polls.create": ["native.createPoll"],
-  "bookmarks.read": ["native.bookmarks"],
-  "bookmarks.write": ["native.bookmark", "native.removeBookmark"],
-  "follows.write": ["native.follow", "native.unfollow"],
-  "media.video": ["native.uploadVideo"],
-  "media.gif": ["native.uploadGif"],
-  "messages.read": [
-    "messages.listConversations|native.listDirectMessages|native.listConversations",
+  ["profiles.search", ["native.searchActors"]],
+  ["profile.update", ["native.updateProfile"]],
+  ["feeds.read", ["native.listFeeds"]],
+  ["chat.read", ["native.listConversations", "native.listMessages"]],
+  ["chat.write", ["native.sendMessage"]],
+  ["polls.create", ["native.createPoll"]],
+  ["bookmarks.read", ["native.bookmarks"]],
+  ["bookmarks.write", ["native.bookmark", "native.removeBookmark"]],
+  ["follows.write", ["native.follow", "native.unfollow"]],
+  ["media.video", ["native.uploadVideo"]],
+  ["media.gif", ["native.uploadGif"]],
+  [
+    "messages.read",
+    ["messages.listConversations|native.listDirectMessages|native.listConversations"],
   ],
-  "streams.read": ["native.stream"],
-  "search.keyword": ["native.search"],
-  "mentions.read": ["native.mentions|native.listMentions"],
-  "timelines.read": ["native.userPosts", "native.homeTimeline"],
-  "likes.read": ["native.getLikes|native.likedPosts"],
-  "likes.write": ["native.likePost|native.like", "native.unlikePost|native.unlike"],
-  "lists.read": ["native.getList"],
-  "lists.write": ["native.createList", "native.updateList", "native.deleteList"],
-  "lists.pinned.read": ["native.pinnedLists"],
-  "lists.pinned.write": ["native.pinList", "native.unpinList"],
-  "messages.conversation.write": ["native.sendConversationMessage"],
-  "messages.group.write": ["native.createGroupConversation"],
-  "moderation.report": ["native.createModerationReport"],
-  "comments.moderate": ["native.hideReply|native.moderateComment|native.commentsModeration"],
-  "comments.delete": ["native.deleteComment"],
-  "comments.replies.read": ["native.listCommentReplies"],
-  "videos.update": ["native.updateVideo"],
-  "videos.delete": ["native.deleteVideo"],
-  "videos.rate": ["native.rateVideo", "native.getRating"],
-  "subscriptions.read": ["native.subscriptions"],
-  "subscriptions.write": ["native.subscriptions"],
-  "analytics.followers.read": [
-    "native.getOrganizationFollowerStatistics",
-    "native.getOrganizationFollowerCount",
+  ["streams.read", ["native.stream"]],
+  ["search.keyword", ["native.search"]],
+  ["mentions.read", ["native.mentions|native.listMentions"]],
+  ["timelines.read", ["native.userPosts", "native.homeTimeline"]],
+  ["likes.read", ["native.getLikes|native.likedPosts"]],
+  ["likes.write", ["native.likePost|native.like", "native.unlikePost|native.unlike"]],
+  ["lists.read", ["native.getList"]],
+  ["lists.write", ["native.createList", "native.updateList", "native.deleteList"]],
+  ["lists.pinned.read", ["native.pinnedLists"]],
+  ["lists.pinned.write", ["native.pinList", "native.unpinList"]],
+  ["messages.conversation.write", ["native.sendConversationMessage"]],
+  ["messages.group.write", ["native.createGroupConversation"]],
+  ["moderation.report", ["native.createModerationReport"]],
+  ["comments.moderate", ["native.hideReply|native.moderateComment|native.commentsModeration"]],
+  ["comments.delete", ["native.deleteComment"]],
+  ["comments.replies.read", ["native.listCommentReplies"]],
+  ["videos.update", ["native.updateVideo"]],
+  ["videos.delete", ["native.deleteVideo"]],
+  ["videos.rate", ["native.rateVideo", "native.getRating"]],
+  ["subscriptions.read", ["native.subscriptions"]],
+  ["subscriptions.write", ["native.subscriptions"]],
+  [
+    "analytics.followers.read",
+    ["native.getOrganizationFollowerStatistics", "native.getOrganizationFollowerCount"],
   ],
-  "analytics.page.read": ["native.getOrganizationPageStatistics"],
-  "analytics.shares.read": ["native.getOrganizationShareStatistics"],
-  "posts.draft": ["native.uploadDraft"],
-  "posts.status.poll": ["native.publishStatus"],
-  "reels.publish": ["native.publishReel"],
-  "stories.publish": ["native.publishStory"],
-  "hashtags.search": ["native.hashtagSearch"],
-  "publishing.limit.read": ["native.publishingLimit"],
-  "product.tagging": ["native.publishReel"],
-  "thumbnails.write": ["native.setThumbnail"],
-  "captions.read": ["native.captions"],
-  "captions.write": ["native.captions"],
-  "playlists.read": ["native.playlists"],
-  "playlists.write": ["native.playlists"],
-  "posts.schedule": ["posts.publishTarget"],
-  "posts.update": ["native.updateVideo|native.updatePost"],
-  "analytics.youtube.read": ["native.analytics"],
-  "live.broadcasts": ["native.liveBroadcasts"],
-  "posts.multi-image": ["native.createPoll"],
-  "posts.video": ["native.registerVideo"],
-  "posts.document": ["native.registerVideo"],
-  "reactions.write": ["native.react"],
-  "reshares.write": ["native.reshare"],
-  "analytics.organization.read": ["native.organizationAnalytics"],
-  "articles.create": ["native.updatePost"],
-};
+  ["analytics.page.read", ["native.getOrganizationPageStatistics"]],
+  ["analytics.shares.read", ["native.getOrganizationShareStatistics"]],
+  ["posts.draft", ["native.uploadDraft"]],
+  ["posts.status.poll", ["native.publishStatus"]],
+  ["reels.publish", ["native.publishReel"]],
+  ["stories.publish", ["native.publishStory"]],
+  ["hashtags.search", ["native.hashtagSearch"]],
+  ["publishing.limit.read", ["native.publishingLimit"]],
+  ["product.tagging", ["native.publishReel"]],
+  ["thumbnails.write", ["native.setThumbnail"]],
+  ["captions.read", ["native.captions"]],
+  ["captions.write", ["native.captions"]],
+  ["playlists.read", ["native.playlists"]],
+  ["playlists.write", ["native.playlists"]],
+  ["posts.schedule", ["posts.publishTarget"]],
+  ["posts.update", ["native.updateVideo|native.updatePost"]],
+  ["analytics.youtube.read", ["native.analytics"]],
+  ["live.broadcasts", ["native.liveBroadcasts"]],
+  ["posts.multi-image", ["native.createPoll"]],
+  ["posts.video", ["native.registerVideo"]],
+  ["posts.document", ["native.registerVideo"]],
+  ["reactions.write", ["native.react"]],
+  ["reshares.write", ["native.reshare"]],
+  ["analytics.organization.read", ["native.organizationAnalytics"]],
+  ["articles.create", ["native.updatePost"]],
+]);
+
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function isCallable(value: unknown): value is CallableFunction {
+  return typeof value === "function";
+}
 
 const cell = (value: string) => value.replaceAll("|", "\\|").replaceAll("\n", " ");
 
@@ -131,13 +141,15 @@ for (const adapter of adapters) {
   const { manifest } = await command(["capabilities", "--adapter", adapter]);
   manifests.push({ adapter, manifest });
 
+  // SAFETY: `adapter` comes from the CLI `adapters` command, which prints the same `names` tuple
+  // that types the `createDiagnosticAdapter` parameter in packages/social-sdk/src/cli.ts.
   const instance = createDiagnosticAdapter(
     adapter as Parameters<typeof createDiagnosticAdapter>[0],
   );
 
   for (const declaration of manifest.capabilities) {
     if (declaration.availability !== "available") continue;
-    const paths = implementationPaths[declaration.operation];
+    const paths = implementationPaths.get(declaration.operation);
 
     if (!paths)
       throw new Error(`No conformance mapping for available operation ${declaration.operation}`);
@@ -147,12 +159,9 @@ for (const adapter of adapters) {
         let value: unknown = instance;
 
         for (const key of candidate.split("."))
-          value =
-            value && typeof value === "object"
-              ? (value as Record<string, unknown>)[key]
-              : undefined;
+          value = isObject(value) ? Object.getOwnPropertyDescriptor(value, key)?.value : undefined;
 
-        return typeof value === "function";
+        return isCallable(value);
       });
 
       if (!found)

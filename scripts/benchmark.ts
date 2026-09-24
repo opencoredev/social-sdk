@@ -4,8 +4,37 @@ import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { createSocial, connectedAccountRef } from "../packages/social-sdk/src/index.js";
 import { mockBackend } from "../packages/social-sdk/src/testing/index.js";
+import type { JsonValue } from "../packages/social-sdk/src/core/types.js";
+import { isFiniteNumber, isJsonObject } from "../packages/social-sdk/src/transport/validation.js";
 
 const root = resolve(import.meta.dir, "..");
+
+function parseJson(text: string): JsonValue {
+  return JSON.parse(text);
+}
+
+/** Reads the hand-maintained regression baseline and rejects missing or non-numeric fields. */
+function readBaseline(text: string) {
+  const value = parseJson(text);
+
+  if (!isJsonObject(value)) throw new Error("performance-baseline.json must contain a JSON object");
+
+  const field = (key: string): number => {
+    const entry = value[key];
+
+    if (!isFiniteNumber(entry))
+      throw new Error(`performance-baseline.json field ${key} must be a finite number`);
+
+    return entry;
+  };
+
+  return {
+    preparationP95Ms: field("preparationP95Ms"),
+    dispatchOverheadP95Ms: field("dispatchOverheadP95Ms"),
+    regressionMultiplier: field("regressionMultiplier"),
+    noiseFloorMs: field("noiseFloorMs"),
+  };
+}
 
 const temporary = await mkdtemp(join(tmpdir(), "social-sdk-benchmark-"));
 
@@ -127,12 +156,7 @@ try {
   }
 
   if (baselineText !== undefined) {
-    const recorded = JSON.parse(baselineText) as {
-      preparationP95Ms: number;
-      dispatchOverheadP95Ms: number;
-      regressionMultiplier: number;
-      noiseFloorMs: number;
-    };
+    const recorded = readBaseline(baselineText);
 
     for (const [name, current, previous] of [
       ["preparation", report.preparation.p95Ms, recorded.preparationP95Ms],
