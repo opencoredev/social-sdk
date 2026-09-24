@@ -11,6 +11,7 @@ export const PLATFORM_NAMES = {
   linkedin: "LinkedIn",
   facebook: "Facebook",
   zernio: "Zernio",
+  postfast: "PostFast",
 } as const;
 
 export type PlatformKey = keyof typeof PLATFORM_NAMES;

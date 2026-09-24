@@ -13,6 +13,8 @@ import { accountMatches, uploadManagedMedia, type ManagedOptions } from "./commo
 export interface ManagedMediaRecord {
   readonly ref: MediaRef;
   readonly publicUrl: string;
+  /** Storage key for providers that reference uploads by key rather than URL, such as PostFast. */
+  readonly providerKey?: string;
   readonly expiresAt?: string;
   readonly kind: "image" | "video";
   readonly mimeType: string;
@@ -33,6 +35,61 @@ export class MemoryManagedMediaStore implements ManagedMediaStore {
 
     return record ? structuredClone(record) : undefined;
   }
+}
+
+/** Look up an uploaded asset and prove it belongs to this account and matches the attachment. */
+export async function storedMedia(
+  item: MediaAttachment,
+  ref: MediaRef,
+  account: ConnectedAccountRef,
+  store: ManagedMediaStore,
+  options: Pick<ManagedOptions, "clock">,
+): Promise<ManagedMediaRecord> {
+  if (
+    ref.backend !== account.backend ||
+    ref.accountId !== account.accountId ||
+    ref.platform !== account.platform
+  )
+    throw new SocialError({
+      code: "unauthorized",
+      operation: "media.resolve",
+      message: "Media reference belongs to another account or backend.",
+    });
+  const record = await store.get(ref.mediaId);
+
+  if (
+    !record ||
+    record.ref.backend !== ref.backend ||
+    record.ref.accountId !== ref.accountId ||
+    record.ref.platform !== ref.platform
+  )
+    throw new SocialError({
+      code: "media_error",
+      operation: "media.resolve",
+      message: "Media reference is unknown to this server-side store.",
+    });
+
+  if (
+    record.expiresAt &&
+    Date.parse(record.expiresAt) <= (options.clock?.() ?? new Date()).getTime()
+  )
+    throw new SocialError({
+      code: "media_error",
+      operation: "media.resolve",
+      message: "Stored media has expired. Upload a new asset explicitly.",
+    });
+
+  if (
+    record.kind !== item.kind ||
+    (item.mimeType !== undefined && item.mimeType !== record.mimeType)
+  )
+    throw new SocialError({
+      code: "media_error",
+      operation: "media.resolve",
+      message: "Media kind or MIME type differs from the stored asset.",
+    });
+
+  return record;
 }
 
 export function managedMedia(
@@ -62,53 +119,8 @@ export function managedMedia(
         context,
         provider,
       });
-    const ref = item.source.ref;
 
-    if (
-      ref.backend !== account.backend ||
-      ref.accountId !== account.accountId ||
-      ref.platform !== account.platform
-    )
-      throw new SocialError({
-        code: "unauthorized",
-        operation: "media.resolve",
-        message: "Media reference belongs to another account or backend.",
-      });
-    const record = await store.get(ref.mediaId);
-
-    if (
-      !record ||
-      record.ref.backend !== ref.backend ||
-      record.ref.accountId !== ref.accountId ||
-      record.ref.platform !== ref.platform
-    )
-      throw new SocialError({
-        code: "media_error",
-        operation: "media.resolve",
-        message: "Media reference is unknown to this server-side store.",
-      });
-
-    if (
-      record.expiresAt &&
-      Date.parse(record.expiresAt) <= (options.clock?.() ?? new Date()).getTime()
-    )
-      throw new SocialError({
-        code: "media_error",
-        operation: "media.resolve",
-        message: "Stored media has expired. Upload a new asset explicitly.",
-      });
-
-    if (
-      record.kind !== item.kind ||
-      (item.mimeType !== undefined && item.mimeType !== record.mimeType)
-    )
-      throw new SocialError({
-        code: "media_error",
-        operation: "media.resolve",
-        message: "Media kind or MIME type differs from the stored asset.",
-      });
-
-    return record.publicUrl;
+    return (await storedMedia(item, item.source.ref, account, store, options)).publicUrl;
   }
 
   return {

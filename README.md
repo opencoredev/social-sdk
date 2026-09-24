@@ -10,7 +10,7 @@
 Typed social platform integrations for TypeScript applications. Use direct platform adapters or an optional managed backend while keeping account selection, capabilities, content, and delivery outcomes explicit.
 
 - Direct adapters for Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube
-- Optional managed backends for Zernio and Post for Me
+- Optional managed backends for Zernio, Post for Me, and PostFast
 - Typed capability manifests and platform-native operations behind explicit subpath imports
 - Independent per-destination outcomes for complete, processing, uncertain, and failed work
 - A deterministic mock backend for local development and contract tests
@@ -62,7 +62,7 @@ The same client shape works with a direct platform adapter or a managed backend.
 
 ## Platforms and backends
 
-Direct platform adapters cover Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube. Hosted execution routes are available through the [Zernio](https://social-sdk.dev/docs/backends/zernio) and [Post for Me](https://social-sdk.dev/docs/backends/post-for-me) adapters. Managed services are optional; a direct integration does not require a Social SDK account.
+Direct platform adapters cover Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube. Hosted execution routes are available through the [Zernio](https://social-sdk.dev/docs/backends/zernio), [Post for Me](https://social-sdk.dev/docs/backends/post-for-me), and [PostFast](https://social-sdk.dev/docs/backends/postfast) adapters. Managed services are optional; a direct integration does not require a Social SDK account.
 
 Read the [platform capability matrix](https://social-sdk.dev/docs/reference/capabilities) before choosing an adapter. It describes the normalized operations implemented by each integration and does not replace provider permissions, account eligibility, or live verification.
 
@@ -93,6 +93,8 @@ Full documentation lives at **[social-sdk.dev/docs](https://social-sdk.dev/docs)
 ## Sponsors
 
 Social SDK is supported by companies that help keep platform integrations practical and maintained. Want your logo here? **[Become a sponsor →](https://github.com/sponsors/opencoredev)**
+
+- [PostFast](https://postfa.st/docs?utm_source=social-sdk&utm_medium=sponsor&utm_campaign=hosted-backend), social media scheduling with a public API
 
 <p align="center">
   <a href="https://github.com/sponsors/opencoredev">

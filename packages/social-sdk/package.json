@@ -41,6 +41,10 @@
       "types": "./dist/cloud/post-for-me.d.ts",
       "import": "./dist/cloud/post-for-me.js"
     },
+    "./cloud/postfast": {
+      "types": "./dist/cloud/postfast.d.ts",
+      "import": "./dist/cloud/postfast.js"
+    },
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"

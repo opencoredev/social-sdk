@@ -8,6 +8,7 @@ import { decodePublishRequest, PublishRequestInputError } from "./cli-request.js
 import { mockBackend } from "./testing/index.js";
 import { zernio } from "./cloud/zernio.js";
 import { postForMe } from "./cloud/post-for-me.js";
+import { postfast } from "./cloud/postfast.js";
 import { bluesky } from "./platforms/bluesky.js";
 import { x } from "./platforms/x.js";
 import { threads } from "./platforms/threads.js";
@@ -21,6 +22,7 @@ export const adapterNames = [
   "mock",
   "zernio",
   "post-for-me",
+  "postfast",
   "bluesky",
   "x",
   "threads",
@@ -46,6 +48,7 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   mock: [],
   zernio: ["ZERNIO_API_KEY"],
   "post-for-me": ["POST_FOR_ME_API_KEY"],
+  postfast: ["POSTFAST_API_KEY"],
   bluesky: ["BLUESKY_SERVICE", "BLUESKY_DID", "BLUESKY_ACCESS_JWT"],
   x: ["X_USER_ID", "X_ACCESS_TOKEN"],
   threads: ["THREADS_USER_ID", "THREADS_ACCESS_TOKEN"],
@@ -70,6 +73,8 @@ export function createDiagnosticAdapter(
       return zernio({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "post-for-me":
       return postForMe({ apiKey: "offline-placeholder", fetch: noNetwork });
+    case "postfast":
+      return postfast({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "bluesky":
       return bluesky({
         auth: { service: "https://bsky.social", did: accountId, accessJwt: "offline-placeholder" },

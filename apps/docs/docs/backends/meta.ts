@@ -4,5 +4,5 @@ export default defineMeta({
   title: "Hosted platforms",
   icon: "server",
   order: 5,
-  pages: ["index", "zernio", "post-for-me"],
+  pages: ["index", "zernio", "post-for-me", "postfast"],
 });
