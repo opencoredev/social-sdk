@@ -1,36 +1,95 @@
 ---
 title: Bluesky
-description: Publish Bluesky records and use typed AT Protocol parity operations with existing session authorization and explicit reconciliation.
+description: Connect Bluesky accounts with AT Protocol OAuth, publish records, and use typed AT Protocol operations with explicit reconciliation.
 ---
 
-The direct Bluesky adapter accepts an existing access JWT or a restored OAuth session, together with a DID and HTTPS service URL. It intentionally leaves user-facing OAuth to the maintained `@atproto/oauth-client-node` library. That client implements the AT Protocol requirements for PKCE, PAR, DPoP, issuer checks, token refresh, and identity verification; do not replace it with a generic code exchange.
+The direct Bluesky adapter accepts an access JWT or a DPoP-bound OAuth session, together with a DID and HTTPS service URL. For user-facing sign-in, use `blueskyOAuth` from `@opencoredev/social-sdk/server`. It implements the [AT Protocol OAuth profile](https://atproto.com/specs/oauth): handle and DID resolution, PDS and authorization server discovery, pushed authorization requests, PKCE, DPoP-bound tokens, the `iss` callback check, and identity verification after the token exchange. It has no runtime dependencies. The official `@atproto/oauth-client-node` client remains a supported alternative.
 
 ## Setup
 
 <Steps>
-  <Step title="Choose a session source">
-    For a server flow, install `@atproto/oauth-client-node@0.5.7` as an application runtime
-    dependency and use `examples/snippets/bluesky-oauth.ts`. Host the client metadata and JWKS at
-    the URLs named by `clientMetadata`, keep the private signing key server-side, and inject durable
-    state/session stores. Read the [AT Protocol OAuth
-    specification](https://atproto.com/specs/oauth) before registering metadata or callbacks.
+  <Step title="Publish client metadata">
+    Serve a client metadata document at an HTTPS URL. That URL is your `clientId`. Build the
+    document with `blueskyOAuthClientMetadata` so the required fields are present. A confidential
+    client adds an ES256 public key through `jwks` or `jwksUri` and keeps the private key in a
+    server-side secret store. For local development, `blueskyLoopbackClientId` returns an
+    `http://localhost` client ID, which is always a public client.
   </Step>
-  <Step title="Bind state to the tenant">
-    Bind the application state supplied to `authorize` to the authenticated tenant and principal in
-    durable storage, and validate that binding when the callback returns, before granting the
-    session to an account. Parsing a valid OAuth callback alone does not establish tenant ownership.
+  <Step title="Start the connection with a login hint">
+    Pass the handle, DID, or server URL the user typed as `loginHint` to `ConnectionManager.begin`.
+    A handle is resolved through DNS and then HTTPS and must match its DID document. A server URL
+    such as `https://bsky.social` starts a flow where the user picks the account at the server. Set
+    `defaultServer` on the provider to use a server when no hint is given.
+  </Step>
+  <Step title="Store the session">
+    On completion the provider checks the callback `iss`, exchanges the code with DPoP, and confirms
+    that the returned DID's PDS names the same authorization server. The verified session goes to
+    `sessionSink`. It contains the access token, refresh token, and private DPoP key, so encrypt it
+    and scope reads to the tenant.
   </Step>
   <Step title="Configure the adapter">
-    Use `examples/snippets/bluesky-sdk-session.ts` to construct the SDK adapter from the restored
-    session, or supply an access JWT directly. Never put access JWTs in browser code or public
-    references.
+    Load the stored session with `parseBlueskyOAuthSession` and pass
+    `blueskyOAuthTransport(session)` as the adapter's `session`. Never put tokens or DPoP keys in
+    browser code.
   </Step>
 </Steps>
 
 ```ts
+import { ConnectionManager, blueskyOAuth } from "@opencoredev/social-sdk/server";
+
+const provider = blueskyOAuth({
+  clientId: "https://app.example.com/oauth/client-metadata.json",
+  clientKey: { kid: "key-1", privateJwk: signingKey }, // omit for a public client
+  redirectUri: "https://app.example.com/oauth/bluesky/callback",
+  scope: "atproto transition:generic",
+  sessionSink: {
+    async save({ account, session, attempt }) {
+      // Encrypt and store the session for attempt.tenantId and account.ref.accountId.
+    },
+  },
+});
+
+const started = await manager.begin({
+  backend: "direct",
+  tenantId,
+  principalId,
+  platforms: ["bluesky"],
+  redirectUri: "https://app.example.com/oauth/bluesky/callback",
+  allowedRedirectUris: ["https://app.example.com/oauth/bluesky/callback"],
+  provider,
+  loginHint: "alice.bsky.social",
+});
+```
+
+Then build the adapter from the stored session:
+
+```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
 import { bluesky } from "@opencoredev/social-sdk/bluesky";
+import { blueskyOAuthTransport, parseBlueskyOAuthSession } from "@opencoredev/social-sdk/server";
 
+const session = parseBlueskyOAuthSession(await loadDecryptedSession(accountId));
+const transport = blueskyOAuthTransport(session);
+
+const social = createSocial({
+  backend: bluesky({
+    auth: { service: transport.service, did: transport.did },
+    session: transport,
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "bluesky",
+  accountId: session.did,
+});
+```
+
+The transport sends each request to the session's PDS with `Authorization: DPoP` and a fresh proof bound to the access token. When the PDS asks for a new DPoP nonce, it sends the request once more with that nonce. It does not refresh tokens. Call `refreshBlueskyOAuthSession(session, { clientId, clientKey })` before `expiresAt`. Refresh re-resolves the account's DID and fails if its PDS now names a different authorization server. Refresh tokens rotate, so save the result with a compare-and-set write. A reused or expired refresh token returns `reconnect_required`.
+
+An access JWT from an app password still works:
+
+```ts
 const social = createSocial({
   backend: bluesky({
     auth: {
@@ -40,15 +99,9 @@ const social = createSocial({
     },
   }),
 });
-
-const account = connectedAccountRef({
-  backend: "default",
-  platform: "bluesky",
-  accountId: process.env.BLUESKY_DID!,
-});
 ```
 
-When restoring an OAuth session, the adapter sends relative XRPC paths to `session.fetchHandler`, so the official client selects the verified token audience and attaches DPoP authentication. Do not extract an OAuth token into `accessJwt`.
+The adapter sends relative XRPC paths to `session.fetchHandler`, so a session from the official client also works. `examples/snippets/bluesky-oauth.ts` and `examples/snippets/bluesky-sdk-session.ts` show that route. Do not extract an OAuth token into `accessJwt`; OAuth tokens are DPoP-bound and fail as bearer tokens.
 
 ## Examples
 
@@ -168,6 +221,8 @@ references and reconcile explicitly. Bluesky chat consent and moderation require
 ## Limits and requirements
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.
-- OAuth session refresh remains owned by the official session transport.
+- The built-in OAuth transport does not refresh tokens on its own. Refresh with `refreshBlueskyOAuthSession`, or let the official client's session handle it if you use that client.
+- The OAuth helper does not revoke tokens. If identity verification fails after a token exchange, the tokens are discarded without calling the revocation endpoint.
+- Public clients get sessions of about two weeks and must reconnect after that. Confidential clients can refresh for longer, as set by the authorization server.
 - App-password policy and application account membership remain application responsibilities.
-- These are fixture-tested protocol operations; no live account verification is recorded in this repository.
+- These are fixture-tested protocol operations, including the OAuth flow against mocked servers. No live account verification is recorded in this repository.

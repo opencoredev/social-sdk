@@ -18,7 +18,10 @@ export interface ConnectionAttempt {
 
 export interface ConnectionStart {
   readonly authorizationUrl: string;
-  readonly attempt: Omit<ConnectionAttempt, "state" | "codeVerifier"> & { readonly state: string };
+  /** Public attempt fields. The PKCE verifier and provider state stay in the store. */
+  readonly attempt: Omit<ConnectionAttempt, "state" | "codeVerifier" | "providerState"> & {
+    readonly state: string;
+  };
 }
 
 export interface ConnectionAccount {
@@ -33,6 +36,8 @@ export interface ConnectionProvider {
     readonly redirectUri: string;
     readonly state: string;
     readonly codeChallenge: string;
+    /** Account or server hint typed by the user, such as a Bluesky handle. */
+    readonly loginHint?: string;
   }): Promise<{ readonly authorizationUrl: string; readonly providerState?: string }>;
   complete(input: {
     readonly callbackUrl: string;
@@ -191,6 +196,8 @@ export class ConnectionManager {
     readonly redirectUri: string;
     readonly allowedRedirectUris: readonly string[];
     readonly provider: ConnectionProvider;
+    /** Passed to the provider unchanged. Bluesky uses it for a handle, DID, or server URL. */
+    readonly loginHint?: string;
   }): Promise<ConnectionStart> {
     if (!input.tenantId || !input.principalId)
       throw new SocialError({
@@ -218,13 +225,17 @@ export class ConnectionManager {
     const attemptId = base64Url(this.#options.randomBytes(18));
     const expiresAt = new Date(now.getTime() + this.#options.ttlMs).toISOString();
 
-    const started = await input.provider.start({
+    const startInput = {
       platforms: input.platforms,
       capabilities: input.capabilities ?? [],
       redirectUri: input.redirectUri,
       state,
       codeChallenge: await challenge(codeVerifier),
-    });
+    };
+
+    const started = await input.provider.start(
+      input.loginHint === undefined ? startInput : { ...startInput, loginHint: input.loginHint },
+    );
 
     const attemptBase = {
       id: attemptId,
@@ -246,7 +257,13 @@ export class ConnectionManager {
         : { ...attemptBase, providerState: started.providerState };
 
     await this.#options.store.save(attempt);
-    const { state: publicState, codeVerifier: _privateVerifier, ...publicAttempt } = attempt;
+
+    const {
+      state: publicState,
+      codeVerifier: _privateVerifier,
+      providerState: _privateProviderState,
+      ...publicAttempt
+    } = attempt;
 
     return {
       authorizationUrl: started.authorizationUrl,
