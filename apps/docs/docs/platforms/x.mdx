@@ -198,7 +198,6 @@ Recent search sets the limits:
 
 The adapter does not fall back to full-archive search and does not retry on a rate limit.
 
-
 ### Like and unlike posts
 
 The X platform entrypoint exports `xLike` and `xUnlike` for credential-ready server code. They require an acting connected-account reference, a native numeric post ID, server-side credentials, and an operation context whose `backendInstance` matches the account. These helpers sit outside `createSocial` authorization and concurrency middleware: authorize the acting account in your application before calling them.
