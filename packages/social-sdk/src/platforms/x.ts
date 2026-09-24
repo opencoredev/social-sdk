@@ -43,6 +43,17 @@ const conversationHashWidth = 11;
 
 const maxConversationHashes = 1200;
 
+const replyFields = [
+  "id",
+  "text",
+  "author_id",
+  "created_at",
+  "conversation_id",
+  "in_reply_to_user_id",
+  "referenced_tweets",
+  "public_metrics",
+] as const;
+
 function conversationHash(id: string): string {
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
@@ -735,6 +746,107 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         nextCursor,
         metadata: includes === undefined ? undefined : { includes: object(includes) },
       }),
+    };
+  }
+
+  // Replies come from recent search with the standalone `conversation_id:` operator, which is
+  // the method X documents for reading a conversation. Sources, accessed 2026-09-24:
+  // https://docs.x.com/x-api/fundamentals/conversation-id
+  // https://docs.x.com/x-api/posts/search/integrate/operators
+  // https://docs.x.com/x-api/posts/search-recent-posts (max_results 10-100, next_token)
+  // https://docs.x.com/x-api/posts/search/introduction (recent search covers the last 7 days)
+  // https://docs.x.com/x-api/fundamentals/rate-limits (450/15min per app, 300/15min per user)
+  async function listReplies(
+    post: PlatformPostRef,
+    input: { readonly cursor?: string | undefined; readonly limit?: number | undefined },
+    context: AdapterOperationContext,
+  ): Promise<Page<JsonObject>> {
+    authorize(post, context);
+
+    if (!/^[0-9]{1,19}$/.test(post.postId))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "comments.read",
+        message: "X post IDs must be numeric.",
+      });
+
+    if (
+      input.limit !== undefined &&
+      (!Number.isSafeInteger(input.limit) || input.limit < 10 || input.limit > 100)
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "comments.read",
+        message: "X reply limits must be integers from 10 through 100.",
+      });
+
+    const result = object(
+      await (options.auth.accessToken?.trim() ? request : appRequest())(
+        "/2/tweets/search/recent",
+        context,
+        undefined,
+        {
+          query: `conversation_id:${post.postId}`,
+          "tweet.fields": replyFields.join(","),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.cursor === undefined ? {} : { next_token: input.cursor }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(input.limit === undefined ? {} : { max_results: String(input.limit) }),
+        },
+      ),
+    );
+
+    const items = (result["data"] === undefined ? [] : array(result["data"])).flatMap((entry) => {
+      const row = object(entry);
+      const id = string(row["id"]);
+
+      if (row["conversation_id"] !== post.postId)
+        throw new SocialError({
+          code: "unauthorized",
+          operation: "comments.read",
+          message: "X returned a post from a different conversation.",
+        });
+
+      // The conversation root shares its own conversation_id; it is not a reply.
+      if (id === post.postId) return [];
+
+      const references =
+        row["referenced_tweets"] === undefined
+          ? undefined
+          : array(row["referenced_tweets"]).map((reference) => {
+              const item = object(reference);
+              return { type: string(item["type"]), id: string(item["id"]) };
+            });
+      const counts =
+        row["public_metrics"] === undefined ? undefined : object(row["public_metrics"]);
+
+      return [
+        {
+          ...publicFields(row, replyFields),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(references === undefined ? {} : { referenced_tweets: references }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+          ...(counts === undefined
+            ? {}
+            : {
+                public_metrics: Object.fromEntries(
+                  Object.keys(counts).flatMap((name) => {
+                    const value = optionalNumber(counts[name]);
+                    return value === undefined ? [] : [[name, value]];
+                  }),
+                ),
+              }),
+        },
+      ];
+    });
+
+    const meta = result["meta"] === undefined ? {} : object(result["meta"]);
+    const nextCursor = optionalString(meta["next_token"]);
+
+    return {
+      items,
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+      ...(nextCursor === undefined ? {} : { nextCursor }),
     };
   }
 
@@ -1455,6 +1567,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         },
         {
           platform: "x",
+          operation: "comments.read",
+          availability: "available" as const,
+          requiredScopes: ["tweet.read", "users.read"],
+          notes:
+            "Replies come from recent search with conversation_id, so only replies from the last 7 days are returned. Pass the conversation's root post. Page limits are 10-100. Recent search allows 450 requests per 15 minutes per app and 300 per user, and X bills post reads under the app's plan.",
+        },
+        {
+          platform: "x",
           operation: "search.posts",
           availability: "available" as const,
           requiredScopes: ["tweet.read", "users.read"],
@@ -1811,12 +1931,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       },
     },
     comments: {
-      async list() {
-        throw new SocialError({
-          code: "unsupported_capability",
-          operation: "comments.read",
-          message: "X reply search is not implemented in this slice.",
-        });
+      async list(
+        ref: PlatformPostRef,
+        input: { readonly cursor?: string; readonly limit?: number },
+        context: AdapterOperationContext,
+      ): Promise<Page<JsonObject>> {
+        return listReplies(ref, input, context);
       },
       async reply(
         ref: CommentRef,

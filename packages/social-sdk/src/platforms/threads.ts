@@ -162,6 +162,16 @@ export interface ThreadsNative {
     readonly hide: boolean;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /**
+   * Deletes a reply the authenticated user published, using `DELETE /{threads-media-id}`.
+   * Threads deletes only media created by the authenticated user, allows 100 deletions per
+   * account per day, and needs `threads_delete`. Use `hideReply` for other users' replies.
+   */
+  readonly deleteComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly commentId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
   readonly listConversation: (input: {
     readonly account: ConnectedAccountRef;
     readonly mediaId: string;
@@ -685,6 +695,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           "Hiding replies and pending-reply moderation require Threads reply-management permissions.",
       },
       {
+        operation: "comments.delete",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_delete"],
+        notes:
+          "Deletes only replies published by the authenticated user. Threads allows 100 deletions per account per day. Use hideReply for other users' replies.",
+      },
+      {
         operation: "posts.quote",
         platform: "threads",
         availability: "available",
@@ -906,6 +924,25 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         "threads.comments.moderate",
         context,
       );
+    },
+    async deleteComment({ account, commentId, context }) {
+      // Sources (accessed 2026-09-24): https://developers.facebook.com/docs/threads/posts/delete-posts
+      // and https://developers.facebook.com/docs/threads/retrieve-and-manage-replies/create-replies
+      authorize(account, "threads.comments.delete");
+      if (!/^\d+$/.test(commentId))
+        fail(
+          "threads.comments.delete",
+          "Provide the numeric Threads reply media ID.",
+          "invalid_input",
+        );
+      const result = await request(
+        encodeURIComponent(commentId),
+        { method: "DELETE" },
+        "threads.comments.delete",
+        context,
+      );
+      if (result["success"] !== true)
+        fail("threads.comments.delete", "Threads did not confirm the reply deletion.");
     },
     async listConversation({ account, mediaId, cursor, context }) {
       authorize(account, "threads.comments.conversation");
