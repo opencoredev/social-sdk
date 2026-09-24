@@ -303,6 +303,13 @@ export function postfast(options: ManagedOptions) {
       reject("media.upload", "PostFast does not accept this media type.");
     const size = item.byteSize ?? (source.kind === "blob" ? source.blob.size : undefined);
 
+    if (size !== undefined && size > maxBytes[item.kind])
+      throw new SocialError({
+        code: "media_error",
+        operation: "media.upload",
+        message: "PostFast accepts images up to 10 MB and videos up to 250 MB.",
+      });
+
     const signed = array(
       await request("/file/get-signed-upload-urls", context, { contentType: mimeType, count: 1 }),
     );
@@ -491,7 +498,10 @@ export function postfast(options: ManagedOptions) {
           if (item.mimeType && !mimeTypes.some((value) => value === item.mimeType))
             fail("media.mime_unsupported", "PostFast does not accept this media type.");
 
-          if (item.byteSize !== undefined && item.byteSize > maxBytes[item.kind])
+          const size =
+            item.byteSize ?? (item.source.kind === "blob" ? item.source.blob.size : undefined);
+
+          if (size !== undefined && size > maxBytes[item.kind])
             fail("media.too_large", "PostFast accepts images up to 10 MB and videos up to 250 MB.");
 
           if (item.altText !== undefined)
@@ -513,7 +523,11 @@ export function postfast(options: ManagedOptions) {
         )
           fail("x.reply_settings_unsupported", "PostFast does not document X reply settings.");
 
-        if (target.account.platform === "tiktok" && media.some((item) => item.kind === "video")) {
+        if (
+          target.account.platform === "tiktok" &&
+          config["draft"] !== true &&
+          media.some((item) => item.kind === "video")
+        ) {
           if (config["privacy"] !== "PUBLIC_TO_EVERYONE")
             fail(
               "tiktok.privacy_unsupported",

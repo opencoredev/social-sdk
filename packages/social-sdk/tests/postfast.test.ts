@@ -29,6 +29,12 @@ const bluesky = connectedAccountRef({
   accountId: "sm4",
 });
 
+const tiktok = connectedAccountRef({
+  backend: "default",
+  platform: "tiktok",
+  accountId: "sm5",
+});
+
 const row = (fields: JsonObject): JsonObject => ({
   id: "p1",
   content: "hello",
@@ -175,6 +181,45 @@ it("PostFast requires a future schedule and uploaded media", () => {
       schedule: { at: future },
     }).includes("media.mime_unsupported"),
   );
+  assert.ok(
+    codes({
+      targets: [{ account: x }],
+      content: {
+        text: "hi",
+        media: [
+          {
+            kind: "image",
+            mimeType: "image/png",
+            source: {
+              kind: "blob",
+              blob: new Blob([new Uint8Array(10 * 1024 * 1024 + 1)]),
+              fingerprint: "big",
+            },
+          },
+        ],
+      },
+      schedule: { at: future },
+    }).includes("media.too_large"),
+  );
+
+  const tiktokVideo = (draft: boolean) =>
+    codes({
+      targets: [{ account: tiktok, options: { privacy: "SELF_ONLY", draft } }],
+      content: {
+        text: "hi",
+        media: [
+          {
+            kind: "video",
+            mimeType: "video/mp4",
+            source: { kind: "blob", blob: new Blob([new Uint8Array(1)]), fingerprint: "t" },
+          },
+        ],
+      },
+      schedule: { at: future },
+    });
+
+  assert.ok(!tiktokVideo(true).includes("tiktok.privacy_unsupported"));
+  assert.ok(tiktokVideo(false).includes("tiktok.privacy_unsupported"));
   assert.deepEqual(
     postfast({
       apiKey: "test",
@@ -502,4 +547,36 @@ it("PostFast reports a created post owned by another account as an uncertain wri
 
   assert.equal(outcome?.state, "unknown");
   assert.equal(outcome?.state === "unknown" ? outcome.reason : undefined, "ambiguous-submission");
+});
+
+it("PostFast rejects an oversized blob before requesting an upload URL", async () => {
+  let calls = 0;
+
+  const social = createSocial({
+    backend: postfast({
+      apiKey: "test",
+      fetch: async () => {
+        calls += 1;
+
+        return Response.json([]);
+      },
+    }),
+  });
+
+  await assert.rejects(
+    social.media.upload(
+      {
+        kind: "image",
+        mimeType: "image/png",
+        source: {
+          kind: "blob",
+          blob: new Blob([new Uint8Array(10 * 1024 * 1024 + 1)]),
+          fingerprint: "big",
+        },
+      },
+      x,
+    ),
+    { name: "SocialError", code: "media_error" },
+  );
+  assert.equal(calls, 0);
 });
