@@ -69,7 +69,10 @@ export interface XStreamOptions {
   readonly expansions?: readonly XTweetExpansion[];
   readonly userFields?: readonly XUserField[];
   readonly mediaFields?: readonly XMediaField[];
-  /** Minutes (1-5) of Posts to replay after a short disconnection. Enterprise access only. */
+  /**
+   * Minutes (1-5) of Posts to replay after a short disconnection. Enterprise access only.
+   * `0` or omitted means no backfill; the SDK then leaves `backfill_minutes` off the request.
+   */
   readonly backfillMinutes?: number;
   /** Recovery window start (ISO 8601, within the last 24 hours). Enterprise access only. */
   readonly startTime?: string;
@@ -233,7 +236,7 @@ export function streamUrl(options: XStreamOptions): URL {
     throw new SocialError({
       code: "invalid_input",
       operation: "streams.read",
-      message: "backfillMinutes must be an integer from 0 through 5.",
+      message: "backfillMinutes must be an integer from 1 through 5, or 0 for no backfill.",
     });
 
   const stall = options.stallTimeoutMs;

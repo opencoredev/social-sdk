@@ -269,6 +269,28 @@ it("X filtered stream passes Enterprise backfill and recovery parameters", async
   assert.equal(requested?.searchParams.get("end_time"), "2026-09-24T10:00:00Z");
 });
 
+it("X filtered stream treats backfillMinutes 0 as no backfill and rejects other out-of-range values", async () => {
+  let requested: URL | undefined;
+  const api = native(async (input) => {
+    requested = new URL(String(input));
+    return new Response(streamBody([]));
+  });
+
+  await collect(api.stream({ account, context: context(), backfillMinutes: 0 }));
+  assert.equal(requested?.searchParams.has("backfill_minutes"), false);
+
+  await collect(api.stream({ account, context: context(), backfillMinutes: 1 }));
+  assert.equal(requested?.searchParams.get("backfill_minutes"), "1");
+
+  for (const backfillMinutes of [-1, 1.5, 6]) {
+    await assert.rejects(collect(api.stream({ account, context: context(), backfillMinutes })), {
+      name: "SocialError",
+      code: "invalid_input",
+      message: "backfillMinutes must be an integer from 1 through 5, or 0 for no backfill.",
+    });
+  }
+});
+
 it("X stream rules list, add, and delete with the app-only token", async () => {
   const requests: { url: URL; method: string; auth: string | null; body: string }[] = [];
   const api = native(async (input, init) => {
