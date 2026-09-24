@@ -577,7 +577,7 @@ export function linkedin(
           platform: "linkedin",
           operation: "posts.publish",
           availability: "available" as const,
-          formats: ["text" as const, "image" as const],
+          formats: ["text" as const, "image" as const, "carousel" as const],
           requiredScopes: [
             options.auth.author.startsWith("urn:li:organization:")
               ? "w_organization_social"
@@ -601,8 +601,15 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "posts.multi-image",
-          availability: "not-implemented-by-adapter" as const,
+          availability: "available" as const,
           formats: ["carousel" as const],
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "w_organization_social"
+              : "w_member_social",
+          ],
+          notes:
+            "Publishes 2 to 20 registered images through posts.publish as organic MultiImage content. Every image must be owned by the author and AVAILABLE. Sponsored multi-image posts are not supported.",
         },
         {
           platform: "linkedin",
@@ -735,10 +742,17 @@ export function linkedin(
 
         const media = target.content.media ?? [];
 
-        if (media.length > 1)
-          fail("linkedin.media_count", "This slice accepts one registered image per post.");
+        // A MultiImage post takes 2 to 20 images; alt text is at most 4,086 characters.
+        if (media.length > 20)
+          fail(
+            "linkedin.media_count",
+            "LinkedIn accepts one image, or a multi-image post of 2 to 20 images.",
+          );
 
         for (const item of media) {
+          if (media.length > 1 && (item.altText?.length ?? 0) > 4086)
+            fail("linkedin.alt_text", "LinkedIn multi-image alt text exceeds 4,086 characters.");
+
           if (item.kind !== "image" || item.source.kind !== "media-ref")
             fail(
               "linkedin.media",
@@ -760,20 +774,18 @@ export function linkedin(
       },
       async publishTarget(target: PreparedPublishTarget, context: AdapterOperationContext) {
         authorize(target.account, context);
-        const media = target.content.media?.[0];
-        let content: JsonObject | undefined;
+        const media = target.content.media ?? [];
+        const images: JsonObject[] = [];
 
-        if (media?.source.kind === "media-ref") {
-          authorize(media.source.ref, context);
+        for (const item of media) {
+          if (item.source.kind !== "media-ref") continue;
+          authorize(item.source.ref, context);
 
           let image: JsonObject | undefined;
           try {
             // SAFETY: object() validates the upstream response as a JSON object.
             image = object(
-              await request(
-                `/rest/images/${encodeURIComponent(media.source.ref.mediaId)}`,
-                context,
-              ),
+              await request(`/rest/images/${encodeURIComponent(item.source.ref.mediaId)}`, context),
             ) as JsonObject;
           } catch (error) {
             if (
@@ -797,14 +809,21 @@ export function linkedin(
               operation: "posts.publish",
               message: "Image is not AVAILABLE. Check its status explicitly before publishing.",
             });
-          content = {
-            media: {
-              id: media.source.ref.mediaId,
-              // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
-              ...(media.altText ? { altText: media.altText } : {}),
-            },
-          };
+          images.push({
+            id: item.source.ref.mediaId,
+            // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated boundary or fixture contract.
+            ...(item.altText ? { altText: item.altText } : {}),
+          });
         }
+
+        // MultiImage content takes 2 to 20 image URNs. Source (accessed 2026-09-24):
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-09
+        const content: JsonObject | undefined =
+          images.length > 1
+            ? { multiImage: { images } }
+            : images[0] === undefined
+              ? undefined
+              : { media: images[0] };
 
         const result = object(
           await request(

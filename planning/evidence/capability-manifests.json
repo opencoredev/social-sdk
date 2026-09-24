@@ -2721,7 +2721,8 @@
           "availability": "available",
           "formats": [
             "text",
-            "image"
+            "image",
+            "carousel"
           ],
           "requiredScopes": [
             "w_member_social"
@@ -2740,10 +2741,14 @@
         {
           "platform": "linkedin",
           "operation": "posts.multi-image",
-          "availability": "not-implemented-by-adapter",
+          "availability": "available",
           "formats": [
             "carousel"
-          ]
+          ],
+          "requiredScopes": [
+            "w_member_social"
+          ],
+          "notes": "Publishes 2 to 20 registered images through posts.publish as organic MultiImage content. Every image must be owned by the author and AVAILABLE. Sponsored multi-image posts are not supported."
         },
         {
           "platform": "linkedin",

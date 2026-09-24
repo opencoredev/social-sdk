@@ -116,7 +116,7 @@ const implementationPaths: Record<string, readonly string[]> = {
   "posts.update": ["native.updateVideo|native.updatePost"],
   "analytics.youtube.read": ["native.analytics"],
   "live.broadcasts": ["native.liveBroadcasts"],
-  "posts.multi-image": ["native.createPoll"],
+  "posts.multi-image": ["posts.publishTarget"],
   "posts.video": ["native.registerVideo"],
   "posts.document": ["native.registerVideo"],
   "reactions.write": ["native.react"],

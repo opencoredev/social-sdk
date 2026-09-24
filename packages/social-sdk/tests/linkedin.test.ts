@@ -591,3 +591,155 @@ it("LinkedIn uses literal Rest.li timeIntervals and preserves documented time bu
     `https://api.linkedin.com/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=urn%3Ali%3Aorganization%3A2414183&${expectedInterval}`,
   );
 });
+
+const imageRef = (mediaId: string, accountId: string = auth.author) => ({
+  kind: "image" as const,
+  source: {
+    kind: "media-ref" as const,
+    ref: {
+      kind: "media" as const,
+      version: 1 as const,
+      backend: "default",
+      platform: "linkedin",
+      accountId,
+      mediaId,
+    },
+  },
+});
+
+it("LinkedIn publishes 2 to 20 registered images as documented MultiImage content", async () => {
+  const requests: string[] = [];
+  const bodies: JsonObject[] = [];
+  const social = createSocial({
+    backend: linkedin({
+      auth,
+      apiVersion: "202609",
+      fetch: async (input, init) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
+        if (url.includes("/rest/images/"))
+          return Response.json({ owner: auth.author, status: "AVAILABLE" });
+        // SAFETY: the adapter sends a JSON object body for post creation.
+        bodies.push(JSON.parse(String(init?.body)) as JsonObject);
+        return new Response(null, {
+          status: 201,
+          headers: { "x-restli-id": "urn:li:ugcPost:6918335007103016960" },
+        });
+      },
+    }),
+  });
+
+  const result = await social.posts.publish({
+    targets: [{ account }],
+    content: {
+      text: "Three charts",
+      media: [
+        { ...imageRef("urn:li:image:a1"), altText: "First chart" },
+        imageRef("urn:li:image:b2"),
+        { ...imageRef("urn:li:image:c3"), altText: "Third chart" },
+      ],
+    },
+  });
+
+  assert.equal(result.outcomes[0]?.state, "published");
+  if (result.outcomes[0]?.state === "published")
+    assert.equal(result.outcomes[0].post.postId, "urn:li:ugcPost:6918335007103016960");
+  assert.deepEqual(requests, [
+    "GET /rest/images/urn%3Ali%3Aimage%3Aa1",
+    "GET /rest/images/urn%3Ali%3Aimage%3Ab2",
+    "GET /rest/images/urn%3Ali%3Aimage%3Ac3",
+    "POST /rest/posts",
+  ]);
+  const body = bodies[0];
+  assert.deepEqual(body?.["content"], {
+    multiImage: {
+      images: [
+        { id: "urn:li:image:a1", altText: "First chart" },
+        { id: "urn:li:image:b2" },
+        { id: "urn:li:image:c3", altText: "Third chart" },
+      ],
+    },
+  });
+  assert.equal(body?.["author"], auth.author);
+  assert.equal(body?.["visibility"], "PUBLIC");
+  assert.equal(body?.["lifecycleState"], "PUBLISHED");
+});
+
+it("LinkedIn keeps single images on media content and enforces multi-image limits locally", async () => {
+  const bodies: JsonObject[] = [];
+  const social = createSocial({
+    backend: linkedin({
+      auth,
+      apiVersion: "202609",
+      fetch: async (input, init) => {
+        if (String(input).includes("/rest/images/"))
+          return Response.json({ owner: auth.author, status: "AVAILABLE" });
+        // SAFETY: the adapter sends a JSON object body for post creation.
+        bodies.push(JSON.parse(String(init?.body)) as JsonObject);
+        return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:1" } });
+      },
+    }),
+  });
+  const images = (count: number) =>
+    Array.from({ length: count }, (_, index) => imageRef(`urn:li:image:img${index}`));
+
+  for (const count of [1, 2, 20])
+    assert.equal(
+      social.posts.prepare({ targets: [{ account }], content: { media: images(count) } }).ok,
+      true,
+    );
+
+  assert.equal(
+    social.posts.prepare({ targets: [{ account }], content: { media: images(21) } }).ok,
+    false,
+  );
+
+  for (const media of [
+    [{ ...imageRef("urn:li:image:a"), altText: "x".repeat(4087) }, imageRef("urn:li:image:b")],
+    [imageRef("urn:li:image:a"), imageRef("urn:li:image:b", "urn:li:person:other")],
+    [
+      imageRef("urn:li:image:a"),
+      {
+        kind: "video" as const,
+        source: { kind: "url" as const, url: "https://example.com/v.mp4" },
+      },
+    ],
+  ])
+    assert.equal(social.posts.prepare({ targets: [{ account }], content: { media } }).ok, false);
+
+  const single = await social.posts.publish({
+    targets: [{ account }],
+    content: { media: [{ ...imageRef("urn:li:image:one"), altText: "Solo" }] },
+  });
+  assert.equal(single.outcomes[0]?.state, "published");
+  assert.deepEqual(bodies[0]?.["content"], { media: { id: "urn:li:image:one", altText: "Solo" } });
+});
+
+it("LinkedIn does not create a multi-image post when any image is unavailable or foreign", async () => {
+  for (const second of [
+    { owner: auth.author, status: "PROCESSING" },
+    { owner: "urn:li:person:other", status: "AVAILABLE" },
+  ]) {
+    const methods: string[] = [];
+    const social = createSocial({
+      backend: linkedin({
+        auth,
+        apiVersion: "202609",
+        fetch: async (input, init) => {
+          methods.push(init?.method ?? "GET");
+          return Response.json(
+            String(input).includes("b2") ? second : { owner: auth.author, status: "AVAILABLE" },
+          );
+        },
+      }),
+    });
+
+    const result = await social.posts.publish({
+      targets: [{ account }],
+      content: { media: [imageRef("urn:li:image:a1"), imageRef("urn:li:image:b2")] },
+    });
+
+    assert.notEqual(result.outcomes[0]?.state, "published");
+    assert.deepEqual(methods, ["GET", "GET"]);
+  }
+});
