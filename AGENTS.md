@@ -22,7 +22,7 @@ Default checks must be offline and deterministic. Live provider checks require d
 
 ## Lint rules
 
-Fix lint errors in the code. Never add `oxlint-disable` or `eslint-disable` comments, turn a rule off or down, add overrides or ignore patterns, pass weakening flags to `oxlint`, or edit `.oxlintrc.json`, `scripts/check-lint-policy.ts`, or `tools/oxlint/` to make a check pass. `bun run lint` runs `scripts/check-lint-policy.ts`, which fails CI on any of these, and CODEOWNERS requires the owner's review for the lint setup. Each type assertion needs a `// SAFETY:` comment that states the specific invariant it relies on; prefer a type guard or decoder. If a rule seems wrong for a case, stop and ask the owner instead of working around it.
+Fix lint errors in the code. Never add `oxlint-disable` or `eslint-disable` comments, turn a rule off or down, add overrides or ignore patterns, pass weakening flags to `oxlint`, or edit `.oxlintrc.json`, `scripts/check-lint-policy.ts`, or `tools/oxlint/` to make a check pass. `bun run lint` runs `scripts/check-lint-policy.ts`, which fails CI on any of these, and CODEOWNERS requires the owner's review for the lint setup. Prove types with a type guard or decoder instead of a type assertion; the codebase has none. If one is truly unavoidable, it needs a `// SAFETY:` comment that states the specific invariant it relies on. If a rule seems wrong for a case, stop and ask the owner instead of working around it.
 
 ## Changes and checks
 

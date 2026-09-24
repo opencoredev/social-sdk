@@ -12,8 +12,23 @@ function element(id: string, type: abstract new () => HTMLElement = HTMLElement)
   return found;
 }
 
+/** JSON.parse output is always JSON; checking it keeps `any` out of typed code. */
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+
+  if (typeof value === "number") return Number.isFinite(value);
+
+  if (Array.isArray(value)) return value.every(isJsonValue);
+
+  return typeof value === "object" && Object.values(value).every(isJsonValue);
+}
+
 function parseJson(raw: string): JsonValue {
-  return JSON.parse(raw);
+  const parsed: unknown = JSON.parse(raw);
+
+  if (!isJsonValue(parsed)) throw new SyntaxError("Expected a JSON value");
+
+  return parsed;
 }
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {

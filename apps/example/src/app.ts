@@ -107,8 +107,23 @@ function mockControls(adapter: SocialAdapter<unknown>): MockControls | undefined
   return isMockControls(adapter.testing) ? adapter.testing : undefined;
 }
 
+/** JSON.parse output is always JSON; checking it keeps `any` out of typed code. */
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+
+  if (typeof value === "number") return Number.isFinite(value);
+
+  if (Array.isArray(value)) return value.every(isJsonValue);
+
+  return typeof value === "object" && Object.values(value).every(isJsonValue);
+}
+
 function parseJson(text: string): JsonValue {
-  return JSON.parse(text);
+  const parsed: unknown = JSON.parse(text);
+
+  if (!isJsonValue(parsed)) throw new SyntaxError("Expected a JSON value");
+
+  return parsed;
 }
 
 const fail = (message: string, status = 400): never => {
