@@ -18,10 +18,11 @@ export interface ConnectionAttempt {
 
 export interface ConnectionStart {
   readonly authorizationUrl: string;
-  /** Public attempt fields. The PKCE verifier and provider state stay in the store. */
-  readonly attempt: Omit<ConnectionAttempt, "state" | "codeVerifier" | "providerState"> & {
-    readonly state: string;
-  };
+  /**
+   * Public attempt fields. The PKCE verifier always stays in the store, and so
+   * does `providerState` when the provider marks it secret.
+   */
+  readonly attempt: Omit<ConnectionAttempt, "state" | "codeVerifier"> & { readonly state: string };
 }
 
 export interface ConnectionAccount {
@@ -38,7 +39,16 @@ export interface ConnectionProvider {
     readonly codeChallenge: string;
     /** Account or server hint typed by the user, such as a Bluesky handle. */
     readonly loginHint?: string;
-  }): Promise<{ readonly authorizationUrl: string; readonly providerState?: string }>;
+  }): Promise<{
+    readonly authorizationUrl: string;
+    readonly providerState?: string;
+    /**
+     * Set when `providerState` holds secrets, such as a DPoP private key. The
+     * manager then keeps it in the store and leaves it out of the attempt
+     * returned by `begin`.
+     */
+    readonly providerStateSecret?: boolean;
+  }>;
   complete(input: {
     readonly callbackUrl: string;
     readonly attempt: ConnectionAttempt;
@@ -258,12 +268,16 @@ export class ConnectionManager {
 
     await this.#options.store.save(attempt);
 
-    const {
-      state: publicState,
-      codeVerifier: _privateVerifier,
-      providerState: _privateProviderState,
-      ...publicAttempt
-    } = attempt;
+    const { state: publicState, codeVerifier: _privateVerifier, ...publicAttempt } = attempt;
+
+    if (started.providerStateSecret === true) {
+      const { providerState: _secretProviderState, ...withoutProviderState } = publicAttempt;
+
+      return {
+        authorizationUrl: started.authorizationUrl,
+        attempt: { ...withoutProviderState, state: publicState },
+      };
+    }
 
     return {
       authorizationUrl: started.authorizationUrl,

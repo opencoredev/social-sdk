@@ -33,7 +33,7 @@ A production `ConnectionStore` must persist attempts and discovered accounts, at
 
 Repeated callbacks can read a saved discovery result without exchanging the code again. If a code exchange is still running, or the process lost its response before saving discovery, the manager reports `reconnect_required`. Let an in-flight exchange finish or start a fresh connection. Replaying a one-use authorization code cannot safely recover missing credentials.
 
-Connection attempts expire after ten minutes by default. Account selection must finish before expiry. The PKCE verifier and provider state stay in the store; `begin` returns neither. Keep them private in server storage, encrypt stored credentials separately, and use compare-and-set token revisions when refreshing.
+Connection attempts expire after ten minutes by default. Account selection must finish before expiry. The PKCE verifier stays in the store, and `begin` never returns it. `begin` returns `providerState` unless the provider's `start` result sets `providerStateSecret: true`, in which case that value also stays in the store. The Bluesky provider sets it because its provider state holds the DPoP private key. Keep them private in server storage, encrypt stored credentials separately, and use compare-and-set token revisions when refreshing.
 
 ## Direct OAuth providers
 

@@ -20,6 +20,7 @@ import {
   type BlueskyOAuthSession,
   type BlueskyOAuthSigningKey,
 } from "../src/server/oauth.js";
+import { egressBlockReason } from "../src/server/egress.js";
 
 const DID = "did:plc:abcdefghijklmnopqrstuvwx";
 const OTHER_DID = "did:plc:zyxwvutsrqponmlkjihgfedc";
@@ -137,6 +138,10 @@ interface WorldOptions {
   /** Subject returned only for refresh grants. */
   readonly refreshSub?: string;
   readonly noRefreshToken?: boolean;
+  /** Overrides `token_type` in token responses. */
+  readonly tokenType?: string;
+  /** Leave the `DPoP-Nonce` header off successful PAR or token responses. */
+  readonly omitNonce?: "par" | "token";
 }
 
 /**
@@ -238,9 +243,7 @@ function world(options: WorldOptions = {}) {
         return json(
           { request_uri: "urn:ietf:params:oauth:request_uri:req-1", expires_in: 299 },
           201,
-          {
-            "DPoP-Nonce": asNonce,
-          },
+          options.omitNonce === "par" ? {} : { "DPoP-Nonce": asNonce },
         );
 
       if (url.pathname === "/oauth/token") {
@@ -257,7 +260,7 @@ function world(options: WorldOptions = {}) {
         return json(
           {
             access_token: `at-${issued}`,
-            token_type: "DPoP",
+            token_type: options.tokenType ?? "DPoP",
             ...(options.noRefreshToken ? {} : { refresh_token: `rt-${issued + 1}` }),
             expires_in: 900,
             sub:
@@ -269,7 +272,7 @@ function world(options: WorldOptions = {}) {
               : { scope: options.tokenScope ?? "atproto transition:generic" }),
           },
           200,
-          { "DPoP-Nonce": asNonce },
+          options.omitNonce === "token" ? {} : { "DPoP-Nonce": asNonce },
         );
       }
     }
@@ -874,15 +877,21 @@ describe("Bluesky AT Protocol OAuth", () => {
     );
     assert.doesNotThrow(() => blueskyOAuth({ clientId: loopback.toString() }));
   });
-  it("follows redirects only for the HTTPS handle method", async () => {
+  it("follows up to three HTTPS redirects for the handle method and none for metadata", async () => {
     const mock = world();
-    const handleRequests: (RequestRedirect | undefined)[] = [];
+    const handleRequests: string[] = [];
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
       fetch: async (input, init) => {
         const url = new URL(String(input));
-        if (url.pathname === "/.well-known/atproto-did") {
-          handleRequests.push(init?.redirect);
+        if (url.hostname === HANDLE || url.hostname === "hop.test") {
+          handleRequests.push(`${url.hostname}${url.pathname} ${String(init?.redirect)}`);
+          const hop = Number(url.searchParams.get("hop") ?? "0");
+          if (hop < 3)
+            return new Response(null, {
+              status: 302,
+              headers: { location: `https://hop.test/did?hop=${hop + 1}` },
+            });
           return new Response(`${DID}\n`, { status: 200 });
         }
         return mock.fetch(input, init);
@@ -891,8 +900,292 @@ describe("Bluesky AT Protocol OAuth", () => {
       resolveTxt: async () => [],
     });
     await provider.start(startInput(HANDLE));
-    assert.deepEqual(handleRequests, ["follow"]);
-    for (const request of mock.requests) assert.equal(request.redirect, "error");
+    assert.deepEqual(handleRequests, [
+      `${HANDLE}/.well-known/atproto-did manual`,
+      "hop.test/did manual",
+      "hop.test/did manual",
+      "hop.test/did manual",
+    ]);
+    for (const request of mock.requests) assert.equal(request.redirect, "manual");
+
+    // A fourth hop is refused.
+    const tooMany = blueskyOAuth({
+      clientId: CLIENT_ID,
+      fetch: async () =>
+        new Response(null, { status: 302, headers: { location: "https://hop.test/again" } }),
+      resolveTxt: async () => [],
+    });
+    assert.equal(await codeFor(tooMany.start(startInput(HANDLE))), "upstream_failure");
+
+    // Metadata redirects are failures and are never followed.
+    const followed: string[] = [];
+    const noMetadataRedirect = blueskyOAuth({
+      clientId: CLIENT_ID,
+      fetch: async (input) => {
+        followed.push(String(input));
+        return new Response(null, { status: 302, headers: { location: `${PLC}/moved` } });
+      },
+      plcDirectoryUrl: PLC,
+    });
+    assert.equal(await codeFor(noMetadataRedirect.start(startInput(DID))), "upstream_failure");
+    assert.deepEqual(followed, [`${PLC}/${DID}`]);
+  });
+
+  describe("egress guard", () => {
+    const blockedUrls = [
+      "http://pds.example.com",
+      "https://localhost",
+      "https://api.localhost",
+      "https://127.0.0.1",
+      "https://2130706433",
+      "https://0.0.0.0",
+      "https://10.1.2.3",
+      "https://172.16.0.1",
+      "https://192.168.1.1",
+      "https://169.254.169.254",
+      "https://100.64.0.1",
+      "https://224.0.0.1",
+      "https://255.255.255.255",
+      "https://192.0.2.1",
+      "https://[::]",
+      "https://[::1]",
+      "https://[::ffff:127.0.0.1]",
+      "https://[::ffff:10.0.0.1]",
+      "https://[64:ff9b::a9fe:a9fe]",
+      "https://[fe80::1]",
+      "https://[fd00::1]",
+      "https://[ff02::1]",
+      "https://[2001:db8::1]",
+      "https://user:pass@pds.example.com",
+    ];
+
+    it("allows only HTTPS URLs whose IP-literal hosts are public", () => {
+      for (const url of blockedUrls)
+        assert.notEqual(egressBlockReason(new URL(url)), undefined, url);
+      for (const url of [
+        "https://bsky.social",
+        "https://8.8.8.8",
+        "https://[2606:4700::1111]",
+        "https://[::ffff:8.8.8.8]",
+      ])
+        assert.equal(egressBlockReason(new URL(url)), undefined, url);
+    });
+
+    it("rejects handle redirects to blocked targets without fetching them", async () => {
+      for (const location of [
+        "http://hop.test/did",
+        "https://127.0.0.1/did",
+        "https://[::1]/did",
+        "https://[::ffff:192.168.0.1]/did",
+        "https://localhost/did",
+      ]) {
+        const requested: string[] = [];
+        const provider = blueskyOAuth({
+          clientId: CLIENT_ID,
+          fetch: async (input) => {
+            requested.push(String(input));
+            return new Response(null, { status: 302, headers: { location } });
+          },
+          resolveTxt: async () => [],
+        });
+        assert.equal(await codeFor(provider.start(startInput(HANDLE))), "unauthorized", location);
+        assert.equal(requested.length, 1, `${location} is never fetched`);
+      }
+    });
+
+    it("rejects DID-declared PDS endpoints on blocked hosts without fetching them", async () => {
+      for (const pds of [
+        "https://10.0.0.5",
+        "https://169.254.169.254",
+        "https://[fd00::1]",
+        "https://100.64.0.1",
+        "https://localhost",
+      ]) {
+        const requested: string[] = [];
+        const provider = blueskyOAuth({
+          clientId: CLIENT_ID,
+          fetch: async (input) => {
+            const url = new URL(String(input));
+            requested.push(url.origin);
+            return json(didDocument(DID, pds));
+          },
+          plcDirectoryUrl: PLC,
+        });
+        assert.equal(await codeFor(provider.start(startInput(DID))), "unauthorized", pds);
+        assert.deepEqual(requested, [PLC], `${pds} is never fetched`);
+      }
+
+      const privatePlc = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: world().fetch,
+        plcDirectoryUrl: "https://192.168.0.10",
+      });
+      assert.equal(await codeFor(privatePlc.start(startInput(DID))), "unauthorized");
+    });
+
+    it("rejects authorization server endpoints on blocked hosts", async () => {
+      const internal = "https://127.0.0.1/oauth";
+      const parMock = world({
+        asMetadata: asMetadata({ pushed_authorization_request_endpoint: internal }),
+      });
+      const parProvider = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: parMock.fetch,
+        plcDirectoryUrl: PLC,
+      });
+      assert.equal(await codeFor(parProvider.start(startInput(DID))), "unauthorized");
+
+      const tokenMock = world({ asMetadata: asMetadata({ token_endpoint: internal }) });
+      const tokenProvider = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: tokenMock.fetch,
+        plcDirectoryUrl: PLC,
+      });
+      const started = await tokenProvider.start(startInput(DID));
+      const callbackUrl = `${REDIRECT}?state=state-1&iss=${encodeURIComponent(ISSUER)}&code=code-1`;
+      assert.equal(
+        await codeFor(
+          tokenProvider.complete({ callbackUrl, attempt: attemptFor(started.providerState) }),
+        ),
+        "unauthorized",
+      );
+
+      for (const mock of [parMock, tokenMock])
+        assert.equal(
+          mock.requests.some((request) => request.url.hostname === "127.0.0.1"),
+          false,
+        );
+    });
+
+    it("runs assertEgressAllowed before every request and redirect hop", async () => {
+      const mock = world();
+      const checked: string[] = [];
+      const provider = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: async (input, init) => {
+          const url = new URL(String(input));
+          if (url.hostname === HANDLE)
+            return new Response(null, {
+              status: 301,
+              headers: { location: "https://hop.test/did" },
+            });
+          if (url.hostname === "hop.test") return new Response(DID, { status: 200 });
+          return mock.fetch(input, init);
+        },
+        plcDirectoryUrl: PLC,
+        resolveTxt: async () => [],
+        assertEgressAllowed: (url) => void checked.push(url.hostname),
+      });
+      await provider.start(startInput(HANDLE));
+      assert.deepEqual(checked.slice(0, 3), [HANDLE, "hop.test", "plc.test"]);
+      assert.ok(checked.includes("auth.test"));
+
+      const blocked = blueskyOAuth({
+        clientId: CLIENT_ID,
+        fetch: mock.fetch,
+        plcDirectoryUrl: PLC,
+        assertEgressAllowed: (url) => {
+          if (url.hostname === "pds.test") throw new Error("resolves to a private address");
+        },
+      });
+      assert.equal(await codeFor(blocked.start(startInput(DID))), "unauthorized");
+    });
+
+    it("keeps the transport on public HTTPS PDS hosts", async () => {
+      const session = parseBlueskyOAuthSession({
+        version: 1,
+        did: DID,
+        pdsUrl: "https://10.0.0.1",
+        issuer: ISSUER,
+        clientId: CLIENT_ID,
+        authMethod: "none",
+        accessToken: "at-1",
+        scopes: ["atproto"],
+        dpopKey: (await signingKey()).privateJwk,
+      });
+      let called = false;
+      const transport = blueskyOAuthTransport(session, {
+        fetch: async () => {
+          called = true;
+          return new Response(null, { status: 200 });
+        },
+      });
+      assert.equal(
+        await codeFor(transport.fetchHandler("/xrpc/app.bsky.feed.getTimeline")),
+        "unauthorized",
+      );
+      assert.equal(called, false);
+    });
+  });
+
+  it("rejects a successful PAR response without a DPoP-Nonce header", async () => {
+    const mock = world({ omitNonce: "par" });
+    const provider = blueskyOAuth({ clientId: CLIENT_ID, fetch: mock.fetch, plcDirectoryUrl: PLC });
+    assert.equal(await codeFor(provider.start(startInput(DID))), "upstream_failure");
+  });
+
+  it("publishes only EC P-256 public keys in client metadata jwks", async () => {
+    const key = await signingKey();
+    const publicJwk = blueskyOAuthPublicJwk(key);
+    const base = { clientId: CLIENT_ID, redirectUris: [REDIRECT], scope: "atproto" };
+    const metadata = blueskyOAuthClientMetadata({
+      ...base,
+      jwks: { keys: [{ ...publicJwk, key_ops: ["verify"], ext: true }] },
+    });
+    assert.deepEqual(metadata.jwks?.keys, [publicJwk]);
+
+    const rejectedKeys: Record<string, unknown>[] = [
+      { kty: "oct", k: "c2VjcmV0" },
+      { kty: "oct", kid: "hmac" },
+      { ...publicJwk, d: key.privateJwk.d },
+      { ...publicJwk, k: "c2VjcmV0" },
+      ...["p", "q", "dp", "dq", "qi", "oth"].map((member) => ({ ...publicJwk, [member]: "AQAB" })),
+      { kty: "RSA", n: "AQAB", e: "AQAB" },
+      { kty: "OKP", crv: "Ed25519", x: publicJwk.x },
+      { ...publicJwk, crv: "P-384" },
+      { kty: "EC", crv: "P-256", x: publicJwk.x },
+      { ...publicJwk, x: "short" },
+      { ...publicJwk, alg: "RS256" },
+      { ...publicJwk, use: "enc" },
+    ];
+    for (const bad of rejectedKeys) {
+      let caught: unknown;
+      try {
+        blueskyOAuthClientMetadata({ ...base, jwks: { keys: [bad as JsonWebKey] } });
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught instanceof SocialError, JSON.stringify(Object.keys(bad)));
+      assert.equal(caught.code, "invalid_config");
+      assert.doesNotMatch(`${caught.message} ${JSON.stringify(caught)}`, /c2VjcmV0/);
+      if (key.privateJwk.d !== undefined)
+        assert.equal(
+          `${caught.message} ${JSON.stringify(caught)}`.includes(key.privateJwk.d),
+          false,
+        );
+    }
+  });
+
+  it("returns providerState from begin unless the provider marks it secret", async () => {
+    const store = new MemoryConnectionStore();
+    const manager = new ConnectionManager({ store });
+    const started = await manager.begin({
+      backend: "direct",
+      tenantId: "tenant",
+      principalId: "user",
+      platforms: ["linkedin"],
+      redirectUri: REDIRECT,
+      allowedRedirectUris: [REDIRECT],
+      provider: {
+        start: async () => ({
+          authorizationUrl: "https://provider.test/authorize",
+          providerState: "upstream-state",
+        }),
+        complete: async () => [],
+      },
+    });
+    assert.equal(started.attempt.providerState, "upstream-state");
+    assert.equal("codeVerifier" in started.attempt, false);
   });
 
   describe("revocation after failed identity verification", () => {
@@ -902,6 +1195,7 @@ describe("Bluesky AT Protocol OAuth", () => {
       options: WorldOptions,
       hint: string,
       clientKey?: BlueskyOAuthSigningKey,
+      expected = "unauthorized",
     ) {
       const mock = world(options);
       const saved: BlueskyOAuthSession[] = [];
@@ -920,7 +1214,7 @@ describe("Bluesky AT Protocol OAuth", () => {
         caught = error;
       }
       assert.ok(caught instanceof SocialError, "complete rejects");
-      assert.equal(caught.code, "unauthorized");
+      assert.equal(caught.code, expected);
       assert.doesNotMatch(
         `${caught.message} ${String(caught.stack)} ${JSON.stringify(caught)}`,
         /at-1|rt-2|code-1/,
@@ -974,6 +1268,25 @@ describe("Bluesky AT Protocol OAuth", () => {
       assert.equal(revokes[0]?.form.get("token_type_hint"), "access_token");
     });
 
+    it("revokes when the token response itself fails validation", async () => {
+      for (const [options, expected] of [
+        [{ tokenSub: "not-a-did" }, "unauthorized"],
+        [{ tokenSub: "did:key:z6Mkabc" }, "unauthorized"],
+        [{ tokenType: "Bearer" }, "unauthorized"],
+        [{ tokenScope: "transition:generic" }, "unauthorized"],
+        [{ omitNonce: "token" }, "upstream_failure"],
+      ] as const) {
+        const { revokes } = await rejected(
+          { ...options, revocation: "ok" },
+          DID,
+          undefined,
+          expected,
+        );
+        assert.equal(revokes.length, 1, JSON.stringify(options));
+        assert.equal(revokes[0]?.form.get("token"), "rt-2");
+      }
+    });
+
     it("does not revoke when the server advertises no revocation endpoint", async () => {
       const { revokes } = await rejected({ tokenSub: OTHER_DID }, DID);
       assert.equal(revokes.length, 0);
@@ -1001,36 +1314,37 @@ describe("Bluesky AT Protocol OAuth", () => {
       );
     });
 
-    it("revokes a refreshed token that names a different account", async () => {
-      const mock = world({ revocation: "ok", refreshSub: OTHER_DID });
-      const saved: BlueskyOAuthSession[] = [];
-      const provider = blueskyOAuth({
-        clientId: CLIENT_ID,
-        fetch: mock.fetch,
-        plcDirectoryUrl: PLC,
-        sessionSink: { save: async ({ session }) => void saved.push(session) },
-      });
-      const started = await provider.start(startInput(DID));
-      await provider.complete({ callbackUrl, attempt: attemptFor(started.providerState) });
-      const session = saved[0];
-      assert.ok(session);
-      const code = await codeFor(
-        refreshBlueskyOAuthSession(session, {
+    for (const refreshSub of [OTHER_DID, "not-a-did"])
+      it(`revokes a refreshed token whose subject is ${refreshSub}`, async () => {
+        const mock = world({ revocation: "ok", refreshSub });
+        const saved: BlueskyOAuthSession[] = [];
+        const provider = blueskyOAuth({
           clientId: CLIENT_ID,
           fetch: mock.fetch,
           plcDirectoryUrl: PLC,
-        }),
-      );
-      assert.equal(code, "unauthorized");
-      const refresh = mock.requests.find(
-        (request) =>
-          request.url.pathname === "/oauth/token" &&
-          request.form.get("grant_type") === "refresh_token",
-      );
-      const revokes = mock.requests.filter((request) => request.url.pathname === "/oauth/revoke");
-      assert.equal(revokes.length, 1);
-      assert.equal(revokes[0]?.form.get("token"), "rt-3");
-      assert.deepEqual(revokes[0]?.dpop?.header["jwk"], refresh?.dpop?.header["jwk"]);
-    });
+          sessionSink: { save: async ({ session }) => void saved.push(session) },
+        });
+        const started = await provider.start(startInput(DID));
+        await provider.complete({ callbackUrl, attempt: attemptFor(started.providerState) });
+        const session = saved[0];
+        assert.ok(session);
+        const code = await codeFor(
+          refreshBlueskyOAuthSession(session, {
+            clientId: CLIENT_ID,
+            fetch: mock.fetch,
+            plcDirectoryUrl: PLC,
+          }),
+        );
+        assert.equal(code, "unauthorized");
+        const refresh = mock.requests.find(
+          (request) =>
+            request.url.pathname === "/oauth/token" &&
+            request.form.get("grant_type") === "refresh_token",
+        );
+        const revokes = mock.requests.filter((request) => request.url.pathname === "/oauth/revoke");
+        assert.equal(revokes.length, 1);
+        assert.equal(revokes[0]?.form.get("token"), "rt-3");
+        assert.deepEqual(revokes[0]?.dpop?.header["jwk"], refresh?.dpop?.header["jwk"]);
+      });
   });
 });

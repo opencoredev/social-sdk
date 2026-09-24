@@ -2,6 +2,7 @@
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
 import { connectedAccountRef } from "../core/types.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
+import { egressBlockReason } from "./egress.js";
 import { readBounded, validateCallback } from "./oauth-internal.js";
 
 // AT Protocol OAuth profile: https://atproto.com/specs/oauth (accessed 2026-09-24).
@@ -15,6 +16,16 @@ const DEFAULT_PLC_DIRECTORY = "https://plc.directory";
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
+
+/** Redirect hops allowed for the HTTPS handle method. Metadata requests allow none. */
+const MAX_HANDLE_REDIRECTS = 3;
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** Members that only appear in private or symmetric JWKs. */
+const SECRET_JWK_MEMBERS = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"] as const;
+
+const P256_COORDINATE = /^[A-Za-z0-9_-]{43}$/;
 
 const JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
@@ -61,6 +72,16 @@ export interface BlueskyOAuthRequestOptions {
   readonly resolveTxt?: (hostname: string) => Promise<readonly (readonly string[])[]>;
   /** PLC directory used for `did:plc` documents. Defaults to https://plc.directory. */
   readonly plcDirectoryUrl?: string;
+  /**
+   * Extra check run before every outgoing request and every redirect hop, after
+   * the built-in checks. The built-in checks allow only HTTPS, reject `localhost`
+   * names, and reject IP-literal hosts in loopback, private, link-local, CGNAT,
+   * multicast, and reserved ranges. They cannot see where a hostname resolves.
+   * Throw to block the request. For DNS-level protection, also pass a `fetch`
+   * that pins resolved addresses, since a lookup here can differ from the one
+   * `fetch` makes.
+   */
+  readonly assertEgressAllowed?: (url: URL) => void | Promise<void>;
 }
 
 export interface BlueskyOAuthClientOptions extends BlueskyOAuthRequestOptions {
@@ -174,8 +195,6 @@ interface ProviderState {
 
 interface HttpResult {
   readonly status: number;
-  /** Final URL after any redirects; empty when the fetch implementation does not report it. */
-  readonly url: string;
   readonly headers: Headers;
   readonly text: string;
 }
@@ -353,11 +372,44 @@ export function blueskyOAuthPublicJwk(key: BlueskyOAuthSigningKey): JsonWebKey &
 
 // HTTP ---------------------------------------------------------------------------------
 
+async function assertEgress(
+  url: URL,
+  operation: string,
+  hook: ((url: URL) => void | Promise<void>) | undefined,
+): Promise<void> {
+  const reason = egressBlockReason(url);
+
+  if (reason !== undefined)
+    fail(operation, `Bluesky OAuth request target is not allowed: ${reason}`, "unauthorized");
+
+  if (hook === undefined) return;
+
+  try {
+    await hook(new URL(url));
+  } catch (error) {
+    if (error instanceof SocialError) throw error;
+
+    throw new SocialError({
+      code: "unauthorized",
+      operation,
+      message: "Bluesky OAuth request target was rejected by assertEgressAllowed",
+      cause: error,
+    });
+  }
+}
+
+/**
+ * Send one request through the egress guard. Redirects are never followed by
+ * `fetch`; up to `maxRedirects` GET redirects are followed here, and every hop
+ * passes the same guard. With `maxRedirects` 0 a redirect is returned as is and
+ * the caller rejects it as a non-success status.
+ */
 async function send(
   url: URL,
   init: RequestInit,
   operation: string,
   options: BlueskyOAuthRequestOptions,
+  maxRedirects = 0,
 ): Promise<HttpResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -375,22 +427,41 @@ async function send(
     }, timeoutMs);
   });
 
+  const race = <T>(work: Promise<T>): Promise<T> => Promise.race([work, timeout]);
+
   try {
-    const response = await Promise.race([
-      fetcher(url.toString(), {
-        ...init,
-        redirect: init.redirect ?? "error",
-        signal: controller.signal,
-      }),
-      timeout,
-    ]);
+    let target = url;
 
-    const text = await Promise.race([
-      readBounded(response, options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES, operation),
-      timeout,
-    ]);
+    for (let hop = 0; ; hop++) {
+      await race(assertEgress(target, operation, options.assertEgressAllowed));
 
-    return { status: response.status, url: response.url, headers: response.headers, text };
+      const response = await race(
+        fetcher(target.toString(), { ...init, redirect: "manual", signal: controller.signal }),
+      );
+
+      if (maxRedirects > 0 && REDIRECT_STATUSES.has(response.status)) {
+        await response.body?.cancel().catch(() => undefined);
+
+        if (hop >= maxRedirects) fail(operation, "Bluesky OAuth request redirected too many times");
+        const location = response.headers.get("location");
+
+        if (location === null) fail(operation, "Bluesky OAuth redirect has no Location header");
+
+        try {
+          target = new URL(location, target);
+        } catch {
+          fail(operation, "Bluesky OAuth redirect has an invalid Location header");
+        }
+
+        continue;
+      }
+
+      const text = await race(
+        readBounded(response, options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES, operation),
+      );
+
+      return { status: response.status, headers: response.headers, text };
+    }
   } catch (error) {
     if (error instanceof SocialError) throw error;
 
@@ -589,20 +660,17 @@ async function resolveHandle(handle: string, options: BlueskyOAuthRequestOptions
 
   const result = await send(
     new URL(`https://${handle}/.well-known/atproto-did`),
-    // The handle spec allows redirects here. Metadata documents must not redirect.
-    { headers: { accept: "text/plain" }, redirect: "follow" },
+    { headers: { accept: "text/plain" } },
     operation,
     options,
+    // The handle spec allows redirects here; every hop passes the egress guard.
+    // Metadata documents must not redirect.
+    MAX_HANDLE_REDIRECTS,
   );
 
   const did = result.text.trim();
 
-  if (
-    result.status < 200 ||
-    result.status > 299 ||
-    (result.url !== "" && !result.url.startsWith("https://")) ||
-    !validDid(did)
-  )
+  if (result.status < 200 || result.status > 299 || !validDid(did))
     fail(operation, "Bluesky handle could not be resolved");
 
   return did;
@@ -885,6 +953,24 @@ function isUseDpopNonce(result: HttpResult): boolean {
   }
 }
 
+interface AuthorizationServerResponse {
+  readonly json: Record<string, unknown>;
+  /** Latest server nonce, carried over from earlier responses when this one has none. */
+  readonly nonce: string | undefined;
+  /** Whether the successful response itself carried a `DPoP-Nonce` header. */
+  readonly nonceReturned: boolean;
+}
+
+/**
+ * The atproto OAuth profile says clients must reject responses without a
+ * `DPoP-Nonce` header when the request carried DPoP. Token callers run this
+ * inside the revoke-on-failure path, because the tokens were already issued.
+ */
+function requireServerNonce(response: AuthorizationServerResponse, operation: string): void {
+  if (!response.nonceReturned)
+    fail(operation, "Bluesky authorization server response is missing a DPoP-Nonce header");
+}
+
 /**
  * POST a form to an authorization server endpoint with DPoP. When the server
  * answers `use_dpop_nonce`, the request is sent once more with the new nonce, as
@@ -899,7 +985,7 @@ async function authorizationServerPost(input: {
   readonly nonce: string | undefined;
   readonly operation: string;
   readonly options: BlueskyOAuthClientOptions;
-}): Promise<{ readonly json: Record<string, unknown>; readonly nonce: string | undefined }> {
+}): Promise<AuthorizationServerResponse> {
   const url = new URL(input.endpoint);
   let nonce = input.nonce;
 
@@ -934,7 +1020,11 @@ async function authorizationServerPost(input: {
     if (result.status < 200 || result.status > 299)
       oauthError(result.status, result.text, input.operation);
 
-    return { json: parseJson(result.text, input.operation), nonce };
+    return {
+      json: parseJson(result.text, input.operation),
+      nonce,
+      nonceReturned: next !== undefined && next !== "",
+    };
   }
 }
 
@@ -949,19 +1039,22 @@ async function authorizationServerPost(input: {
 async function revokeRejectedTokens(input: {
   readonly endpoint: string | undefined;
   readonly issuer: string;
-  readonly token: TokenResponse;
+  readonly tokens: IssuedTokens;
   readonly dpopKey: JsonWebKey;
   readonly nonce: string | undefined;
   readonly options: BlueskyOAuthClientOptions;
 }): Promise<void> {
-  if (input.endpoint === undefined) return;
+  const { accessToken, refreshToken } = input.tokens;
+
+  if (input.endpoint === undefined || (accessToken === undefined && refreshToken === undefined))
+    return;
 
   try {
     const url = new URL(input.endpoint);
     const form =
-      input.token.refreshToken === undefined
-        ? { token: input.token.accessToken, token_type_hint: "access_token" }
-        : { token: input.token.refreshToken, token_type_hint: "refresh_token" };
+      refreshToken === undefined
+        ? { token: accessToken ?? "", token_type_hint: "access_token" }
+        : { token: refreshToken, token_type_hint: "refresh_token" };
 
     await send(
       url,
@@ -990,7 +1083,10 @@ async function revokeRejectedTokens(input: {
   }
 }
 
-/** Run post-exchange checks; if any fails, revoke the new tokens once and rethrow. */
+/**
+ * Run every check that follows a token response, including parsing it; if any
+ * fails, revoke the issued tokens once and rethrow the original error.
+ */
 async function verifyOrRevoke<T>(
   check: () => Promise<T>,
   revoke: Parameters<typeof revokeRejectedTokens>[0],
@@ -1001,6 +1097,22 @@ async function verifyOrRevoke<T>(
     await revokeRejectedTokens(revoke);
     throw error;
   }
+}
+
+/** Token strings pulled from a response before any other validation, so they can be revoked. */
+interface IssuedTokens {
+  readonly accessToken?: string;
+  readonly refreshToken?: string;
+}
+
+function issuedTokens(data: Record<string, unknown>): IssuedTokens {
+  const accessToken = data["access_token"];
+  const refreshToken = data["refresh_token"];
+
+  return {
+    ...(typeof accessToken === "string" && accessToken.length > 0 ? { accessToken } : {}),
+    ...(typeof refreshToken === "string" && refreshToken.length > 0 ? { refreshToken } : {}),
+  };
 }
 
 interface TokenResponse {
@@ -1208,6 +1320,7 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
         options,
       });
 
+      requireServerNonce(par, "bluesky.oauth.par");
       const requestUri = par.json["request_uri"];
 
       if (typeof requestUri !== "string" || requestUri.length === 0)
@@ -1231,6 +1344,8 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
           ...(did === undefined ? {} : { did }),
           ...(handle === undefined ? {} : { handle }),
         }),
+        // Holds the DPoP private key, so it never leaves the connection store.
+        providerStateSecret: true,
       };
     },
 
@@ -1286,23 +1401,27 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
         options,
       });
 
-      const token = tokenResponse(exchanged.json, "bluesky.oauth.token");
-
-      const doc = await verifyOrRevoke(
+      const { token, doc } = await verifyOrRevoke(
         async () => {
-          if (state.did !== undefined && token.did !== state.did)
+          requireServerNonce(exchanged, "bluesky.oauth.token");
+          const parsed = tokenResponse(exchanged.json, "bluesky.oauth.token");
+
+          if (state.did !== undefined && parsed.did !== state.did)
             fail(
               "bluesky.oauth.identity",
               "Token subject does not match the requested account",
               "unauthorized",
             );
 
-          return verifyIssuerForDid(token.did, state.issuer, options);
+          return {
+            token: parsed,
+            doc: await verifyIssuerForDid(parsed.did, state.issuer, options),
+          };
         },
         {
           endpoint: state.revocationEndpoint,
           issuer: state.issuer,
-          token,
+          tokens: issuedTokens(exchanged.json),
           dpopKey: state.dpopKey,
           nonce: exchanged.nonce,
           options,
@@ -1418,10 +1537,14 @@ function replayable(body: BodyInit | null | undefined): boolean {
  * answers 401 with `use_dpop_nonce`, a replayable request is sent once more with
  * the new nonce (RFC 9449 section 9). It never refreshes tokens; call
  * `refreshBlueskyOAuthSession` before `expiresAt`.
+ *
+ * A PDS response without a `DPoP-Nonce` header is returned rather than rejected:
+ * by then the PDS has already processed the request, and turning a completed
+ * write into an error would hide its outcome.
  */
 export function blueskyOAuthTransport(
   session: BlueskyOAuthSession,
-  options: { readonly fetch?: typeof globalThis.fetch } = {},
+  options: Pick<BlueskyOAuthRequestOptions, "fetch" | "assertEgressAllowed"> = {},
 ): BlueskyOAuthTransport {
   const verified = parseBlueskyOAuthSession(session);
   const fetcher = options.fetch ?? globalThis.fetch;
@@ -1447,6 +1570,7 @@ export function blueskyOAuthTransport(
           "invalid_input",
         );
 
+      await assertEgress(url, "bluesky.oauth.transport", options.assertEgressAllowed);
       const method = (init.method ?? "GET").toUpperCase();
 
       const request = async (proofNonce: string | undefined): Promise<Response> => {
@@ -1532,17 +1656,20 @@ export async function refreshBlueskyOAuthSession(
     options,
   });
 
-  const token = tokenResponse(refreshed.json, operation);
-
-  await verifyOrRevoke(
+  const token = await verifyOrRevoke(
     async () => {
-      if (token.did !== current.did)
+      requireServerNonce(refreshed, operation);
+      const parsed = tokenResponse(refreshed.json, operation);
+
+      if (parsed.did !== current.did)
         fail(operation, "Refreshed token belongs to a different account", "unauthorized");
+
+      return parsed;
     },
     {
       endpoint: server.revocationEndpoint,
       issuer: current.issuer,
-      token,
+      tokens: issuedTokens(refreshed.json),
       dpopKey: current.dpopKey,
       nonce: refreshed.nonce,
       options,
@@ -1624,6 +1751,48 @@ function checkRedirect(value: string, clientId: URL, applicationType: "web" | "n
 }
 
 /**
+ * Check one `jwks` entry and copy only its public members. Client authentication
+ * uses ES256, so only EC P-256 public keys are accepted. Any private or symmetric
+ * member, including an `oct` key's `k`, is rejected rather than stripped so that
+ * a misplaced secret is noticed.
+ */
+function publishableJwk(value: unknown, operation: string): JsonWebKey & { readonly kid?: string } {
+  if (!isRecord(value)) fail(operation, "jwks entries must be JWK objects", "invalid_config");
+
+  if (SECRET_JWK_MEMBERS.some((member) => member in value))
+    fail(operation, "jwks must contain public keys only", "invalid_config");
+
+  const { kty, crv, x, y, kid, alg, use } = value;
+
+  if (
+    kty !== "EC" ||
+    crv !== "P-256" ||
+    typeof x !== "string" ||
+    typeof y !== "string" ||
+    !P256_COORDINATE.test(x) ||
+    !P256_COORDINATE.test(y)
+  )
+    fail(operation, "jwks keys must be EC P-256 public keys", "invalid_config");
+
+  if (
+    (kid !== undefined && (typeof kid !== "string" || kid.length === 0)) ||
+    (alg !== undefined && alg !== "ES256") ||
+    (use !== undefined && use !== "sig")
+  )
+    fail(operation, "jwks keys must be ES256 signing keys", "invalid_config");
+
+  return {
+    kty,
+    crv,
+    x,
+    y,
+    ...(typeof kid === "string" ? { kid } : {}),
+    ...(alg === undefined ? {} : { alg }),
+    ...(use === undefined ? {} : { use }),
+  };
+}
+
+/**
  * Build and validate the client metadata document to serve at `clientId`.
  * Adding `jwks` or `jwksUri` makes the client confidential (`private_key_jwt`).
  */
@@ -1652,14 +1821,9 @@ export function blueskyOAuthClientMetadata(
   if (input.jwks !== undefined && input.jwksUri !== undefined)
     fail(operation, "Use jwks or jwks_uri, not both", "invalid_config");
 
-  if (input.jwks !== undefined) {
-    if (input.jwks.keys.length === 0)
-      fail(operation, "jwks must contain at least one public key", "invalid_config");
-
-    for (const key of input.jwks.keys)
-      if (key.d !== undefined || key.kty === undefined)
-        fail(operation, "jwks must contain public keys only", "invalid_config");
-  }
+  if (input.jwks !== undefined && input.jwks.keys.length === 0)
+    fail(operation, "jwks must contain at least one public key", "invalid_config");
+  const jwks = input.jwks?.keys.map((key) => publishableJwk(key, operation));
 
   if (
     input.clientUri !== undefined &&
@@ -1689,7 +1853,7 @@ export function blueskyOAuthClientMetadata(
     token_endpoint_auth_method: confidential ? "private_key_jwt" : "none",
     ...(confidential ? { token_endpoint_auth_signing_alg: "ES256" as const } : {}),
     ...(jwksUri === undefined ? {} : { jwks_uri: jwksUri }),
-    ...(input.jwks === undefined ? {} : { jwks: { keys: [...input.jwks.keys] } }),
+    ...(jwks === undefined ? {} : { jwks: { keys: jwks } }),
     ...(input.clientName === undefined ? {} : { client_name: input.clientName }),
     ...(input.clientUri === undefined ? {} : { client_uri: input.clientUri }),
     ...(input.logoUri === undefined ? {} : { logo_uri: input.logoUri }),
