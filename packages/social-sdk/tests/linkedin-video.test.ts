@@ -336,6 +336,28 @@ it("LinkedIn creates no video post while processing, after failure, or for anoth
   }
 });
 
+it("LinkedIn creates no video post when the status read returns a different video", async () => {
+  const methods: string[] = [];
+
+  const social = createSocial({
+    backend: linkedin({
+      auth,
+      apiVersion: "202609",
+      fetch: async (_input, init) => {
+        methods.push(init?.method ?? "GET");
+
+        return Response.json({ id: "urn:li:video:other", owner: auth.author, status: "AVAILABLE" });
+      },
+    }),
+  });
+
+  const outcome = (await social.posts.publish(videoPost())).outcomes[0];
+  assert.equal(outcome?.state, "failed");
+
+  if (outcome?.state === "failed") assert.equal(outcome.code, "media_error");
+  assert.deepEqual(methods, ["GET"]);
+});
+
 it("LinkedIn prepare rejects mismatched video URNs and video alt text", () => {
   const social = createSocial({
     backend: linkedin({ auth, apiVersion: "202609", fetch: async () => new Response(null) }),
@@ -419,6 +441,12 @@ it("LinkedIn videoStatus reads one status and rejects other owners", async () =>
     { name: "SocialError", code: "invalid_input" },
   );
   assert.equal(urls.length, 2);
+
+  owner = auth.author;
+  await assert.rejects(
+    adapter.native!.videoStatus({ ...videoRef, mediaId: "urn:li:video:other" }, nativeContext),
+    { name: "SocialError", code: "media_error" },
+  );
 });
 
 it("LinkedIn declares video posts and video media uploads as available", () => {

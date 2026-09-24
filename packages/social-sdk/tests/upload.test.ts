@@ -78,11 +78,40 @@ it("splits oversized chunks and never reopens a failed stream", async () => {
       const reader = init.body.getReader();
       assert.equal((await reader.read()).value?.byteLength, 10);
       assert.equal((await reader.read()).value?.byteLength, 1);
+      assert.equal((await reader.read()).done, true);
 
       return new Response(null);
     },
   });
   assert.equal(opened, 1);
+});
+
+it("rejects storage that accepts an undeclared-size stream before it ends", async () => {
+  await assert.rejects(
+    upload({
+      url: "https://storage.example.test/document",
+      allowHost: () => true,
+      maxBytes: 100,
+      maxChunkBytes: 10,
+      source: {
+        mimeType: "application/pdf",
+        open: () =>
+          new ReadableStream({
+            start(c) {
+              c.enqueue(new Uint8Array(25));
+              c.close();
+            },
+          }),
+      },
+      fetch: async (_url, init) => {
+        assert.ok(init?.body instanceof ReadableStream);
+        await init.body.getReader().read();
+
+        return new Response(null, { status: 201 });
+      },
+    }),
+    { name: "HttpError", kind: "invalid-response" },
+  );
 });
 
 it("uploads large Blobs with Content-Length and without chunked streaming", async () => {

@@ -529,6 +529,15 @@ describe("Bluesky video publishing", () => {
         ],
       ],
       ["media.aspect_ratio", [{ ...video, width: 1920 }]],
+      [
+        "media.unsupported_kind",
+        [
+          {
+            kind: "document" as const,
+            source: { kind: "https-url" as const, url: "https://cdn.example/report.pdf" },
+          },
+        ],
+      ],
     ] as const;
 
     for (const [code, media] of cases)

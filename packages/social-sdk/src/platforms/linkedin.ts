@@ -484,6 +484,13 @@ export function linkedin(
         message: "LinkedIn video belongs to another author.",
       });
 
+    if (video["id"] !== undefined && video["id"] !== ref.mediaId)
+      throw new SocialError({
+        code: "media_error",
+        operation: "media.read",
+        message: "LinkedIn returned the status of a different video.",
+      });
+
     return publicFields(video, ["id", "owner", "status", "processingFailureReason", "duration"]);
   }
 
@@ -1470,6 +1477,13 @@ export function linkedin(
               code: "unauthorized",
               operation: "posts.publish",
               message: `LinkedIn ${video ? "video" : "image"} belongs to a different author.`,
+            });
+
+          if (image?.["id"] !== undefined && image["id"] !== item.source.ref.mediaId)
+            throw new SocialError({
+              code: "media_error",
+              operation: "posts.publish",
+              message: `LinkedIn returned a different ${video ? "video" : "image"} than the one attached. No post was created.`,
             });
 
           if (video && image?.["status"] === "PROCESSING_FAILED")
