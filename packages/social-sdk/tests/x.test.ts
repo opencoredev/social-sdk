@@ -81,6 +81,45 @@ it("X local validation counts weighted Unicode and URLs without network access",
   );
 });
 
+it("X declares scheduling and profile writes as unavailable and rejects a schedule offline", async () => {
+  let requests = 0;
+
+  const social = createSocial({
+    backend: x({
+      auth,
+      fetch: async () => {
+        requests += 1;
+
+        return Response.json({ data: { id: "post1" } });
+      },
+    }),
+  });
+
+  const declarations = social
+    .capabilities()
+    .default.capabilities.filter((entry) =>
+      ["posts.schedule", "profile.update"].includes(entry.operation),
+    );
+  assert.deepEqual(
+    declarations.map((entry) => `${entry.operation}:${entry.availability}`),
+    ["posts.schedule:not-implemented-by-adapter", "profile.update:unsupported-by-platform"],
+  );
+  assert.match(declarations[0]?.notes ?? "", /OAuth 1\.0a/);
+  assert.match(declarations[0]?.notes ?? "", /nullcast=true/);
+  assert.match(declarations[1]?.notes ?? "", /https:\/\/docs\.x\.com\/openapi\.json/);
+
+  const request = {
+    targets: [{ account }],
+    content: { text: "Later" },
+    schedule: { at: "2026-12-01T09:00:00Z" },
+  };
+  const prepared = social.posts.prepare(request);
+  assert.equal(prepared.ok, false);
+  assert.ok(prepared.issues.some((issue) => issue.code === "x.operation"));
+  await assert.rejects(social.posts.publish(request));
+  assert.equal(requests, 0);
+});
+
 it("X lost create responses remain unknown and never replay", async () => {
   let calls = 0;
 

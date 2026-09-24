@@ -1300,13 +1300,6 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           notes:
             "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403.",
         },
-        {
-          platform: "x",
-          operation: "posts.schedule",
-          availability: "not-implemented-by-adapter" as const,
-          notes:
-            "X API v2 POST /2/tweets has no publish-time field. X schedules posts only through the separate Ads API scheduled_tweets endpoint, which needs Ads API access, an ads account ID and OAuth 1.0a; this adapter does not implement it.",
-        },
         ...[
           "accounts.read",
           "posts.list",
@@ -1475,10 +1468,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         },
         {
           platform: "x",
+          operation: "posts.schedule",
+          availability: "not-implemented-by-adapter" as const,
+          notes:
+            "X API v2 has no scheduled-post field; POST /2/tweets publishes immediately. X Ads API scheduled Tweets (ads-api.x.com/12/accounts/:account_id/scheduled_tweets) need Ads API approval, an ads account, and OAuth 1.0a-signed requests, which this OAuth 2.0 adapter does not implement (https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests, checked 2026-09-24). Scheduled Tweets default to nullcast=true (promoted-only, not on the public timeline); organic nullcast=false Tweets can only be created by the ads account's full promotable user (https://docs.x.com/x-ads-api/creatives, checked 2026-09-24). Use an application-owned job runner to publish at a chosen time.",
+        },
+        {
+          platform: "x",
           operation: "profile.update",
           availability: "unsupported-by-platform" as const,
           notes:
-            "X API v2 has no profile write endpoint. The legacy v1.1 account/update_profile method is no longer in the X documentation and requires OAuth 1.0a, which this adapter does not use.",
+            "X API v2 (OpenAPI 2.168, https://docs.x.com/openapi.json, checked 2026-09-24) has no endpoint that writes the user's profile. The v1.1 POST account/update_profile reference is no longer published on docs.x.com (its developer.x.com URL redirects to https://docs.x.com/overview), and v1.1 user writes require OAuth 1.0a.",
         },
       ],
     },
@@ -1645,7 +1645,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         if (target.schedule || target.content.link)
           fail(
             "x.operation",
-            "Scheduling needs an application runner; place URLs explicitly in text.",
+            "X API v2 cannot schedule posts; use an application job runner. Place URLs explicitly in text.",
           );
 
         if (

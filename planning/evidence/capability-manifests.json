@@ -2063,9 +2063,15 @@
         },
         {
           "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "not-implemented-by-adapter",
+          "notes": "X API v2 has no scheduled-post field; POST /2/tweets publishes immediately. X Ads API scheduled Tweets (ads-api.x.com/12/accounts/:account_id/scheduled_tweets) need Ads API approval, an ads account, and OAuth 1.0a-signed requests, which this OAuth 2.0 adapter does not implement (https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests, checked 2026-09-24). Scheduled Tweets default to nullcast=true (promoted-only, not on the public timeline); organic nullcast=false Tweets can only be created by the ads account's full promotable user (https://docs.x.com/x-ads-api/creatives, checked 2026-09-24). Use an application-owned job runner to publish at a chosen time."
+        },
+        {
+          "platform": "x",
           "operation": "profile.update",
           "availability": "unsupported-by-platform",
-          "notes": "X API v2 has no profile write endpoint. The legacy v1.1 account/update_profile method is no longer in the X documentation and requires OAuth 1.0a, which this adapter does not use."
+          "notes": "X API v2 (OpenAPI 2.168, https://docs.x.com/openapi.json, checked 2026-09-24) has no endpoint that writes the user's profile. The v1.1 POST account/update_profile reference is no longer published on docs.x.com (its developer.x.com URL redirects to https://docs.x.com/overview), and v1.1 user writes require OAuth 1.0a."
         }
       ]
     }
