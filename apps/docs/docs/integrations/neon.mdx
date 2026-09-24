@@ -11,7 +11,7 @@ Neon Functions run Node.js 24, one of the SDK's tested runtimes, so the SDK runs
 @opencoredev/social-sdk
 ```
 
-The examples also use `hono`, `pg`, and `@neon/config`.
+The examples also use `hono`, `pg`, `@neon/functions` 0.8.0 or later, and `@neon/config`.
 
 ## Declare the function
 
@@ -191,6 +191,7 @@ Threads publishing takes two steps. `posts.publish` records the post in the work
 ```ts src/index.ts
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { attachDatabasePool } from "@neon/functions";
 import { Pool } from "pg";
 import { createSocial, connectedAccountRef, type DeliveryRef } from "@opencoredev/social-sdk";
 import { threads } from "@opencoredev/social-sdk/threads";
@@ -198,6 +199,8 @@ import { postgresIdempotencyStore, postgresThreadsWorkflowStore } from "./stores
 
 // Each isolate keeps its own pool, so total connections are max × live isolates.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+// Without an error listener, an idle connection dropped at scale to zero crashes the isolate.
+attachDatabasePool(pool);
 
 const social = createSocial({
   backend: threads({
@@ -378,5 +381,5 @@ Keep the inbox in an `events_inbox` table with a unique dedupe key, following th
 - Each branch gets its own function URL and a copy of the parent's data, including `connected_accounts` and `threads_workflows`. Deploy preview branches with test credentials so a preview can't post to production accounts.
 - Neon enforces a per-account limit on concurrent invocations and answers extra requests with `429` and a `Retry-After` header before your handler runs. No publish happened in that case, so the caller can retry.
 - Functions are available only in some Neon regions. Check the [Neon Functions overview](https://neon.com/docs/compute/functions/overview) before creating the project.
-- The Neon details on this page come from Neon's documentation as of September 22, 2026: [runtime limits](https://neon.com/docs/compute/functions/reference/runtime-limits) (Node.js 24, isolates, eviction, `waitUntil`, the concurrency limit), [environment variables](https://neon.com/docs/compute/functions/environment-variables), [deploy and manage](https://neon.com/docs/compute/functions/deploy) (slugs), [scheduled triggers](https://neon.com/docs/compute/functions/triggers/schedule) (cron, `X-Neon-*` headers, scale to zero), [Function Triggers](https://neon.com/docs/compute/functions/triggers/overview) (local replay), and the [`neon.ts` reference](https://neon.com/docs/reference/neon-ts). Neon Functions change often, so check those pages before relying on a limit.
+- The Neon details on this page come from Neon's documentation as of September 22, 2026: [runtime limits](https://neon.com/docs/compute/functions/reference/runtime-limits) (Node.js 24, isolates, eviction, `waitUntil`, the concurrency limit), [environment variables](https://neon.com/docs/compute/functions/environment-variables), [deploy and manage](https://neon.com/docs/compute/functions/deploy) (slugs), [get started](https://neon.com/docs/compute/functions/get-started) (`pg` pool, `attachDatabasePool`), [scheduled triggers](https://neon.com/docs/compute/functions/triggers/schedule) (cron, `X-Neon-*` headers, scale to zero), [Function Triggers](https://neon.com/docs/compute/functions/triggers/overview) (local replay), and the [`neon.ts` reference](https://neon.com/docs/reference/neon-ts). Neon Functions change often, so check those pages before relying on a limit.
 - The samples have not been run against a live Neon project or Threads account.
