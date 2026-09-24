@@ -6,8 +6,6 @@ import { instagram } from "../src/platforms/instagram.js";
 import { threads } from "../src/platforms/threads.js";
 import type { MediaAttachment, MediaRef } from "../src/core/types.js";
 
-/* oxlint-disable anti-slop/require-readable-spacing -- Keep fixture branches compact. */
-
 const nativeContext = {
   backendInstance: "default",
   correlationId: "test",
@@ -21,7 +19,9 @@ const account = connectedAccountRef({
 });
 
 const auth = { accessToken: "secret", author: "urn:li:person:member1" as const };
+
 const documentUrn = "urn:li:document:D5510AQH";
+
 const uploadUrl = "https://www.linkedin.com/dms-uploads/sp/v2/D5510AQH/uploaded-document/0";
 
 const documentRef = (overrides: Partial<MediaRef> = {}): MediaRef => ({
@@ -332,6 +332,7 @@ it("LinkedIn prepare rejects document posts without a title, with extra media, f
     targets: [{ account }],
     content: { media: [documentMedia({ caption: undefined, filename: "deck.pptx" })] },
   });
+
   assert.equal(fromFilename.ok, true);
 });
 
@@ -402,6 +403,7 @@ it("Instagram and Threads reject document attachments during preparation", () =>
       targets: [{ account: connectedAccountRef({ backend, platform, accountId }) }],
       content: { media: [attachment] },
     });
+
     assert.equal(preparation.ok, false);
   }
 });

@@ -4,8 +4,6 @@ import { createSocial, connectedAccountRef } from "../src/index.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import type { JsonObject, MediaAttachment, MediaRef } from "../src/core/types.js";
 
-/* oxlint-disable anti-slop/require-readable-spacing -- Keep fixture branches compact. */
-
 const nativeContext = {
   backendInstance: "default",
   correlationId: "test",
@@ -19,7 +17,9 @@ const account = connectedAccountRef({
 });
 
 const auth = { accessToken: "secret", author: "urn:li:person:member1" as const };
+
 const part = 4 * 1024 * 1024;
+
 const uploadBase = "https://www.linkedin.com/dms-uploads/sp/v2/D5610AQ/uploadedVideo";
 
 interface Call {
@@ -323,6 +323,7 @@ it("LinkedIn creates no video post while processing, after failure, or for anoth
     const result = await social.posts.publish(videoPost());
     const outcome = result.outcomes[0];
     assert.equal(outcome?.state, "failed");
+
     if (outcome?.state === "failed") assert.equal(outcome.code, code);
     assert.deepEqual(methods, ["GET"]);
   }
@@ -356,6 +357,7 @@ it("LinkedIn prepare rejects mismatched video URNs and video alt text", () => {
   assert.equal(social.posts.prepare(videoPost()).ok, true);
 
   const imageRef: MediaRef = { ...videoRef, mediaId: "urn:li:image:img1" };
+
   const mixed = {
     targets: [{ account }],
     content: {
@@ -365,6 +367,7 @@ it("LinkedIn prepare rejects mismatched video URNs and video alt text", () => {
       ],
     },
   };
+
   assert.ok(codes(mixed).includes("linkedin.media_count"));
 });
 
@@ -426,6 +429,7 @@ it("LinkedIn declares video posts and video media uploads as available", () => {
     assert.equal(entry.availability, "available");
     assert.ok(entry.formats?.includes("video"));
   }
+
   assert.equal(entries.length, 3);
 });
 
@@ -474,6 +478,7 @@ it("LinkedIn marks a processing video as safe to publish later and a failed one 
 
     const outcome = (await social.posts.publish(videoPost())).outcomes[0];
     assert.equal(outcome?.state, "failed");
+
     if (outcome?.state === "failed") assert.equal(outcome.retryDisposition.kind, kind);
   }
 });
@@ -504,34 +509,41 @@ it("LinkedIn waitForVideo reads again after the interval until the video is AVAI
   const status = await adapter.native!.waitForVideo(videoRef, freshContext(10_000), {
     intervalMs: 1_000,
   });
+
   assert.equal(status["status"], "AVAILABLE");
   assert.equal(urls.length, 2);
 });
 
 it("LinkedIn waitForVideo stops on terminal status, check limit, or budget", async () => {
   const failedUrls: string[] = [];
+
   const failed = await statusSequence(["PROCESSING_FAILED"], failedUrls).native!.waitForVideo(
     videoRef,
     freshContext(60_000),
   );
+
   assert.equal(failed["status"], "PROCESSING_FAILED");
   assert.equal(failedUrls.length, 1);
 
   const limitUrls: string[] = [];
+
   const limited = await statusSequence(["PROCESSING"], limitUrls).native!.waitForVideo(
     videoRef,
     freshContext(60_000),
     { maxChecks: 1 },
   );
+
   assert.equal(limited["status"], "PROCESSING");
   assert.equal(limitUrls.length, 1);
 
   // A 1,000 ms budget cannot fit the default 5,000 ms wait, so the pending status returns at once.
   const budgetUrls: string[] = [];
+
   const pending = await statusSequence(["PROCESSING"], budgetUrls).native!.waitForVideo(
     videoRef,
     freshContext(1_000),
   );
+
   assert.equal(pending["status"], "PROCESSING");
   assert.equal(budgetUrls.length, 1);
 });

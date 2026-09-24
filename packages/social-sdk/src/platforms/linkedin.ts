@@ -17,8 +17,6 @@ import { array, object, string, optionalString, optionalNumber } from "../transp
 import { upload } from "../transport/upload.js";
 import { publicFields } from "../cloud/common.js";
 
-/* oxlint-disable anti-slop/require-readable-spacing -- Existing adapter style keeps compact guards and native dispatch blocks. */
-
 /** Documents API file types (PDF, PPT, PPTX, DOC, DOCX), checked 2026-09-24 against version 202609. */
 const linkedInDocumentMimeTypes: readonly string[] = [
   "application/pdf",
@@ -186,13 +184,20 @@ export interface LinkedInNative {
  * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-09
  */
 const linkedInVideoPartBytes = 4 * 1024 * 1024;
+
 const linkedInVideoMinBytes = 75_000;
+
 const linkedInVideoMaxBytes = 500 * 1024 * 1024;
+
 const linkedInVideoUrn = /^urn:li:video:[a-zA-Z0-9_-]+$/;
+
 const linkedInImageUrn = /^urn:li:image:[a-zA-Z0-9_-]+$/;
+
 /* LinkedIn documents no processing time or polling interval; these bounds are the SDK's own. */
 const linkedInVideoRetryDelayMs = 5_000;
+
 const linkedInVideoWaitDefaults = { intervalMs: 5_000, maxChecks: 12 } as const;
+
 const linkedInVideoWaitLimits = { minIntervalMs: 1_000, maxIntervalMs: 60_000, maxChecks: 60 };
 
 export interface LinkedInVideoWaitOptions {
@@ -472,6 +477,7 @@ export function linkedin(
         clearTimeout(timer);
         reject(videoWaitCancelled());
       };
+
       const timer = setTimeout(() => {
         context.signal?.removeEventListener("abort", onAbort);
         resolve();
@@ -783,6 +789,7 @@ export function linkedin(
 
   const documentIssues = (target: PreparedPublishTarget): [string, string][] => {
     const media = target.content.media ?? [];
+
     if (!media.some((item) => item.kind === "document")) return [];
     const issues: [string, string][] = [];
 
@@ -851,13 +858,13 @@ export function linkedin(
     return { media: { id: media.source.ref.mediaId, title: documentTitle(media) } };
   }
 
-  /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening, anti-slop/no-conditional-empty-object-spread, anti-slop/no-runtime-typeof, anti-slop/require-readable-spacing -- These helpers normalize documented LinkedIn response facets at the transport boundary. */
   const organizationOnly = (
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
     operation: string,
   ) => {
     authorize(account, context);
+
     if (!account.accountId.startsWith("urn:li:organization:"))
       throw new SocialError({
         code: "unsupported_capability",
@@ -874,6 +881,7 @@ export function linkedin(
     interval?: LinkedInTimeInterval,
   ) => {
     const params = [`q=${finder}`, `${finder}=${encodeURIComponent(account.accountId)}`];
+
     if (interval) {
       if (
         interval.start !== undefined &&
@@ -884,12 +892,14 @@ export function linkedin(
           operation: "analytics.organization.read",
           message: "Interval start must be a nonnegative epoch-millisecond integer.",
         });
+
       if (interval.end !== undefined && (!Number.isSafeInteger(interval.end) || interval.end < 0))
         throw new SocialError({
           code: "invalid_input",
           operation: "analytics.organization.read",
           message: "Interval end must be a nonnegative epoch-millisecond integer.",
         });
+
       if (
         interval.start !== undefined &&
         interval.end !== undefined &&
@@ -900,17 +910,21 @@ export function linkedin(
           operation: "analytics.organization.read",
           message: "Interval end must be after interval start.",
         });
+
       if (interval.start === undefined)
         throw new SocialError({
           code: "invalid_input",
           operation: "analytics.organization.read",
           message: "Interval start is required for time-bound organization statistics.",
         });
+
       const rangeParts = [
         `start:${interval.start}`,
         ...(interval.end === undefined ? [] : [`end:${interval.end}`]),
       ];
+
       const range = `(timeRange:(${rangeParts.join(",")}),timeGranularityType:${interval.granularity})`;
+
       if (!["DAY", "WEEK", "MONTH"].includes(interval.granularity))
         throw new SocialError({
           code: "invalid_input",
@@ -919,32 +933,43 @@ export function linkedin(
         });
       params.push(`timeIntervals=${range}`);
     }
+
     return `${path}?${params.join("&")}`;
   };
 
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- validated LinkedIn analytics payload boundary.
   const numberMap = (value: unknown): Readonly<Record<string, number>> => {
     const row = value === undefined ? {} : object(value);
     const output: Record<string, number> = {};
+
     for (const [key, item] of Object.entries(row)) {
       const number = optionalNumber(item);
+
       if (number !== undefined) output[key] = number;
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- validated LinkedIn analytics payload boundary.
       else if (item !== null && typeof item === "object" && !Array.isArray(item)) {
         const nestedObject = object(item);
+
         const nested = ["pageViews", "uniquePageViews", "clicks", "count"]
           .map((name) => optionalNumber(nestedObject[name]))
           .find((candidate) => candidate !== undefined);
+
         if (nested !== undefined) output[key] = nested;
         else {
           for (const [nestedKey, nestedValue] of Object.entries(nestedObject)) {
             const nestedNumber = optionalNumber(nestedValue);
+
             if (nestedNumber !== undefined) output[`${key}.${nestedKey}`] = nestedNumber;
           }
         }
       }
     }
+
+    // oxlint-disable-next-line anti-slop/no-known-value-widening -- validated LinkedIn analytics payload boundary.
     return output;
   };
 
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated LinkedIn analytics payload boundary.
   const followerBreakdowns = (row: Record<string, unknown>): LinkedInFollowerBreakdown[] => {
     const dimensions = [
       ["function", "followerCountsByFunction", "function"],
@@ -955,30 +980,38 @@ export function linkedin(
       ["staffCountRange", "followerCountsByStaffCountRange", "staffCountRange"],
       ["associationType", "followerCountsByAssociationType", "associationType"],
     ] as const;
+
     const output: LinkedInFollowerBreakdown[] = [];
+
     for (const [dimension, field, key] of dimensions) {
       if (row[field] === undefined) continue;
+
       for (const value of array(row[field])) {
         const item = object(value);
         const label = optionalString(item[key]);
+
         if (!label) continue;
         const counts = item["followerCounts"] === undefined ? {} : object(item["followerCounts"]);
         output.push({
           dimension,
           value: label,
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
           ...(optionalNumber(counts["organicFollowerCount"]) === undefined
             ? {}
             : { organicFollowerCount: optionalNumber(counts["organicFollowerCount"]) }),
+          // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
           ...(optionalNumber(counts["paidFollowerCount"]) === undefined
             ? {}
             : { paidFollowerCount: optionalNumber(counts["paidFollowerCount"]) }),
         });
       }
     }
+
     return output;
   };
 
   const parseInterval = (
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated LinkedIn analytics payload boundary.
     row: Record<string, unknown>,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInTimeInterval | undefined => {
@@ -987,33 +1020,42 @@ export function linkedin(
     const start = optionalNumber(range["start"]);
     const end = optionalNumber(range["end"]);
     const granularity = requestedGranularity ?? optionalString(row["timeGranularityType"]);
+
     if (
       (granularity !== "DAY" && granularity !== "WEEK" && granularity !== "MONTH") ||
       (start === undefined && end === undefined)
     )
       return undefined;
+
     return {
       granularity,
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
       ...(start === undefined ? {} : { start }),
+      // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
       ...(end === undefined ? {} : { end }),
     };
   };
 
   const parseFollowerStatistics = (
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated LinkedIn analytics payload boundary.
     result: Record<string, unknown>,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInFollowerStatistics[] =>
     array(result["elements"]).map((value) => {
       const row = object(value);
       const gains = row["followerGains"] === undefined ? {} : object(row["followerGains"]);
+
       return {
         organization: string(row["organizationalEntity"]),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
         ...(parseInterval(row, requestedGranularity) === undefined
           ? {}
           : { interval: parseInterval(row, requestedGranularity) }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
         ...(optionalNumber(gains["organicFollowerGain"]) === undefined
           ? {}
           : { organicFollowerGain: optionalNumber(gains["organicFollowerGain"]) }),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
         ...(optionalNumber(gains["paidFollowerGain"]) === undefined
           ? {}
           : { paidFollowerGain: optionalNumber(gains["paidFollowerGain"]) }),
@@ -1021,8 +1063,10 @@ export function linkedin(
       };
     });
 
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated LinkedIn analytics payload boundary.
   const pageBreakdowns = (row: Record<string, unknown>) => {
     const output: LinkedInPageStatistics["breakdowns"] = [];
+
     for (const [field, dimension, key] of [
       ["pageStatisticsByFunction", "function", "function"],
       ["pageStatisticsBySeniority", "seniority", "seniority"],
@@ -1033,9 +1077,11 @@ export function linkedin(
       ["pageStatisticsByStaffCountRange", "staffCountRange", "staffCountRange"],
     ] as const) {
       if (row[field] === undefined) continue;
+
       for (const value of array(row[field])) {
         const item = object(value);
         const label = optionalString(item[key]);
+
         if (!label) continue;
         const stats = item["pageStatistics"] === undefined ? {} : object(item["pageStatistics"]);
         const views = stats["views"] === undefined ? {} : object(stats["views"]);
@@ -1048,19 +1094,24 @@ export function linkedin(
         });
       }
     }
+
     return output;
   };
 
   const parsePageStatistics = (
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated LinkedIn analytics payload boundary.
     result: Record<string, unknown>,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInPageStatistics[] =>
     array(result["elements"]).map((value) => {
       const row = object(value);
+
       const total =
         row["totalPageStatistics"] === undefined ? {} : object(row["totalPageStatistics"]);
+
       return {
         organization: string(row["organization"]),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
         ...(parseInterval(row, requestedGranularity) === undefined
           ? {}
           : { interval: parseInterval(row, requestedGranularity) }),
@@ -1071,13 +1122,16 @@ export function linkedin(
     });
 
   const parseShareStatistics = (
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- validated LinkedIn analytics payload boundary.
     result: Record<string, unknown>,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
   ): LinkedInShareStatistics[] =>
     array(result["elements"]).map((value) => {
       const row = object(value);
+
       return {
         organization: string(row["organizationalEntity"]),
+        // oxlint-disable-next-line anti-slop/no-conditional-empty-object-spread -- validated LinkedIn analytics payload boundary.
         ...(parseInterval(row, requestedGranularity) === undefined
           ? {}
           : { interval: parseInterval(row, requestedGranularity) }),
@@ -1353,6 +1407,7 @@ export function linkedin(
 
           const video = item.kind === "video";
           let image: JsonObject | undefined;
+
           try {
             // SAFETY: object() validates the upstream response as a JSON object.
             image = object(
@@ -1652,6 +1707,7 @@ export function linkedin(
           });
 
         const parentObject = optionalString(parent["object"]);
+
         if (
           parentObject !== undefined &&
           parentObject !== ref.postId &&
@@ -1818,6 +1874,7 @@ export function linkedin(
           if (context.signal?.aborted) throw videoWaitCancelled();
 
           let remaining = 0;
+
           try {
             remaining = remainingBudget(context);
           } catch {
@@ -1876,7 +1933,9 @@ export function linkedin(
             ["x-restli-id"],
           ),
         );
+
         const id = optionalString(object(result["headers"])["x-restli-id"]);
+
         // SAFETY: result is validated as a JSON object and id is a JSON string.
         return (id === undefined ? result : { ...result, id }) as JsonObject;
       },
@@ -1909,7 +1968,9 @@ export function linkedin(
             ["x-restli-id"],
           ),
         );
+
         const id = optionalString(object(result["headers"])["x-restli-id"]);
+
         // SAFETY: result is validated as a JSON object and id is a JSON string.
         return (id === undefined ? result : { ...result, id }) as JsonObject;
       },
@@ -1954,6 +2015,7 @@ export function linkedin(
       },
       async getOrganizationFollowerStatistics({ account, interval, context }) {
         organizationOnly(account, context, "analytics.followers.read");
+
         return parseFollowerStatistics(
           object(
             await request(
@@ -1971,6 +2033,7 @@ export function linkedin(
       },
       async getOrganizationPageStatistics({ account, interval, context }) {
         organizationOnly(account, context, "analytics.page.read");
+
         return parsePageStatistics(
           object(
             await request(
@@ -1983,6 +2046,7 @@ export function linkedin(
       },
       async getOrganizationShareStatistics({ account, interval, context }) {
         organizationOnly(account, context, "analytics.shares.read");
+
         return parseShareStatistics(
           object(
             await request(
@@ -2000,12 +2064,14 @@ export function linkedin(
       },
       async getOrganizationFollowerCount({ account, context }) {
         organizationOnly(account, context, "analytics.account.read");
+
         const response = object(
           await request(
             `/rest/networkSizes/${encodeURIComponent(account.accountId)}?edgeType=COMPANY_FOLLOWED_BY_MEMBER`,
             context,
           ),
         );
+
         return optionalNumber(response["firstDegreeSize"]);
       },
     },
