@@ -11,11 +11,14 @@ import type {
   ConnectedAccountRef,
   DeliveryOutcome,
   JsonObject,
+  JsonValue,
   MediaAttachment,
   MetricValue,
   Page,
   PlatformPostRef,
   PreparedPublishTarget,
+  ScheduleCancellation,
+  ScheduledJobRef,
   SearchPostsInput,
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
@@ -27,9 +30,11 @@ import {
   array,
   isBoolean,
   isFiniteNumber,
+  isJsonObject,
   isString,
   object,
   optionalArray,
+  optionalObject,
   optionalString,
   string,
 } from "../transport/validation.js";
@@ -153,6 +158,16 @@ export interface YouTubeNative {
     readonly videoId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /**
+   * Update the configured channel with channels.update. One part is written per call. The adapter
+   * reads the current part first and merges `value` into it, because YouTube deletes any mutable
+   * property omitted from the write. A `null` field removes that property or localization.
+   */
+  readonly updateProfile: (input: {
+    readonly part: "brandingSettings" | "localizations";
+    readonly value: JsonObject;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
   readonly analytics: (input: {
     readonly query: Record<string, string>;
     readonly context: AdapterOperationContext;
@@ -240,6 +255,18 @@ export function youtube(
     return video;
   };
 
+  /** Returns the publishAt time only while the video is private and still waiting to publish. */
+  const scheduledAt = (status: JsonObject): string | undefined => {
+    const publishAt = optionalString(status["publishAt"]);
+
+    if (status["privacyStatus"] !== "private" || publishAt === undefined) return undefined;
+    const time = Date.parse(publishAt);
+
+    return Number.isFinite(time) && time > (options.clock?.() ?? new Date()).getTime()
+      ? publishAt
+      : undefined;
+  };
+
   const outcome = (
     video: JsonObject,
     target: { account: ConnectedAccountRef; targetIndex: number },
@@ -264,6 +291,31 @@ export function youtube(
       },
     };
 
+    if (uploaded === "failed" || uploaded === "rejected")
+      return {
+        ...base,
+        state: "failed",
+        code: "media_error",
+        message:
+          "YouTube rejected or failed to process the video. Inspect channel eligibility and upload requirements.",
+        retryDisposition: { kind: "never" },
+      };
+
+    // A private video with a future publishAt is waiting for YouTube to publish it.
+    if (scheduledAt(status) !== undefined)
+      return {
+        ...base,
+        state: "scheduled",
+        job: {
+          kind: "scheduled-job",
+          version: 1,
+          backend: target.account.backend,
+          platform: "youtube",
+          accountId: target.account.accountId,
+          jobId: id,
+        },
+      };
+
     if (uploaded === "processed")
       return {
         ...base,
@@ -280,16 +332,6 @@ export function youtube(
       };
 
     if (uploaded === "uploaded") return { ...base, state: "processing" };
-
-    if (uploaded === "failed" || uploaded === "rejected")
-      return {
-        ...base,
-        state: "failed",
-        code: "media_error",
-        message:
-          "YouTube rejected or failed to process the video. Inspect channel eligibility and upload requirements.",
-        retryDisposition: { kind: "never" },
-      };
 
     return {
       ...base,
@@ -443,6 +485,14 @@ export function youtube(
           notes: "Scheduled videos are uploaded private with a future ISO publishAt timestamp.",
         },
         {
+          operation: "posts.cancelScheduled",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Clears status.publishAt with videos.update and keeps the video private. The video is not deleted. Costs 51 quota units (videos.list + videos.update).",
+        },
+        {
           operation: "posts.removeFromPlatform",
           platform: "youtube",
           availability: "available",
@@ -477,6 +527,14 @@ export function youtube(
           platform: "youtube",
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+        },
+        {
+          operation: "profile.update",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Native access: updateProfile. Writes brandingSettings.channel or localizations through channels.update. Each call reads the channel (1 quota unit) and then writes it (50 units).",
         },
         {
           operation: "videos.delete",
@@ -830,6 +888,116 @@ export function youtube(
         );
 
         return outcome(video, { account, targetIndex: 0 });
+      },
+      async cancelScheduled(
+        ref: ScheduledJobRef,
+        context: AdapterOperationContext,
+      ): Promise<ScheduleCancellation> {
+        authorize(ref, context);
+
+        if (!ref.jobId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.cancelScheduled",
+            message: "jobId must be the scheduled video's ID.",
+          });
+
+        const video = await get(
+          {
+            kind: "platform-post",
+            version: 1,
+            backend: ref.backend,
+            platform: "youtube",
+            accountId: ref.accountId,
+            postId: ref.jobId,
+          },
+          context,
+        );
+
+        const status = object(video["status"]);
+
+        if (scheduledAt(status) === undefined)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.cancelScheduled",
+            message:
+              "Only a private video with a future publishAt can be cancelled. Reconcile a due or published video.",
+          });
+
+        // videos.update replaces the whole status part: an omitted field is reset. Resend every
+        // writable field read above, set privacyStatus to private, and omit publishAt to clear it.
+        const flag = (key: string): boolean | undefined => {
+          const value = status[key];
+
+          if (value === undefined || value === true || value === false) return value;
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "posts.cancelScheduled",
+            message: `YouTube returned an invalid status.${key} value.`,
+          });
+        };
+
+        const selfDeclaredMadeForKids = flag("selfDeclaredMadeForKids");
+
+        if (selfDeclaredMadeForKids === undefined)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "posts.cancelScheduled",
+            message:
+              "YouTube did not return the made-for-kids declaration, so the update could not preserve it. Nothing was changed.",
+          });
+
+        const license = optionalString(status["license"]);
+        const embeddable = flag("embeddable");
+        const publicStatsViewable = flag("publicStatsViewable");
+        const containsSyntheticMedia = flag("containsSyntheticMedia");
+
+        const next = (() => {
+          const result: Record<string, JsonValue> = {};
+          result["privacyStatus"] = "private";
+          result["selfDeclaredMadeForKids"] = selfDeclaredMadeForKids;
+
+          if (license !== undefined) result["license"] = license;
+
+          if (embeddable !== undefined) result["embeddable"] = embeddable;
+
+          if (publicStatsViewable !== undefined)
+            result["publicStatsViewable"] = publicStatsViewable;
+
+          if (containsSyntheticMedia !== undefined)
+            result["containsSyntheticMedia"] = containsSyntheticMedia;
+
+          return result satisfies JsonObject;
+        })();
+
+        const result = object(
+          await request(
+            "/youtube/v3/videos",
+            context,
+            { id: ref.jobId, status: next },
+            { part: "status" },
+            "PUT",
+          ),
+        );
+
+        const written = result["status"] === undefined ? undefined : object(result["status"]);
+
+        if (
+          result["id"] !== ref.jobId ||
+          written?.["privacyStatus"] !== "private" ||
+          (written?.["publishAt"] !== undefined && written?.["publishAt"] !== null)
+        )
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "posts.cancelScheduled",
+            backend: context.backendInstance,
+            correlationId: context.correlationId,
+            message:
+              "YouTube did not confirm that the schedule was cleared. Read the video before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        return { state: "cancelled", backendRecord: "retained" };
       },
       async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
         authorize(ref, context);
@@ -1465,6 +1633,99 @@ export function youtube(
 
         return object(
           await request("/youtube/v3/videos", context, merged, { part: "snippet,status" }, "PUT"),
+        );
+      },
+      async updateProfile({ part, value, context }) {
+        nativeAuthorize(context);
+
+        const operation = "profile.update";
+
+        const invalid = (message: string) =>
+          new SocialError({ code: "invalid_input", operation, message });
+
+        if (part !== "brandingSettings" && part !== "localizations")
+          throw invalid("part must be brandingSettings or localizations.");
+
+        if (!isJsonObject(value) || Object.keys(value).length === 0)
+          throw invalid("value must be a non-empty object.");
+
+        const channelPatch = value["channel"];
+
+        if (
+          part === "brandingSettings" &&
+          (Object.keys(value).some((key) => key !== "channel") || !isJsonObject(channelPatch))
+        )
+          throw invalid("brandingSettings updates accept only a channel object.");
+
+        if (
+          part === "localizations" &&
+          Object.entries(value).some(
+            ([key, entry]) => key.trim() === "" || (entry !== null && !isJsonObject(entry)),
+          )
+        )
+          throw invalid(
+            "Each localization must be an object keyed by language, or null to remove it.",
+          );
+
+        // channels.update deletes omitted mutable properties, so merge into the current part.
+        const merge = (current: JsonValue | undefined, patch: JsonObject): JsonObject =>
+          Object.fromEntries(
+            Object.entries({ ...optionalObject(current), ...patch }).filter(
+              ([, entry]) => entry !== null,
+            ),
+          );
+
+        const channel = array(
+          object(
+            await request("/youtube/v3/channels", context, undefined, {
+              id: options.auth.channelId,
+              part,
+            }),
+          )["items"],
+        )
+          .map(object)
+          .find((item) => item["id"] === options.auth.channelId);
+
+        if (!channel)
+          throw new SocialError({
+            code: "unauthorized",
+            operation,
+            message: "Configured channel is absent or inaccessible to this authorization.",
+          });
+
+        const branding = optionalObject(channel["brandingSettings"]) ?? {};
+
+        // Resend only documented writable branding: the merged channel object and the current
+        // banner URL, which channels.update would otherwise delete. Deprecated watch, hints, and
+        // image fields are dropped; YouTube rejects some of them on write.
+        const bannerExternalUrl = optionalString(
+          optionalObject(branding["image"])?.["bannerExternalUrl"],
+        );
+
+        const brandingNext = (patch: JsonObject): JsonObject => {
+          const result: Record<string, JsonValue> = {};
+
+          result["channel"] = merge(branding["channel"], patch);
+
+          if (bannerExternalUrl !== undefined && bannerExternalUrl !== "")
+            result["image"] = { bannerExternalUrl };
+
+          return result;
+        };
+
+        const next =
+          part === "brandingSettings" && isJsonObject(channelPatch)
+            ? brandingNext(channelPatch)
+            : merge(channel["localizations"], value);
+
+        return object(
+          await request(
+            "/youtube/v3/channels",
+            context,
+            { id: options.auth.channelId, [part]: next },
+            { part },
+            "PUT",
+          ),
         );
       },
       async deleteVideo({ videoId, context }) {

@@ -115,6 +115,10 @@ const result = await native.search({
 
 Provider permission failures raise `missing_permission`.
 
+Threads has no profile search, so the manifest declares `profiles.search` as
+`unsupported-by-platform`. Profile discovery only matches an exact username;
+use `social.graph.getProfile(account, { handle })` for that.
+
 </PlatformTab>
 <PlatformTab platform="youtube">
 

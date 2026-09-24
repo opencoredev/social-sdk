@@ -335,6 +335,12 @@ export function tiktok(
           notes:
             "Verified URL source; explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload.",
         },
+        {
+          platform: "tiktok",
+          operation: "posts.schedule",
+          availability: "unsupported-by-platform" as const,
+          notes: "Content Posting API post_info has no publish-time field.",
+        },
         { platform: "tiktok", operation: "posts.status", availability: "available" as const },
         {
           platform: "tiktok",
@@ -391,6 +397,12 @@ export function tiktok(
           operation: "analytics.read",
           availability: "available" as const,
           requiredScopes: ["video.list"],
+        },
+        {
+          platform: "tiktok",
+          operation: "profile.update",
+          availability: "unsupported-by-platform" as const,
+          notes: "The Display API reads user info only. TikTok has no profile write endpoint.",
         },
       ],
     },

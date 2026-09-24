@@ -759,6 +759,13 @@ export function instagram(
         },
         {
           platform: "instagram",
+          operation: "posts.schedule",
+          availability: "unsupported-by-platform" as const,
+          notes:
+            "The content publishing API has no publish-time parameter; media_publish publishes immediately and unpublished containers expire after 24 hours.",
+        },
+        {
+          platform: "instagram",
           operation: "posts.update",
           availability: "unsupported-by-platform" as const,
           notes: "Instagram Graph API does not provide an edit endpoint for published media.",
@@ -822,6 +829,12 @@ export function instagram(
           formats: ["video" as const],
         },
         { platform: "instagram", operation: "stories.publish", availability: "available" as const },
+        {
+          platform: "instagram",
+          operation: "profile.update",
+          availability: "unsupported-by-platform" as const,
+          notes: "The IG User node supports reads only. Updating it is not supported.",
+        },
 
         ...(["posts.delete", "posts.removeFromPlatform"] as const).map((operation) =>
           flavor === "facebook-login"
