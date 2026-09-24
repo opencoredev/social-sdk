@@ -1317,6 +1317,7 @@ export function linkedin(
         // Source: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api#delete-a-comment
         // (li-lms-2026-09, page updated 2026-04-28, accessed 2026-09-24).
         authorize(account, context);
+
         const match = /^urn:li:comment:\(urn:li:(?:activity|share|ugcPost):\d+,(\d+)\)$/.exec(
           commentId,
         );
@@ -1332,6 +1333,7 @@ export function linkedin(
         const actor = options.auth.author.startsWith("urn:li:organization:")
           ? `?actor=${encodeURIComponent(options.auth.author)}`
           : "";
+
         await request(
           `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[1]}${actor}`,
           context,

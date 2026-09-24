@@ -929,18 +929,21 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       // Sources (accessed 2026-09-24): https://developers.facebook.com/docs/threads/posts/delete-posts
       // and https://developers.facebook.com/docs/threads/retrieve-and-manage-replies/create-replies
       authorize(account, "threads.comments.delete");
+
       if (!/^\d+$/.test(commentId))
         fail(
           "threads.comments.delete",
           "Provide the numeric Threads reply media ID.",
           "invalid_input",
         );
+
       const result = await request(
         encodeURIComponent(commentId),
         { method: "DELETE" },
         "threads.comments.delete",
         context,
       );
+
       if (result["success"] !== true)
         fail("threads.comments.delete", "Threads did not confirm the reply deletion.");
     },

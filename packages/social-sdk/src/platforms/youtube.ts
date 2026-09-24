@@ -1599,6 +1599,7 @@ export function youtube(
       async deleteComment({ account, commentId, context }) {
         // Source: https://developers.google.com/youtube/v3/docs/comments/delete (accessed 2026-09-24).
         authorize(account, context);
+
         if (!commentId.trim())
           throw new SocialError({
             code: "invalid_input",
