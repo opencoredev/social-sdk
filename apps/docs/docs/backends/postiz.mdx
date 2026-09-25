@@ -1,0 +1,227 @@
+---
+title: Postiz
+description: Configure Postiz Cloud or a self-hosted instance with an API key or OAuth, publish-now and scheduled posts, media uploads, analytics, and connect links.
+---
+
+[Postiz](https://postiz.com/?utm_source=socialsdk) is an optional managed backend. It holds the channels connected to your Postiz workspace and posts to them now or at the time you schedule. Postiz is open source, so the same adapter works with Postiz Cloud and with an instance you host yourself. Postiz sponsors Social SDK; the adapter follows Postiz's public API the same way the other hosted adapters follow theirs.
+
+```ts
+import { createSocial } from "@opencoredev/social-sdk";
+import { postiz } from "@opencoredev/social-sdk/cloud/postiz";
+
+const social = createSocial({ backend: postiz({ apiKey: process.env.POSTIZ_API_KEY! }) });
+const accounts = await social.accounts.list({
+  backend: "default",
+  authorization: { tenantId: "tenant-from-session" },
+});
+```
+
+Create the API key in Postiz under Settings, Developers. On Postiz Cloud, that tab needs a plan that includes the public API. The key belongs to one workspace. Keep it on your server; the adapter sends it as the `Authorization` header value.
+
+## Self-hosted Postiz
+
+A self-hosted instance serves the public API under `/api/public/v1` on your Postiz host. Pass that URL as `baseUrl`:
+
+```ts
+const social = createSocial({
+  backend: postiz({
+    apiKey: process.env.POSTIZ_API_KEY!,
+    baseUrl: "https://postiz.example.com/api/public/v1",
+  }),
+});
+```
+
+The base URL must use HTTPS and cannot carry credentials, a query, or a fragment. Without `baseUrl`, the adapter calls Postiz Cloud at `https://api.postiz.com/public/v1`.
+
+## Connect workspaces with OAuth
+
+An API key connects your own Postiz workspace. If your users already have Postiz accounts, let each of them approve your app instead and store the token Postiz issues for their workspace. The token works anywhere an API key does.
+
+In Postiz, open Settings, Developers and choose Create OAuth App. The Developers tab appears on plans that include the public API; the people who approve your app need no particular plan to do so. Set its Redirect URL to a route on your own server, such as `https://app.example.com/postiz/callback`. Postiz shows the client secret, which starts with `pcs_`, only once, so save it with the client ID in your server configuration.
+
+Send the person to the authorization URL with a `state` value you keep in their session:
+
+```ts
+import { exchangePostizCode, postizAuthorizationUrl } from "@opencoredev/social-sdk/cloud/postiz";
+
+const state = crypto.randomUUID();
+session.postizState = state;
+
+return redirect(postizAuthorizationUrl({ clientId: process.env.POSTIZ_CLIENT_ID!, state }));
+```
+
+Postiz asks which workspace to connect, then redirects to your Redirect URL with `code` and `state`. If the person declines, the redirect carries `error=access_denied` instead. In the callback route, compare `state` with the value in the session before you use the code:
+
+```ts
+const callback = new URL(request.url);
+const code = callback.searchParams.get("code");
+
+if (!code || callback.searchParams.get("state") !== session.postizState) {
+  throw new Error("Invalid Postiz callback.");
+}
+
+const token = await exchangePostizCode({
+  clientId: process.env.POSTIZ_CLIENT_ID!,
+  clientSecret: process.env.POSTIZ_CLIENT_SECRET!,
+  code,
+});
+
+await saveTenantPostizToken(tenantId, token.accessToken, token.organizationId);
+
+const social = createSocial({ backend: postiz({ apiKey: token.accessToken }) });
+```
+
+The code works once and expires after 10 minutes. An expired or reused code fails with `invalid_input`, and a wrong client ID or secret fails with `invalid_config`. If the request fails after it was sent, the error is `ambiguous_outcome`, because Postiz may have used the code. In each case, start the authorization again.
+
+The token starts with `pos_` and does not expire. Store it encrypted and scoped to the tenant, like any other credential. The workspace owner can revoke it in Postiz under Settings, Approved Apps, and deleting your OAuth app revokes every token it issued. After a revocation, requests fail with `reconnect_required`.
+
+For a self-hosted instance, pass your Postiz host as `frontendUrl` when you build the authorization URL, and the same `baseUrl` you give the adapter when you exchange the code:
+
+```ts
+postizAuthorizationUrl({ clientId, state, frontendUrl: "https://postiz.example.com" });
+
+await exchangePostizCode({
+  clientId,
+  clientSecret,
+  code,
+  baseUrl: "https://postiz.example.com/api/public/v1",
+});
+```
+
+Your server handles the whole exchange, so Social SDK needs no hosted callback. A full, type-checked version is in `examples/snippets/backend-postiz.ts`.
+
+## Publish now or schedule
+
+Omit `schedule` to post now, or set `schedule.at` to a future time:
+
+```ts
+const result = await social.posts.publish(
+  {
+    targets: [{ account }],
+    content: { text: "Launching next week." },
+    schedule: { at: "2026-10-01T09:00:00.000Z" },
+  },
+  { authorization: { tenantId: "tenant-from-session" } },
+);
+```
+
+Postiz queues every post and a worker posts it when it is due. A scheduled post returns a `scheduled` outcome. A post sent now returns `processing` until the worker finishes, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed` without a reason, because the public API does not return one. Look at the post and channel in Postiz.
+
+The delivery, job, and record IDs have the form `<postiz post id>@<publish time>`. Postiz lists posts only by publish date, so the adapter keeps the time in the ID to find the post again. Store the IDs as opaque strings.
+
+The remaining examples pass `authorization` the same way. Full, type-checked versions are in `examples/snippets/backend-postiz.ts`.
+
+## Poll for status
+
+Postiz can call a webhook from its dashboard, but those requests carry no signature and fire only when a post succeeds. The adapter does not accept them. Store the outcome's `delivery` reference and poll it from a job instead:
+
+```ts
+import { setTimeout as sleep } from "node:timers/promises";
+
+let outcome = await social.posts.getDelivery(delivery, { authorization });
+
+for (let check = 1; check < 30 && isWaiting(outcome); check++) {
+  await sleep(60_000);
+  outcome = await social.posts.getDelivery(delivery, { authorization });
+}
+
+function isWaiting(outcome: DeliveryOutcome): boolean {
+  switch (outcome.state) {
+    case "scheduled": // due later
+    case "processing": // due, the Postiz worker is posting it
+      return true;
+    case "accepted": // a draft waits in Postiz until someone schedules it
+    case "published":
+    case "failed":
+    case "cancelled":
+    case "not-submitted":
+    case "unknown": // reconcile in Postiz before retrying
+      return false;
+  }
+}
+```
+
+If the submission itself was ambiguous, the outcome is `unknown` with no `delivery`. Check Postiz before you publish again. TikTok can finish a post before it returns the post ID; Postiz then reports the post as published without one, and the adapter returns `unknown` until you resolve it in Postiz.
+
+## Media
+
+The adapter uploads media to Postiz and sends the returned file ID and path with the post. A `Blob` or stream is uploaded as a file. An HTTPS URL is imported by Postiz, which accepts URLs whose path ends in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, or `.mp4`; upload the bytes for anything else. Supported types are JPEG, PNG, GIF, WebP, AVIF, BMP, and TIFF images up to 10 MB, and MP4 videos up to 1 GB. Documents are rejected. `altText` is sent with each file.
+
+You can also upload first with `media.upload` and publish the returned reference. The reference resolves through the adapter's `mediaStore`, which is in memory by default, so upload and publish with the same adapter instance or configure a shared store.
+
+```ts
+await social.posts.publish(
+  {
+    targets: [{ account: instagramAccount }],
+    content: {
+      text: "Behind the scenes at the launch.",
+      media: [
+        {
+          kind: "image",
+          source: { kind: "blob", blob: image, fingerprint: "launch-photo-v1" },
+          mimeType: "image/jpeg",
+          filename: "launch.jpg",
+          altText: "The team around a laptop",
+        },
+      ],
+    },
+    schedule: { at },
+  },
+  { authorization },
+);
+```
+
+## Supported operations
+
+The adapter supports account listing, publishing now or on a schedule, delivery status, cancelling a future scheduled post, deleting a failed or draft record, media upload, and post analytics. Cancelling deletes the Postiz record. Neither operation removes a post that already published.
+
+Postiz deletes posts by group. The adapter gives each target its own group, and it refuses to cancel or delete a post that shares a group with other posts, such as one created in the Postiz dashboard.
+
+```ts
+if (outcome.state === "scheduled") {
+  const { backendRecord } = await social.posts.cancelScheduled(outcome.job, { authorization });
+}
+```
+
+Post analytics need the platform post reference from a `published` outcome, because it carries the Postiz record ID. The adapter reads the last 30 days and returns the latest value for each metric Postiz reports. Names are Postiz's labels in camelCase, such as `impressions` or `likes`, and vary by platform.
+
+```ts
+if (outcome.state === "published") {
+  const metrics = await social.analytics.getPostMetrics(outcome.post, { authorization });
+}
+```
+
+A disabled channel is listed with status `unknown`, because Postiz does not say why it was disabled. Postiz also supports platforms such as Pinterest, Reddit, and Mastodon. The adapter skips those channels because they are outside Social SDK's platform list. Comments, messages, and post feeds are not part of this adapter.
+
+Postiz limits how many posts one workspace can create per hour. Its documentation gives 100 per hour on Postiz Cloud, and a self-hosted instance defaults to 90, set with `API_LIMIT`. Each target is one create request. Past the limit Postiz answers with HTTP 429, which the adapter reports as `rate_limited`. The adapter never retries a create, because a retry after a timeout can post twice.
+
+## Platform options
+
+| Platform | Social SDK option                                 | Postiz setting                                                       |
+| -------- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| X        | `replySettings`                                   | `who_can_reply_post`, default `everyone`                             |
+| YouTube  | `title`, `visibility`, `madeForKids`              | `title`, `type`, `selfDeclaredMadeForKids`                           |
+| TikTok   | `privacy`                                         | `privacy_level`                                                      |
+| TikTok   | `disableComments`, `disableDuet`, `disableStitch` | `comment`, `duet`, `stitch`, each inverted                           |
+| TikTok   | `brandedContent`, `ownBrand`, `aiGenerated`       | `brand_content_toggle`, `brand_organic_toggle`, `video_made_with_ai` |
+| TikTok   | `draft`                                           | `content_posting_method` of `UPLOAD` or `DIRECT_POST`                |
+
+Instagram targets post to the feed. Postiz has no setting that keeps a reel off the grid, so `shareToFeed: false` is rejected. A TikTok draft goes to the creator's inbox, where TikTok keeps only the caption; the adapter adds a warning because the privacy, interaction, and disclosure choices apply when the creator posts it. The adapter always sends `autoAddMusic: "no"`.
+
+## Connect links
+
+`native.createConnectLink` returns an OAuth URL that connects a channel to your Postiz workspace. Pass a Postiz provider identifier such as `x`, `linkedin-page`, `instagram-standalone`, or `tiktok`. To reconnect an existing channel, pass its ID as `refreshAccountId`. Bluesky connects with an app password in the Postiz dashboard, so it has no link.
+
+```ts
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: crypto.randomUUID(),
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+  authorization: { tenantId: "tenant-from-session" },
+};
+
+const adapter = postiz({ apiKey: process.env.POSTIZ_API_KEY! });
+const { url } = await adapter.native.createConnectLink({ provider: "linkedin-page" }, context);
+```
+
+After the person approves, Postiz redirects to its own dashboard, not to your application. Map the new channels to tenants in your own database before you use them. See [capabilities](/reference/capabilities) for the generated matrix.

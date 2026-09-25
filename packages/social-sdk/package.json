@@ -45,6 +45,10 @@
       "types": "./dist/cloud/postfast.d.ts",
       "import": "./dist/cloud/postfast.js"
     },
+    "./cloud/postiz": {
+      "types": "./dist/cloud/postiz.d.ts",
+      "import": "./dist/cloud/postiz.js"
+    },
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"

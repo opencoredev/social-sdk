@@ -80,7 +80,7 @@ export function managedHttp(
   return async (
     path: string,
     context: AdapterOperationContext,
-    body?: JsonObject,
+    body?: JsonObject | FormData,
     query: Record<string, string> = {},
     method: "GET" | "POST" | "PUT" | "DELETE" = body === undefined ? "GET" : "POST",
   ): Promise<JsonValue> => {
@@ -88,7 +88,9 @@ export function managedHttp(
 
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
 
-    const headers = new Headers({ "Content-Type": "application/json" });
+    const form = body instanceof FormData;
+    // Fetch sets the multipart boundary itself.
+    const headers = new Headers(form ? {} : { "Content-Type": "application/json" });
 
     headers.set(...authHeader(options.apiKey));
 
@@ -105,7 +107,7 @@ export function managedHttp(
         timeoutMs: remainingBudget(context),
         method,
         ...definedFields({
-          body: body === undefined ? undefined : JSON.stringify(body),
+          body: body === undefined || form ? body : JSON.stringify(body),
           signal: context.signal,
         }),
         maxAttempts: method === "GET" ? Math.min(5, context.retryBudget.maxAttempts) : 1,
@@ -210,7 +212,7 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
 /** Every accepted normalized option has an intentional provider mapping. */
 export function managedOptionIssues(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me" | "postfast",
+  provider: "zernio" | "post-for-me" | "postfast" | "postiz",
 ): PreparationIssue[] {
   const config = optionsObject(target);
 

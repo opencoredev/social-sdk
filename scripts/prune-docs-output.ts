@@ -57,7 +57,7 @@ Use Social SDK when server-side TypeScript or JavaScript code (Node.js 22.12+ or
 - Publish text, images, or video to Bluesky, Instagram, LinkedIn, Threads, TikTok, X, or YouTube through one typed client.
 - Read posts, post metrics, search results, the social graph, notifications, or analytics reports from those platforms.
 - Handle comments, direct messages, and verified platform webhooks.
-- Send the same calls through the Zernio, Post for Me, or PostFast managed backends instead of each platform's API.
+- Send the same calls through the Zernio, Post for Me, PostFast, or Postiz managed backends instead of each platform's API.
 - Build and test a social feature offline with a deterministic mock backend, without credentials or billable calls.
 
 It is not the right tool for browser-only code (credentials must stay on a server), for a hosted scheduler or dashboard (Social SDK is a library with no hosted service), or for accounts your application is not authorized to act for.
