@@ -195,7 +195,7 @@ function metricName(label: string): string {
     .join("");
 }
 
-async function bytes(item: MediaAttachment, limit: number): Promise<Blob> {
+async function bytes(item: MediaAttachment, limit: number, signal?: AbortSignal): Promise<Blob> {
   const source = item.source;
 
   // A Blob without a type would reach Postiz as application/octet-stream.
@@ -211,9 +211,26 @@ async function bytes(item: MediaAttachment, limit: number): Promise<Blob> {
   let size = 0;
   const reader = source.open().getReader();
 
+  // A stalled stream never settles a read, so cancelling it is what ends the wait.
+  const abort = () => void reader.cancel().catch(() => undefined);
+
+  signal?.addEventListener("abort", abort, { once: true });
+
+  const cancelled = () =>
+    new SocialError({
+      code: "cancelled",
+      operation: "media.upload",
+      message: "The media upload was cancelled.",
+    });
+
   try {
+    if (signal?.aborted) throw cancelled();
+
     for (;;) {
       const { done, value } = await reader.read();
+
+      // Cancelling the reader ends the read as if the stream were done.
+      if (signal?.aborted) throw cancelled();
 
       if (done) break;
       size += value.byteLength;
@@ -230,6 +247,7 @@ async function bytes(item: MediaAttachment, limit: number): Promise<Blob> {
     await reader.cancel().catch(() => undefined);
     throw error;
   } finally {
+    signal?.removeEventListener("abort", abort);
     reader.releaseLock();
   }
 
@@ -453,8 +471,7 @@ export function postiz(options: PostizOptions) {
 
       result = await request("/upload-from-url", context, { url: url.href });
     } else {
-      const size =
-        item.byteSize ?? (item.source.kind === "blob" ? item.source.blob.size : undefined);
+      const size = item.source.kind === "blob" ? item.source.blob.size : item.byteSize;
 
       if (size !== undefined && size > maxBytes[item.kind])
         throw new SocialError({
@@ -464,7 +481,11 @@ export function postiz(options: PostizOptions) {
         });
 
       const form = new FormData();
-      form.set("file", await bytes(item, maxBytes[item.kind]), item.filename ?? "upload");
+      form.set(
+        "file",
+        await bytes(item, maxBytes[item.kind], context.signal),
+        item.filename ?? "upload",
+      );
       result = await request("/upload", context, form);
     }
 
@@ -664,8 +685,7 @@ export function postiz(options: PostizOptions) {
               );
           }
 
-          const size =
-            item.byteSize ?? (item.source.kind === "blob" ? item.source.blob.size : undefined);
+          const size = item.source.kind === "blob" ? item.source.blob.size : item.byteSize;
 
           if (size !== undefined && size > maxBytes[item.kind])
             fail("media.too_large", "Postiz accepts images up to 10 MB and MP4 videos up to 1 GB.");

@@ -332,7 +332,7 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
   ]);
 });
 
-it("Postiz cancels an oversized upload stream before any request", async () => {
+it("Postiz stops oversized, stalled, and understated uploads before any request", async () => {
   let cancelled = false;
   let calls = 0;
 
@@ -366,6 +366,49 @@ it("Postiz cancels an oversized upload stream before any request", async () => {
     (error) => error instanceof SocialError && error.code === "media_error",
   );
   assert.equal(cancelled, true);
+  assert.equal(calls, 0);
+
+  // A stalled stream ends when the operation is aborted.
+  const controller = new AbortController();
+  let stalledCancelled = false;
+
+  const stalled = new ReadableStream<Uint8Array>({
+    cancel: () => {
+      stalledCancelled = true;
+    },
+  });
+
+  const upload = adapter.media.upload(
+    {
+      kind: "video",
+      mimeType: "video/mp4",
+      source: { kind: "stream", open: () => stalled, fingerprint: "stalled" },
+    },
+    x,
+    { ...context, signal: controller.signal },
+  );
+
+  controller.abort();
+  await assert.rejects(
+    upload,
+    (error) => error instanceof SocialError && error.code === "cancelled",
+  );
+  assert.equal(stalledCancelled, true);
+
+  // The Blob's real size wins over a smaller declared byteSize.
+  await assert.rejects(
+    adapter.media.upload(
+      {
+        kind: "image",
+        mimeType: "image/png",
+        byteSize: 1,
+        source: blob(10 * 1024 * 1024 + 1),
+      },
+      x,
+      context,
+    ),
+    (error) => error instanceof SocialError && error.code === "media_error",
+  );
   assert.equal(calls, 0);
 });
 
