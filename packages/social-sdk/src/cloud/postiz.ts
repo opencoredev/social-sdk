@@ -100,6 +100,8 @@ const cloudBaseUrl = "https://api.postiz.com/public/v1";
 
 const cloudFrontendUrl = "https://platform.postiz.com";
 
+const groupPrefix = "social-sdk-";
+
 const nativePlatforms = new Map<string, Platform>([
   ["x", "x"],
   ["threads", "threads"],
@@ -196,7 +198,11 @@ function metricName(label: string): string {
 async function bytes(item: MediaAttachment, limit: number): Promise<Blob> {
   const source = item.source;
 
-  if (source.kind === "blob") return source.blob;
+  // A Blob without a type would reach Postiz as application/octet-stream.
+  if (source.kind === "blob")
+    return source.blob.type
+      ? source.blob
+      : new Blob([source.blob], { type: string(item.mimeType) });
 
   if (source.kind !== "stream")
     return reject("media.upload", "Only uploadable bytes can be sent to Postiz storage.");
@@ -220,6 +226,9 @@ async function bytes(item: MediaAttachment, limit: number): Promise<Blob> {
         });
       chunks.push(new Uint8Array(value));
     }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
   } finally {
     reader.releaseLock();
   }
@@ -301,7 +310,12 @@ export function postiz(options: PostizOptions) {
           "Postiz has no post with this identifier near its submitted time. It may be deleted or rescheduled.",
       });
 
-    if (object(row["integration"])["id"] !== ref.accountId)
+    const integration = object(row["integration"]);
+
+    if (
+      integration["id"] !== ref.accountId ||
+      nativePlatforms.get(string(integration["providerIdentifier"])) !== ref.platform
+    )
       throw new SocialError({
         code: "unauthorized",
         operation,
@@ -708,7 +722,7 @@ export function postiz(options: PostizOptions) {
               integration: { id: target.account.accountId },
               value: [{ content: target.content.text ?? "", image }],
               // A fresh group per target keeps deletion from reaching any other post.
-              group: crypto.randomUUID(),
+              group: `${groupPrefix}${crypto.randomUUID()}`,
               settings: settings(target),
             },
           ],
@@ -913,7 +927,10 @@ export function postiz(options: PostizOptions) {
     },
   });
 
-  /** Postiz deletes a post's whole group, so refuse when the group holds any other post. */
+  /**
+   * Postiz deletes a post's whole group. Only a group this adapter created holds a single
+   * post, and the listing covers only nearby dates, so refuse any other group.
+   */
   async function remove(
     row: JsonObject,
     nearby: readonly JsonObject[],
@@ -922,10 +939,13 @@ export function postiz(options: PostizOptions) {
   ): Promise<void> {
     const group = optionalString(row["group"]);
 
-    if (!group || nearby.some((item) => item["group"] === group && item["id"] !== row["id"]))
+    if (
+      !group?.startsWith(groupPrefix) ||
+      nearby.some((item) => item["group"] === group && item["id"] !== row["id"])
+    )
       reject(
         operation,
-        "This Postiz post shares a group with other posts, and deleting it would remove them too. Manage it in Postiz.",
+        "Social SDK did not create this Postiz post alone in its group, and deleting it could remove other posts. Manage it in Postiz.",
       );
 
     const result = await request(
@@ -936,7 +956,8 @@ export function postiz(options: PostizOptions) {
       "DELETE",
     );
 
-    if (!isJsonArray(result) && result !== null && object(result)["id"] !== undefined) return;
+    // Postiz answers with the group's first post, which is this one for an adapter group.
+    if (!isJsonArray(result) && result !== null && object(result)["id"] === row["id"]) return;
 
     throw new SocialError({
       code: "ambiguous_outcome",

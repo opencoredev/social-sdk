@@ -32,7 +32,7 @@ const row = (fields: JsonObject): JsonObject => ({
   releaseURL: null,
   releaseId: null,
   state: "QUEUE",
-  group: "g1",
+  group: "social-sdk-g1",
   integration: { id: "int1", providerIdentifier: "x", name: "Demo" },
   ...fields,
 });
@@ -236,6 +236,7 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
 
         assert.ok(file instanceof Blob);
         assert.equal(file.size, 100);
+        assert.equal(file.type, "video/mp4");
 
         return Response.json({ id: "m1", path: "https://uploads.postiz.com/m1.mp4" });
       }
@@ -243,6 +244,8 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
       if (init?.method === "POST") {
         const body = object(JSON.parse(String(init.body)));
         const group = string(object(array(body["posts"])[0])["group"]);
+
+        assert.match(group, /^social-sdk-[0-9a-f-]{36}$/);
 
         assert.deepEqual(body, {
           type: "schedule",
@@ -327,6 +330,43 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
     "POST /public/v1/posts",
     "GET /public/v1/posts",
   ]);
+});
+
+it("Postiz cancels an oversized upload stream before any request", async () => {
+  let cancelled = false;
+  let calls = 0;
+
+  const adapter = postiz({
+    apiKey: "test",
+    clock,
+    fetch: async () => {
+      calls++;
+
+      return Response.json({});
+    },
+  });
+
+  const stream = new ReadableStream<Uint8Array>({
+    pull: (controller) => controller.enqueue(new Uint8Array(6 * 1024 * 1024)),
+    cancel: () => {
+      cancelled = true;
+    },
+  });
+
+  await assert.rejects(
+    adapter.media.upload(
+      {
+        kind: "image",
+        mimeType: "image/png",
+        source: { kind: "stream", open: () => stream, fingerprint: "big" },
+      },
+      x,
+      context,
+    ),
+    (error) => error instanceof SocialError && error.code === "media_error",
+  );
+  assert.equal(cancelled, true);
+  assert.equal(calls, 0);
 });
 
 it("Postiz publishes now and reports an unexpected response as ambiguous", async () => {
@@ -461,17 +501,29 @@ it("Postiz cancels only a future post alone in its group and requires confirmati
     backendRecord: "deleted",
   });
 
-  deleted = null;
-  await assert.rejects(
-    adapter.posts.cancelScheduled(job, context),
-    (error) => error instanceof SocialError && error.code === "ambiguous_outcome",
-  );
+  for (deleted of [null, { id: "p9" }])
+    await assert.rejects(
+      adapter.posts.cancelScheduled(job, context),
+      (error) => error instanceof SocialError && error.code === "ambiguous_outcome",
+    );
 
   methods.length = 0;
   posts = [row({}), row({ id: "p2", integration: { id: "int2" } })];
   await assert.rejects(
     adapter.posts.cancelScheduled(job, context),
     (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+
+  posts = [row({ group: "AbCdEfGh12" })];
+  await assert.rejects(
+    adapter.posts.cancelScheduled(job, context),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+
+  posts = [row({ integration: { id: "int1", providerIdentifier: "linkedin" } })];
+  await assert.rejects(
+    adapter.posts.cancelScheduled(job, context),
+    (error) => error instanceof SocialError && error.code === "unauthorized",
   );
 
   posts = [row({ publishDate: "2026-09-24T11:00:00.000Z" })];
@@ -495,7 +547,7 @@ it("Postiz cancels only a future post alone in its group and requires confirmati
     ),
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
-  assert.deepEqual(methods, ["GET", "GET", "GET"]);
+  assert.deepEqual(methods, ["GET", "GET", "GET", "GET", "GET"]);
 });
 
 it("Postiz reads post analytics and creates OAuth connect links", async () => {

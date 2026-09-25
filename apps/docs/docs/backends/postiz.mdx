@@ -175,7 +175,7 @@ await social.posts.publish(
 
 The adapter supports account listing, publishing now or on a schedule, delivery status, cancelling a future scheduled post, deleting a failed or draft record, media upload, and post analytics. Cancelling deletes the Postiz record. Neither operation removes a post that already published.
 
-Postiz deletes posts by group. The adapter gives each target its own group, and it refuses to cancel or delete a post that shares a group with other posts, such as one created in the Postiz dashboard.
+Postiz deletes posts by group. The adapter gives each post it creates its own group, and it refuses to cancel or delete a post in any other group, such as one created in the Postiz dashboard or through another API client.
 
 ```ts
 if (outcome.state === "scheduled") {
