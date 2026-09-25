@@ -107,7 +107,7 @@ const result = await social.posts.publish(
 
 Postiz queues every post and a worker posts it when it is due. A scheduled post returns a `scheduled` outcome. A post sent now returns `processing` until the worker finishes, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed` without a reason, because the public API does not return one. Look at the post and channel in Postiz.
 
-The delivery, job, and record IDs have the form `<postiz post id>@<publish time>`. Postiz lists posts only by publish date, so the adapter keeps the time in the ID to find the post again. Store the IDs as opaque strings.
+The delivery, job, and record IDs have the form `<postiz post id>@<publish time>`. Postiz lists posts only by publish date, so the adapter keeps the time in the ID to find the post again. Store the IDs as opaque strings. If someone moves the post in Postiz by more than a day, the adapter can no longer find it, and reads, cancellation, and analytics fail with `not_found`. Manage a moved post in Postiz.
 
 The remaining examples pass `authorization` the same way. Full, type-checked versions are in `examples/snippets/backend-postiz.ts`.
 
@@ -145,7 +145,7 @@ If the submission itself was ambiguous, the outcome is `unknown` with no `delive
 
 ## Media
 
-The adapter uploads media to Postiz and sends the returned file ID and path with the post. A `Blob` or stream is uploaded as a file. An HTTPS URL is imported by Postiz, which accepts URLs whose path ends in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, or `.mp4`; upload the bytes for anything else. Supported types are JPEG, PNG, GIF, WebP, AVIF, BMP, and TIFF images up to 10 MB, and MP4 videos up to 1 GB. Documents are rejected. `altText` is sent with each file.
+The adapter uploads media to Postiz and sends the returned file ID and path with the post. A `Blob` or stream is uploaded as a file. Postiz takes each file in one request, so the adapter reads a stream into memory first; for large videos, prefer a `Blob` backed by a file, or an HTTPS URL. An HTTPS URL is imported by Postiz, which accepts URLs whose path ends in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, or `.mp4`; upload the bytes for anything else. Supported types are JPEG, PNG, GIF, WebP, AVIF, BMP, and TIFF images up to 10 MB, and MP4 videos up to 1 GB. Documents are rejected. `altText` is sent with each file.
 
 You can also upload first with `media.upload` and publish the returned reference. The reference resolves through the adapter's `mediaStore`, which is in memory by default, so upload and publish with the same adapter instance or configure a shared store.
 

@@ -765,21 +765,13 @@ export function postiz(options: PostizOptions) {
               observedAt: now(),
             };
 
-          // Keep the created post visible even if the follow-up read fails.
-          return {
-            state: "accepted",
-            targetIndex: target.targetIndex,
-            account: target.account,
-            delivery: {
-              kind: "delivery",
-              version: 1,
-              backend: target.account.backend,
-              platform: target.account.platform,
-              accountId: target.account.accountId,
-              deliveryId: id,
-            },
-            observedAt: now(),
-          };
+          // Postiz queues every post it creates, so report the queued state if the read fails.
+          return outcome(
+            { state: "QUEUE", publishDate: date },
+            id,
+            target.account,
+            target.targetIndex,
+          );
         }
       },
       async getDelivery(

@@ -372,6 +372,7 @@ it("Postiz cancels an oversized upload stream before any request", async () => {
 it("Postiz publishes now and reports an unexpected response as ambiguous", async () => {
   let response: JsonValue = [{ postId: "p1", integration: "other" }];
   let listed = row({ publishDate: "2026-09-24T12:00:00.000Z" });
+  let readFails = false;
 
   const adapter = postiz({
     apiKey: "test",
@@ -386,6 +387,8 @@ it("Postiz publishes now and reports an unexpected response as ambiguous", async
         return Response.json(response);
       }
 
+      if (readFails) return Response.json({ message: "unavailable" }, { status: 503 });
+
       return Response.json({ posts: [listed] });
     },
   });
@@ -399,6 +402,17 @@ it("Postiz publishes now and reports an unexpected response as ambiguous", async
 
   response = [{ postId: "p1", integration: "int1" }];
   assert.equal((await social.posts.publish(request)).outcomes[0]?.state, "processing");
+
+  // A failed follow-up read still reports the queued post, so polling continues.
+  readFails = true;
+  const unread = (await social.posts.publish(request)).outcomes[0];
+
+  assert.equal(unread?.state, "processing");
+  assert.equal(
+    unread?.state === "processing" ? unread.delivery?.deliveryId : undefined,
+    `p1@2026-09-24T12:00:00.000Z`,
+  );
+  readFails = false;
 
   // The follow-up read finds the created post on another channel.
   listed = row({ publishDate: "2026-09-24T12:00:00.000Z", integration: { id: "other" } });
