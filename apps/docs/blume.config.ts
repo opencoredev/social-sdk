@@ -76,6 +76,7 @@ export default defineConfig({
                   root: "/backends/postfast",
                   icon: "/integrations/postfast.png",
                 },
+                { label: "Postiz", root: "/backends/postiz", icon: "/integrations/postiz.svg" },
               ],
             },
           ],

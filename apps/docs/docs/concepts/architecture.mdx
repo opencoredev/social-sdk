@@ -17,14 +17,17 @@ flowchart LR
   Route --> Zernio[Zernio adapter]
   Route --> PostForMe[Post for Me adapter]
   Route --> PostFast[PostFast adapter]
+  Route --> Postiz[Postiz adapter]
   Direct --> Platform[Selected platform]
   Zernio --> Platform
   PostForMe --> Platform
   PostFast --> Platform
+  Postiz --> Platform
   Direct -. failure .-> Error[Structured outcome]
   Zernio -. failure .-> Error
   PostForMe -. failure .-> Error
   PostFast -. failure .-> Error
+  Postiz -. failure .-> Error
 ```
 
 ## Account connection and ownership

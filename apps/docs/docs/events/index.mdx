@@ -3,7 +3,7 @@ title: Process webhooks
 description: Verify raw webhooks from managed backends and direct platforms, quarantine unmapped tenants, deduplicate events, and process them durably.
 ---
 
-Verify before parsing. Zernio uses an `X-Zernio-Signature` HMAC-SHA256 digest over the untouched request bytes. Post for Me uses its `Post-For-Me-Webhook-Secret` shared-secret header; its verification does not authenticate the body. Both checks require the endpoint secret on the server and bound the body size. PostFast does not send webhooks, so poll `posts.getDelivery` for its scheduled posts.
+Verify before parsing. Zernio uses an `X-Zernio-Signature` HMAC-SHA256 digest over the untouched request bytes. Post for Me uses its `Post-For-Me-Webhook-Secret` shared-secret header; its verification does not authenticate the body. Both checks require the endpoint secret on the server and bound the body size. PostFast does not send webhooks, and Postiz webhooks carry no signature, so poll `posts.getDelivery` for posts on either backend.
 
 `@opencoredev/social-sdk/server` exports one verifier per provider:
 

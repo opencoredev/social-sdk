@@ -8,9 +8,11 @@ import {
 } from "@opencoredev/social-sdk";
 import { postForMe } from "@opencoredev/social-sdk/cloud/post-for-me";
 import { postfast } from "@opencoredev/social-sdk/cloud/postfast";
+import { postiz } from "@opencoredev/social-sdk/cloud/postiz";
 import type { EventInbox, SocialEvent } from "@opencoredev/social-sdk/server";
 import { cancelAndDelete, postForMeWebhookRoute } from "./backend-post-for-me.js";
 import { deleteFailedRecord, readPostMetrics, waitForDelivery } from "./backend-postfast.js";
+import * as postizSnippets from "./backend-postiz.js";
 import { nextStep, zernioWebhookRoute } from "./backend-zernio.js";
 
 function memoryInbox() {
@@ -170,6 +172,103 @@ test("PostFast polling waits through approval and scheduling, then reads metrics
   assert.deepEqual(await readPostMetrics(social, outcome, "tenant-a"), []);
   assert.equal(paths.at(-1), "/social-posts/analytics");
   assert.equal(await deleteFailedRecord(social, outcome, "tenant-a"), false);
+});
+
+test("Postiz polling waits through the queue, then reads metrics", async () => {
+  const row = (fields: JsonObject): JsonObject => ({
+    id: "p1",
+    content: "hello",
+    publishDate: "2026-09-24T12:00:00.000Z",
+    releaseURL: null,
+    releaseId: null,
+    state: "QUEUE",
+    group: "g1",
+    integration: { id: "int1", providerIdentifier: "x" },
+    ...fields,
+  });
+
+  const rows = [row({})];
+  const published = row({ state: "PUBLISHED", releaseId: "native1" });
+  const paths: string[] = [];
+
+  const social = createSocial({
+    backend: postiz({
+      apiKey: "fixture",
+      fetch: async (input) => {
+        const url = new URL(String(input));
+
+        paths.push(url.pathname);
+
+        if (url.pathname === "/public/v1/analytics/post/p1")
+          return Response.json([{ label: "Likes", data: [{ total: "7", date: "2026-09-24" }] }]);
+
+        return Response.json({ posts: [rows.shift() ?? published] });
+      },
+    }),
+  });
+
+  const delivery: DeliveryRef = {
+    kind: "delivery",
+    version: 1,
+    backend: "default",
+    platform: "x",
+    accountId: "int1",
+    deliveryId: "p1@2026-09-24T12:00:00.000Z",
+  };
+
+  const outcome = await postizSnippets.waitForDelivery(social, delivery, "tenant-a", {
+    intervalMs: 0,
+  });
+
+  assert.equal(outcome.state, "published");
+  assert.equal(nextStep(outcome), "published native1");
+
+  const metrics = await postizSnippets.readPostMetrics(social, outcome, "tenant-a");
+
+  assert.deepEqual(
+    metrics.map((metric) => [metric.name, metric.value]),
+    [["likes", 7]],
+  );
+  assert.equal(paths.at(-1), "/public/v1/analytics/post/p1");
+});
+
+test("Postiz OAuth checks state and exchanges the code for a workspace token", async () => {
+  const app: postizSnippets.PostizOAuthApp = {
+    clientId: "pca_fixture",
+    clientSecret: "pcs_fixture",
+    fetch: async (input, init) => {
+      assert.equal(String(input), "https://api.postiz.com/oauth/token");
+      assert.match(String(init?.body), /"code":"code-1"/);
+
+      return Response.json({ id: "org1", access_token: "pos_fixture", scope: "*" });
+    },
+  };
+
+  const session: postizSnippets.PostizOAuthSession = {};
+  const authorize = new URL(postizSnippets.startPostizAuthorization(app, session));
+  const state = authorize.searchParams.get("state") ?? "";
+
+  assert.equal(authorize.origin, "https://platform.postiz.com");
+  assert.equal(state, session.postizState);
+
+  await assert.rejects(
+    postizSnippets.finishPostizAuthorization(
+      app,
+      { postizState: state },
+      new URL("https://app.example/postiz/callback?code=code-1&state=forged"),
+    ),
+    /state does not match/,
+  );
+
+  const token = await postizSnippets.finishPostizAuthorization(
+    app,
+    session,
+    new URL(`https://app.example/postiz/callback?code=code-1&state=${state}`),
+  );
+
+  assert.deepEqual(token, { accessToken: "pos_fixture", organizationId: "org1", scope: "*" });
+  assert.equal(session.postizState, undefined);
+  assert.ok(postizSnippets.createTenantPostizSocial(token));
 });
 
 test("Post for Me cancellation keeps a draft, which is then deleted", async () => {
