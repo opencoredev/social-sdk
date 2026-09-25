@@ -102,6 +102,7 @@ it("PostFast sends its API key header and maps supported accounts", async () => 
 it("PostFast requires a future schedule and uploaded media", () => {
   const social = createSocial({
     backend: postfast({ apiKey: "test", clock, fetch: async () => Response.json({}) }),
+    clock,
   });
 
   const codes = (request: Parameters<typeof social.posts.prepare>[0]) =>
@@ -294,7 +295,7 @@ it("PostFast uploads by key, schedules the post and maps YouTube controls", asyn
     },
   });
 
-  const result = await createSocial({ backend: adapter }).posts.publish({
+  const result = await createSocial({ backend: adapter, clock }).posts.publish({
     targets: [
       {
         account: youtube,
@@ -537,7 +538,7 @@ it("PostFast reports a created post owned by another account as an uncertain wri
     },
   });
 
-  const result = await createSocial({ backend: adapter }).posts.publish({
+  const result = await createSocial({ backend: adapter, clock }).posts.publish({
     targets: [{ account: x }],
     content: { text: "demo" },
     schedule: { at: future },
@@ -607,7 +608,7 @@ it("PostFast does not submit a schedule that passed during media upload", async 
     },
   });
 
-  const result = await createSocial({ backend: adapter }).posts.publish({
+  const result = await createSocial({ backend: adapter, clock }).posts.publish({
     targets: [{ account: x }],
     content: {
       text: "demo",
