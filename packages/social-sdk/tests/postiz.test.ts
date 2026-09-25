@@ -375,6 +375,8 @@ it("Postiz stops oversized, stalled, and understated uploads before any request"
   const stalled = new ReadableStream<Uint8Array>({
     cancel: () => {
       stalledCancelled = true;
+
+      return new Promise<void>(() => undefined); // cleanup that never settles
     },
   });
 

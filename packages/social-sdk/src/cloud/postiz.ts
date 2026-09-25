@@ -244,7 +244,8 @@ async function bytes(item: MediaAttachment, limit: number, signal?: AbortSignal)
       chunks.push(new Uint8Array(value));
     }
   } catch (error) {
-    await reader.cancel().catch(() => undefined);
+    // Do not wait: a source's cancel callback may never settle.
+    abort();
     throw error;
   } finally {
     signal?.removeEventListener("abort", abort);
