@@ -1,5 +1,11 @@
 # @opencoredev/social-sdk
 
+## 0.6.0
+
+### Minor Changes
+
+- 2042ce8: Add a Postiz managed backend at `@opencoredev/social-sdk/cloud/postiz`. It works with Postiz Cloud and with self-hosted instances through `baseUrl`. It lists connected channels, uploads media, publishes now or on a schedule, reads delivery state, cancels scheduled posts, deletes failed or draft records, reads post analytics, and creates connect links through `native.createConnectLink`. `postizAuthorizationUrl` and `exchangePostizCode` let your server connect other people's Postiz workspaces through your own Postiz OAuth app; the returned `pos_` token is used as the adapter's `apiKey`. The offline CLI diagnostics recognize the `postiz` adapter and `POSTIZ_API_KEY`.
+
 ## 0.5.0
 
 ### Minor Changes
@@ -17,6 +23,7 @@
 - e711a88: Add Bluesky video publishing. `media.upload` sends an MP4 to the Bluesky video service and returns a media reference that holds the processing job ID. The new `native.getVideoJobStatus` and `native.getVideoUploadLimits` operations read job state and daily limits, so the caller controls polling. `posts.publish` with the video reference reads the job once and writes an `app.bsky.embed.video` record when processing is complete. If the job is still processing, the target fails with `media_error` and no post is created. The new `pdsDid` and `videoService` options set the upload token audience and the video service origin.
 - bcc36a3: Add native `deleteComment` and a `comments.delete` capability to the YouTube, Threads, Bluesky, X, and LinkedIn adapters. X, Threads, and Bluesky can only delete the authenticated account's own replies. YouTube and LinkedIn follow each platform's permission checks.
 - bcc36a3: Add native reply hiding for X and Bluesky, and declare `comments.moderate` for LinkedIn.
+
   - X: `native.hideReply({ account, replyId, hidden, context })` calls `PUT /2/tweets/{id}/hidden` with a user-context token and returns the hidden state X reports.
   - Bluesky: `native.hideReply({ account, replyUri, hidden, context })` adds or removes the reply in the root post's threadgate `hiddenReplies` list. It creates a threadgate without reply rules when none exists and updates an existing one with `swapRecord`.
   - LinkedIn: `comments.moderate` is declared `unsupported-by-platform` because the Comments API has no hide operation.
@@ -48,12 +55,14 @@
 ### Patch Changes
 
 - 0b03bf4: `social-sdk validate` decodes the JSON publish request before preparing it instead of casting it.
+
   - A structurally malformed request now exits 2 with a message naming the field path, such as `Invalid publish request: targets[0].account.kind must be "connected-account".` Values are never echoed. This covers a wrong account or reply reference kind or version, non-string text or identifiers, `null` in optional fields, non-object `options`, and media or thumbnails with an unsupported kind. Some of these previously reached `prepare` and exited 1 with a diagnostic issue.
   - Semantic problems such as an empty target list, an unknown backend, or a past schedule still exit 1 with preparation issues.
 
 - c4cefa8: Declare `posts.schedule` in the X, Threads, Bluesky, Instagram, TikTok and LinkedIn capability manifests. None of these publishing APIs holds a post for later publication, so the direct adapters keep rejecting `schedule` during preparation. X is marked `not-implemented-by-adapter` because its only scheduler is the separate Ads API; the others are `unsupported-by-platform`. Behavior is unchanged.
 - cf68a4f: Fix Blob uploads, Threads profile lookup field handling, and Instagram media deletion behavior.
 - 0b03bf4: Decode provider responses and publish options as JSON at the adapter boundary instead of casting them.
+
   - `YouTubeNative.resumeUpload` and `queryUpload` now return `Promise<YouTubeUploadStatus>`, and `YouTubeUploadStatus.video` is a `JsonObject`.
   - `stableSerialize` and `fingerprint` are generic over their input instead of taking `unknown`. Existing calls compile unchanged.
   - Native publish options that are not JSON (functions, symbols, bigints, `NaN`, `Infinity`, class instances such as `Date`, or cycles) are rejected with an `invalid-response` error instead of being passed through or silently changed by serialization.
