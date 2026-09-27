@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "routes": [
     {
-      "src": "/(.+)/",
+      "src": "/(?!api/)(.+)/",
       "status": 308,
       "headers": {
         "Location": "/$1"
