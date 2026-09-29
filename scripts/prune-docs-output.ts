@@ -25,7 +25,7 @@ async function files(path: string): Promise<string[]> {
 
 const entries = await files(directory);
 
-// Blume 1.7.1 emits this unused feedback integration chunk even with feedback:false.
+// Blume (checked through 2.0.3) emits this unused feedback chunk even with feedback:false.
 // Remove only unreachable generated chunks; a referenced one is a build error.
 const candidates = entries.filter((path) =>
   /^PageFeedback\.astro_astro_type_script_index_0_lang\.[\w-]+\.js$/.test(basename(path)),

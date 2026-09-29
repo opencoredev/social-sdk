@@ -1,5 +1,5 @@
 // PostHog for every page on the site: the Blume docs layout loads it through
-// `analytics.scripts`, and the standalone landing and brand pages inject it
+// `analytics: [script(...)]`, and the standalone landing and brand pages inject it
 // into their own <head>. One snippet keeps the config identical everywhere.
 //
 // Captured: pageviews and page leaves (including client-router navigations),

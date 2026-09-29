@@ -1,4 +1,5 @@
 import { defineConfig } from "blume";
+import { script } from "blume/analytics";
 
 import { posthogScript } from "./analytics";
 import { platformTabsMarkdown } from "./components/platforms.ts";
@@ -18,7 +19,7 @@ export default defineConfig({
   },
   basePath: "/docs",
   feedback: false,
-  lastModified: true,
+  lastModified: "git",
   redirects: [
     { from: "/analytics", to: "/reads#post-metrics", status: 301 },
     { from: "/messaging", to: "/comments#messages", status: 301 },
@@ -234,20 +235,17 @@ export default defineConfig({
   seo: {
     x: { handle: "@leodev" },
   },
-  ai: {
+  agents: {
     llmsTxt: true,
     markdownComponents: { PlatformTabs: platformTabsMarkdown },
     mcp: {
       enabled: false,
     },
   },
-  analytics: {
-    // Loaded as a custom script instead of `analytics.posthog` so the init
-    // options (exceptions, replay masking, URL stripping) are ours to set.
-    scripts: [{ content: posthogScript }],
-  },
+  // Loaded as a custom script instead of the `posthog()` adapter so the init
+  // options (exceptions, replay masking, URL stripping) are ours to set.
+  analytics: [script({ content: posthogScript })],
   deployment: {
-    output: "static",
     site: "https://social-sdk.dev",
   },
 });
