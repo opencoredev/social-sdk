@@ -29,4 +29,8 @@ The client also exposes capability-checked read surfaces for `social.search.post
 provider-shaped payloads where platforms differ and fail explicitly when the selected adapter does
 not declare the requested capability.
 
-Run the workspace documentation for setup and capability limits. Live provider verification remains dependent on approved accounts and credentials. Publication is controlled by the guarded release workflow.
+## Documentation
+
+Full documentation lives at [social-sdk.dev/docs](https://social-sdk.dev/docs). Start with the [installation guide](https://social-sdk.dev/docs/getting-started/installation), then read the [capability matrix](https://social-sdk.dev/docs/reference/capabilities) before choosing an adapter. The matrix lists the normalized operations each adapter implements. It does not replace provider permissions, account eligibility, or live verification with your own accounts.
+
+The package includes an offline `social-sdk` CLI for adapter discovery, capability checks, and request validation. After installing `@opencoredev/social-sdk` in your project, run it from that project directory with `npm exec -- social-sdk adapters --json` or `bun run social-sdk adapters --json`. See the [CLI reference](https://social-sdk.dev/docs/reference/cli).

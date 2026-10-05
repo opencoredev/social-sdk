@@ -60,31 +60,30 @@ export default defineConfig({
               icon: "/integrations/instagram.svg",
             },
             { label: "LinkedIn", root: "/platforms/linkedin", icon: "/integrations/linkedin.svg" },
+          ],
+        },
+        {
+          label: "Managed backends",
+          icon: "server",
+          collapsed: true,
+          items: [
+            { label: "Overview", root: "/backends", icon: "layout-grid" },
+            { label: "Zernio", root: "/backends/zernio", icon: "/integrations/zernio.svg" },
             {
-              label: "Hosted platforms",
-              icon: "server",
-              collapsed: true,
-              items: [
-                { label: "Overview", root: "/backends" },
-                { label: "Zernio", root: "/backends/zernio", icon: "/integrations/zernio.svg" },
-                {
-                  label: "Post for Me",
-                  root: "/backends/post-for-me",
-                  icon: "/integrations/post-for-me.webp",
-                },
-                {
-                  label: "PostFast",
-                  root: "/backends/postfast",
-                  icon: "/integrations/postfast.png",
-                },
-                { label: "Postiz", root: "/backends/postiz", icon: "/integrations/postiz.svg" },
-              ],
+              label: "Post for Me",
+              root: "/backends/post-for-me",
+              icon: "/integrations/post-for-me.webp",
             },
+            {
+              label: "PostFast",
+              root: "/backends/postfast",
+              icon: "/integrations/postfast.png",
+            },
+            { label: "Postiz", root: "/backends/postiz", icon: "/integrations/postiz.svg" },
           ],
         },
         {
           label: "Integrations",
-          root: "/integrations",
           icon: "blocks",
           collapsed: true,
           items: [
@@ -208,7 +207,7 @@ export default defineConfig({
           icon: "library",
           items: [
             { label: "API overview", root: "/reference", icon: "book-open" },
-            { label: "Capabilities", root: "/reference/capabilities", icon: "list-checks" },
+            { label: "Capability matrix", root: "/reference/capabilities", icon: "list-checks" },
             { label: "Pagination", root: "/reference/pagination", icon: "arrow-left-right" },
             { label: "CLI", root: "/reference/cli", icon: "terminal" },
             { label: "Errors", root: "/reference/errors", icon: "triangle-alert" },
@@ -220,6 +219,12 @@ export default defineConfig({
           ],
         },
       ],
+    },
+  },
+  markdown: {
+    code: {
+      // Every token in these themes clears 4.5:1 against the code backgrounds in theme.css.
+      theme: { light: "github-light-high-contrast", dark: "github-dark-default" },
     },
   },
   theme: {

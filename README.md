@@ -70,12 +70,14 @@ Read the [platform capability matrix](https://social-sdk.dev/docs/reference/capa
 
 The `social-sdk` CLI is offline. It does not authenticate accounts, upload media, publish content, or make hidden network requests.
 
+The package installs the binary into your project's `node_modules/.bin`, which is not on your shell `PATH`. After installing `@opencoredev/social-sdk`, run it from that project directory with `npm exec`, or replace `npm exec --` with `bun run` under Bun:
+
 ```bash
-social-sdk adapters --json
-social-sdk capabilities --adapter youtube --json
-social-sdk doctor --adapter zernio --json
-social-sdk examples --json
-social-sdk validate --adapter mock --file request.json --json
+npm exec -- social-sdk adapters --json
+npm exec -- social-sdk capabilities --adapter youtube --json
+npm exec -- social-sdk doctor --adapter zernio --json
+npm exec -- social-sdk examples --json
+npm exec -- social-sdk validate --adapter mock --file request.json --json
 ```
 
 See the [CLI reference](https://social-sdk.dev/docs/reference/cli) for command output, validation limits, and exit codes.

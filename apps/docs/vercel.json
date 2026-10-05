@@ -9,6 +9,41 @@
       }
     },
     {
+      "src": "/docs/analytics",
+      "status": 301,
+      "headers": {
+        "Location": "/docs/reads#post-metrics"
+      }
+    },
+    {
+      "src": "/docs/messaging",
+      "status": 301,
+      "headers": {
+        "Location": "/docs/comments#messages"
+      }
+    },
+    {
+      "src": "/docs/overview",
+      "status": 301,
+      "headers": {
+        "Location": "/docs"
+      }
+    },
+    {
+      "src": "/docs/backends/direct",
+      "status": 301,
+      "headers": {
+        "Location": "/docs/backends"
+      }
+    },
+    {
+      "src": "/docs/backends/managed",
+      "status": 301,
+      "headers": {
+        "Location": "/docs/backends"
+      }
+    },
+    {
       "src": "/|/docs(?:/.*)?",
       "headers": {
         "Vary": "Accept"
