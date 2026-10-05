@@ -393,43 +393,43 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | bluesky | bluesky | chat.read | available | None declared | See adapter setup | None declared |
 | bluesky | bluesky | chat.write | available | None declared | See adapter setup | None declared |
 | x | x | webhooks.verify | available | None declared | See adapter setup | Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge. |
-| x | x | posts.publish | available | text, image, video | tweet.read, tweet.write, users.read, media.write | User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. |
+| x | x | posts.publish | available | text, image, video | tweet.read, tweet.write, users.read, media.write | User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to the 16 GiB upload ceiling (account size/duration eligibility may be lower) / one GIF up to 15 MiB via 4 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. Self-serve replies require a parent-author mention or quote summoning this account; Enterprise is exempt (February 2026 changelog). |
 | x | x | accounts.read | available | None declared | See adapter setup | None declared |
 | x | x | posts.list | available | None declared | tweet.read, users.read | None declared |
 | x | x | posts.read | available | None declared | See adapter setup | None declared |
 | x | x | analytics.read | available | None declared | See adapter setup | None declared |
 | x | x | analytics.account.read | available | None declared | See adapter setup | None declared |
-| x | x | comments.write | available | None declared | See adapter setup | None declared |
-| x | x | posts.repost | available | None declared | See adapter setup | None declared |
-| x | x | posts.quote | available | None declared | tweet.read, tweet.write, users.read | None declared |
+| x | x | comments.write | available | None declared | tweet.read, tweet.write, users.read | Self-serve replies require the parent author to have summoned the replying account by mentioning or quoting it. Enterprise is exempt (X February 2026 changelog). |
+| x | x | posts.repost | available | None declared | tweet.read, tweet.write, users.read | None declared |
+| x | x | posts.quote | available | None declared | tweet.read, tweet.write, users.read | Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility. |
 | x | x | posts.delete | available | None declared | tweet.read, tweet.write, users.read | None declared |
-| x | x | polls.create | available | None declared | See adapter setup | None declared |
-| x | x | bookmarks.read | available | None declared | See adapter setup | None declared |
-| x | x | bookmarks.write | available | None declared | See adapter setup | None declared |
-| x | x | follows.write | available | None declared | See adapter setup | None declared |
+| x | x | polls.create | available | None declared | tweet.read, tweet.write, users.read | None declared |
+| x | x | bookmarks.read | available | None declared | bookmark.read, tweet.read, users.read | None declared |
+| x | x | bookmarks.write | available | None declared | bookmark.write, tweet.read, users.read | None declared |
+| x | x | follows.write | available | None declared | follows.write, tweet.read, users.read | Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility. |
 | x | x | mentions.read | available | None declared | tweet.read, users.read | None declared |
-| x | x | likes.read | available | None declared | like.read, tweet.read, users.read | None declared |
-| x | x | likes.write | available | None declared | like.write, tweet.read, users.read | None declared |
+| x | x | likes.read | available | None declared | like.read, tweet.read, users.read | Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility. |
+| x | x | likes.write | available | None declared | like.write, tweet.read, users.read | Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility. |
 | x | x | lists.read | available | None declared | list.read, tweet.read, users.read | None declared |
 | x | x | lists.write | available | None declared | list.write, tweet.read, users.read | None declared |
 | x | x | timelines.read | available | None declared | tweet.read, users.read | None declared |
 | x | x | posts.removeFromPlatform | available | None declared | tweet.read, tweet.write, users.read | None declared |
 | x | x | posts.update | available | text | tweet.read, tweet.write, users.read | Text-only edit through native.updatePost. X requires X Premium, the account's own post, and a recent post within X's edit window and edit count. Polls, replies to others, reposts, and scheduled posts are not editable. Each edit creates a new post ID. |
-| x | x | graph.read | available | None declared | users.read, follows.read, mute.read, block.read | The required read scope depends on the requested relationship kind. |
+| x | x | graph.read | available | None declared | users.read, tweet.read, follows.read, mute.read, block.read | Use follows.read for followers/following, mute.read for muted users, and block.read for blocked users, with tweet.read and users.read. Following access is Enterprise-only per X's April 2026 changelog; muted/blocked reads require user context. |
 | x | x | profiles.read | available | None declared | users.read | None declared |
-| x | x | graph.follow | available | None declared | users.read, follows.write | Follow writes require an eligible paid X API tier. |
-| x | x | graph.unfollow | available | None declared | users.read, follows.write | Follow writes require an eligible paid X API tier. |
-| x | x | graph.mute | available | None declared | users.read, mute.write | None declared |
-| x | x | graph.unmute | available | None declared | users.read, mute.write | None declared |
-| x | x | graph.block | available | None declared | users.read, block.write | Enterprise plan only. |
-| x | x | graph.unblock | available | None declared | users.read, block.write | Enterprise plan only. |
-| x | x | lists.pinned.read | available | None declared | users.read, list.read | None declared |
-| x | x | lists.pinned.write | available | None declared | users.read, list.write | None declared |
-| x | x | messages.conversation.write | available | None declared | dm.write | None declared |
-| x | x | messages.group.write | available | None declared | dm.write | None declared |
+| x | x | graph.follow | available | None declared | users.read, tweet.read, follows.write | Following operations require Enterprise access per X's April 2026 changelog. |
+| x | x | graph.unfollow | available | None declared | users.read, tweet.read, follows.write | Following operations require Enterprise access per X's April 2026 changelog. |
+| x | x | graph.mute | available | None declared | users.read, tweet.read, mute.write | None declared |
+| x | x | graph.unmute | available | None declared | users.read, tweet.read, mute.write | None declared |
+| x | x | graph.block | available | None declared | users.read, tweet.read, block.write | Enterprise plan only. |
+| x | x | graph.unblock | available | None declared | users.read, tweet.read, block.write | Enterprise plan only. |
+| x | x | lists.pinned.read | available | None declared | users.read, tweet.read, list.read | None declared |
+| x | x | lists.pinned.write | available | None declared | users.read, tweet.read, list.write | None declared |
+| x | x | messages.conversation.write | available | None declared | dm.write, users.read, tweet.read | None declared |
+| x | x | messages.group.write | available | None declared | dm.write, users.read, tweet.read | None declared |
 | x | x | comments.read | available | None declared | tweet.read, users.read | Replies come from recent search with conversation_id, so only replies from the last 7 days are returned. Pass the conversation's root post. Page limits are 10-100. Recent search allows 450 requests per 15 minutes per app and 300 per user, and X bills post reads under the app's plan. |
 | x | x | search.posts | available | None declared | tweet.read, users.read | Recent search covers the last 7 days. Full-archive search requires an eligible X API pay-per-use or Enterprise plan. |
-| x | x | media.video | available | video | tweet.read, tweet.write, users.read, media.write | MP4 Blob chunked INIT/APPEND/FINALIZE with 1 MiB segments and bounded STATUS poll honoring check_after_secs. |
+| x | x | media.video | available | video | tweet.read, tweet.write, users.read, media.write | MP4 Blob chunked INIT/APPEND/FINALIZE with 4 MiB segments and bounded STATUS poll honoring check_after_secs. |
 | x | x | media.gif | available | None declared | tweet.read, tweet.write, users.read, media.write | GIF Blob chunked upload; large GIFs process asynchronously before attach. |
 | x | x | messages.read | available | None declared | dm.read, users.read, tweet.read | Requires a user-context token and an X API tier that includes Direct Messages. |
 | x | x | notifications.read | unsupported-by-platform | None declared | See adapter setup | X API v2 has no notifications list endpoint. Use mentions.read, or the Account Activity or X Activity API webhooks and streams. |

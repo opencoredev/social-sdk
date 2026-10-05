@@ -54,7 +54,7 @@ test("X parity native engagement and poll operations use typed routes", async ()
       const url = new URL(String(input));
       calls.push({ path: url.pathname, method: init?.method ?? "GET" });
 
-      return Response.json({ data: { id: "ok" } });
+      return Response.json({ data: init?.method === "DELETE" ? { deleted: true } : { id: "ok" } });
     },
   });
 

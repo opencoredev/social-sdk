@@ -335,12 +335,16 @@ export type DeliveryOutcome =
       readonly url?: string;
     })
   | (OutcomeBase<"failed"> & {
+      /** Opaque upload ID retained for media recovery before another submission. */
+      readonly mediaId?: string;
       readonly code: string;
       readonly message: string;
       readonly retryDisposition: RetryDisposition;
     })
   | (OutcomeBase<"cancelled"> & { readonly reason?: string })
   | (OutcomeBase<"unknown"> & {
+      /** Opaque upload ID retained for media recovery before another submission. */
+      readonly mediaId?: string;
       readonly reason: "ambiguous-submission" | "unmapped-state";
       readonly diagnostic?: string;
     });

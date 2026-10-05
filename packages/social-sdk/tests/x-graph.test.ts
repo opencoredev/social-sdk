@@ -79,7 +79,13 @@ it("normalizes X follow, mute, block, and unblock writes", async () => {
       fetch: async (input, init) => {
         requests.push({ path: new URL(String(input)).pathname, method: init?.method ?? "GET" });
 
-        return Response.json({ data: {} });
+        return Response.json({
+          data: {
+            following: init?.method !== "DELETE",
+            muting: init?.method !== "DELETE",
+            blocking: init?.method !== "DELETE",
+          },
+        });
       },
     }),
   });

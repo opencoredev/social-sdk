@@ -8,40 +8,63 @@ The direct X adapter uses an existing bearer token and user ID. For a multi-user
 ## Setup
 
 <Steps>
-  <Step title="Get API access">
-    Create an app in the X developer portal and confirm your API plan covers the operations you
-    need. Request the `tweet.read`, `tweet.write`, `users.read`, `offline.access`, and `media.write`
-    scopes for the implemented operations. Add `dm.read` to read messages and `dm.write` to send
-    them. Recent post search and Direct Messages additionally require the access and plan tier that
-    X currently assigns to your app.
+  <Step title="Register an app">
+    Create an app in the [X developer console](https://console.x.com), enable OAuth 2.0, and
+    register your server callback URL. API access uses pay-per-use credits or an Enterprise
+    agreement; endpoint eligibility and OAuth scopes are separate requirements. Request
+    `tweet.read`, `tweet.write`, `users.read`, `offline.access`, and `media.write` for publishing
+    with uploads. Request additional scopes only for the operations you use.
   </Step>
-  <Step title="Store credentials server-side">
-    Set `X_USER_ID` and `X_ACCESS_TOKEN` in server configuration. Never ship them to a browser
-    bundle.
+  <Step title="Authorize the user">
+    Use `xOAuth` from `@opencoredev/social-sdk/server` with `ConnectionManager` for the
+    authorization-code flow with PKCE, state verification, and the registered callback. Exchange the
+    short-lived code immediately. Read `GET /2/users/me` with the resulting user token to discover
+    the numeric user ID. Store that ID and the tokens server-side. An app-only bearer identifies the
+    app and cannot authorize user writes or private reads.
   </Step>
-  <Step title="Configure the adapter">
-    Construct the backend with those credentials and select the account through a connected-account
-    reference.
+  <Step title="Persist refresh results">
+    [OAuth 2.0 user
+    tokens](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code) normally
+    expire after two hours. Request `offline.access` for a refresh token and persist both rotated
+    tokens after refreshing. See the [connection flow](/authentication) for callback and token
+    storage integration. Never ship tokens to a browser bundle.
   </Step>
 </Steps>
 
+The examples below share this server setup. All account references and native contexts use the
+`default` backend registration. Native methods bypass the normalized client middleware; enforce
+your application's tenant grants before calling them.
+
 ```ts
-import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { createSocial, connectedAccountRef, platformPostRef } from "@opencoredev/social-sdk";
+import type { AdapterOperationContext } from "@opencoredev/social-sdk";
 import { x } from "@opencoredev/social-sdk/x";
+
+const userId = process.env.X_USER_ID;
+const accessToken = process.env.X_ACCESS_TOKEN;
+if (!userId || !accessToken) throw new Error("Configure X_USER_ID and X_ACCESS_TOKEN");
+const appBearerToken = process.env.X_APP_BEARER_TOKEN;
 
 const social = createSocial({
   backend: x({
-    auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
-    // Required for full-archive search and the filtered stream.
-    appBearerToken: process.env.X_APP_BEARER_TOKEN,
+    auth: { userId, accessToken },
+    // Required for the filtered stream; a fallback for public reads and search.
+    ...(appBearerToken ? { appBearerToken } : {}),
   }),
 });
 
-const account = connectedAccountRef({
-  backend: "default",
-  platform: "x",
-  accountId: process.env.X_USER_ID!,
-});
+const account = connectedAccountRef({ backend: "default", platform: "x", accountId: userId });
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (!native) throw new Error("X native methods are unavailable");
+
+// Create a fresh context for each operation, not a shared long-lived deadline.
+function operationContext(maxElapsedMs = 30_000): AdapterOperationContext {
+  return {
+    backendInstance: "default",
+    correlationId: crypto.randomUUID(),
+    retryBudget: { maxAttempts: 1, maxElapsedMs },
+  };
+}
 ```
 
 ## Examples
@@ -61,9 +84,15 @@ console.log(result.outcomes[0]?.state);
 
 ### Publish with an image
 
-The normalized adapter covers text and static image targets. Images upload as blobs of at most 5 MiB, with up to four images per post.
+The normalized adapter accepts static JPEG/PNG images, MP4 video, and GIF images as Blobs. Static images are at most 5 MiB each, with up to four per post. A post can instead attach one video or one GIF.
 
 ```ts
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+
+const imageBytes = await readFile("./release.png");
+const blob = new Blob([imageBytes], { type: "image/png" });
+const contentHash = createHash("sha256").update(imageBytes).digest("hex");
 const result = await social.posts.publish({
   targets: [{ account }],
   content: {
@@ -82,26 +111,79 @@ const result = await social.posts.publish({
 
 ### Publish with a video or GIF
 
-Video (`video/mp4`, up to 512 MiB) and GIF (`image/gif`, up to 15 MiB) upload through the
-chunked `INIT → APPEND → FINALIZE → STATUS` flow with 1 MiB segments. Attach exactly one
-video or GIF per post. The adapter polls `processing_info` honoring `check_after_secs`, and fails with `timeout`
-instead of waiting past the operation budget. A `failed` processing state surfaces as a terminal
-`media_error` and never creates a post. X checks video duration only when the post is created and
-answers with HTTP 403, which the adapter reports as `missing_permission` with a message naming both
-possible causes, because the status alone cannot tell a duration limit from a missing permission.
+Video (`kind: "video"`, `video/mp4`) and GIF (`kind: "image"`, `image/gif`, up to 15 MiB) upload through the
+chunked `INIT → APPEND → FINALIZE → STATUS` flow with 4 MiB segments. Attach exactly one
+video or GIF per post. The local video upload ceiling is 17,179,869,184 bytes (16 GiB).
+At that ceiling, the adapter sends 4,096 segments with indices 0–4095, within X's
+0–9999 APPEND index range. Each segment stays below the recommended 5 MB chunk limit.
+X's media guidance lists 8 GB for default Post video and 16 GB for Premium/verified accounts;
+attachment size and duration eligibility still depend on the account. The SDK does not infer
+eligibility from a token. The adapter polls `processing_info` honoring `check_after_secs`, and stops
+at the operation deadline or after 30 STATUS requests. A processing `timeout` carries the
+upload ID in `SocialError.details.mediaId` and uses `reconcile-first`. Interrupted APPEND,
+FINALIZE, and STATUS requests also retain the upload ID; normalized failed or unknown
+publish outcomes expose it as `mediaId`. Check that upload's
+STATUS with the provider before starting another upload. A `failed` processing state surfaces as a terminal
+`media_error` and never creates a post. X checks video duration when the post is created. A recognized video-duration problem
+returns `media_error`. An unrecognized HTTP 403 remains `missing_permission`, with
+guidance to check account attachment limits and post permissions.
+
+The 16 GiB ceiling is a local size check, not a promise that an upload finishes within
+the default 30-second elapsed budget. That budget covers INITIALIZE, every sequential
+APPEND, FINALIZE, and processing. Set `retryBudget.maxElapsedMs` for the file size,
+connection speed, and processing time before dispatching a large upload. The example
+below allows 30 minutes; slower connections may need more. Native `uploadVideo` and
+`uploadGif` callers can pass `context: operationContext(30 * 60_000)` for the same budget.
+Keep `maxAttempts: 1` and reconcile interrupted uploads before starting another.
 
 ```ts
-const result = await social.posts.publish({
+import { createReadStream, openAsBlob } from "node:fs";
+import { createHash } from "node:crypto";
+
+const videoBlob = await openAsBlob("./demo.mp4", { type: "video/mp4" });
+const hash = createHash("sha256");
+for await (const chunk of createReadStream("./demo.mp4")) hash.update(chunk);
+const contentHash = hash.digest("hex");
+const result = await social.posts.publish(
+  {
+    targets: [{ account }],
+    content: {
+      text: "Demo clip",
+      media: [
+        {
+          kind: "video",
+          source: { kind: "blob", blob: videoBlob, fingerprint: contentHash },
+          mimeType: "video/mp4",
+          filename: "demo.mp4",
+          byteSize: videoBlob.size,
+        },
+      ],
+    },
+  },
+  { retryBudget: { maxAttempts: 1, maxElapsedMs: 30 * 60_000 } },
+);
+```
+
+A GIF uses the image shape, with its own MIME type:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+
+const gifBytes = await readFile("./animation.gif");
+const gif = new Blob([gifBytes], { type: "image/gif" });
+await social.posts.publish({
   targets: [{ account }],
   content: {
-    text: "Demo clip",
     media: [
       {
-        kind: "video",
-        source: { kind: "blob", blob: videoBlob, fingerprint: contentHash },
-        mimeType: "video/mp4",
-        filename: "demo.mp4",
-        byteSize: videoBlob.size,
+        kind: "image",
+        mimeType: "image/gif",
+        source: {
+          kind: "blob",
+          blob: gif,
+          fingerprint: createHash("sha256").update(gifBytes).digest("hex"),
+        },
       },
     ],
   },
@@ -110,14 +192,24 @@ const result = await social.posts.publish({
 
 ### Reconcile an uncertain outcome
 
-Every target result is independent. A successful HTTP response is not treated as a publication unless X returns a tweet ID. A transport failure after dispatch is `unknown`; reconcile before retrying. The adapter does not fail over to another backend.
+Every target result is independent. A successful HTTP response confirms publication only when X
+returns a post ID. A lost create response can leave an `unknown` outcome without a delivery
+reference or post ID. This adapter has no delivery-status lookup. Inspect the acting account's
+timeline in X or through `native.userPosts` and compare the intended post and creation time before
+deciding what to do. Absence from a page does not prove the write failed. A blind retry can create
+a duplicate; the adapter does not fail over to another backend.
+
+When you already know the post ID, read that account's post directly:
 
 ```ts
-const outcome = result.outcomes[0];
-if (outcome?.state === "unknown" && outcome.delivery) {
-  const delivery = await social.posts.getDelivery(outcome.delivery);
-  console.log(delivery.state); // published | failed | unknown
-}
+const knownPost = platformPostRef({
+  backend: "default",
+  platform: "x",
+  accountId: account.accountId,
+  postId: "1900000000000000001", // Load the stored reference from your application.
+});
+const observed = await native.readPost(knownPost, operationContext());
+console.log(observed["id"]);
 ```
 
 ### Search recent posts
@@ -141,6 +233,15 @@ search; that route permits the wider provider limit and query length. Recent sea
 and covers X's recent index, not the complete historical archive. Retain the provider fields and
 `created_at` value if you are building an application index.
 
+The SDK validates a 4,096-character query ceiling, without inferring a subscription tier.
+X's self-serve caps are 512 characters for recent search and 1,024 for archive search;
+Enterprise can support 4,096. Set `startTime` explicitly for older archive history: omitting it
+does not promise a query over the entire archive. Full-archive limits include one request per
+second and 300 per 15 minutes; confirm your current app allocation before running a backfill.
+The May 4, 2026 search-index change supports `min_likes:`, `min_replies:`, and `min_reposts:`.
+Keyword-based searches no longer return reposts; filtered-stream matching is unchanged.
+See the [changelog](https://docs.x.com/changelog) for the dated changes.
+
 Recent search availability, retention, rate limits, and monthly usage depend on the app's X API
 plan and project permissions. The SDK does not grant access, widen the retention window, or retry
 around a quota. A denied or unavailable route is surfaced as a structured provider error. Search
@@ -151,12 +252,11 @@ results are not proof that every matching post exists or remains publicly readab
 The native `updatePost` method edits the text of a published post. It calls `POST /2/tweets` with `edit_options.previous_post_id`, which is X's documented edit path.
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
 const edited = await native.updatePost({
   account,
   postId: "1900000000000000001",
   text: "Corrected release notes",
-  context,
+  context: operationContext(),
 });
 
 console.log(edited.post.postId); // the new version's ID
@@ -176,7 +276,12 @@ adapter runs a recent search for `conversation_id:<postId>`, which is the method
 [X documents](https://docs.x.com/x-api/fundamentals/conversation-id) for reading a conversation.
 
 ```ts
-const post = platformPostRef({ ...account, postId: "1700000000000000000" });
+const post = platformPostRef({
+  backend: "default",
+  platform: "x",
+  accountId: account.accountId,
+  postId: "1700000000000000000",
+});
 const replies = await social.comments.list(post, { limit: 25 });
 
 for (const reply of replies.items) console.log(reply["id"], reply["author_id"], reply["text"]);
@@ -203,21 +308,15 @@ The adapter does not fall back to full-archive search and does not retry on a ra
 The X platform entrypoint exports `xLike` and `xUnlike` for credential-ready server code. They require an acting connected-account reference, a native numeric post ID, server-side credentials, and an operation context whose `backendInstance` matches the account. These helpers sit outside `createSocial` authorization and concurrency middleware: authorize the acting account in your application before calling them.
 
 ```ts
-import { connectedAccountRef } from "@opencoredev/social-sdk";
 import { xLike, xUnlike } from "@opencoredev/social-sdk/x";
 
-const account = connectedAccountRef({
-  backend: "direct",
-  platform: "x",
-  accountId: userId,
-});
-
+const postId = "1900000000000000001";
 const state = await xLike(
   postId,
   account,
   { userId, accessToken },
   {
-    backendInstance: "direct",
+    backendInstance: "default",
     correlationId: "reaction",
     retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
   },
@@ -225,7 +324,7 @@ const state = await xLike(
 console.log(state.liked);
 ```
 
-Both require the app's current API access and `like.write`, `tweet.read`, and `users.read` scopes. They make one mutation request and return the provider-confirmed `liked` state. A lost response, malformed confirmation, or uncertain server failure throws `ambiguous_outcome`; inspect current reaction state before deciding whether to retry. Unliking removes the acting user's reaction, not the target post. Request contracts: [like a post](https://docs.x.com/x-api/users/like-post), [unlike a post](https://docs.x.com/x-api/users/unlike-post).
+Both require Enterprise access under X's April 2026 changelog, plus `like.write`, `tweet.read`, and `users.read` scopes. They make one mutation request and return the provider-confirmed `liked` state. A lost response, malformed confirmation, or uncertain server failure throws `ambiguous_outcome`; inspect current reaction state before deciding whether to retry. Unliking removes the acting user's reaction, not the target post. Request contracts: [like a post](https://docs.x.com/x-api/users/like-post), [unlike a post](https://docs.x.com/x-api/users/unlike-post).
 
 ### Read profiles and relationships
 
@@ -253,30 +352,44 @@ await social.graph.mute(profile.ref);
 
 These operations require user-context OAuth scopes such as `users.read`, `follows.read`,
 `follows.write`, `mute.read`, `mute.write`, and `block.write`, subject to the app's current X API
-tier. Block and unblock writes are Enterprise-only in X's API. `kind: "blocked"` remains
+access. Following, Likes, and Quote-Posts were removed from self-serve access effective
+April 20, 2026; use these methods only with eligible Enterprise access. Block and unblock writes
+are also Enterprise-only. Follower/following/muted/blocked pages accept limits from 1 through 1,000.
+Muted and blocked reads require a user token; public lookup and permitted public graph reads can
+use the app bearer. Graph scopes include `tweet.read` and `users.read` plus the relationship's
+`follows.read`, `mute.read`, or `block.read` scope. Writes use the matching write scope.
+Pending follow requests do not count as completed relationships: unconfirmed writes raise
+`ambiguous_outcome` with `reconcile-first`. `kind: "blocked"` remains
 available for blocked-list reads when the account has the required `block.read` access.
 
 ### Pin lists and send direct messages
 
-The native X module exposes pinned-list mutations and paginated reads, plus direct-message
+The native X module exposes pinned-list mutations and a read of the full pinned set, plus direct-message
 operations for an existing conversation and for creating a group conversation:
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
-await native.pinList({ account, listId: "123", context });
-const pinned = await native.pinnedLists({ account, limit: 20, context });
-await native.sendConversationMessage({ account, conversationId: "456", text: "Hello", context });
+await native.pinList({ account, listId: "123", context: operationContext() });
+const pinned = await native.pinnedLists({ account, context: operationContext() });
+await native.sendConversationMessage({
+  account,
+  conversationId: "456",
+  text: "Hello",
+  context: operationContext(),
+});
 await native.createGroupConversation({
   account,
-  participantIds: ["u2", "u3"],
+  participantIds: ["1900000000000000002", "1900000000000000003"],
   message: "Welcome",
-  context,
+  context: operationContext(),
 });
 ```
 
-These methods require the corresponding `list.write`, `list.read`, or `dm.write` scope and the
-X plan access for the endpoint. `listDirectMessages` returns the standard `Page` shape, including
-`nextCursor` when X returns `meta.next_token`.
+Pinned lists require user context, `tweet.read`, `users.read`, and `list.read` or `list.write`.
+`pinnedLists` has no pagination: omit `limit` and `cursor` or the SDK rejects them locally.
+Conversation and group sends require `dm.write`, `users.read`, and `tweet.read`, with endpoint access.
+`sendConversationMessage` accepts nonempty text or one attachment `{ media_id: "123" }`; it rejects
+missing/invalid media IDs and multiple attachments. `listDirectMessages` returns the standard `Page` shape, including
+`nextCursor` when X returns `meta.next_token`, plus sender fields and `metadata.includes` for user expansions.
 
 ### Use normalized messages
 
@@ -316,9 +429,27 @@ Pass the OAuth 2.0 client secret, or the legacy consumer secret, as `webhookSecr
 
 The typed native module also exposes `uploadVideo` and `uploadGif`, which run the same chunked upload and return an attachable `mediaId`, plus user lookup, followers and following, follow and unfollow, likes, mute controls, blocked and muted lists, lists, user and home timelines, mentions, retweet undo, direct-message send and reads, polls, quotes, text edits, deletion, bookmarks, and the filtered stream. Paginated methods return the SDK `Page` shape, so pass `nextCursor` back as `cursor`.
 
-`deleteComment({ account, commentId, context })` deletes a reply post with `DELETE /2/tweets/{id}`. X only allows the authenticated user to delete posts they authored, so it cannot remove replies from other accounts. The adapter raises `ambiguous_outcome` unless X returns `deleted: true`.
+`deletePost({ account, postId, context })` deletes a reply post with `DELETE /2/tweets/{id}`. X only allows the authenticated user to delete posts they authored, so it cannot remove replies from other accounts. The adapter raises `ambiguous_outcome` unless X returns `data.deleted: true`, including through `social.posts.removeFromPlatform`. Unconfirmed deletion requires reconciliation before retrying.
 
-Full-archive search (`searchAllPosts`) requires an app-only bearer token. Configure `appBearerToken`; the adapter raises a `missing_permission` `SocialError` before making a request when it is absent. User-scoped methods continue to use the configured OAuth user token.
+Recent and full-archive search (`searchAllPosts`) prefer the configured user access token and
+fall back to `appBearerToken` when there is no user token. With neither credential, search raises
+`missing_permission` locally. X's full-archive guide describes app-only authentication, while
+OpenAPI 2.169 also lists user-context authentication. The SDK follows that declared option; live
+user-context archive access has not been verified here. The filtered stream always uses the app bearer.
+
+User timeline, mentions, and liked-post reads accept limits from 5 through 100. Home timeline,
+list posts, and liking-user reads accept 1 through 100. Native timeline/list pages retain author,
+reference, and media expansions in `metadata.includes`. Metrics decode both `post_count`/`tweet_count`
+and `repost_count`/`retweet_count`, preferring the newer spelling when both exist. Normalized metric
+names remain `tweet_count` for account totals and `reposts` for post totals. Reply references accept
+`referenced_posts` and `referenced_tweets` and expose `referenced_tweets` for compatibility. `bookmarks` returns the raw first provider
+response, not a paginated SDK method. Bookmark reads/writes need `bookmark.read`/`bookmark.write`
+with `tweet.read` and `users.read`; repost writes need `tweet.write`, `tweet.read`, and `users.read`.
+
+Self-serve API replies require the parent Post's author to have summoned the replying account by
+mentioning it or quoting one of its Posts. Enterprise is exempt under X's February 23, 2026
+changelog. `comments.write` requires `tweet.write`, `tweet.read`, and `users.read`. The adapter
+leaves access decisions to X and keeps the methods available for eligible callers.
 
 ### Filtered stream
 
@@ -332,17 +463,19 @@ duplicates or invalid syntax, in `errors` while accepting the rest, so check bot
 `errors` in the result:
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
-
 const update = await native.addStreamRules({
   account,
   rules: [{ value: "from:opencoredev -is:retweet", tag: "announcements" }],
-  context,
+  context: operationContext(),
 });
 for (const error of update.errors) console.warn(error["title"], error["value"]);
 
-const rules = await native.listStreamRules({ account, context });
-await native.deleteStreamRules({ account, ids: rules.items.map((rule) => rule.id), context });
+const rules = await native.listStreamRules({ account, context: operationContext() });
+await native.deleteStreamRules({
+  account,
+  ids: rules.items.map((rule) => rule.id),
+  context: operationContext(),
+});
 ```
 
 `stream` returns an async iterable. Nothing connects until you start iterating, and each iteration
@@ -359,7 +492,8 @@ no data or keep-alive arrives within `stallTimeoutMs` (default 20,000), the iter
 `timeout` error. When X ends the connection, the loop finishes normally.
 
 The adapter never reconnects on its own. If you want a long-running consumer, write the reconnect
-loop yourself and follow X's backoff guidance: after network errors, back off linearly by 250 ms up
+loop yourself. Stop on `billing_required`, authorization failures, or terminal retry dispositions.
+For failures that permit a retry, follow X's backoff guidance: after network errors, back off linearly by 250 ms up
 to 16 seconds; after HTTP errors, back off exponentially from 5 seconds up to 320 seconds; after a
 `rate_limited` error, wait exponentially from 1 minute. Use a fresh operation context for each
 connection attempt, because the retry budget's deadline applies to the whole context.
@@ -391,14 +525,37 @@ while (!controller.signal.aborted) {
     }
   } catch (error) {
     if (!(error instanceof SocialError) || error.code === "cancelled") throw error;
-    if (error.code === "reconnect_required" || error.code === "missing_permission") throw error;
-    if (error.code === "rate_limited") delayMs = Math.max(60_000, delayMs * 2);
+    const transientConnectionFailure =
+      error.code === "timeout" ||
+      (error.code === "upstream_failure" &&
+        (error.upstreamCode === "stream-connection-interrupted" ||
+          (error.upstreamStatus !== undefined && error.upstreamStatus >= 500)));
+    if (
+      error.code === "billing_required" ||
+      (error.retryDisposition.kind === "never" && !transientConnectionFailure) ||
+      error.retryDisposition.kind === "after-reconnect" ||
+      error.retryDisposition.kind === "reconcile-first"
+    )
+      throw error;
+    if (error.code === "rate_limited")
+      delayMs = Math.max(
+        60_000,
+        delayMs * 2,
+        error.retryDisposition.kind === "after-delay" ? error.retryDisposition.delayMs : 0,
+      );
     else if (error.code === "timeout" || error.upstreamStatus === undefined)
       delayMs = Math.min(16_000, delayMs + 250);
     else delayMs = Math.min(320_000, Math.max(5_000, delayMs * 2));
   }
 }
 ```
+
+The loop explicitly reconnects after timeouts, dropped connections, and HTTP 5xx responses.
+A headerless HTTP 429 carries a one-minute `after-delay` disposition; the loop waits at
+least that long before reconnecting. Close competing connections if X reports a connection limit.
+Connection interruptions carry `upstreamCode: "stream-connection-interrupted"`. Invalid JSON,
+invalid UTF-8, and oversized messages keep a terminal disposition and stop the loop.
+The stream opens one connection per call; it does not reconnect internally.
 
 The stream needs X API pay-per-use or Enterprise access. Pay-per-use allows one connection and
 1,000 rules of up to 1,024 characters each. Enterprise allows more connections and 25,000 or more
@@ -415,14 +572,14 @@ See the X documentation for the [filtered stream](https://docs.x.com/x-api/posts
 ## Limits and requirements
 
 :::warning
-X access depends on the account's current API plan and OAuth2 scopes. API usage can incur upstream charges. API plan access, billing, and app approval remain upstream requirements.
+X API self-serve access uses pay-per-use credits; Enterprise-only operations require a separate agreement. Available credits, endpoint eligibility, OAuth2 scopes, and app approval are independent gates. API usage can incur upstream charges; the SDK makes no price or eligibility guarantees.
 :::
 
 - The adapter's account listing is credential-scoped and returns the configured user. It does not prove that a frontend-selected handle belongs to the current tenant; resolve membership in your application before calling a mutation.
 - Use the documented [connection flow](/authentication) for callbacks and token persistence.
 - Keep access tokens server-side and supply an application authorization policy before publishing for multiple tenants.
 - The adapter cannot schedule posts. X API v2 has no scheduling field, so `POST /2/tweets` publishes immediately, and `posts.prepare` rejects a request with `schedule` (`x.operation`) before any network call. X's Ads API has [scheduled Tweets](https://docs.x.com/x-ads-api/creatives) at `ads-api.x.com/12/accounts/:account_id/scheduled_tweets`, but it needs Ads API approval, an ads account, and [OAuth 1.0a-signed requests](https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests). This adapter only uses OAuth 2.0 bearer tokens. Those scheduled Tweets are promoted-only (`nullcast=true`) by default and stay off the public timeline, and only the ads account's full promotable user can create organic ones. To publish at a set time, run your own job runner that calls `posts.publish`. (Checked 2026-09-24.)
-- The adapter cannot update the account profile. X API v2 ([OpenAPI 2.168](https://docs.x.com/openapi.json)) has no profile write endpoint. docs.x.com no longer publishes the v1.1 `POST account/update_profile` reference, and v1.1 user writes require OAuth 1.0a. (Checked 2026-09-24.)
+- The adapter cannot update the account profile. X API v2 ([OpenAPI 2.169](https://docs.x.com/openapi.json)) has no profile write endpoint. docs.x.com no longer publishes the v1.1 `POST account/update_profile` reference, and v1.1 user writes require OAuth 1.0a. (Checked 2026-09-24.)
 - Current repository evidence is contract and mocked transport coverage; no live X account or paid API plan has been verified here.
 
-See [X API pricing](https://docs.x.com/x-api/getting-started/pricing), [posts](https://docs.x.com/x-api/posts/creating-a-post), [delete post](https://docs.x.com/x-api/posts/delete-post), and [media](https://developer.x.com/en/docs/x-api/v1.1/media/upload-media/api-reference/post-media-upload) for current upstream access and limits.
+See [X API pricing](https://docs.x.com/x-api/getting-started/pricing), [posts](https://docs.x.com/x-api/posts/create-post), [delete post](https://docs.x.com/x-api/posts/delete-post), and [media](https://docs.x.com/x-api/media/introduction) for current upstream access and limits. See also [chunked uploads](https://docs.x.com/x-api/media/quickstart/media-upload-chunked) and [media best practices](https://docs.x.com/x-api/media/quickstart/best-practices).

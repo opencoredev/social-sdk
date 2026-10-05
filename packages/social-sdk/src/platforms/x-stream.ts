@@ -334,8 +334,7 @@ function statusError(response: Response, context: AdapterOperationContext): Soci
       code: "rate_limited",
       message:
         "X rate-limited the filtered stream connection or the connection limit is reached. Close other connections and back off before reconnecting.",
-      retryDisposition:
-        delay === undefined ? { kind: "never" } : { kind: "after-delay", delayMs: delay },
+      retryDisposition: { kind: "after-delay", delayMs: delay ?? 60_000 },
     });
 
   return new SocialError({
@@ -406,6 +405,7 @@ export async function* readFilteredStream(
     return new SocialError({
       ...common,
       code: "upstream_failure",
+      upstreamCode: "stream-connection-interrupted",
       message:
         phase === "connect"
           ? "The filtered stream connection failed before X responded."

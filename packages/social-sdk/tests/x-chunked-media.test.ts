@@ -7,7 +7,7 @@ const account = connectedAccountRef({ backend: "default", platform: "x", account
 
 const auth = { userId: "u1", accessToken: "test" };
 
-const xChunkSize = 1024 * 1024;
+const xChunkSize = 4 * 1024 * 1024;
 
 function videoBlob(bytes: number): Blob {
   return new Blob([new Uint8Array(bytes)], { type: "video/mp4" });
@@ -17,10 +17,10 @@ function gifBlob(bytes: number): Blob {
   return new Blob([new Uint8Array(bytes)], { type: "image/gif" });
 }
 
-it("X video publish uses 1 MiB chunked upload and attaches the finalized media", async () => {
+it("X video publish uses 4 MiB chunked upload and attaches the finalized media", async () => {
   const paths: string[] = [];
   const segments: string[] = [];
-  const size = 2 * 1024 * 1024 + 512 * 1024;
+  const size = 2 * xChunkSize + 512 * 1024;
 
   const social = createSocial({
     backend: x({
@@ -611,4 +611,30 @@ it("X treats a malformed INITIALIZE response as a definite media failure", async
   assert.equal(result.outcomes[0]?.state, "failed");
 
   if (result.outcomes[0]?.state === "failed") assert.equal(result.outcomes[0].code, "media_error");
+});
+
+it("X classifies documented video duration errors after upload without losing provider evidence", async () => {
+  const social = createSocial({
+    backend: x({
+      auth,
+      fetch: chunkedFetch({
+        tweet: () =>
+          Response.json(
+            {
+              detail: "This user is not allowed to post a video longer than 20 minutes.",
+            },
+            { status: 403 },
+          ),
+      }),
+    }),
+  });
+
+  const result = await social.posts.publish({
+    targets: [{ account }],
+    content: videoContent(videoBlob(10)),
+  });
+
+  const outcome = result.outcomes[0];
+  assert.ok(outcome?.state === "failed");
+  assert.equal(outcome.code, "media_error");
 });

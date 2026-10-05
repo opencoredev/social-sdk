@@ -3,6 +3,7 @@ import { createConcurrencyLimiter } from "./concurrency.js";
 import type { AuthorizationPolicy, GraphAdapter, SocialAdapter } from "./adapter.js";
 import { SocialError } from "./errors.js";
 import { definedFields } from "./fields.js";
+import { isString } from "../transport/validation.js";
 import {
   deriveTargetIdempotencyKey,
   fingerprint,
@@ -376,12 +377,18 @@ function outcomeFromError(
   observedAt: string,
 ): DeliveryOutcome {
   if (error !== undefined) {
+    const candidate = error.operation === "media.upload" ? error.details?.["mediaId"] : undefined;
+
+    const mediaId =
+      isString(candidate) && /^[A-Za-z0-9_-]{1,256}$/.test(candidate) ? candidate : undefined;
+
     if (error.code === "cancelled") {
       return {
         state: "unknown",
         targetIndex: target.targetIndex,
         account: target.account,
         observedAt,
+        ...definedFields({ mediaId }),
         reason: "ambiguous-submission",
         diagnostic: "Cancellation interrupted a dispatched request; reconcile before retrying",
       };
@@ -393,6 +400,7 @@ function outcomeFromError(
         targetIndex: target.targetIndex,
         account: target.account,
         observedAt,
+        ...definedFields({ mediaId }),
         reason: "ambiguous-submission",
         diagnostic: "The request outcome is ambiguous; reconcile with the backend before retrying",
       };
@@ -403,6 +411,7 @@ function outcomeFromError(
       targetIndex: target.targetIndex,
       account: target.account,
       observedAt,
+      ...definedFields({ mediaId }),
       code: error.code,
       message: error.message,
       retryDisposition: error.retryDisposition,

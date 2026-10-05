@@ -25,6 +25,7 @@ import type {
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { verifyXWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
+import { providerErrorDecoder } from "../transport/provider-errors.js";
 import { createHttp, HttpError } from "../transport/http.js";
 import { isJsonValue } from "../transport/json.js";
 import {
@@ -42,6 +43,7 @@ import {
 import {
   array,
   isString,
+  isJsonObject,
   object,
   optionalBoolean,
   optionalNumber,
@@ -114,7 +116,7 @@ export {
 
 export interface XOptions {
   readonly auth: XAuthorization;
-  /** App-only bearer token for full-archive search and filtered stream. */
+  /** App-only bearer for the filtered stream and fallback public reads/search. */
   readonly appBearerToken?: string;
   readonly fetch?: typeof globalThis.fetch;
   readonly clock?: () => Date;
@@ -230,7 +232,7 @@ export interface XNative {
     readonly text: string;
     readonly context: AdapterOperationContext;
   }) => Promise<XUpdatedPost>;
-  /** Uploads one MP4 Blob (up to 512 MiB) and waits for processing. Returns an attachable media ID. */
+  /** Uploads one MP4 Blob (up to 16 GiB) and waits for processing. Returns an attachable media ID. */
   readonly uploadVideo: (input: {
     readonly account: ConnectedAccountRef;
     readonly video: Blob;
@@ -448,6 +450,7 @@ export interface XNative {
     readonly listId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /** Returns the full pinned set; rejects cursor/limit because X has no pagination here. */
   readonly pinnedLists: (input: {
     readonly account: ConnectedAccountRef;
     readonly cursor?: string;
@@ -563,9 +566,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   };
 
   const readRequest = (path: string) =>
-    ["/2/users/me", "/liked_tweets", "/mentions", "/timelines/reverse_chronological"].some(
-      (suffix) => path.includes(suffix),
-    )
+    [
+      "/2/users/me",
+      "/liked_tweets",
+      "/mentions",
+      "/timelines/reverse_chronological",
+      "/muting",
+      "/blocking",
+      "pinned_lists",
+    ].some((suffix) => path.includes(suffix))
       ? requireUserToken("x.read")
       : options.auth.accessToken?.trim()
         ? request
@@ -590,6 +599,32 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         message: "Reference does not match this X user authorization.",
       });
   };
+
+  function confirmedWrite(
+    value: JsonValue,
+    field: string,
+    expected: boolean,
+    operation: string,
+  ): JsonObject {
+    const result = isJsonObject(value) ? value : {};
+
+    const data = result["data"];
+
+    if (
+      !isJsonObject(data) ||
+      data[field] !== expected ||
+      (field === "following" && expected && data["pending_follow"] === true)
+    )
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message:
+          "X did not confirm the requested change. Check provider state before retrying; a follow may still be pending.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+
+    return result;
+  }
 
   async function readAccount(context: AdapterOperationContext) {
     const user = object(object(await request("/2/users/me", context))["data"]);
@@ -648,12 +683,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     if (
       input.limit !== undefined &&
-      (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
+      (!Number.isSafeInteger(input.limit) || input.limit < 5 || input.limit > 100)
     )
       throw new SocialError({
         code: "invalid_input",
         operation: "posts.list",
-        message: "X feed limit must be an integer from 1 through 100.",
+        message: "X feed limit must be an integer from 5 through 100.",
       });
 
     const result = object(
@@ -900,9 +935,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       if (id === post.postId) return [];
 
       const references =
-        row["referenced_tweets"] === undefined
+        (row["referenced_posts"] ?? row["referenced_tweets"]) === undefined
           ? undefined
-          : array(row["referenced_tweets"]).map((reference) => {
+          : array(row["referenced_posts"] ?? row["referenced_tweets"]).map((reference) => {
               const item = object(reference);
 
               return { type: string(item["type"]), id: string(item["id"]) };
@@ -953,9 +988,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const isTweets = resource === "tweets";
 
-    const minLimit = 1;
+    const minLimit = /^\/2\/users\/[^/]+\/(tweets|mentions|liked_tweets)$/.test(path) ? 5 : 1;
 
-    const maxLimit = 100;
+    const maxLimit = /\/(followers|following|muting|blocking)$/.test(path) ? 1000 : 100;
 
     if (
       input.limit !== undefined &&
@@ -973,8 +1008,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         ...(isTweets
           ? {
               "tweet.fields":
-                "id,text,author_id,created_at,conversation_id,public_metrics,referenced_tweets",
-              expansions: "author_id,referenced_tweets.id",
+                "id,text,author_id,created_at,conversation_id,public_metrics,referenced_tweets,attachments",
+              expansions: "author_id,referenced_tweets.id,attachments.media_keys",
+              "user.fields": fields,
+              "media.fields": "media_key,type,url,preview_image_url,duration_ms,height,width",
             }
           : path.endsWith("/owned_lists") || path.endsWith("/pinned_lists")
             ? { "list.fields": fields }
@@ -991,7 +1028,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const nextCursor = optionalString(meta["next_token"]);
 
-    return { items, ...definedFields({ nextCursor }) };
+    return {
+      items,
+      ...definedFields({
+        nextCursor,
+        metadata:
+          result["includes"] === undefined ? undefined : { includes: object(result["includes"]) },
+      }),
+    };
   }
 
   async function getAccountMetrics(
@@ -1022,7 +1066,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const fields = ["followers_count", "following_count", "tweet_count", "listed_count"] as const;
 
     return fields.flatMap((name) => {
-      const value = optionalNumber(counts[name]);
+      const value = optionalNumber(
+        name === "tweet_count" ? (counts["post_count"] ?? counts[name]) : counts[name],
+      );
 
       return value === undefined
         ? []
@@ -1045,6 +1091,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
   ): Promise<void> {
     authorize(ref, context);
+
+    requireUserToken("comments.write");
 
     const parent = object(
       object(
@@ -1108,6 +1156,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     try {
       result = await http({
+        decodeErrorBody: providerErrorDecoder("https://api.x.com", "/2/media/upload"),
         url: new URL("https://api.x.com/2/media/upload"),
         method: "POST",
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
@@ -1118,13 +1167,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
 
-      throw new SocialError({
-        code: "media_error",
-        operation: "media.upload",
-        message: error.message,
-        upstreamStatus: error.status,
-        retryDisposition: { kind: "never" },
-      });
+      throw mediaHttpError(error);
     }
 
     const data = object(object(result)["data"]);
@@ -1139,9 +1182,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     return string(data["id"]);
   }
 
-  const xChunkBytes = 1024 * 1024;
+  // X recommends segments at or below 5 MB; 4 MiB keeps 16 GiB within indices 0–9999.
+  const xChunkBytes = 4 * 1024 * 1024;
 
-  const xMaxVideoBytes = 512 * 1024 * 1024;
+  const xMaxVideoBytes = 17_179_869_184;
 
   const xMaxGifBytes = 15 * 1024 * 1024;
 
@@ -1172,12 +1216,22 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         operation: "media.upload",
         message:
           category === "tweet_video"
-            ? "X video uploads require a non-empty MP4 Blob up to 512 MiB."
+            ? "X video uploads require a non-empty MP4 Blob up to 16 GiB."
             : "X GIF uploads require a non-empty GIF Blob up to 15 MiB.",
       });
   }
 
   function mediaHttpError(error: HttpError): SocialError {
+    if (error.data?.code === "usage-capped")
+      return new SocialError({
+        code: "billing_required",
+        operation: "media.upload",
+        message: "X usage is capped. Check credits and spending limits before retrying.",
+        upstreamStatus: error.status,
+        upstreamCode: "usage-capped",
+        retryDisposition: { kind: "never" },
+      });
+
     if (error.kind === "cancelled")
       return new SocialError({
         code: "cancelled",
@@ -1245,6 +1299,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     try {
       result = await http({
+        decodeErrorBody: providerErrorDecoder("https://api.x.com", "/2/media/upload"),
         url: new URL(`https://api.x.com${path}`),
         method: "POST",
         headers:
@@ -1283,6 +1338,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     try {
       await http({
+        decodeErrorBody: providerErrorDecoder("https://api.x.com", "/2/media/upload"),
         url: new URL(`https://api.x.com/2/media/upload/${encodeURIComponent(mediaId)}/append`),
         method: "POST",
         headers: { Authorization: `Bearer ${options.auth.accessToken}` },
@@ -1307,6 +1363,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     try {
       result = await http({
+        decodeErrorBody: providerErrorDecoder("https://api.x.com", "/2/media/upload"),
         url: new URL(
           `https://api.x.com/2/media/upload?command=STATUS&media_id=${encodeURIComponent(mediaId)}`,
         ),
@@ -1432,23 +1489,43 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const segmentCount = Math.ceil(totalBytes / xChunkBytes);
 
-    for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
-      throwIfUploadCancelled(context);
+    let finalized: JsonObject;
 
-      const start = segmentIndex * xChunkBytes;
+    try {
+      for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+        throwIfUploadCancelled(context);
 
-      const end = Math.min(start + xChunkBytes, totalBytes);
+        const start = segmentIndex * xChunkBytes;
 
-      const chunk = blob.slice(start, end, media.mimeType ?? "");
+        const end = Math.min(start + xChunkBytes, totalBytes);
 
-      await appendChunk(mediaId, segmentIndex, chunk, context);
+        const chunk = blob.slice(start, end, media.mimeType ?? "");
+
+        await appendChunk(mediaId, segmentIndex, chunk, context);
+      }
+
+      finalized = await chunkedPost(
+        `/2/media/upload/${encodeURIComponent(mediaId)}/finalize`,
+        undefined,
+        context,
+      );
+    } catch (error) {
+      const failure = error instanceof HttpError ? mediaHttpError(error) : error;
+
+      if (failure instanceof SocialError)
+        throw new SocialError({
+          ...failure.toJSON(),
+          retryDisposition:
+            failure.code === "timeout" ||
+            failure.code === "cancelled" ||
+            (failure.code === "media_error" &&
+              (failure.upstreamStatus === undefined || failure.upstreamStatus >= 500))
+              ? { kind: "reconcile-first" }
+              : failure.retryDisposition,
+          details: { ...failure.details, mediaId },
+        });
+      throw failure;
     }
-
-    const finalized = await chunkedPost(
-      `/2/media/upload/${encodeURIComponent(mediaId)}/finalize`,
-      undefined,
-      context,
-    );
 
     const finalizedId = optionalString(finalized["id"]) ?? mediaId;
 
@@ -1471,16 +1548,31 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
       if (poll >= xMaxStatusPolls) break;
 
-      await processingWait(checkAfterSecs * 1000, context);
+      try {
+        await processingWait(checkAfterSecs * 1000, context);
+        ({ state, checkAfterSecs } = await readMediaStatus(finalizedId, context));
+      } catch (error) {
+        const failure = error instanceof HttpError ? mediaHttpError(error) : error;
 
-      ({ state, checkAfterSecs } = await readMediaStatus(finalizedId, context));
+        if (failure instanceof SocialError)
+          throw new SocialError({
+            ...failure.toJSON(),
+            retryDisposition:
+              failure.code === "billing_required"
+                ? failure.retryDisposition
+                : { kind: "reconcile-first" },
+            details: { ...failure.details, mediaId: finalizedId },
+          });
+        throw failure;
+      }
     }
 
     throw new SocialError({
       code: "timeout",
       operation: "media.upload",
       message: "X media processing did not complete in time. Reconcile before retrying.",
-      retryDisposition: { kind: "never" },
+      retryDisposition: { kind: "reconcile-first" },
+      details: { mediaId: finalizedId },
     });
   }
 
@@ -1502,7 +1594,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   ): Promise<DeliveryOutcome> {
     authorize(account, context);
 
-    const result = object(await request("/2/tweets", context, { text, ...extra }));
+    const result = object(
+      await requireUserToken("posts.publish")("/2/tweets", context, { text, ...extra }),
+    );
 
     const data = result["data"] ? object(result["data"]) : {};
 
@@ -1539,7 +1633,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     capabilities: {
       schemaVersion: 1 as const,
       backend: "x",
-      apiRevision: "X API v2 / OpenAPI 2.168",
+      apiRevision: "X API v2 / OpenAPI 2.169 (checked 2026-10-05)",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
         webhookCapability(
@@ -1553,7 +1647,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           formats: ["text" as const, "image" as const, "video" as const],
           requiredScopes: ["tweet.read", "tweet.write", "users.read", "media.write"],
           notes:
-            "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403.",
+            "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to the 16 GiB upload ceiling (account size/duration eligibility may be lower) / one GIF up to 15 MiB via 4 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. Self-serve replies require a parent-author mention or quote summoning this account; Enterprise is exempt (February 2026 changelog).",
         },
         ...[
           "accounts.read",
@@ -1579,19 +1673,44 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           operation,
           availability: "available" as const,
-          ...(["likes.read"].includes(operation)
-            ? { requiredScopes: ["like.read", "tweet.read", "users.read"] }
-            : ["likes.write"].includes(operation)
-              ? { requiredScopes: ["like.write", "tweet.read", "users.read"] }
-              : ["lists.read"].includes(operation)
-                ? { requiredScopes: ["list.read", "tweet.read", "users.read"] }
-                : ["lists.write"].includes(operation)
-                  ? { requiredScopes: ["list.write", "tweet.read", "users.read"] }
-                  : ["timelines.read", "mentions.read", "posts.list"].includes(operation)
-                    ? { requiredScopes: ["tweet.read", "users.read"] }
-                    : ["posts.quote", "posts.delete", "posts.publish"].includes(operation)
-                      ? { requiredScopes: ["tweet.read", "tweet.write", "users.read"] }
-                      : {}),
+          ...(["posts.repost"].includes(operation)
+            ? { requiredScopes: ["tweet.read", "tweet.write", "users.read"] }
+            : ["bookmarks.read"].includes(operation)
+              ? { requiredScopes: ["bookmark.read", "tweet.read", "users.read"] }
+              : ["bookmarks.write"].includes(operation)
+                ? { requiredScopes: ["bookmark.write", "tweet.read", "users.read"] }
+                : ["follows.write"].includes(operation)
+                  ? { requiredScopes: ["follows.write", "tweet.read", "users.read"] }
+                  : ["likes.read"].includes(operation)
+                    ? { requiredScopes: ["like.read", "tweet.read", "users.read"] }
+                    : ["likes.write"].includes(operation)
+                      ? { requiredScopes: ["like.write", "tweet.read", "users.read"] }
+                      : ["lists.read"].includes(operation)
+                        ? { requiredScopes: ["list.read", "tweet.read", "users.read"] }
+                        : ["lists.write"].includes(operation)
+                          ? { requiredScopes: ["list.write", "tweet.read", "users.read"] }
+                          : ["timelines.read", "mentions.read", "posts.list"].includes(operation)
+                            ? { requiredScopes: ["tweet.read", "users.read"] }
+                            : [
+                                  "posts.quote",
+                                  "posts.delete",
+                                  "posts.publish",
+                                  "comments.write",
+                                  "polls.create",
+                                ].includes(operation)
+                              ? { requiredScopes: ["tweet.read", "tweet.write", "users.read"] }
+                              : {}),
+          ...(["posts.quote", "likes.read", "likes.write", "follows.write"].includes(operation)
+            ? {
+                notes:
+                  "Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility.",
+              }
+            : operation === "comments.write"
+              ? {
+                  notes:
+                    "Self-serve replies require the parent author to have summoned the replying account by mentioning or quoting it. Enterprise is exempt (X February 2026 changelog).",
+                }
+              : {}),
         })),
         {
           platform: "x",
@@ -1612,8 +1731,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           operation: "graph.read",
           availability: "available" as const,
-          requiredScopes: ["users.read", "follows.read", "mute.read", "block.read"],
-          notes: "The required read scope depends on the requested relationship kind.",
+          requiredScopes: ["users.read", "tweet.read", "follows.read", "mute.read", "block.read"],
+          notes:
+            "Use follows.read for followers/following, mute.read for muted users, and block.read for blocked users, with tweet.read and users.read. Following access is Enterprise-only per X's April 2026 changelog; muted/blocked reads require user context.",
         },
         {
           platform: "x",
@@ -1625,65 +1745,65 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           platform: "x",
           operation: "graph.follow",
           availability: "available" as const,
-          requiredScopes: ["users.read", "follows.write"],
-          notes: "Follow writes require an eligible paid X API tier.",
+          requiredScopes: ["users.read", "tweet.read", "follows.write"],
+          notes: "Following operations require Enterprise access per X's April 2026 changelog.",
         },
         {
           platform: "x",
           operation: "graph.unfollow",
           availability: "available" as const,
-          requiredScopes: ["users.read", "follows.write"],
-          notes: "Follow writes require an eligible paid X API tier.",
+          requiredScopes: ["users.read", "tweet.read", "follows.write"],
+          notes: "Following operations require Enterprise access per X's April 2026 changelog.",
         },
         {
           platform: "x",
           operation: "graph.mute",
           availability: "available" as const,
-          requiredScopes: ["users.read", "mute.write"],
+          requiredScopes: ["users.read", "tweet.read", "mute.write"],
         },
         {
           platform: "x",
           operation: "graph.unmute",
           availability: "available" as const,
-          requiredScopes: ["users.read", "mute.write"],
+          requiredScopes: ["users.read", "tweet.read", "mute.write"],
         },
         {
           platform: "x",
           operation: "graph.block",
           availability: "available" as const,
-          requiredScopes: ["users.read", "block.write"],
+          requiredScopes: ["users.read", "tweet.read", "block.write"],
           notes: "Enterprise plan only.",
         },
         {
           platform: "x",
           operation: "graph.unblock",
           availability: "available" as const,
-          requiredScopes: ["users.read", "block.write"],
+          requiredScopes: ["users.read", "tweet.read", "block.write"],
           notes: "Enterprise plan only.",
         },
         {
           platform: "x",
           operation: "lists.pinned.read",
           availability: "available" as const,
-          requiredScopes: ["users.read", "list.read"],
+          requiredScopes: ["users.read", "tweet.read", "list.read"],
         },
         {
           platform: "x",
           operation: "lists.pinned.write",
           availability: "available" as const,
-          requiredScopes: ["users.read", "list.write"],
+          requiredScopes: ["users.read", "tweet.read", "list.write"],
         },
         {
           platform: "x",
           operation: "messages.conversation.write",
           availability: "available" as const,
-          requiredScopes: ["dm.write"],
+          requiredScopes: ["dm.write", "users.read", "tweet.read"],
         },
         {
           platform: "x",
           operation: "messages.group.write",
           availability: "available" as const,
-          requiredScopes: ["dm.write"],
+          requiredScopes: ["dm.write", "users.read", "tweet.read"],
         },
         {
           platform: "x",
@@ -1708,7 +1828,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           formats: ["video" as const],
           requiredScopes: ["tweet.read", "tweet.write", "users.read", "media.write"],
           notes:
-            "MP4 Blob chunked INIT/APPEND/FINALIZE with 1 MiB segments and bounded STATUS poll honoring check_after_secs.",
+            "MP4 Blob chunked INIT/APPEND/FINALIZE with 4 MiB segments and bounded STATUS poll honoring check_after_secs.",
         },
         {
           platform: "x",
@@ -1992,7 +2112,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             if (item.source.kind !== "blob" || item.source.blob.size === 0)
               fail("x.video_size", "Video must be a non-empty MP4 Blob.");
             else if (item.source.blob.size > xMaxVideoBytes)
-              fail("x.video_size", "Video exceeds the 512 MiB limit.");
+              fail(
+                "x.video_size",
+                "Video exceeds the 16 GiB upload ceiling; account attachment limits may be lower.",
+              );
           } else if (category === "tweet_gif") {
             if (item.source.kind !== "blob" || item.source.blob.size === 0)
               fail("x.gif_size", "GIF must be a non-empty Blob.");
@@ -2048,9 +2171,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             target.targetIndex,
           );
         } catch (error) {
-          // X checks video duration only at attach time and answers 403. The transport drops the
-          // response body, so the adapter cannot tell a duration limit from a missing permission.
-          if (hasVideo && error instanceof SocialError && error.upstreamStatus === 403)
+          // Unknown 403 bodies cannot distinguish attachment eligibility from missing permission.
+          if (
+            hasVideo &&
+            error instanceof SocialError &&
+            error.upstreamStatus === 403 &&
+            error.code === "missing_permission"
+          )
             throw new SocialError({
               code: "missing_permission",
               operation: error.operation,
@@ -2286,7 +2413,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ["impressions", "impression_count"],
           ["bookmarks", "bookmark_count"],
         ].flatMap(([name, key]) => {
-          const value = key ? optionalNumber(counts[key]) : undefined;
+          const value = key
+            ? optionalNumber(
+                key === "retweet_count" ? (counts["repost_count"] ?? counts[key]) : counts[key],
+              )
+            : undefined;
 
           return value === undefined || !name
             ? []
@@ -2320,21 +2451,44 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async repost({ account, postId, context }) {
         authorize(account, context);
 
-        return object(
-          await request(`/2/users/${encodeURIComponent(account.accountId)}/retweets`, context, {
-            tweet_id: postId,
-          }),
+        return confirmedWrite(
+          await requireUserToken("x.repost")(
+            `/2/users/${encodeURIComponent(account.accountId)}/retweets`,
+            context,
+            {
+              tweet_id: postId,
+            },
+          ),
+          "retweeted",
+          true,
+          "x.repost",
         );
       },
       async quote({ account, text, quotedPostId, context }) {
         authorize(account, context);
 
-        return object(await request("/2/tweets", context, { text, quote_tweet_id: quotedPostId }));
+        return object(
+          await requireUserToken("x.quote")("/2/tweets", context, {
+            text,
+            quote_tweet_id: quotedPostId,
+          }),
+        );
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
 
-        await request(`/2/tweets/${encodeURIComponent(postId)}`, context, undefined, {}, "DELETE");
+        confirmedWrite(
+          await requireUserToken("x.deletePost")(
+            `/2/tweets/${encodeURIComponent(postId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "deleted",
+          true,
+          "x.deletePost",
+        );
       },
       async updatePost({ account, postId, text, context }) {
         authorize(account, context);
@@ -2355,7 +2509,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           });
 
         const result = object(
-          await request("/2/tweets", context, {
+          await requireUserToken("x.updatePost")("/2/tweets", context, {
             text,
             edit_options: { previous_post_id: postId },
           }),
@@ -2433,7 +2587,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           });
 
         return object(
-          await request("/2/tweets", context, {
+          await requireUserToken("x.createPoll")("/2/tweets", context, {
             text,
             poll: { options: [...pollOptions], duration_minutes: durationMinutes },
           }),
@@ -2443,45 +2597,74 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         authorize(account, context);
 
         return object(
-          await request(`/2/users/${encodeURIComponent(account.accountId)}/bookmarks`, context),
+          await requireUserToken("x.bookmarks")(
+            `/2/users/${encodeURIComponent(account.accountId)}/bookmarks`,
+            context,
+          ),
         );
       },
       async bookmark({ account, postId, context }) {
         authorize(account, context);
 
-        await request(`/2/users/${encodeURIComponent(account.accountId)}/bookmarks`, context, {
-          tweet_id: postId,
-        });
+        confirmedWrite(
+          await requireUserToken("x.bookmark")(
+            `/2/users/${encodeURIComponent(account.accountId)}/bookmarks`,
+            context,
+            {
+              tweet_id: postId,
+            },
+          ),
+          "bookmarked",
+          true,
+          "x.bookmark",
+        );
       },
       async removeBookmark({ account, postId, context }) {
         authorize(account, context);
 
-        await request(
-          `/2/users/${encodeURIComponent(account.accountId)}/bookmarks/${encodeURIComponent(postId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("x.removeBookmark")(
+            `/2/users/${encodeURIComponent(account.accountId)}/bookmarks/${encodeURIComponent(postId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "bookmarked",
+          false,
+          "x.removeBookmark",
         );
       },
       async follow({ account, userId, context }) {
         authorize(account, context);
 
-        return object(
-          await request(`/2/users/${encodeURIComponent(account.accountId)}/following`, context, {
-            target_user_id: userId,
-          }),
+        return confirmedWrite(
+          await requireUserToken("x.follow")(
+            `/2/users/${encodeURIComponent(account.accountId)}/following`,
+            context,
+            {
+              target_user_id: userId,
+            },
+          ),
+          "following",
+          true,
+          "x.follow",
         );
       },
       async unfollow({ account, userId, context }) {
         authorize(account, context);
 
-        await request(
-          `/2/users/${encodeURIComponent(account.accountId)}/following/${encodeURIComponent(userId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("x.unfollow")(
+            `/2/users/${encodeURIComponent(account.accountId)}/following/${encodeURIComponent(userId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "following",
+          false,
+          "x.unfollow",
         );
       },
       async listDirectMessages({ account, participantId, conversationId, cursor, limit, context }) {
@@ -2501,9 +2684,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             : "/2/dm_events";
 
         const result = object(
-          await request(path, context, undefined, {
+          await requireUserToken("x.listDirectMessages")(path, context, undefined, {
             "dm_event.fields":
-              "id,text,event_type,created_at,dm_conversation_id,attachments,entities",
+              "id,text,event_type,created_at,dm_conversation_id,sender_id,participant_ids,attachments,entities",
             expansions: "sender_id,participant_ids",
             ...definedFields({ pagination_token: cursor, max_results: limit?.toString() }),
           }),
@@ -2515,7 +2698,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return {
           items: result["data"] === undefined ? [] : array(result["data"]).map(object),
-          ...definedFields({ nextCursor }),
+          ...definedFields({
+            nextCursor,
+            metadata:
+              result["includes"] === undefined
+                ? undefined
+                : { includes: object(result["includes"]) },
+          }),
         };
       },
       async sendDirectMessage({ account, participantId, text, context }) {
@@ -2541,18 +2730,32 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async sendConversationMessage({ account, conversationId, text, attachments, context }) {
         authorize(account, context);
 
-        if (!text.trim())
+        if (
+          attachments !== undefined &&
+          (attachments.length > 1 ||
+            attachments.some(
+              (attachment) =>
+                !isString(attachment["media_id"]) || !/^[0-9]{1,19}$/.test(attachment["media_id"]),
+            ))
+        )
           throw new SocialError({
             code: "invalid_input",
             operation: "messages.conversation.write",
-            message: "X direct messages require non-empty text.",
+            message: "X messages accept at most one attachment with a numeric media_id.",
+          });
+
+        if (!text.trim() && !attachments?.length)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "messages.conversation.write",
+            message: "X direct messages require non-empty text or one media attachment.",
           });
 
         return object(
           await requireUserToken("messages.conversation.write")(
             `/2/dm_conversations/${encodeURIComponent(conversationId)}/messages`,
             context,
-            { text, ...definedFields({ attachments }) },
+            { ...definedFields({ text: text.trim() ? text : undefined, attachments }) },
           ),
         );
       },
@@ -2656,7 +2859,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async followUser({ account, userId, context }) {
         authorize(account, context);
 
-        return object(
+        return confirmedWrite(
           await requireUserToken("graph.follow")(
             `/2/users/${encodeURIComponent(account.accountId)}/following`,
             context,
@@ -2664,23 +2867,31 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               target_user_id: userId,
             },
           ),
+          "following",
+          true,
+          "x.followUser",
         );
       },
       async unfollowUser({ account, userId, context }) {
         authorize(account, context);
 
-        await requireUserToken("graph.unfollow")(
-          `/2/users/${encodeURIComponent(account.accountId)}/following/${encodeURIComponent(userId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("graph.unfollow")(
+            `/2/users/${encodeURIComponent(account.accountId)}/following/${encodeURIComponent(userId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "following",
+          false,
+          "x.unfollowUser",
         );
       },
       async muteUser({ account, userId, context }) {
         authorize(account, context);
 
-        return object(
+        return confirmedWrite(
           await requireUserToken("graph.mute")(
             `/2/users/${encodeURIComponent(account.accountId)}/muting`,
             context,
@@ -2688,17 +2899,25 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               target_user_id: userId,
             },
           ),
+          "muting",
+          true,
+          "x.muteUser",
         );
       },
       async unmuteUser({ account, userId, context }) {
         authorize(account, context);
 
-        await requireUserToken("graph.unmute")(
-          `/2/users/${encodeURIComponent(account.accountId)}/muting/${encodeURIComponent(userId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("graph.unmute")(
+            `/2/users/${encodeURIComponent(account.accountId)}/muting/${encodeURIComponent(userId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "muting",
+          false,
+          "x.unmuteUser",
         );
       },
       async mutedUsers({ account, cursor, limit, context }) {
@@ -2712,7 +2931,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async blockUser({ account, userId, context }) {
         authorize(account, context);
 
-        return object(
+        return confirmedWrite(
           await requireUserToken("graph.block")(
             `/2/users/${encodeURIComponent(account.accountId)}/blocking`,
             context,
@@ -2720,17 +2939,25 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               target_user_id: userId,
             },
           ),
+          "blocking",
+          true,
+          "x.blockUser",
         );
       },
       async unblockUser({ account, userId, context }) {
         authorize(account, context);
 
-        await requireUserToken("graph.unblock")(
-          `/2/users/${encodeURIComponent(account.accountId)}/blocking/${encodeURIComponent(userId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("graph.unblock")(
+            `/2/users/${encodeURIComponent(account.accountId)}/blocking/${encodeURIComponent(userId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "blocking",
+          false,
+          "x.unblockUser",
         );
       },
       async blockedUsers({ account, cursor, limit, context }) {
@@ -2744,23 +2971,33 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async like({ account, postId, context }) {
         authorize(account, context);
 
-        await requireUserToken("likes.write")(
-          `/2/users/${encodeURIComponent(account.accountId)}/likes`,
-          context,
-          {
-            tweet_id: postId,
-          },
+        confirmedWrite(
+          await requireUserToken("likes.write")(
+            `/2/users/${encodeURIComponent(account.accountId)}/likes`,
+            context,
+            {
+              tweet_id: postId,
+            },
+          ),
+          "liked",
+          true,
+          "x.like",
         );
       },
       async unlike({ account, postId, context }) {
         authorize(account, context);
 
-        await requireUserToken("likes.write")(
-          `/2/users/${encodeURIComponent(account.accountId)}/likes/${encodeURIComponent(postId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("likes.write")(
+            `/2/users/${encodeURIComponent(account.accountId)}/likes/${encodeURIComponent(postId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "liked",
+          false,
+          "x.unlike",
         );
       },
       async likedPosts({ account, userId, cursor, limit, context }) {
@@ -2770,7 +3007,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           { cursor, limit },
           context,
           {},
-          "id,name,description,created_at,public_metrics",
+          "id,name,username,description,created_at,public_metrics",
           "tweets",
         );
       },
@@ -2781,7 +3018,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           { cursor, limit },
           context,
           {},
-          "id,name,description,created_at,public_metrics",
+          "id,name,username,description,created_at,public_metrics",
           "users",
         );
       },
@@ -2789,7 +3026,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         authorize(account, context);
 
         return object(
-          await request("/2/lists", context, {
+          await requireUserToken("x.createList")("/2/lists", context, {
             name,
             ...definedFields({ description, private: isPrivate }),
           }),
@@ -2799,7 +3036,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         authorize(account, context);
 
         return object(
-          await request(
+          await requireUserToken("x.updateList")(
             `/2/lists/${encodeURIComponent(listId)}`,
             context,
             {
@@ -2813,12 +3050,20 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async deleteList({ account, listId, context }) {
         authorize(account, context);
 
-        await request(`/2/lists/${encodeURIComponent(listId)}`, context, undefined, {}, "DELETE");
+        await requireUserToken("x.deleteList")(
+          `/2/lists/${encodeURIComponent(listId)}`,
+          context,
+          undefined,
+          {},
+          "DELETE",
+        );
       },
       async getList({ account, listId, context }) {
         authorize(account, context);
 
-        return object(await request(`/2/lists/${encodeURIComponent(listId)}`, context));
+        return object(
+          await readRequest("lists")(`/2/lists/${encodeURIComponent(listId)}`, context),
+        );
       },
       async listMembers({ account, listId, cursor, limit, context }) {
         return pageRequest(
@@ -2827,22 +3072,26 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           { cursor, limit },
           context,
           {},
-          "id,name,description,private,member_count,follower_count",
+          "id,name,username,description,created_at,public_metrics",
         );
       },
       async addListMember({ account, listId, userId, context }) {
         authorize(account, context);
 
         return object(
-          await request(`/2/lists/${encodeURIComponent(listId)}/members`, context, {
-            user_id: userId,
-          }),
+          await requireUserToken("x.addListMember")(
+            `/2/lists/${encodeURIComponent(listId)}/members`,
+            context,
+            {
+              user_id: userId,
+            },
+          ),
         );
       },
       async removeListMember({ account, listId, userId, context }) {
         authorize(account, context);
 
-        await request(
+        await requireUserToken("x.removeListMember")(
           `/2/lists/${encodeURIComponent(listId)}/members/${encodeURIComponent(userId)}`,
           context,
           undefined,
@@ -2854,7 +3103,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         authorize(account, context);
 
         return object(
-          await request(
+          await requireUserToken("x.followList")(
             `/2/users/${encodeURIComponent(account.accountId)}/followed_lists`,
             context,
             { list_id: listId },
@@ -2864,7 +3113,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async unfollowList({ account, listId, context }) {
         authorize(account, context);
 
-        await request(
+        await requireUserToken("x.unfollowList")(
           `/2/users/${encodeURIComponent(account.accountId)}/followed_lists/${encodeURIComponent(listId)}`,
           context,
           undefined,
@@ -2906,7 +3155,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "DELETE",
         );
       },
-      async pinnedLists({ account, context }) {
+      async pinnedLists({ account, cursor, limit, context }) {
+        if (cursor !== undefined || limit !== undefined)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "lists.pinned.read",
+            message: "X returns the full pinned-list set; cursor and limit are not supported.",
+          });
         authorize(account, context);
 
         const result = object(
@@ -2967,12 +3222,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       async undoRepost({ account, postId, context }) {
         authorize(account, context);
 
-        await request(
-          `/2/users/${encodeURIComponent(account.accountId)}/retweets/${encodeURIComponent(postId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("x.undoRepost")(
+            `/2/users/${encodeURIComponent(account.accountId)}/retweets/${encodeURIComponent(postId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "retweeted",
+          false,
+          "x.undoRepost",
         );
       },
       async listStreamRules({ account, ids, cursor, limit, context }) {

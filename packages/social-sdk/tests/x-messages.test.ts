@@ -67,7 +67,7 @@ it("lists X conversations and messages and sends through social.messages", async
   assert.equal(requests[0]?.url.searchParams.get("max_results"), "2");
   assert.equal(
     requests[0]?.url.searchParams.get("dm_event.fields"),
-    "id,text,event_type,created_at,dm_conversation_id,attachments,entities",
+    "id,text,event_type,created_at,dm_conversation_id,sender_id,participant_ids,attachments,entities",
   );
   assert.equal(requests[0]?.url.searchParams.get("expansions"), "sender_id,participant_ids");
 

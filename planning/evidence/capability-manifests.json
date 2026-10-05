@@ -2558,7 +2558,7 @@
     "manifest": {
       "schemaVersion": 1,
       "backend": "x",
-      "apiRevision": "X API v2 / OpenAPI 2.168",
+      "apiRevision": "X API v2 / OpenAPI 2.169 (checked 2026-10-05)",
       "runtime": [
         "node22",
         "node24",
@@ -2586,7 +2586,7 @@
             "users.read",
             "media.write"
           ],
-          "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403."
+          "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to the 16 GiB upload ceiling (account size/duration eligibility may be lower) / one GIF up to 15 MiB via 4 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. Self-serve replies require a parent-author mention or quote summoning this account; Enterprise is exempt (February 2026 changelog)."
         },
         {
           "platform": "x",
@@ -2620,12 +2620,23 @@
         {
           "platform": "x",
           "operation": "comments.write",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read"
+          ],
+          "notes": "Self-serve replies require the parent author to have summoned the replying account by mentioning or quoting it. Enterprise is exempt (X February 2026 changelog)."
         },
         {
           "platform": "x",
           "operation": "posts.repost",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read"
+          ]
         },
         {
           "platform": "x",
@@ -2635,7 +2646,8 @@
             "tweet.read",
             "tweet.write",
             "users.read"
-          ]
+          ],
+          "notes": "Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility."
         },
         {
           "platform": "x",
@@ -2650,22 +2662,43 @@
         {
           "platform": "x",
           "operation": "polls.create",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read"
+          ]
         },
         {
           "platform": "x",
           "operation": "bookmarks.read",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "bookmark.read",
+            "tweet.read",
+            "users.read"
+          ]
         },
         {
           "platform": "x",
           "operation": "bookmarks.write",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "bookmark.write",
+            "tweet.read",
+            "users.read"
+          ]
         },
         {
           "platform": "x",
           "operation": "follows.write",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "follows.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility."
         },
         {
           "platform": "x",
@@ -2684,7 +2717,8 @@
             "like.read",
             "tweet.read",
             "users.read"
-          ]
+          ],
+          "notes": "Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility."
         },
         {
           "platform": "x",
@@ -2694,7 +2728,8 @@
             "like.write",
             "tweet.read",
             "users.read"
-          ]
+          ],
+          "notes": "Enterprise-only operation per X's April 2026 changelog; endpoint access remains subject to X eligibility."
         },
         {
           "platform": "x",
@@ -2755,11 +2790,12 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "follows.read",
             "mute.read",
             "block.read"
           ],
-          "notes": "The required read scope depends on the requested relationship kind."
+          "notes": "Use follows.read for followers/following, mute.read for muted users, and block.read for blocked users, with tweet.read and users.read. Following access is Enterprise-only per X's April 2026 changelog; muted/blocked reads require user context."
         },
         {
           "platform": "x",
@@ -2775,9 +2811,10 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "follows.write"
           ],
-          "notes": "Follow writes require an eligible paid X API tier."
+          "notes": "Following operations require Enterprise access per X's April 2026 changelog."
         },
         {
           "platform": "x",
@@ -2785,9 +2822,10 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "follows.write"
           ],
-          "notes": "Follow writes require an eligible paid X API tier."
+          "notes": "Following operations require Enterprise access per X's April 2026 changelog."
         },
         {
           "platform": "x",
@@ -2795,6 +2833,7 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "mute.write"
           ]
         },
@@ -2804,6 +2843,7 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "mute.write"
           ]
         },
@@ -2813,6 +2853,7 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "block.write"
           ],
           "notes": "Enterprise plan only."
@@ -2823,6 +2864,7 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "block.write"
           ],
           "notes": "Enterprise plan only."
@@ -2833,6 +2875,7 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "list.read"
           ]
         },
@@ -2842,6 +2885,7 @@
           "availability": "available",
           "requiredScopes": [
             "users.read",
+            "tweet.read",
             "list.write"
           ]
         },
@@ -2850,7 +2894,9 @@
           "operation": "messages.conversation.write",
           "availability": "available",
           "requiredScopes": [
-            "dm.write"
+            "dm.write",
+            "users.read",
+            "tweet.read"
           ]
         },
         {
@@ -2858,7 +2904,9 @@
           "operation": "messages.group.write",
           "availability": "available",
           "requiredScopes": [
-            "dm.write"
+            "dm.write",
+            "users.read",
+            "tweet.read"
           ]
         },
         {
@@ -2894,7 +2942,7 @@
             "users.read",
             "media.write"
           ],
-          "notes": "MP4 Blob chunked INIT/APPEND/FINALIZE with 1 MiB segments and bounded STATUS poll honoring check_after_secs."
+          "notes": "MP4 Blob chunked INIT/APPEND/FINALIZE with 4 MiB segments and bounded STATUS poll honoring check_after_secs."
         },
         {
           "platform": "x",
