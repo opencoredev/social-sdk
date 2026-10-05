@@ -639,13 +639,18 @@ export function linkedin(
             ? "timeout"
             : error.kind === "cancelled"
               ? "cancelled"
-              : error.kind === "invalid-input"
-                ? "invalid_input"
-                : "media_error",
+              : error.status === 429
+                ? "rate_limited"
+                : error.kind === "invalid-input"
+                  ? "invalid_input"
+                  : "media_error",
         operation: "media.upload",
         message: `LinkedIn image upload did not complete: ${error.message}`,
         upstreamStatus: error.status,
-        retryDisposition: { kind: "never" },
+        retryDisposition:
+          error.status === 429 && error.retryAfterMs !== undefined
+            ? { kind: "after-delay", delayMs: error.retryAfterMs }
+            : { kind: "never" },
       });
     }
 

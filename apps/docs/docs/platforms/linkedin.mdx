@@ -131,7 +131,7 @@ const result = await social.posts.publish({
 
 ### Upload an image, then publish it
 
-Upload through `social.media.upload`, store the account-bound media reference, and use that reference in a publish request. Initialization and byte transfer share the operation deadline; an expired byte transfer returns `timeout` and is not retried automatically. The adapter checks the upstream owner and rejects a returned status other than `AVAILABLE` before creating the post. A successful image read without a status currently passes this check. A still-processing image needs an explicit later check through the native image-status helper; the adapter does not poll in the background.
+Upload through `social.media.upload`, store the account-bound media reference, and use that reference in a publish request. Initialization and byte transfer share the operation deadline; an expired byte transfer returns `timeout` and is not retried automatically. Image-storage HTTP 429 responses return `rate_limited`, with an `after-delay` retry disposition when LinkedIn provides a valid `Retry-After` header. The SDK does not replay the upload. The adapter checks the upstream owner and rejects a returned status other than `AVAILABLE` before creating the post. A successful image read without a status currently passes this check. A still-processing image needs an explicit later check through the native image-status helper; the adapter does not poll in the background.
 
 ```ts
 const mediaRef = await social.media.upload(
