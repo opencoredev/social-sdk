@@ -22,6 +22,8 @@ import { definedFields } from "../core/fields.js";
 import {
   array,
   isBoolean,
+  isJsonArray,
+  isString,
   object,
   optionalNumber,
   optionalString,
@@ -39,7 +41,27 @@ import {
   publicFields,
   type ManagedOptions,
 } from "./common.js";
+import { httpsUrl } from "../transport/upload.js";
 import { postForMeOutcome } from "./outcomes.js";
+
+/** PlatformPostDto.media is an array of URLs. Return only public, unsigned HTTPS URLs. */
+function feedMedia(value: JsonValue | undefined): readonly string[] | undefined {
+  if (!isJsonArray(value)) return undefined;
+
+  return value.flatMap((entry) => {
+    if (!isString(entry)) return [];
+
+    try {
+      const url = httpsUrl(entry);
+
+      if (url.search || url.hash) return [];
+
+      return [url.href];
+    } catch {
+      return [];
+    }
+  });
+}
 
 export interface PostForMeConnectionOptions {
   platform: string;
@@ -229,18 +251,18 @@ export function postForMe(options: ManagedOptions) {
         const rows = array(result["data"])
           .map(object)
           .filter((row) => row["social_account_id"] === account.accountId)
-          .map((row) =>
-            publicFields(row, [
+          .map((row) => ({
+            ...publicFields(row, [
               "platform_post_id",
               "social_account_id",
               "platform_account_id",
               "platform_url",
               "caption",
               "posted_at",
-              "media",
               "created_at",
             ]),
-          );
+            ...definedFields({ media: feedMedia(row["media"]) }),
+          }));
 
         const meta = result["meta"] === undefined ? {} : object(result["meta"]);
         const hasMore = meta["has_more"];
@@ -350,6 +372,10 @@ export function postForMe(options: ManagedOptions) {
             platformConfig["disclose_branded_content"] = brandedContent;
         }
 
+        // Uploaded refs are single-submission assets: publication or schedule deletion
+        // can remove them. Invalidate before dispatch, including uncertain writes.
+        await mediaPipeline.consume(target.content.media ?? []);
+
         const response = await request("/v1/social-posts", context, {
           caption: target.content.text ?? "",
           social_accounts: [target.account.accountId],
@@ -444,40 +470,51 @@ export function postForMe(options: ManagedOptions) {
             ? [
                 ["likes", "like_count"],
                 ["comments", "reply_count"],
-                ["reposts", "repost_count"],
+                ["reposts", "retweet_count"],
                 ["impressions", "impression_count"],
               ]
-            : ref.platform === "linkedin"
+            : ref.platform === "facebook"
               ? [
-                  ["likes", "likeCount"],
-                  ["comments", "commentCount"],
-                  ["impressions", "impressionCount"],
+                  ["likes", "reactions_like"],
+                  ["reactions", "reactions_total"],
+                  ["comments", "comments"],
+                  ["shares", "shares"],
+                  ["reach", "reach"],
+                  // Prefer media_views over the overlapping video_views counter; never sum them.
+                  ["views", "media_views"],
+                  ["views", "video_views"],
                 ]
-              : ref.platform === "bluesky"
+              : ref.platform === "linkedin"
                 ? [
                     ["likes", "likeCount"],
-                    ["comments", "replyCount"],
-                    ["reposts", "repostCount"],
-                  ]
-                : // Other platforms report provider-shaped counters; accept the common spellings.
-                  [
-                    ["likes", "likes"],
-                    ["likes", "like_count"],
-                    ["likes", "likeCount"],
-                    ["comments", "comments"],
-                    ["comments", "comment_count"],
                     ["comments", "commentCount"],
-                    ["comments", "replies"],
-                    ["shares", "shares"],
-                    ["shares", "share_count"],
-                    ["reposts", "reposts"],
-                    ["reposts", "repost_count"],
-                    ["views", "views"],
-                    ["views", "view_count"],
-                    ["views", "viewCount"],
-                    ["impressions", "impressions"],
-                    ["reach", "reach"],
-                  ];
+                    ["impressions", "impressionCount"],
+                  ]
+                : ref.platform === "bluesky"
+                  ? [
+                      ["likes", "likeCount"],
+                      ["comments", "replyCount"],
+                      ["reposts", "repostCount"],
+                    ]
+                  : // Other platforms report provider-shaped counters; accept the common spellings.
+                    [
+                      ["likes", "likes"],
+                      ["likes", "like_count"],
+                      ["likes", "likeCount"],
+                      ["comments", "comments"],
+                      ["comments", "comment_count"],
+                      ["comments", "commentCount"],
+                      ["comments", "replies"],
+                      ["shares", "shares"],
+                      ["shares", "share_count"],
+                      ["reposts", "reposts"],
+                      ["reposts", "repost_count"],
+                      ["views", "views"],
+                      ["views", "view_count"],
+                      ["views", "viewCount"],
+                      ["impressions", "impressions"],
+                      ["reach", "reach"],
+                    ];
 
         const seen = new Set<string>();
 

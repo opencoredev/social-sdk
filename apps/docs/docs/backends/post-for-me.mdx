@@ -6,19 +6,51 @@ description: Configure Post for Me with server credentials, account-scoped publi
 Post for Me is an optional managed backend with its own connected-account records and lifecycle semantics.
 
 ```ts
-import { createSocial } from "@opencoredev/social-sdk";
+import { readFile } from "node:fs/promises";
+import {
+  createSocial,
+  connectedAccountRef,
+  platformPostRef,
+  type AdapterOperationContext,
+  type BackendPostRef,
+  type ConnectedAccountRef,
+  type ConversationRef,
+  type DeliveryOutcome,
+  type Platform,
+} from "@opencoredev/social-sdk";
 import { postForMe } from "@opencoredev/social-sdk/cloud/post-for-me";
 
-const social = createSocial({ backend: postForMe({ apiKey: process.env.POST_FOR_ME_API_KEY! }) });
-const accounts = await social.accounts.list({
-  backend: "default",
-  authorization: { tenantId: "tenant-from-session" },
+// Get tenantId from your authenticated server session and enforce account grants.
+const authorization = { tenantId: "tenant-from-session" };
+const social = createSocial({
+  backend: postForMe({
+    apiKey: process.env.POST_FOR_ME_API_KEY!,
+    webhookSecret: process.env.POST_FOR_ME_WEBHOOK_SECRET!,
+  }),
 });
+const accounts = await social.accounts.list({ backend: "default", authorization });
+
+function selectAccount<P extends Platform>(platform: P): ConnectedAccountRef<P> {
+  const match = accounts.items.find((item) => item.ref.platform === platform);
+  if (!match) throw new Error(`Connect a ${platform} account first.`);
+  return connectedAccountRef({
+    backend: match.ref.backend,
+    platform,
+    accountId: match.ref.accountId,
+  });
+}
+
+const account = selectAccount("x");
+const instagramAccount = selectAccount("instagram");
+const tiktokAccount = selectAccount("tiktok");
+const xAccount = account;
+const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
+const image = new Blob([await readFile("./assets/dashboard.png")]);
 ```
 
 The adapter supports account listing, publishing, post reads and status, media upload, feed-based post analytics, and verified webhooks. Comments and normalized messaging are unavailable in this adapter. Verify the `Post-For-Me-Webhook-Secret` header with your endpoint secret; this shared-secret check authenticates the header and does not authenticate the body. Resolve accounts to tenants, quarantine unknown mappings, and process accepted events durably. See [events](/events) and [capabilities](/reference/capabilities).
 
-The examples below use this `social` client and pass `authorization` as the last argument of every call. Full, type-checked versions are in `examples/snippets/backend-post-for-me.ts`.
+Run the setup on your server with your own assets and connected accounts. The later examples reuse its typed accounts, future `at`, and `authorization`. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; a tenant ID alone does not enforce access. Related server helpers are in `examples/snippets/backend-post-for-me.ts`.
 
 ## Publish an image
 
@@ -48,18 +80,40 @@ const result = await social.posts.publish(
 );
 ```
 
-Type each account as `ConnectedAccountRef<"x">` and so on so TypeScript checks the options. For TikTok, the adapter accepts only `SELF_ONLY` and `PUBLIC_TO_EVERYONE` privacy.
+Type each account as `ConnectedAccountRef<"x">` and so on so TypeScript checks the options. For TikTok, the adapter accepts only `SELF_ONLY` and `PUBLIC_TO_EVERYONE` privacy. Obtain creator consent after preview and supply every interaction, disclosure, AI-content and draft choice explicitly:
+
+```ts
+const tiktokOptions = {
+  privacy: "SELF_ONLY",
+  consentGiven: true,
+  disableComments: false,
+  disableDuet: false,
+  disableStitch: false,
+  brandedContent: false,
+  ownBrand: false,
+  aiGenerated: false,
+  draft: false,
+} satisfies import("@opencoredev/social-sdk").PublishOptionsFor<"tiktok">;
+```
+
+Provider-uploaded media refs expire after 24 hours while unattached. Post for Me deletes attached media after publication or schedule deletion. The SDK limits an uploaded ref to one submission and invalidates it before dispatch, including an uncertain write. Upload fresh bytes for another submission. These refs are not permanent reusable assets; caller-owned HTTPS URLs receive neither this expiry nor the single-submission limit.
+
+The default `MemoryManagedMediaStore` atomically claims each uploaded ref before dispatch, including across adapter instances that share the store. For a custom `ManagedMediaStore`, implement the optional `claimSingleUse(mediaId, claimedAt): Promise<boolean>` method to submit provider-uploaded refs. Stores without it reject those submissions before dispatch; reusable caller-owned URL refs still work.
+
+A durable store must compare and update the record in one transaction or conditional write across all clients and processes. Return `true` only after persisting `consumedAt = claimedAt` and `expiresAt = claimedAt` for an existing, unexpired, single-use record. Return `false` if the record is missing, expired, already claimed, or reusable. Claims must remain consumed even when dispatch fails or its result is uncertain. Do not implement this as separate `get` and `put` calls or a lock local to one adapter. Keep media IDs unique and never overwrite a claimed record with an earlier snapshot. If a submission uses several uploaded refs and a later claim fails, earlier successful claims remain consumed; upload fresh assets for another attempt.
 
 ## Schedule and check a delivery
 
 Set `schedule.at` and store the outcome's `delivery` reference. Later, read it with `getDelivery` and handle every state instead of treating the result as a boolean.
 
 ```ts
-const result = await social.posts.publish(
+const scheduled = await social.posts.publish(
   { targets: [{ account }], content: { text: "Maintenance window tonight." }, schedule: { at } },
   { authorization },
 );
-const delivery = result.outcomes[0]?.delivery; // store with the publication
+const delivery = scheduled.outcomes[0]?.delivery; // store with the publication
+
+if (!delivery) throw new Error("No delivery was confirmed; reconcile the submission first.");
 
 // Later, for example from a job:
 const outcome = await social.posts.getDelivery(delivery, { authorization });
@@ -86,7 +140,7 @@ function nextStep(outcome: DeliveryOutcome): string {
 }
 ```
 
-A `processed` post without a result for this account reads as `unknown`, so reconcile it rather than assuming success.
+A scheduled or processing parent must identify the target in `social_accounts`. A missing or inconsistent owner, or a `processed` post without a result for this account, reads as `unknown`, so reconcile it rather than assuming success.
 
 ## Cancel and delete a scheduled post
 
@@ -114,7 +168,9 @@ if (outcome.state === "scheduled") {
 
 ## Read analytics from the feed
 
-Post metrics come from the account feed, so they report `freshness: "unknown"`. List the feed, build a post reference from each `platform_post_id`, and read its metrics.
+Feed media includes HTTPS URLs without query strings or fragments. The adapter omits every query-bearing URL, including ordinary version parameters, because the feed does not identify which parameters grant private access.
+
+Connect the account with the `feeds` permission to read feeds or analytics; a posts-only connection can return an empty feed. LinkedIn metrics are available for company pages only, and Instagram metrics can lag publication. Post metrics come from the account feed, so they report `freshness: "unknown"`. An existing feed row without metrics returns `[]`; an absent matching row throws `upstream_failure`. Empty or omitted counters do not mean zero. Facebook `reactions_like` maps to likes and `reactions_total` to reactions. Views use `media_views` when present, otherwise `video_views`, without adding overlapping counters. List the feed, build a post reference from each `platform_post_id`, and read its metrics.
 
 ```ts
 const feed = await social.posts.list(account, { limit: 10, authorization });
@@ -137,7 +193,9 @@ The `post` from a `published` outcome works the same way.
 
 ## Receive webhooks
 
-Read the raw bytes, check the shared-secret header, then decode and accept the event. Only the verify call sits inside the `try`, so a decoding or inbox failure is not reported as an authentication error.
+Create the subscription separately with `POST https://api.postforme.dev/v1/webhooks` using your server API key, endpoint `url`, and selected `event_types`. There is no dashboard subscription UI and no SDK subscription-creation helper. Store the returned `WebhookDto.secret` in your server secret store as `POST_FOR_ME_WEBHOOK_SECRET`; it is distinct from the API key. Pass it as `webhookSecret` as shown in setup.
+
+The decoder supports `social.post.created`, `social.post.updated`, `social.post.deleted`, `social.post.result.created`, `social.account.created`, and `social.account.updated`. Read the raw bytes, check the shared-secret header, then decode and durably accept the event before returning a 2xx acknowledgment. Do not acknowledge a failed inbox write. Only the verify call sits inside the `try`, so a decoding or inbox failure is not reported as an authentication error.
 
 ```ts
 import { SocialError } from "@opencoredev/social-sdk";
@@ -145,35 +203,48 @@ import {
   acceptWebhook,
   decodeWebhook,
   verifyPostForMeWebhook,
+  type EventInbox,
+  type SocialEvent,
 } from "@opencoredev/social-sdk/server";
 
-export async function POST(request: Request): Promise<Response> {
-  const body = new Uint8Array(await request.arrayBuffer());
+export function webhookRoute(input: {
+  endpointId: string;
+  inbox: EventInbox;
+  resolveTenants: (backend: string, accountIds: readonly string[]) => Promise<readonly string[]>;
+}) {
+  return async function POST(request: Request): Promise<Response> {
+    const body = new Uint8Array(await request.arrayBuffer());
 
-  try {
-    await verifyPostForMeWebhook({
-      secret: process.env.POST_FOR_ME_WEBHOOK_SECRET!,
-      headers: request.headers,
-      body,
-    });
-  } catch (error) {
-    if (error instanceof SocialError && error.code === "unauthorized")
-      return new Response("unauthorized", { status: 401 });
-    throw error;
-  }
+    try {
+      await verifyPostForMeWebhook({
+        secret: process.env.POST_FOR_ME_WEBHOOK_SECRET!,
+        headers: request.headers,
+        body,
+      });
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized")
+        return new Response("unauthorized", { status: 401 });
+      throw error;
+    }
 
-  const event = await decodeWebhook({ provider: "post-for-me", backend: "default", body });
-  const result = await acceptWebhook({ event, endpointId, inbox, resolveTenants });
-  return new Response(result.state, { status: 202 });
+    const event = await decodeWebhook({ provider: "post-for-me", backend: "default", body });
+    const accepted = await acceptWebhook({ event, ...input });
+    return new Response(accepted.state, { status: 202 });
+  };
 }
 ```
 
 The header check does not authenticate the body, so do not act on its contents. In the worker, look up your stored delivery by `event.backendRecordId` and read the current state from Post for Me:
 
 ```ts
-if (event.type === "publication.updated" && event.backendRecordId !== undefined) {
-  const delivery = await findDelivery(event.backendRecordId);
-  if (delivery) await social.posts.getDelivery(delivery, { authorization });
+export async function reconcileEvent(
+  event: SocialEvent,
+  findDelivery: (id: string) => Promise<import("@opencoredev/social-sdk").DeliveryRef | undefined>,
+) {
+  if (event.type === "publication.updated" && event.backendRecordId !== undefined) {
+    const delivery = await findDelivery(event.backendRecordId);
+    if (delivery) await social.posts.getDelivery(delivery, { authorization });
+  }
 }
 ```
 
@@ -195,8 +266,12 @@ const { url } = await native.createConnection(
     platform: "instagram",
     externalId: "customer-42",
     permissions: ["posts", "feeds"],
-    redirectUrl,
+    // Provider-system credentials use the dashboard project redirect.
   },
   context,
 );
 ```
+
+With customer OAuth credentials, `redirectUrl` maps to `redirect_url_override`. With provider-system credentials (Quickstart), that override is unavailable: configure the project redirect in the provider dashboard instead. The callback includes `provider`, `projectId`, `isSuccess`, `accountIds`, `failedAccountIds`, and `error`. Successful connections can also emit `social.account.created`; failures do not emit that success event. Validate the pending tenant session, read the returned accounts on the server, and store only verified account IDs as tenant grants. Redirect parameters alone do not grant access.
+
+`native.createConnection` cannot send `platform_data`. LinkedIn uses the personal default, which does not meet organization-only Quickstart requirements. Bluesky requires a handle and app password that this helper cannot supply. Use the provider's documented [LinkedIn organization setup](https://www.postforme.dev/resources/understanding-linkedin-connection-types) or [Bluesky setup](https://www.postforme.dev/resources/getting-started-with-the-bluesky-api), or its dashboard, for those configurations. Selecting Instagram connection modes or X OAuth modes also requires provider setup outside this helper; adding `platformData` to SDK options is unsupported.

@@ -90,13 +90,6 @@ const postfastFormats: PublishFormats = (platform) =>
 
 const maxBytes = { image: 10 * 1024 * 1024, video: 250 * 1024 * 1024 } as const;
 
-const tiktokPrivacy = new Map([
-  ["PUBLIC_TO_EVERYONE", "PUBLIC"],
-  ["MUTUAL_FOLLOW_FRIENDS", "MUTUAL_FRIENDS"],
-  ["FOLLOWER_OF_CREATOR", "FOLLOWER_OF_CREATOR"],
-  ["SELF_ONLY", "ONLY_ME"],
-]);
-
 const reject = (operation: string, message: string): never => {
   throw new SocialError({ code: "invalid_input", operation, message });
 };
@@ -480,6 +473,8 @@ export function postfast(options: ManagedOptions) {
           );
         else if (!(Date.parse(at) > clock().getTime()))
           fail("schedule.past", "PostFast requires a schedule time in the future.");
+        else if (Date.parse(at) > clock().getTime() + 365 * 86400_000)
+          fail("schedule.horizon", "PostFast requires a schedule within one year.");
 
         const media = target.content.media ?? [];
 
@@ -523,20 +518,16 @@ export function postfast(options: ManagedOptions) {
         )
           fail("x.reply_settings_unsupported", "PostFast does not document X reply settings.");
 
-        if (
-          target.account.platform === "tiktok" &&
-          config["draft"] !== true &&
-          media.some((item) => item.kind === "video")
-        ) {
+        if (target.account.platform === "tiktok" && config["draft"] !== true) {
           if (config["privacy"] !== "PUBLIC_TO_EVERYONE")
             fail(
               "tiktok.privacy_unsupported",
-              "PostFast publishes TikTok videos with the account's default privacy. Save a TikTok draft to keep a video private.",
+              "PostFast direct TikTok posts do not honor private settings. Only explicit draft mode avoids direct publication.",
             );
           else
             fail(
               "tiktok.privacy_account_default",
-              "PostFast publishes TikTok videos with the account's default privacy.",
+              "PostFast TikTok videos use account-default privacy and photos default public. The deprecated privacy control does not override these settings.",
               "warning",
             );
         }
@@ -550,8 +541,24 @@ export function postfast(options: ManagedOptions) {
         accountMatches(target.account, context);
         const at = target.schedule?.at;
 
-        if (!at || !(Date.parse(at) > clock().getTime()))
-          reject("posts.publish", "PostFast requires a future schedule time.");
+        if (
+          !at ||
+          !(Date.parse(at) > clock().getTime()) ||
+          Date.parse(at) > clock().getTime() + 365 * 86400_000
+        )
+          reject("posts.publish", "PostFast requires a future schedule within one year.");
+
+        const config = optionsObject(target);
+
+        if (
+          target.account.platform === "tiktok" &&
+          config["draft"] !== true &&
+          config["privacy"] !== "PUBLIC_TO_EVERYONE"
+        )
+          reject(
+            "posts.publish",
+            "PostFast direct TikTok posts do not honor private settings. Use explicit draft mode.",
+          );
 
         const mediaItems: JsonObject[] = [];
 
@@ -562,11 +569,11 @@ export function postfast(options: ManagedOptions) {
             sortOrder: index,
           });
 
-        const config = optionsObject(target);
         const controls: Record<string, JsonValue> = {};
 
         if (target.account.platform === "youtube") {
           controls["youtubeTitle"] = string(config["title"]);
+          controls["youtubeIsShort"] = false;
           controls["youtubePrivacy"] = string(config["visibility"]).toUpperCase();
 
           const madeForKids = config["madeForKids"];
@@ -578,10 +585,6 @@ export function postfast(options: ManagedOptions) {
           controls["instagramPostToGrid"] = config["shareToFeed"];
 
         if (target.account.platform === "tiktok") {
-          const privacy = tiktokPrivacy.get(String(config["privacy"]));
-
-          if (privacy) controls["tiktokPrivacy"] = privacy;
-
           // prepareTarget requires every one of these choices to be a boolean.
           for (const [nativeKey, optionKey, negate] of [
             ["tiktokAllowComments", "disableComments", true],

@@ -47,8 +47,8 @@ it("maps Zernio per-account outcomes in a partial parent including two accounts 
   assert.equal(zernioOutcome({ existingPost: post }, context).state, "failed");
 });
 
-it("does not turn unknown, missing, cancelled or parent-only outcomes into success", () => {
-  for (const status of ["new-provider-state", "cancelled", "published"]) {
+it("does not turn unknown, missing or parent-only outcomes into success", () => {
+  for (const status of ["new-provider-state", "published"]) {
     assert.equal(
       zernioOutcome(
         {
@@ -103,7 +103,11 @@ it("processed Post for Me parent can contain only failures", () => {
 
 it("separates pending video processing from published native evidence", () => {
   assert.equal(
-    postForMeOutcome({ id: "p1", status: "processing" }, undefined, context).state,
+    postForMeOutcome(
+      { id: "p1", status: "processing", social_accounts: ["account-a"] },
+      undefined,
+      context,
+    ).state,
     "processing",
   );
   assert.equal(

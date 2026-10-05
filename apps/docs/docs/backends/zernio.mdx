@@ -3,22 +3,57 @@ title: Zernio
 description: Configure the Zernio managed backend with server credentials, explicit accounts, outcomes, and HMAC webhook verification.
 ---
 
-[Zernio](https://zernio.link/leo) is an optional managed hosted platform. Create an account and pick a plan on [zernio.com](https://zernio.link/leo), then create an API key in its dashboard. The key stays on the server and is passed to the adapter; connected accounts are provider records that your application must map to tenants.
+[Zernio](https://zernio.com) is an optional managed backend. Create an account and pick a plan on [zernio.com](https://zernio.com), then create an API key in its dashboard. The key stays on the server and is passed to the adapter; connected accounts are provider records that your application must map to tenants.
 
 ```ts
-import { createSocial } from "@opencoredev/social-sdk";
+import { readFile } from "node:fs/promises";
+import {
+  createSocial,
+  connectedAccountRef,
+  platformPostRef,
+  type AdapterOperationContext,
+  type BackendPostRef,
+  type ConnectedAccountRef,
+  type ConversationRef,
+  type DeliveryOutcome,
+  type Platform,
+} from "@opencoredev/social-sdk";
 import { zernio } from "@opencoredev/social-sdk/cloud/zernio";
 
-const social = createSocial({ backend: zernio({ apiKey: process.env.ZERNIO_API_KEY! }) });
-const accounts = await social.accounts.list({
-  backend: "default",
-  authorization: { tenantId: "tenant-from-session" },
+// Get tenantId from your authenticated server session and enforce account grants.
+const authorization = { tenantId: "tenant-from-session" };
+const social = createSocial({
+  backend: zernio({
+    apiKey: process.env.ZERNIO_API_KEY!,
+    webhookSecret: process.env.ZERNIO_WEBHOOK_SECRET!,
+  }),
 });
+const accounts = await social.accounts.list({ backend: "default", authorization });
+
+function selectAccount<P extends Platform>(platform: P): ConnectedAccountRef<P> {
+  const match = accounts.items.find((item) => item.ref.platform === platform);
+  if (!match) throw new Error(`Connect a ${platform} account first.`);
+  return connectedAccountRef({
+    backend: match.ref.backend,
+    platform,
+    accountId: match.ref.accountId,
+  });
+}
+
+const account = selectAccount("x");
+const youtubeAccount = selectAccount("youtube");
+const instagramAccount = selectAccount("instagram");
+const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
+const video = new Blob([await readFile("./assets/release-walkthrough.mp4")]);
 ```
 
-The adapter supports account listing, publishing, post reads and status, media upload, analytics, verified webhooks, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, and Facebook, and messaging for X, Bluesky, Instagram, and Facebook. Provider permissions and recipient or reply-window rules still apply. Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
+The adapter supports account listing, publishing, external platform-feed reads and delivery status, media upload, analytics, verified webhooks, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, and Facebook, and messaging for X, Bluesky, Instagram, and Facebook. Provider permissions and recipient or reply-window rules still apply. Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
 
-The examples below use this `social` client and pass `authorization` as the last argument of every call. Full, type-checked versions are in `examples/snippets/backend-zernio.ts`.
+Run the setup on your server with your own assets and connected accounts. The later examples reuse its typed accounts, future `at`, and `authorization`. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; a tenant ID alone does not enforce access. Related server helpers are in `examples/snippets/backend-zernio.ts`.
+
+`posts.list` requests `source=external`: it reads synced platform posts and excludes posts created through Zernio. Use the stored `delivery` with `getDelivery` for backend publication status. The SDK does not expose a combined internal/external feed.
+
+Zernio post creation sends the derived target retry key as `Idempotency-Key`, including when a retry uploads media to a different URL. This provider replay key does not bypass completed claims in a configured client idempotency store.
 
 ## Publish a video
 
@@ -58,7 +93,7 @@ const result = await social.posts.publish(
 Set `schedule.at`, with an optional IANA `timeZone`, and store the outcome's `delivery` reference. Later, read it with `getDelivery` and handle every state instead of treating the result as a boolean.
 
 ```ts
-const result = await social.posts.publish(
+const scheduled = await social.posts.publish(
   {
     targets: [{ account }],
     content: { text: "Office hours start at 10:00." },
@@ -66,7 +101,9 @@ const result = await social.posts.publish(
   },
   { authorization },
 );
-const delivery = result.outcomes[0]?.delivery; // store with the publication
+const delivery = scheduled.outcomes[0]?.delivery; // store with the publication
+
+if (!delivery) throw new Error("No delivery was confirmed; reconcile the submission first.");
 
 // Later, for example from a job:
 const outcome = await social.posts.getDelivery(delivery, { authorization });
@@ -115,12 +152,20 @@ if (outcome.state === "published") {
 
 `deleteBackendRecord` only deletes Zernio drafts. The SDK never creates drafts, so it applies only to drafts made in Zernio itself.
 
+## Recover a duplicate create
+
+A post-create HTTP 409 reports `idempotency_conflict`. When Zernio returns an existing post ID, `social.posts.publish` returns a failed outcome with an account-scoped `delivery` reference and `retryDisposition: { kind: "reconcile-first" }`. Call `social.posts.getDelivery(outcome.delivery)` before deciding whether to submit again. The status read checks for a matching destination and does not infer success from the duplicate alone. Direct adapter errors without a recovery ID retain their retry guidance. The ID identifies a backend record, not a published platform post.
+
+If the key is still processing and Zernio supplies `Retry-After`, the error instead reports `after-delay`. If no safe recovery ID or delay is available, reconcile manually in Zernio before deciding whether to submit again. The caller owns any later attempt with the same key; the transport never replays a write. Unrecognized or oversized bodies retain the generic status error without exposing provider text or media URLs.
+
 ## Read analytics
 
-Post metrics include impressions, reach, likes, comments, shares, saves, clicks, views, follows, and reposts where Zernio reports them. Account metrics report followers.
+Post metrics include impressions, reach, likes, comments, shares, saves, clicks, views, follows, and reposts where Zernio reports them. Account metrics report followers when available; followers may be omitted without the analytics add-on. Missing counters are not zero.
 
 ```ts
-const postMetrics = await social.analytics.getPostMetrics(post, { authorization });
+if (outcome.state === "published") {
+  const postMetrics = await social.analytics.getPostMetrics(outcome.post, { authorization });
+}
 const accountMetrics = await social.analytics.getAccountMetrics(account, { authorization });
 ```
 
@@ -129,6 +174,8 @@ const accountMetrics = await social.analytics.getAccountMetrics(account, { autho
 List comments on a published post, then reply with a comment reference built from the post and the comment `id`.
 
 ```ts
+if (outcome.state !== "published") throw new Error("Wait for a confirmed platform post.");
+const post = outcome.post;
 const comments = await social.comments.list(post, { limit: 20, authorization });
 const commentId = comments.items[0]?.["id"];
 
@@ -161,30 +208,43 @@ if (typeof conversationId === "string") {
 
 ## Receive webhooks
 
+Choose a strong HMAC secret, register it with the endpoint URL in Zernio webhook settings, and store the same value as `ZERNIO_WEBHOOK_SECRET` on your server. The setup passes it as `webhookSecret` to the adapter.
+
 Read the raw bytes, verify the signature, then decode and accept the event. Only the verify call sits inside the `try`, so a decoding or inbox failure is not reported as an authentication error.
 
 ```ts
 import { SocialError } from "@opencoredev/social-sdk";
-import { acceptWebhook, decodeWebhook, verifyZernioWebhook } from "@opencoredev/social-sdk/server";
+import {
+  acceptWebhook,
+  decodeWebhook,
+  verifyZernioWebhook,
+  type EventInbox,
+} from "@opencoredev/social-sdk/server";
 
-export async function POST(request: Request): Promise<Response> {
-  const body = new Uint8Array(await request.arrayBuffer());
+export function webhookRoute(input: {
+  endpointId: string;
+  inbox: EventInbox;
+  resolveTenants: (backend: string, accountIds: readonly string[]) => Promise<readonly string[]>;
+}) {
+  return async function POST(request: Request): Promise<Response> {
+    const body = new Uint8Array(await request.arrayBuffer());
 
-  try {
-    await verifyZernioWebhook({
-      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
-      headers: request.headers,
-      body,
-    });
-  } catch (error) {
-    if (error instanceof SocialError && error.code === "unauthorized")
-      return new Response("unauthorized", { status: 401 });
-    throw error;
-  }
+    try {
+      await verifyZernioWebhook({
+        secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+        headers: request.headers,
+        body,
+      });
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized")
+        return new Response("unauthorized", { status: 401 });
+      throw error;
+    }
 
-  const event = await decodeWebhook({ provider: "zernio", backend: "default", body });
-  const result = await acceptWebhook({ event, endpointId, inbox, resolveTenants });
-  return new Response(result.state, { status: 202 });
+    const event = await decodeWebhook({ provider: "zernio", backend: "default", body });
+    const accepted = await acceptWebhook({ event, ...input });
+    return new Response(accepted.state, { status: 202 });
+  };
 }
 ```
 
@@ -202,6 +262,7 @@ const context: AdapterOperationContext = {
   authorization: { tenantId: "tenant-from-session" },
 };
 
+const redirectUrl = "https://app.example.com/zernio/callback";
 const native = social.native("default", { acknowledgeUnsafe: true });
 const profiles = await native.listProfiles(context);
 const profileId = profiles[0]?.["_id"];
@@ -210,3 +271,7 @@ if (typeof profileId === "string") {
   const { url } = await native.createConnection({ platform: "x", profileId, redirectUrl }, context);
 }
 ```
+
+A profile groups accounts; its `_id` is not a connected-account ID and cannot be used as a publish target. After the provider flow completes, list accounts again on the server, identify the newly connected account from the authorized connection session, and store its `ref.accountId`, backend and platform with that tenant's grant. Recheck the account identity before granting access. A redirect or returned URL is not tenant authorization.
+
+Uploaded Zernio media refs expire locally after seven days. This SDK reuse limit is not a claim about the provider's public URL lifetime. Caller-owned HTTPS URLs do not receive this upload expiry. Configure `MemoryManagedMediaStore` or a persistent `ManagedMediaStore` from the backend subpath when references must survive adapter reconstruction.

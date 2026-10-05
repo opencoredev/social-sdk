@@ -283,6 +283,7 @@ it("PostFast uploads by key, schedules the post and maps YouTube controls", asyn
             youtubeTitle: "Demo",
             youtubePrivacy: "PRIVATE",
             youtubeMadeForKids: false,
+            youtubeIsShort: false,
           },
         });
 

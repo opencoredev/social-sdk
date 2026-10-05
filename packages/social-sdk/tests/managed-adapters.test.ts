@@ -107,7 +107,7 @@ it("Post for Me normalizes platform-specific analytics DTOs", async () => {
   for (const [platformName, metrics, expected] of [
     [
       "x",
-      { public_metrics: { like_count: 2, reply_count: 3, repost_count: 4, impression_count: 5 } },
+      { public_metrics: { like_count: 2, reply_count: 3, retweet_count: 4, impression_count: 5 } },
       ["likes", "comments", "reposts", "impressions"],
     ],
     [
@@ -262,7 +262,7 @@ it("Zernio retains each destination result and deterministic request identifiers
     fetch: async (_input, init) => {
       const body = JSON.parse(String(init?.body));
       const accountId = body.platforms[0].accountId;
-      ids.push(new Headers(init?.headers).get("x-request-id") ?? "");
+      ids.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
 
       return Response.json(
         {
@@ -352,7 +352,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
         made_for_kids: false,
       });
 
-      return Response.json({ id: "p1", status: "processing" });
+      return Response.json({ id: "p1", status: "processing", social_accounts: ["yt1"] });
     };
 
     const options = {

@@ -1,39 +1,41 @@
 ---
 title: Managed backends
-description: Compare Zernio, Post for Me, PostFast, and Postiz as hosted execution routes, including supported operations, platform coverage, webhooks, and pricing.
+description: Compare Zernio, Post for Me, PostFast, and Postiz as managed execution routes, including supported operations, platform coverage, webhooks, and pricing.
 ---
 
-A hosted platform is an optional managed backend: instead of calling a social platform's API with credentials you control, the SDK calls Zernio, Post for Me, PostFast, or Postiz using your own provider account. The provider owns the platform apps, account connections, and upstream API relationships; your application keeps tenant authorization and outcome handling.
+A managed backend is optional: instead of calling a social platform's API with credentials you control, the SDK calls Zernio, Post for Me, PostFast, or Postiz using your own provider account. Managed providers own the platform apps and account connections; with self-hosted Postiz, you configure your own instance and platform apps; your application keeps tenant authorization and outcome handling.
 
 Direct integrations remain the other route: your platform app, your tokens, your review processes, no provider charges. Each [platform page](/platforms) documents that route. Nothing routes through a maintainer-operated service in either mode, and an application can use any of the providers, several, or none.
 
-## Compare providers
+## Compare SDK adapter support
 
-|                       | [Zernio](https://zernio.link/leo)                                   | [Post for Me](https://www.postforme.dev)                            | [PostFast](https://postfa.st/docs?utm_source=social-sdk&utm_medium=sponsor&utm_campaign=hosted-backend)  | [Postiz](https://postiz.com/?utm_source=socialsdk)                  |
-| --------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Platforms             | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook                                      | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook |
-| Publish               | Text, images, video, carousels                                      | Text, images, video, carousels                                      | Text, images, video, carousels; scheduled only                                                           | Text, images, video, carousels; now or scheduled                    |
-| Scheduling            | Schedule and cancel                                                 | Schedule and cancel                                                 | Schedule and cancel                                                                                      | Schedule and cancel                                                 |
-| Post reads and status | All platforms                                                       | All platforms                                                       | Status only                                                                                              | Status only                                                         |
-| Media upload          | All platforms                                                       | All platforms                                                       | All platforms                                                                                            | All platforms                                                       |
-| Post analytics        | All platforms                                                       | Feed-based, all platforms                                           | All platforms                                                                                            | All platforms                                                       |
-| Account analytics     | All platforms                                                       | —                                                                   | —                                                                                                        | —                                                                   |
-| Comments              | X, Threads, Bluesky, YouTube, Instagram, LinkedIn, Facebook         | —                                                                   | —                                                                                                        | —                                                                   |
-| Messages              | X, Bluesky, Instagram, Facebook                                     | —                                                                   | —                                                                                                        | —                                                                   |
-| Native post removal   | X, Threads, Bluesky, YouTube, LinkedIn, Facebook                    | —                                                                   | —                                                                                                        | —                                                                   |
-| Webhook verification  | `X-Zernio-Signature` HMAC over raw bytes                            | `Post-For-Me-Webhook-Secret` shared secret                          | — (no webhooks; poll status)                                                                             | — (webhooks are unsigned; poll status)                              |
-| Pricing               | [zernio.com](https://zernio.link/leo)                               | [postforme.dev](https://www.postforme.dev)                          | [postfa.st](https://postfa.st/docs?utm_source=social-sdk&utm_medium=sponsor&utm_campaign=hosted-backend) | [postiz.com](https://postiz.com/pricing?utm_source=socialsdk)       |
-| Setup guide           | [Zernio setup](/backends/zernio)                                    | [Post for Me setup](/backends/post-for-me)                          | [PostFast setup](/backends/postfast)                                                                     | [Postiz setup](/backends/postiz)                                    |
+|                       | [Zernio](https://zernio.com)                                        | [Post for Me](https://www.postforme.dev)                            | [PostFast](https://postfa.st)                                       | [Postiz](https://postiz.com)                                        |
+| --------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Platforms             | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook | X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, Facebook |
+| Publish               | Text, images, video, carousels                                      | Text, images, video, carousels                                      | Text, images, video, carousels; scheduled only                      | Text, images, video, carousels; now or scheduled                    |
+| Scheduling            | Schedule and cancel                                                 | Schedule and cancel                                                 | Schedule and cancel                                                 | Schedule and cancel                                                 |
+| Post reads and status | All platforms                                                       | All platforms                                                       | Status only                                                         | Status only                                                         |
+| Media upload          | All platforms                                                       | All platforms                                                       | All platforms                                                       | All platforms                                                       |
+| Post analytics        | All platforms                                                       | Feed-based, all platforms                                           | All platforms                                                       | All platforms                                                       |
+| Account analytics     | All platforms                                                       | —                                                                   | —                                                                   | —                                                                   |
+| Comments              | X, Threads, Bluesky, YouTube, Instagram, LinkedIn, Facebook         | —                                                                   | —                                                                   | —                                                                   |
+| Messages              | X, Bluesky, Instagram, Facebook                                     | —                                                                   | —                                                                   | —                                                                   |
+| Native post removal   | X, Threads, Bluesky, YouTube, LinkedIn, Facebook                    | —                                                                   | —                                                                   | —                                                                   |
+| Webhook verification  | `X-Zernio-Signature` HMAC over raw bytes                            | `Post-For-Me-Webhook-Secret` shared secret                          | — (no webhooks; poll status)                                        | — (webhooks are unsigned; poll status)                              |
+| Company / pricing     | [zernio.com](https://zernio.com)                                    | [postforme.dev](https://www.postforme.dev)                          | [postfa.st](https://postfa.st)                                      | [postiz.com](https://postiz.com/pricing)                            |
+| Setup guide           | [Zernio setup](/backends/zernio)                                    | [Post for Me setup](/backends/post-for-me)                          | [PostFast setup](/backends/postfast)                                | [Postiz setup](/backends/postiz)                                    |
 
-A dash means the adapter does not expose that operation for the provider's documented API. Rows describe the normalized surface implemented in Social SDK, generated from the same manifests as the [capability matrix](/reference/capabilities); they do not certify a provider account, plan tier, platform permission, or a live request.
+A dash means unimplemented in this SDK, not absent from the vendor API. This manually maintained comparison describes the normalized SDK surface alongside the generated [capability matrix](/reference/capabilities); they do not certify a provider account, plan tier, platform permission, or a live request.
 
 You pay the selected provider directly and remain responsible for its plan, platform permissions, add-ons, and connected-account terms.
 
-## What every hosted route shares
+Publishing formats depend on the platform. YouTube requires video; Instagram and TikTok require media; PostFast Bluesky supports text and images. The listed generic formats do not imply stories, reels, documents, custom thumbnails, or every vendor option. Zernio and Post for Me publish now or on a schedule; PostFast schedules only; Postiz supports both. Cancel deletes the scheduled record for Zernio, PostFast and Postiz; Post for Me retains a draft. Feed scope and metric availability vary by platform and connection permissions.
+
+## What managed routes share
 
 - The provider API key stays on your server and is passed to the adapter. Connected accounts are provider records that your application must map to tenants before any operation.
 - Provider acceptance is not platform publication. Preserve the provider record, inspect every destination result, and reconcile pending or uncertain deliveries.
-- Webhooks are verified with the provider's real signature or shared-secret mechanism before an event is durably accepted. See [events](/events).
+- Zernio verifies HMAC over raw bytes. Post for Me checks an endpoint-secret header, which does not authenticate the body, so workers must read current provider state. PostFast has no verifier and the SDK does not accept unsigned Postiz callbacks; poll those routes. See [events](/events).
 - Social SDK does not pool keys, resell provider usage, or transfer authorizations between providers. PostFast and Postiz sponsor the project; that does not change how any adapter behaves.
 
 ## Use two providers together
@@ -56,17 +58,24 @@ const authorization = { tenantId: "tenant-from-session" };
 const zernioAccounts = await social.accounts.list({ backend: "zernio", authorization });
 const postfastAccounts = await social.accounts.list({ backend: "postfast", authorization });
 
+const zernioX = zernioAccounts.items.find((item) => item.ref.platform === "x")?.ref;
+const postfastLinkedIn = postfastAccounts.items.find(
+  (item) => item.ref.platform === "linkedin",
+)?.ref;
+if (!zernioX || !postfastLinkedIn) throw new Error("Connect both destination accounts first.");
+const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
+
 const result = await social.posts.publish(
   {
     targets: [{ account: zernioX }, { account: postfastLinkedIn }],
     content: { text: "Registration for the spring cohort is open." },
-    schedule: { at: "2026-10-01T09:00:00.000Z" },
+    schedule: { at },
   },
   { authorization },
 );
 ```
 
-PostFast only schedules, so a mixed post that includes a PostFast target needs `schedule.at`.
+PostFast only schedules, so a mixed post that includes a PostFast target needs a future `schedule.at` within one year. Load `authorization.tenantId` from the authenticated server session and enforce account grants with an [authorization policy](/concepts/tenant-authorization). Listing accounts alone is not a tenant grant.
 
 :::warning
 Moving application code from one backend to another does not move connected accounts, scheduled jobs, publication history, analytics history, or provider-native identifiers. Plan a provider migration as new authorization and data-mapping work.

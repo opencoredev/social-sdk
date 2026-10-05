@@ -119,20 +119,11 @@ const nativePlatforms = new Map<string, Platform>([
 // Bluesky connects with an app password entered in Postiz, so it has no OAuth link.
 const oauthProviders = [...nativePlatforms.keys()].filter((value) => value !== "bluesky");
 
-const mimeTypes = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/avif",
-  "image/bmp",
-  "image/tiff",
-  "video/mp4",
-] as const;
+const mimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4"] as const;
 
 const maxBytes = { image: 10 * 1024 * 1024, video: 1024 * 1024 * 1024 } as const;
 
-// Postiz imports remote media only from URLs with these extensions.
+// Restrict source URLs and returned storage paths to extensions accepted by post creation.
 const urlExtension = /\.(png|jpe?g|gif|webp|mp4)$/i;
 
 const recordId = /^[A-Za-z0-9_-]{1,128}$/;
@@ -467,7 +458,7 @@ export function postiz(options: PostizOptions) {
       if (!urlExtension.test(url.pathname))
         reject(
           "media.upload",
-          "Postiz imports URLs ending in .png, .jpg, .jpeg, .gif, .webp, or .mp4.",
+          "This adapter requires URL paths ending in .png, .jpg, .jpeg, .gif, .webp, or .mp4.",
         );
 
       result = await request("/upload-from-url", context, { url: url.href });
@@ -492,7 +483,12 @@ export function postiz(options: PostizOptions) {
 
     const row = object(result);
 
-    return { id: string(row["id"]), path: httpsUrl(string(row["path"])).href };
+    const path = httpsUrl(string(row["path"]));
+
+    if (!urlExtension.test(path.pathname))
+      reject("media.upload", "Postiz returned an upload path unsupported by its post schema.");
+
+    return { id: string(row["id"]), path: path.href };
   };
 
   const resolveMedia = async (
@@ -510,7 +506,12 @@ export function postiz(options: PostizOptions) {
         message: "This media reference was not uploaded to Postiz.",
       });
 
-    return { id: stored.providerKey, path: stored.publicUrl };
+    const path = httpsUrl(stored.publicUrl);
+
+    if (!urlExtension.test(path.pathname))
+      reject("media.resolve", "Stored Postiz media has a path unsupported by its post schema.");
+
+    return { id: stored.providerKey, path: path.href };
   };
 
   /** The provider settings Postiz validates for each channel type. */
@@ -659,6 +660,12 @@ export function postiz(options: PostizOptions) {
           fail("schedule.past", "Postiz needs a future schedule time. Omit it to publish now.");
 
         for (const item of target.content.media ?? []) {
+          if (item.thumbnail !== undefined)
+            fail(
+              "media.thumbnail_unsupported",
+              "Postiz custom thumbnails have no verified mapping in this adapter.",
+            );
+
           if (item.kind === "document") {
             fail("media.document_unsupported", "Postiz accepts image and video media only.");
             continue;
@@ -667,7 +674,7 @@ export function postiz(options: PostizOptions) {
           if (item.mimeType && !mimeTypes.some((value) => value === item.mimeType))
             fail(
               "media.mime_unsupported",
-              "Postiz accepts JPEG, PNG, GIF, WebP, AVIF, BMP, and TIFF images and MP4 videos.",
+              "Postiz publish paths accept JPEG, PNG, GIF, WebP images and MP4 videos.",
             );
 
           if (item.source.kind === "https-url") {
@@ -682,7 +689,7 @@ export function postiz(options: PostizOptions) {
             if (path && !urlExtension.test(path))
               fail(
                 "media.url_extension",
-                "Postiz imports URLs ending in .png, .jpg, .jpeg, .gif, .webp, or .mp4. Upload the bytes instead.",
+                "This adapter requires URL paths ending in .png, .jpg, .jpeg, .gif, .webp, or .mp4. Upload the bytes instead.",
               );
           }
 
@@ -703,7 +710,7 @@ export function postiz(options: PostizOptions) {
         if (target.account.platform === "tiktok" && config["draft"] === true)
           fail(
             "tiktok.draft_settings_ignored",
-            "TikTok keeps only the caption for inbox drafts. Privacy, interaction, and disclosure choices apply when the creator posts it.",
+            "Postiz TikTok UPLOAD ignores settings except its title, which this adapter does not map. Publish the inbox item within 24 hours; no caption or privacy guarantee is made.",
             "warning",
           );
 
@@ -722,6 +729,11 @@ export function postiz(options: PostizOptions) {
         const image: JsonObject[] = [];
 
         for (const item of target.content.media ?? []) {
+          if (item.thumbnail !== undefined)
+            reject(
+              "posts.publish",
+              "Postiz custom thumbnails have no verified mapping in this adapter.",
+            );
           const media = await resolveMedia(item, target.account, context);
 
           image.push({ ...media, ...definedFields({ alt: item.altText }) });
@@ -786,13 +798,21 @@ export function postiz(options: PostizOptions) {
               observedAt: now(),
             };
 
-          // Postiz queues every post it creates, so report the queued state if the read fails.
-          return outcome(
-            { state: "QUEUE", publishDate: date },
-            id,
-            target.account,
-            target.targetIndex,
-          );
+          // The create ID confirms acceptance, but says nothing about the current queue state.
+          return {
+            state: "accepted",
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: now(),
+            delivery: {
+              kind: "delivery",
+              version: 1,
+              backend: target.account.backend,
+              platform: target.account.platform,
+              accountId: target.account.accountId,
+              deliveryId: id,
+            },
+          };
         }
       },
       async getDelivery(

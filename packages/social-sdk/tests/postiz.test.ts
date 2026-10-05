@@ -448,13 +448,13 @@ it("Postiz publishes now and reports an unexpected response as ambiguous", async
   response = [{ postId: "p1", integration: "int1" }];
   assert.equal((await social.posts.publish(request)).outcomes[0]?.state, "processing");
 
-  // A failed follow-up read still reports the queued post, so polling continues.
+  // A failed follow-up read preserves acceptance without inventing queue evidence.
   readFails = true;
   const unread = (await social.posts.publish(request)).outcomes[0];
 
-  assert.equal(unread?.state, "processing");
+  assert.equal(unread?.state, "accepted");
   assert.equal(
-    unread?.state === "processing" ? unread.delivery?.deliveryId : undefined,
+    unread?.state === "accepted" ? unread.delivery?.deliveryId : undefined,
     `p1@2026-09-24T12:00:00.000Z`,
   );
   readFails = false;
@@ -464,6 +464,7 @@ it("Postiz publishes now and reports an unexpected response as ambiguous", async
   const misplaced = (await social.posts.publish(request)).outcomes[0];
 
   assert.equal(misplaced?.state, "unknown");
+  assert.equal(misplaced?.delivery, undefined);
   assert.equal(
     misplaced?.state === "unknown" ? misplaced.reason : undefined,
     "ambiguous-submission",

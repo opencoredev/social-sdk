@@ -110,6 +110,8 @@ export function zernioOutcome(value: JsonValue, context: OutcomeContext): Delive
             ? { kind: "after-reconnect" }
             : { kind: "never" },
       };
+    case "cancelled":
+      return { ...stateBase, state: "cancelled" };
     case "processing":
     case "uploading":
       return { ...stateBase, state: "processing" };
@@ -207,6 +209,32 @@ export function postForMeOutcome(
       };
     }
   }
+
+  // Results are destination-specific; parent pending states require a matching owner too.
+  const accounts = parent["social_accounts"];
+
+  const owners = isJsonArray(accounts)
+    ? accounts.filter((entry) => {
+        if (isString(entry)) return entry === context.account.accountId;
+
+        if (!isJsonObject(entry)) return false;
+
+        return (
+          entry["id"] === context.account.accountId &&
+          (entry["platform"] === undefined ||
+            entry["platform"] === context.account.platform ||
+            (context.account.platform === "x" && entry["platform"] === "twitter"))
+        );
+      })
+    : [];
+
+  if (owners.length !== 1)
+    return {
+      ...base,
+      state: "unknown",
+      reason: "unmapped-state",
+      diagnostic: "Parent has no unique matching target account; reconcile before using its state.",
+    };
 
   switch (backendState) {
     case "scheduled":

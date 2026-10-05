@@ -6,14 +6,43 @@ description: Configure Postiz Cloud or a self-hosted instance with an API key or
 [Postiz](https://postiz.com/?utm_source=socialsdk) is an optional managed backend. It holds the channels connected to your Postiz workspace and posts to them now or at the time you schedule. Postiz is open source, so the same adapter works with Postiz Cloud and with an instance you host yourself. Postiz sponsors Social SDK; the adapter follows Postiz's public API the same way the other hosted adapters follow theirs.
 
 ```ts
-import { createSocial } from "@opencoredev/social-sdk";
+import { readFile } from "node:fs/promises";
+import {
+  createSocial,
+  connectedAccountRef,
+  platformPostRef,
+  type AdapterOperationContext,
+  type BackendPostRef,
+  type ConnectedAccountRef,
+  type ConversationRef,
+  type DeliveryOutcome,
+  type Platform,
+} from "@opencoredev/social-sdk";
 import { postiz } from "@opencoredev/social-sdk/cloud/postiz";
 
-const social = createSocial({ backend: postiz({ apiKey: process.env.POSTIZ_API_KEY! }) });
-const accounts = await social.accounts.list({
-  backend: "default",
-  authorization: { tenantId: "tenant-from-session" },
+// Get tenantId from your authenticated server session and enforce account grants.
+const authorization = { tenantId: "tenant-from-session" };
+const social = createSocial({
+  backend: postiz({
+    apiKey: process.env.POSTIZ_API_KEY!,
+  }),
 });
+const accounts = await social.accounts.list({ backend: "default", authorization });
+
+function selectAccount<P extends Platform>(platform: P): ConnectedAccountRef<P> {
+  const match = accounts.items.find((item) => item.ref.platform === platform);
+  if (!match) throw new Error(`Connect a ${platform} account first.`);
+  return connectedAccountRef({
+    backend: match.ref.backend,
+    platform,
+    accountId: match.ref.accountId,
+  });
+}
+
+const account = selectAccount("x");
+const instagramAccount = selectAccount("instagram");
+const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
+const image = new Blob([await readFile("./assets/launch.jpg")]);
 ```
 
 Create the API key in Postiz under Settings, Developers. On Postiz Cloud, that tab needs a plan that includes the public API. The key belongs to one workspace. Keep it on your server; the adapter sends it as the `Authorization` header value.
@@ -23,7 +52,7 @@ Create the API key in Postiz under Settings, Developers. On Postiz Cloud, that t
 A self-hosted instance serves the public API under `/api/public/v1` on your Postiz host. Pass that URL as `baseUrl`:
 
 ```ts
-const social = createSocial({
+const selfHostedSocial = createSocial({
   backend: postiz({
     apiKey: process.env.POSTIZ_API_KEY!,
     baseUrl: "https://postiz.example.com/api/public/v1",
@@ -44,31 +73,49 @@ Send the person to the authorization URL with a `state` value you keep in their 
 ```ts
 import { exchangePostizCode, postizAuthorizationUrl } from "@opencoredev/social-sdk/cloud/postiz";
 
-const state = crypto.randomUUID();
-session.postizState = state;
+interface OAuthSession {
+  postizState?: string | undefined;
+}
 
-return redirect(postizAuthorizationUrl({ clientId: process.env.POSTIZ_CLIENT_ID!, state }));
+export function startOAuth(session: OAuthSession): Response {
+  const state = crypto.randomUUID();
+  session.postizState = state;
+  return Response.redirect(
+    postizAuthorizationUrl({ clientId: process.env.POSTIZ_CLIENT_ID!, state }),
+  );
+}
 ```
 
 Postiz asks which workspace to connect, then redirects to your Redirect URL with `code` and `state`. If the person declines, the redirect carries `error=access_denied` instead. In the callback route, compare `state` with the value in the session before you use the code:
 
 ```ts
-const callback = new URL(request.url);
-const code = callback.searchParams.get("code");
+export async function finishOAuth(
+  request: Request,
+  session: OAuthSession,
+  tenantId: string,
+  saveTenantPostizToken: (
+    tenantId: string,
+    token: string,
+    organizationId: string | undefined,
+  ) => Promise<void>,
+) {
+  const callback = new URL(request.url);
+  const expectedState = session.postizState;
+  session.postizState = undefined;
+  const code = callback.searchParams.get("code");
 
-if (!code || callback.searchParams.get("state") !== session.postizState) {
-  throw new Error("Invalid Postiz callback.");
+  if (!expectedState || !code || callback.searchParams.get("state") !== expectedState) {
+    throw new Error("Invalid Postiz callback.");
+  }
+
+  const token = await exchangePostizCode({
+    clientId: process.env.POSTIZ_CLIENT_ID!,
+    clientSecret: process.env.POSTIZ_CLIENT_SECRET!,
+    code,
+  });
+  await saveTenantPostizToken(tenantId, token.accessToken, token.organizationId);
+  return createSocial({ backend: postiz({ apiKey: token.accessToken }) });
 }
-
-const token = await exchangePostizCode({
-  clientId: process.env.POSTIZ_CLIENT_ID!,
-  clientSecret: process.env.POSTIZ_CLIENT_SECRET!,
-  code,
-});
-
-await saveTenantPostizToken(tenantId, token.accessToken, token.organizationId);
-
-const social = createSocial({ backend: postiz({ apiKey: token.accessToken }) });
 ```
 
 The code works once and expires after 10 minutes. An expired or reused code fails with `invalid_input`, and a wrong client ID or secret fails with `invalid_config`. If the request fails after it was sent, the error is `ambiguous_outcome`, because Postiz may have used the code. In each case, start the authorization again.
@@ -78,17 +125,48 @@ The token starts with `pos_` and does not expire. Store it encrypted and scoped 
 For a self-hosted instance, pass your Postiz host as `frontendUrl` when you build the authorization URL, and the same `baseUrl` you give the adapter when you exchange the code:
 
 ```ts
-postizAuthorizationUrl({ clientId, state, frontendUrl: "https://postiz.example.com" });
+export function startSelfHostedOAuth(session: OAuthSession): Response {
+  const state = crypto.randomUUID();
+  session.postizState = state;
+  return Response.redirect(
+    postizAuthorizationUrl({
+      clientId: process.env.POSTIZ_CLIENT_ID!,
+      state,
+      frontendUrl: "https://postiz.example.com",
+    }),
+  );
+}
 
-await exchangePostizCode({
-  clientId,
-  clientSecret,
-  code,
-  baseUrl: "https://postiz.example.com/api/public/v1",
-});
+export async function finishSelfHostedOAuth(
+  request: Request,
+  session: OAuthSession,
+  tenantId: string,
+  saveTenantPostizToken: (
+    tenantId: string,
+    token: string,
+    organizationId: string | undefined,
+  ) => Promise<void>,
+) {
+  const callback = new URL(request.url);
+  const expectedState = session.postizState;
+  session.postizState = undefined;
+  const code = callback.searchParams.get("code");
+  if (!expectedState || !code || callback.searchParams.get("state") !== expectedState) {
+    throw new Error("Invalid Postiz callback.");
+  }
+  const baseUrl = "https://postiz.example.com/api/public/v1";
+  const token = await exchangePostizCode({
+    clientId: process.env.POSTIZ_CLIENT_ID!,
+    clientSecret: process.env.POSTIZ_CLIENT_SECRET!,
+    code,
+    baseUrl,
+  });
+  await saveTenantPostizToken(tenantId, token.accessToken, token.organizationId);
+  return createSocial({ backend: postiz({ apiKey: token.accessToken, baseUrl }) });
+}
 ```
 
-Your server handles the whole exchange, so Social SDK needs no hosted callback. A full, type-checked version is in `examples/snippets/backend-postiz.ts`.
+Your server handles the whole exchange, so Social SDK needs no hosted callback. A related server helper is in `examples/snippets/backend-postiz.ts`.
 
 ## Publish now or schedule
 
@@ -99,17 +177,17 @@ const result = await social.posts.publish(
   {
     targets: [{ account }],
     content: { text: "Launching next week." },
-    schedule: { at: "2026-10-01T09:00:00.000Z" },
+    schedule: { at },
   },
   { authorization: { tenantId: "tenant-from-session" } },
 );
 ```
 
-Postiz queues every post and a worker posts it when it is due. A scheduled post returns a `scheduled` outcome. A post sent now returns `processing` until the worker finishes, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed` without a reason, because the public API does not return one. Look at the post and channel in Postiz.
+Postiz queues every post and a worker posts it when it is due. A confirmed queued row with a future time returns `scheduled`; a due queued row returns `processing`. If creation returns an ID but the follow-up read fails, the outcome is `accepted` with a delivery reference and no invented queue state, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed` without a reason, because the public API does not return one. Look at the post and channel in Postiz.
 
 The delivery, job, and record IDs have the form `<postiz post id>@<publish time>`. Postiz lists posts only by publish date, so the adapter keeps the time in the ID to find the post again. Store the IDs as opaque strings. If someone moves the post in Postiz by more than a day, the adapter can no longer find it, and reads, cancellation, and analytics fail with `not_found`. Manage a moved post in Postiz.
 
-The remaining examples pass `authorization` the same way. Full, type-checked versions are in `examples/snippets/backend-postiz.ts`.
+The remaining examples pass `authorization` the same way. Related server helpers are in `examples/snippets/backend-postiz.ts`.
 
 ## Poll for status
 
@@ -117,6 +195,9 @@ Postiz can call a webhook from its dashboard, but those requests carry no signat
 
 ```ts
 import { setTimeout as sleep } from "node:timers/promises";
+
+const delivery = result.outcomes[0]?.delivery;
+if (!delivery) throw new Error("No delivery was confirmed; reconcile the submission first.");
 
 let outcome = await social.posts.getDelivery(delivery, { authorization });
 
@@ -129,8 +210,8 @@ function isWaiting(outcome: DeliveryOutcome): boolean {
   switch (outcome.state) {
     case "scheduled": // due later
     case "processing": // due, the Postiz worker is posting it
+    case "accepted": // confirmed create with an unavailable read, or a draft
       return true;
-    case "accepted": // a draft waits in Postiz until someone schedules it
     case "published":
     case "failed":
     case "cancelled":
@@ -145,7 +226,7 @@ If the submission itself was ambiguous, the outcome is `unknown` with no `delive
 
 ## Media
 
-The adapter uploads media to Postiz and sends the returned file ID and path with the post. A `Blob` or stream is uploaded as a file. Postiz takes each file in one request, so the adapter reads a stream into memory first; for large videos, prefer a `Blob` backed by a file, or an HTTPS URL. An HTTPS URL is imported by Postiz, which accepts URLs whose path ends in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, or `.mp4`; upload the bytes for anything else. Supported types are JPEG, PNG, GIF, WebP, AVIF, BMP, and TIFF images up to 10 MB, and MP4 videos up to 1 GB. Documents are rejected. `altText` is sent with each file.
+The adapter uploads media to Postiz and sends the returned file ID and path with the post. A `Blob` or stream is uploaded as a file. Postiz takes each file in one request, so the adapter reads a stream into memory first; for large videos, prefer a `Blob` backed by a file, or an HTTPS URL. An HTTPS URL is imported by Postiz. That upload route detects MIME from bytes; the post-create schema separately checks storage-path extensions. This adapter requires source URL paths and returned storage paths ending in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, or `.mp4`. Upload acceptance alone does not prove that a path can be used to create a post. Supported publish types are JPEG, PNG, GIF, and WebP images up to 10 MB, and MP4 videos up to 1 GB. Documents and explicit `thumbnail` attachments are rejected. `altText` is sent with each file.
 
 You can also upload first with `media.upload` and publish the returned reference. The reference resolves through the adapter's `mediaStore`, which is in memory by default, so upload and publish with the same adapter instance or configure a shared store.
 
@@ -193,7 +274,7 @@ if (outcome.state === "published") {
 
 A disabled channel is listed with status `unknown`, because Postiz does not say why it was disabled. Postiz also supports platforms such as Pinterest, Reddit, and Mastodon. The adapter skips those channels because they are outside Social SDK's platform list. Comments, messages, and post feeds are not part of this adapter.
 
-Postiz limits how many posts one workspace can create per hour. Its documentation gives 100 per hour on Postiz Cloud, and a self-hosted instance defaults to 90, set with `API_LIMIT`. Each target is one create request. Past the limit Postiz answers with HTTP 429, which the adapter reports as `rate_limited`. The adapter never retries a create, because a retry after a timeout can post twice.
+Postiz limits how many posts one workspace can create per hour. Its documentation gives 100 per hour on Postiz Cloud, and the self-hosted code defaults to 90 when `API_LIMIT` is unset. The stock Docker Compose explicitly sets `API_LIMIT=30`; your deployment configuration determines the effective limit. Each target is one create request. Past the limit Postiz answers with HTTP 429, which the adapter reports as `rate_limited`. The adapter never retries a create, because a retry after a timeout can post twice.
 
 ## Platform options
 
@@ -206,11 +287,11 @@ Postiz limits how many posts one workspace can create per hour. Its documentatio
 | TikTok   | `brandedContent`, `ownBrand`, `aiGenerated`       | `brand_content_toggle`, `brand_organic_toggle`, `video_made_with_ai` |
 | TikTok   | `draft`                                           | `content_posting_method` of `UPLOAD` or `DIRECT_POST`                |
 
-Instagram targets post to the feed. Postiz has no setting that keeps a reel off the grid, so `shareToFeed: false` is rejected. A TikTok draft goes to the creator's inbox, where TikTok keeps only the caption; the adapter adds a warning because the privacy, interaction, and disclosure choices apply when the creator posts it. The adapter always sends `autoAddMusic: "no"`.
+Instagram targets post to the feed. Postiz has no setting that keeps a reel off the grid, so `shareToFeed: false` is rejected. A TikTok `UPLOAD` draft goes to the creator's inbox and must be published there within 24 hours. Postiz ignores every setting except its provider `title` in this mode. The SDK does not map that title and rejects it as an unmapped option; it makes no claim that a caption, privacy, interaction or disclosure setting is retained. The adapter warns about this boundary. The adapter always sends `autoAddMusic: "no"`.
 
 ## Connect links
 
-`native.createConnectLink` returns an OAuth URL that connects a channel to your Postiz workspace. Pass a Postiz provider identifier such as `x`, `linkedin-page`, `instagram-standalone`, or `tiktok`. To reconnect an existing channel, pass its ID as `refreshAccountId`. Bluesky connects with an app password in the Postiz dashboard, so it has no link.
+`native.createConnectLink` returns an OAuth URL that connects a channel to your Postiz workspace. The link expires after one hour. Pass a Postiz provider identifier such as `x`, `linkedin-page`, `instagram-standalone`, or `tiktok`. To reconnect an existing channel, pass its ID as `refreshAccountId`. Bluesky connects with an app password in the Postiz dashboard, so it has no link.
 
 ```ts
 const context: AdapterOperationContext = {

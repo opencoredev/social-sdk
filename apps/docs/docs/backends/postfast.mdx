@@ -6,43 +6,76 @@ description: Configure PostFast with a workspace API key, scheduled publishing, 
 [PostFast](https://postfa.st/docs?utm_source=social-sdk&utm_medium=sponsor&utm_campaign=hosted-backend) is an optional managed backend. It holds the connected accounts in your PostFast workspace and publishes posts at the time you schedule. PostFast sponsors Social SDK; the adapter follows PostFast's public API the same way the other hosted adapters follow theirs.
 
 ```ts
-import { createSocial } from "@opencoredev/social-sdk";
+import { readFile } from "node:fs/promises";
+import {
+  createSocial,
+  connectedAccountRef,
+  platformPostRef,
+  type AdapterOperationContext,
+  type BackendPostRef,
+  type ConnectedAccountRef,
+  type ConversationRef,
+  type DeliveryOutcome,
+  type Platform,
+} from "@opencoredev/social-sdk";
 import { postfast } from "@opencoredev/social-sdk/cloud/postfast";
 
-const social = createSocial({ backend: postfast({ apiKey: process.env.POSTFAST_API_KEY! }) });
-const accounts = await social.accounts.list({
-  backend: "default",
-  authorization: { tenantId: "tenant-from-session" },
+// Get tenantId from your authenticated server session and enforce account grants.
+const authorization = { tenantId: "tenant-from-session" };
+const social = createSocial({
+  backend: postfast({
+    apiKey: process.env.POSTFAST_API_KEY!,
+  }),
 });
+const accounts = await social.accounts.list({ backend: "default", authorization });
+
+function selectAccount<P extends Platform>(platform: P): ConnectedAccountRef<P> {
+  const match = accounts.items.find((item) => item.ref.platform === platform);
+  if (!match) throw new Error(`Connect a ${platform} account first.`);
+  return connectedAccountRef({
+    backend: match.ref.backend,
+    platform,
+    accountId: match.ref.accountId,
+  });
+}
+
+const account = selectAccount("x");
+const youtubeAccount = selectAccount("youtube");
+const tiktokAccount = selectAccount("tiktok");
+const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
+const video = new Blob([await readFile("./assets/product-demo.mp4")]);
 ```
 
 The API key belongs to one PostFast workspace. Keep it on your server; the adapter sends it in the `pf-api-key` header.
 
 ## Every post is scheduled
 
-PostFast's API has no publish-now call. Each target needs a `schedule.at` in the future, and `prepare` reports `schedule.required` or `schedule.past` otherwise:
+PostFast's API has no publish-now call. Each target needs a future `schedule.at` within one year. The adapter checks relative to its configured clock in preparation and publication; preparation reports `schedule.required`, `schedule.past` or `schedule.horizon` otherwise:
 
 ```ts
 const result = await social.posts.publish(
   {
     targets: [{ account }],
     content: { text: "Launching next week." },
-    schedule: { at: "2026-10-01T09:00:00.000Z" },
+    schedule: { at },
   },
   { authorization: { tenantId: "tenant-from-session" } },
 );
 ```
 
-A successful submission returns a `scheduled` outcome whose job ID is the PostFast post ID. If your workspace requires post approval, the outcome is `accepted` with backend state `SCHEDULED/PENDING_APPROVAL` until someone approves it in PostFast. Call `getDelivery` later to see `published`, `failed`, or the approval state. PostFast has no webhooks, so poll for status.
+A successful submission returns a `scheduled` outcome whose job ID is the PostFast post ID. If your workspace requires post approval, the outcome is `accepted` with backend state `SCHEDULED/PENDING_APPROVAL` until someone approves it in PostFast. Call `getDelivery` later to see `published`, `failed`, or the approval state. An `accepted` outcome also occurs when creation returns a post ID but the follow-up read fails; retain its delivery reference and read status later. It does not prove pending approval in that case. PostFast has no webhooks, so poll for status.
 
-The remaining examples pass `authorization` the same way. Full, type-checked versions are in `examples/snippets/backend-postfast.ts`.
+The remaining examples pass `authorization` the same way. Related server helpers are in `examples/snippets/backend-postfast.ts`.
 
 ## Poll for status
 
-Store the outcome's `delivery` reference and poll it from a job. Keep polling while the post is scheduled, waiting for approval, or processing, and stop on any other state.
+Store the outcome's `delivery` reference and poll it from a job. Keep polling while the post is scheduled or accepted with a delivery reference, and stop on any other state.
 
 ```ts
 import { setTimeout as sleep } from "node:timers/promises";
+
+const delivery = result.outcomes[0]?.delivery;
+if (!delivery) throw new Error("No delivery was confirmed; reconcile the submission first.");
 
 let outcome = await social.posts.getDelivery(delivery, { authorization });
 
@@ -54,9 +87,9 @@ for (let check = 1; check < 30 && isWaiting(outcome); check++) {
 function isWaiting(outcome: DeliveryOutcome): boolean {
   switch (outcome.state) {
     case "scheduled": // due later
-    case "accepted": // SCHEDULED/PENDING_APPROVAL: waiting for approval in PostFast
-    case "processing":
+    case "accepted": // known approval state or accepted create with an unavailable read
       return true;
+    case "processing": // this adapter does not currently emit processing
     case "published":
     case "failed":
     case "cancelled":
@@ -141,14 +174,32 @@ PostFast also supports Pinterest, Telegram, and Google Business Profile. The ada
 
 ## Platform options
 
-| Platform  | Social SDK option                                    | PostFast control                                                            |
-| --------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
-| YouTube   | `title`, `visibility`, `madeForKids`                 | `youtubeTitle`, `youtubePrivacy`, `youtubeMadeForKids`                      |
-| Instagram | `shareToFeed`                                        | `instagramPostToGrid`                                                       |
-| TikTok    | `disableComments`, `disableDuet`, `disableStitch`    | `tiktokAllowComments`, `tiktokAllowDuet`, `tiktokAllowStitch`               |
-| TikTok    | `ownBrand`, `brandedContent`, `aiGenerated`, `draft` | `tiktokBrandOrganic`, `tiktokBrandContent`, `tiktokIsAigc`, `tiktokIsDraft` |
+| Platform  | Social SDK option                                    | PostFast control                                                                       |
+| --------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| YouTube   | `title`, `visibility`, `madeForKids`                 | `youtubeTitle`, `youtubePrivacy`, `youtubeMadeForKids`; always `youtubeIsShort: false` |
+| Instagram | `shareToFeed`                                        | `instagramPostToGrid`                                                                  |
+| TikTok    | `disableComments`, `disableDuet`, `disableStitch`    | `tiktokAllowComments`, `tiktokAllowDuet`, `tiktokAllowStitch`                          |
+| TikTok    | `ownBrand`, `brandedContent`, `aiGenerated`, `draft` | `tiktokBrandOrganic`, `tiktokBrandContent`, `tiktokIsAigc`, `tiktokIsDraft`            |
 
-PostFast publishes TikTok videos with the account's default privacy. For a TikTok video, the adapter accepts only `PUBLIC_TO_EVERYONE` and adds a warning; to keep a video private, set `draft: true`. X reply settings other than `everyone` have no PostFast mapping and are rejected.
+The generic YouTube video route explicitly sends `youtubeIsShort: false`, selecting ordinary videos. This adapter does not expose a Shorts selector.
+
+PostFast TikTok videos use account-default privacy and photos default public. The deprecated `tiktokPrivacy` control does not override privacy. Every non-draft TikTok target must request `PUBLIC_TO_EVERYONE`; other values are rejected before dispatch. Only explicit `draft: true` avoids direct publication. Obtain creator consent after preview and pass all choices:
+
+```ts
+const tiktokOptions = {
+  privacy: "PUBLIC_TO_EVERYONE",
+  consentGiven: true,
+  disableComments: false,
+  disableDuet: false,
+  disableStitch: false,
+  brandedContent: false,
+  ownBrand: false,
+  aiGenerated: false,
+  draft: false,
+} satisfies import("@opencoredev/social-sdk").PublishOptionsFor<"tiktok">;
+```
+
+X reply settings other than `everyone` have no PostFast mapping and are rejected.
 
 ## Connect links
 
@@ -169,4 +220,4 @@ const { url } = await adapter.native.createConnectLink(
 );
 ```
 
-Map the new accounts to tenants in your own database before you use them. See [capabilities](/reference/capabilities) for the generated matrix.
+After connection, list accounts on the server and verify the new returned account IDs against the pending tenant connection. `externalId` links the provider flow to your customer record; it is not a social account ID or an authorization grant. Store the returned account IDs, platforms, and backend name in your tenant grants before using them. See [capabilities](/reference/capabilities) for the generated matrix.

@@ -96,18 +96,12 @@ export function managedHttp(
     headers.set(...authHeader(options.apiKey));
 
     if (context.targetIdempotencyKey && origin.includes("zernio.com"))
-      headers.set(
-        path === "/v1/posts" ? "x-request-id" : "Idempotency-Key",
-        context.targetIdempotencyKey,
-      );
+      headers.set("Idempotency-Key", context.targetIdempotencyKey);
 
     try {
       return await http({
         url,
-        ...definedFields({
-          decodeErrorBody:
-            origin === "https://api.x.com" ? providerErrorDecoder(origin, path) : undefined,
-        }),
+        decodeErrorBody: providerErrorDecoder(origin, path),
         headers,
         timeoutMs: remainingBudget(context),
         method,
@@ -126,49 +120,64 @@ export function managedHttp(
         (error.kind !== "http" || (error.status !== undefined && error.status >= 500));
 
       const providerCode = error.data?.code;
+      const existingPostId = error.data?.existingPostId;
 
       throw new SocialError({
         code:
-          providerCode === "usage-capped"
-            ? "billing_required"
-            : providerCode === "media-duration-exceeded"
-              ? "media_error"
-              : ambiguous
-                ? "ambiguous_outcome"
-                : error.status === 429
-                  ? "rate_limited"
-                  : error.kind === "cancelled"
-                    ? "cancelled"
-                    : error.kind === "timeout"
-                      ? "timeout"
-                      : error.status === 401
-                        ? "reconnect_required"
-                        : error.status === 403
-                          ? "missing_permission"
-                          : error.status === 402
-                            ? "billing_required"
-                            : error.status === 404
-                              ? "not_found"
-                              : error.status === 410
-                                ? "gone"
-                                : error.kind === "invalid-input"
-                                  ? "invalid_input"
-                                  : "upstream_failure",
+          providerCode === "idempotency_conflict"
+            ? "idempotency_conflict"
+            : providerCode === "usage-capped"
+              ? "billing_required"
+              : providerCode === "quotaExceeded"
+                ? "rate_limited"
+                : providerCode === "media-duration-exceeded"
+                  ? "media_error"
+                  : ambiguous
+                    ? "ambiguous_outcome"
+                    : error.status === 429
+                      ? "rate_limited"
+                      : error.kind === "cancelled"
+                        ? "cancelled"
+                        : error.kind === "timeout"
+                          ? "timeout"
+                          : error.status === 401
+                            ? "reconnect_required"
+                            : error.status === 403
+                              ? "missing_permission"
+                              : error.status === 402
+                                ? "billing_required"
+                                : error.status === 404
+                                  ? "not_found"
+                                  : error.status === 410
+                                    ? "gone"
+                                    : error.kind === "invalid-input"
+                                      ? "invalid_input"
+                                      : "upstream_failure",
         operation: path,
         backend: context.backendInstance,
         correlationId: context.correlationId,
         message: error.message,
-        ...definedFields({ upstreamStatus: error.status, upstreamCode: providerCode }),
+        ...definedFields({
+          upstreamStatus: error.status,
+          upstreamCode: providerCode,
+          details: existingPostId === undefined ? undefined : { existingPostId },
+        }),
         retryDisposition:
-          providerCode !== undefined
-            ? { kind: "never" }
-            : ambiguous
-              ? { kind: "reconcile-first" }
-              : error.status === 401
-                ? { kind: "after-reconnect" }
-                : error.status === 429 && error.retryAfterMs !== undefined
-                  ? { kind: "after-delay", delayMs: error.retryAfterMs }
-                  : { kind: "never" },
+          providerCode === "idempotency_conflict" && existingPostId !== undefined
+            ? { kind: "reconcile-first" }
+            : providerCode === "idempotency_conflict" && error.retryAfterMs !== undefined
+              ? { kind: "after-delay", delayMs: error.retryAfterMs }
+              : providerCode === "idempotency_conflict"
+                ? { kind: "reconcile-first" }
+                : providerCode !== undefined
+                  ? { kind: "never" }
+                  : ambiguous
+                    ? { kind: "reconcile-first" }
+                    : error.status === 401
+                      ? { kind: "after-reconnect" }
+                      : error.status === 429 && error.retryAfterMs !== undefined
+                        ? { kind: "after-delay", delayMs: error.retryAfterMs }
+                        : { kind: "never" },
       });
     }
   };

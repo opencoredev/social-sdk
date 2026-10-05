@@ -16,6 +16,10 @@ export interface ManagedMediaRecord {
   /** Storage key for providers that reference uploads by key rather than URL, such as PostFast. */
   readonly providerKey?: string;
   readonly expiresAt?: string;
+  /** Provider uploads are consumed on submission when cleanup can occur on publication. */
+  readonly singleUse?: boolean;
+  /** Successful claims are permanent, even if the caller clock moves backwards. */
+  readonly consumedAt?: string;
   readonly kind: "image" | "video";
   readonly mimeType: string;
 }
@@ -23,12 +27,34 @@ export interface ManagedMediaRecord {
 export interface ManagedMediaStore {
   put(record: ManagedMediaRecord): Promise<void>;
   get(mediaId: string): Promise<ManagedMediaRecord | undefined>;
+  /**
+   * Atomically claim an unexpired single-use record and persist consumedAt and expiresAt = claimedAt.
+   * Return false for missing, reusable, expired, or already claimed records. Compare
+   * and update must be indivisible across every client/process sharing the store.
+   * Resolve true only after durable persistence; never release a successful claim.
+   * Stores without this method cannot submit single-use provider-uploaded refs.
+   */
+  claimSingleUse?(mediaId: string, claimedAt: string): Promise<boolean>;
 }
 
 export class MemoryManagedMediaStore implements ManagedMediaStore {
   private readonly records = new Map<string, ManagedMediaRecord>();
   async put(record: ManagedMediaRecord) {
     this.records.set(record.ref.mediaId, structuredClone(record));
+  }
+  async claimSingleUse(mediaId: string, claimedAt: string) {
+    const record = this.records.get(mediaId);
+
+    if (
+      !record?.singleUse ||
+      record.consumedAt !== undefined ||
+      (record.expiresAt !== undefined && Date.parse(record.expiresAt) <= Date.parse(claimedAt))
+    )
+      return false;
+
+    this.records.set(mediaId, { ...record, consumedAt: claimedAt, expiresAt: claimedAt });
+
+    return true;
   }
   async get(mediaId: string) {
     const record = this.records.get(mediaId);
@@ -70,8 +96,9 @@ export async function storedMedia(
     });
 
   if (
-    record.expiresAt &&
-    Date.parse(record.expiresAt) <= (options.clock?.() ?? new Date()).getTime()
+    record.consumedAt !== undefined ||
+    (record.expiresAt &&
+      Date.parse(record.expiresAt) <= (options.clock?.() ?? new Date()).getTime())
   )
     throw new SocialError({
       code: "media_error",
@@ -125,6 +152,46 @@ export function managedMedia(
 
   return {
     resolve,
+    async consume(items: readonly MediaAttachment[]) {
+      if (provider !== "post-for-me") return;
+
+      const claimedIds = new Set<string>();
+
+      for (const item of items) {
+        if (item.source.kind !== "media-ref" || claimedIds.has(item.source.ref.mediaId)) continue;
+        const record = await store.get(item.source.ref.mediaId);
+
+        if (!record)
+          throw new SocialError({
+            code: "media_error",
+            operation: "media.consume",
+            message: "Media reference is unknown to this server-side store.",
+          });
+
+        if (!record.singleUse) continue;
+
+        if (!store.claimSingleUse)
+          throw new SocialError({
+            code: "media_error",
+            operation: "media.consume",
+            message:
+              "This media store cannot atomically claim single-use uploads. Implement claimSingleUse or use a caller-owned HTTPS URL.",
+          });
+
+        if (
+          !(await store.claimSingleUse(
+            item.source.ref.mediaId,
+            (options.clock?.() ?? new Date()).toISOString(),
+          ))
+        )
+          throw new SocialError({
+            code: "media_error",
+            operation: "media.consume",
+            message: "Stored media is expired or already claimed. Upload a new asset explicitly.",
+          });
+        claimedIds.add(item.source.ref.mediaId);
+      }
+    },
     async upload(
       item: MediaAttachment,
       account: ConnectedAccountRef,
@@ -171,12 +238,12 @@ export function managedMedia(
         mimeType: item.mimeType,
       };
 
-      if (provider === "zernio" && uploaded) {
+      if (uploaded) {
         const expiresAt = new Date(
-          (options.clock?.() ?? new Date()).getTime() + 7 * 86400_000,
+          (options.clock?.() ?? new Date()).getTime() + (provider === "zernio" ? 7 : 1) * 86400_000,
         ).toISOString();
 
-        await store.put({ ...record, expiresAt });
+        await store.put({ ...record, expiresAt, singleUse: provider === "post-for-me" });
       } else {
         await store.put(record);
       }
