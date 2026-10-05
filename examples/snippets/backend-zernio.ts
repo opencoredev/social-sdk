@@ -18,8 +18,11 @@ import {
 } from "@opencoredev/social-sdk/server";
 
 /** Call on your server with the API key from your environment or secret store. */
-export function createZernioSocial(apiKey: string, webhookSecret: string) {
-  return createSocial({ backend: zernio({ apiKey, webhookSecret }) });
+export function createZernioSocial(apiKey: string, webhookSecret?: string) {
+  const backend =
+    webhookSecret === undefined ? zernio({ apiKey }) : zernio({ apiKey, webhookSecret });
+
+  return createSocial({ backend });
 }
 
 export type ZernioSocial = ReturnType<typeof createZernioSocial>;

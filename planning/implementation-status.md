@@ -1,6 +1,10 @@
 # Implementation status
 
-Updated 2026-10-05 after integrating the provider documentation audit. These states describe source and offline contracts. They do not establish provider approval, account eligibility, live behavior, publication, or release.
+Updated 2026-10-05. The table below records the integrated audit target at source commit `77eacf2547015e4275f4aaf599303e45a7cbfd39`, before splitting it into 12 PRs. Provider and documentation rows describe that source commit, not the code or test coverage present on the core branch.
+
+On `audit/01-core`, shared reference validation, OAuth discovery and grant handling, webhook decoding, transport fallback, and capability generation are implemented and contract-tested. Current `tests/oauth.test.ts` also covers refresh grant retention and stalled-response cancellation added during PR review. `tests/integration-errors.test.ts` checks malformed, oversized, and throwing decoder fallback only. Zernio recovery IDs, Google quota classification, X usage caps and duration classification, and later-page YouTube selected-account reads remain dependent on the backend, X, and YouTube slices; their implementation and tests are not included here. The transport decoder is present, but provider adapters on this core branch do not opt into it. Provider audit test files in the table arrive with their owning slices.
+
+These states describe source and offline contracts. They do not establish provider approval, account eligibility, live behavior, publication, or release.
 
 | Area | State | Code and documentation | Offline contract evidence |
 | --- | --- | --- | --- |
@@ -13,13 +17,13 @@ Updated 2026-10-05 after integrating the provider documentation audit. These sta
 | Bluesky | Documented, implemented, contract-tested | `src/platforms/bluesky.ts`, `src/server/bluesky-oauth.ts`, `src/server/egress.ts`; Bluesky guide | `tests/bluesky.test.ts`, `tests/bluesky-audit.test.ts`, `tests/bluesky-oauth.test.ts`; paired egress policy and pinned fetch required, static URL inspection alone makes no DNS guarantee |
 | Managed backends L-1–L-6, L-11–L-18, L-20, L-23 | Documented, implemented, contract-tested | `src/cloud/`, backend guides and example helpers | `tests/backends-audit.test.ts`, `tests/managed-adapters.test.ts`; `.changeset/backends-audit-contracts.md` |
 | Zernio L-10 and provider error decoding | Documented, implemented, contract-tested | `src/transport/http.ts`, `src/transport/provider-errors.ts`, `src/cloud/common.ts`; Zernio recovery guide | `tests/integration-errors.test.ts`: bounded JSON, safe IDs, nested duplicate IDs, in-progress delay, no replay, Google quota and X usage cap discrimination; `tests/x-chunked-media.test.ts`: public publish duration rejection |
-| Core-code L-1–L-10 | Implemented, contract-tested; related behavior documented | `src/core/client.ts`, `src/server/oauth.ts`, `src/server/webhooks.ts` | `tests/core.test.ts`, `tests/oauth.test.ts`, `tests/webhooks.test.ts`, `tests/platform-webhooks.test.ts`: cross-author replies, delivery kind/version, Instagram identity/grants/events, YouTube discovery; token-refresh scope retention and stalled-body cancellation review regressions |
+| Core-code L-1–L-10 | Implemented, contract-tested; related behavior documented | `src/core/client.ts`, `src/server/oauth.ts`, `src/server/webhooks.ts` | `tests/core.test.ts`, `tests/oauth.test.ts`, `tests/webhooks.test.ts`, `tests/platform-webhooks.test.ts`: cross-author replies, delivery kind/version, Instagram identity/grants/events, YouTube discovery |
 | Generated capabilities | Documented and implementation-conformance checked | `scripts/generate-capabilities.ts`, `apps/docs/docs/reference/capabilities.mdx`, `planning/evidence/capability-manifests.json` | Regenerated 559 declarations; `bun scripts/generate-capabilities.ts --check`; fixed diagnostic setup, adapter IDs versus instance keys, notes and method map |
 | Integration examples | Documented, typechecked and offline contract-tested | `examples/snippets/`, `apps/docs/docs/integrations/`, framework and webhook guides | `bun run recipes:check`, OAuth snippet typecheck and deterministic snippets in `bun run release:ci` |
 
-SDK paths in the table are relative to `packages/social-sdk/`. Evidence names refer to tests in the integrated checkout, not live provider runs.
+SDK paths in the table are relative to `packages/social-sdk/`. Evidence names refer to tests at the integrated source commit. They are not claims of core-branch coverage or live provider runs.
 
-All provider-authorized live verification is **NOT CHECKED**: this audit was explicitly offline. Native approval and account eligibility remain approval-dependent. Release is **NOT PERFORMED** and requires owner authorization through Changesets; no push, PR, deployment, or provider mutation was performed.
+All provider-authorized live verification is **NOT CHECKED**: this audit was explicitly offline. Native approval and account eligibility remain approval-dependent. Release is **NOT PERFORMED** and requires owner authorization through Changesets; the audit PR stack is open, and no release or provider mutation was performed.
 
 Meta deauthorization/data-deletion callbacks and publish-event normalization remain roadmap work. The externally reported Blume generated catalog anchor, generic MCP description, and static-page lastmod wording require generator-owner follow-up; no live endpoint was added to hide those issues. Sponsor-of-record evidence remains an owner matter, and existing assets are preserved.
 

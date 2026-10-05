@@ -91,7 +91,6 @@ const implementationPaths = new Map<string, readonly string[]>([
   ["stories.publish", ["native.publishStory"]],
   ["hashtags.search", ["native.hashtagSearch"]],
   ["publishing.limit.read", ["native.publishingLimit"]],
-  ["product.tagging", ["native.publishReel"]],
   ["thumbnails.write", ["native.setThumbnail"]],
   ["captions.read", ["native.captions"]],
   ["captions.write", ["native.captions"]],
@@ -107,7 +106,6 @@ const implementationPaths = new Map<string, readonly string[]>([
   ["reactions.write", ["native.react"]],
   ["reshares.write", ["native.reshare"]],
   ["analytics.organization.read", ["native.organizationAnalytics"]],
-  ["articles.create", ["native.updatePost"]],
 ]);
 
 function isObject(value: unknown): value is object {

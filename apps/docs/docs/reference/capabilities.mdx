@@ -655,7 +655,6 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | stories.publish | native.publishStory |
 | hashtags.search | native.hashtagSearch |
 | publishing.limit.read | native.publishingLimit |
-| product.tagging | native.publishReel |
 | thumbnails.write | native.setThumbnail |
 | captions.read | native.captions |
 | captions.write | native.captions |
@@ -671,6 +670,5 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | reactions.write | native.react |
 | reshares.write | native.reshare |
 | analytics.organization.read | native.organizationAnalytics |
-| articles.create | native.updatePost |
 
 Generate this page with `bun scripts/generate-capabilities.ts`. CI uses `--check` to detect drift. The complete manifests, including API revisions, runtimes and notes, are returned by `social-sdk capabilities --adapter NAME --json`.
