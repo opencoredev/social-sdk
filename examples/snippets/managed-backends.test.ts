@@ -334,3 +334,48 @@ test("Post for Me cancellation keeps a draft, which is then deleted", async () =
     ["PUT /v1/social-posts/sp_1", "DELETE /v1/social-posts/sp_1"],
   );
 });
+
+test("Postiz polling returns unscheduled drafts after one read", async () => {
+  let reads = 0;
+
+  const social = createSocial({
+    backend: postiz({
+      apiKey: "fixture",
+      fetch: async () => {
+        reads++;
+
+        return Response.json({
+          posts: [
+            {
+              id: "draft",
+              state: "DRAFT",
+              content: "hello",
+              publishDate: "2026-09-24T12:00:00.000Z",
+              releaseURL: null,
+              releaseId: null,
+              group: "g1",
+              integration: { id: "int1", providerIdentifier: "x" },
+            },
+          ],
+        });
+      },
+    }),
+  });
+
+  const outcome = await postizSnippets.waitForDelivery(
+    social,
+    {
+      kind: "delivery",
+      version: 1,
+      backend: "default",
+      platform: "x",
+      accountId: "int1",
+      deliveryId: "draft@2026-09-24T12:00:00.000Z",
+    },
+    "tenant-a",
+    { intervalMs: 0, maxChecks: 3 },
+  );
+
+  assert.equal(outcome.state, "accepted");
+  assert.equal(reads, 1);
+});

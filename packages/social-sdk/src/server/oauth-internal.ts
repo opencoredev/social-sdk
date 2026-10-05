@@ -15,6 +15,7 @@ export async function readBounded(
   response: Response,
   maxBytes: number,
   operation: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     fail("oauth.config", "maxResponseBytes must be a positive safe integer", "invalid_input");
@@ -23,16 +24,28 @@ export async function readBounded(
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let onAbort = () => {};
+
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      void reader.cancel().catch(() => undefined);
+      reject(new DOMException("OAuth response aborted", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    if (signal?.aborted) onAbort();
+  });
 
   try {
     for (;;) {
-      const part = await reader.read();
+      const part = await Promise.race([reader.read(), aborted]);
 
       if (part.done) break;
       total += part.value.byteLength;
 
       if (total > maxBytes) {
-        await reader.cancel();
+        void reader.cancel().catch(() => undefined);
         fail(
           operation,
           "OAuth provider response exceeded the configured size limit",
@@ -43,6 +56,7 @@ export async function readBounded(
       chunks.push(part.value);
     }
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     reader.releaseLock();
   }
 

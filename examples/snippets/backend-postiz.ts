@@ -95,8 +95,7 @@ function isWaiting(outcome: DeliveryOutcome): boolean {
     case "scheduled": // due later
     case "processing": // due, the Postiz worker is posting it
       return true;
-    case "accepted": // a confirmed create can be polled after an unavailable status read
-      return outcome.delivery !== undefined;
+    case "accepted": // a draft waits in Postiz until someone schedules it
     case "published":
     case "failed":
     case "cancelled":

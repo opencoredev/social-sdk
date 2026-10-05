@@ -673,3 +673,83 @@ it("rejects an Instagram token hint unrelated to either discovered identity", as
     { code: "unauthorized", operation: "oauth.identity" },
   );
 });
+
+describe("OAuth refresh grant retention", () => {
+  for (const kind of ["instagram", "threads"] as const) {
+    it(`retains ${kind} exchange grants through refresh and honors explicit scopes`, async () => {
+      const current = await exchangeLongLivedOAuthToken(
+        kind,
+        {
+          clientId: "client",
+          clientSecret: "secret",
+          fetch: async () => response({ access_token: "long" }),
+        },
+        { accessToken: "short", scopes: ["original"], refreshToken: "refresh" },
+      );
+
+      for (const scope of [undefined, "replacement", []]) {
+        const next = await refreshOAuthToken(
+          kind,
+          {
+            clientId: "client",
+            fetch: async () => {
+              const data: JsonValue =
+                scope === undefined
+                  ? { access_token: "refreshed" }
+                  : { access_token: "refreshed", scope };
+
+              return response(data);
+            },
+          },
+          current,
+        );
+
+        assert.deepEqual(
+          next.scopes,
+          scope === undefined ? ["original"] : Array.isArray(scope) ? [] : ["replacement"],
+        );
+      }
+    });
+  }
+});
+
+describe("OAuth response cancellation", () => {
+  for (const external of [false, true]) {
+    it(`cancels stalled bodies on ${external ? "caller abort" : "timeout"} without awaiting cancellation`, async () => {
+      let cancelled = false;
+      let stream: ReadableStream<Uint8Array> | undefined;
+      const controller = new AbortController();
+
+      const provider = youtubeOAuth({
+        clientId: "client",
+        timeoutMs: external ? 1000 : 10,
+        signal: controller.signal,
+        fetch: async () => {
+          stream = new ReadableStream<Uint8Array>({
+            start() {
+              if (external) setTimeout(() => controller.abort(), 1);
+            },
+            cancel() {
+              cancelled = true;
+
+              return new Promise<void>(() => {});
+            },
+          });
+
+          return new Response(stream);
+        },
+      });
+
+      await assert.rejects(
+        provider.complete({
+          callbackUrl: `${attempt.redirectUri}?code=c&state=${attempt.state}`,
+          attempt: { ...attempt, platforms: ["youtube"] },
+        }),
+        { code: external ? "cancelled" : "timeout" },
+      );
+      assert.equal(cancelled, true);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      assert.equal(stream?.locked, false);
+    });
+  }
+});

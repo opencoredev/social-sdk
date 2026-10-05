@@ -231,8 +231,13 @@ function errorForResponse(status: number, operation: string, providerCode?: stri
   });
 }
 
-async function body(response: Response, operation: string, maxBytes: number): Promise<JsonObject> {
-  const raw = await readBounded(response, maxBytes, operation);
+async function body(
+  response: Response,
+  operation: string,
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<JsonObject> {
+  const raw = await readBounded(response, maxBytes, operation, signal);
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
 
   if (!response.ok) {
@@ -378,7 +383,12 @@ async function request(
     ]);
 
     return await Promise.race([
-      body(response, operation, options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES),
+      body(
+        response,
+        operation,
+        options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+        controller.signal,
+      ),
       aborted,
     ]);
   } catch (error) {
@@ -925,9 +935,14 @@ export async function refreshOAuthToken(
       `oauth.${kind}.refresh`,
     );
 
-    if (next.refreshToken !== undefined || current.refreshToken === undefined) return next;
+    const retained =
+      next.scopes === undefined && current.scopes !== undefined
+        ? { ...next, scopes: current.scopes }
+        : next;
 
-    return { ...next, refreshToken: current.refreshToken };
+    if (retained.refreshToken !== undefined || current.refreshToken === undefined) return retained;
+
+    return { ...retained, refreshToken: current.refreshToken };
   }
 
   if (!current.refreshToken)
