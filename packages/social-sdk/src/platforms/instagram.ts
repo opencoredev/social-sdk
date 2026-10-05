@@ -165,6 +165,7 @@ export interface InstagramWorkflow {
   readonly parentId?: string;
   readonly nativeId?: string;
   readonly caption: string;
+  readonly shareToFeed?: boolean;
   readonly stage: "children" | "parent" | "published" | "unknown" | "failed";
 }
 
@@ -323,14 +324,21 @@ export function instagram(
     return value;
   };
 
-  const page = (result: JsonObject, fields: readonly string[]): Page<JsonObject> => {
+  const page = (
+    result: JsonObject,
+    fields: readonly string[],
+    cursorOnly = false,
+  ): Page<JsonObject> => {
     const items = array(result["data"]).map((entry) => publicFields(entry, fields));
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
     const cursors = paging["cursors"] === undefined ? {} : object(paging["cursors"]);
 
     // Graph API omits `paging.next` on the last page even when `cursors.after` is present.
     const nextCursor =
-      isString(paging["next"]) && isString(cursors["after"]) && cursors["after"].length > 0
+      (cursorOnly || isString(paging["next"])) &&
+      (!cursorOnly || items.length > 0) &&
+      isString(cursors["after"]) &&
+      cursors["after"].length > 0
         ? cursors["after"]
         : undefined;
 
@@ -549,8 +557,21 @@ export function instagram(
 
     const nativeId = string(result["id"]);
 
-    if (workflowId)
-      await workflows.update(workflowId, { nativeId, stage: "published", parentId: containerId });
+    if (workflowId) {
+      try {
+        await workflows.update(workflowId, { nativeId, stage: "published", parentId: containerId });
+      } catch (cause) {
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "instagram.posts.persist-publication",
+          message:
+            "Instagram confirmed publication but its post ID could not be saved. Repair the workflow without repeating publication.",
+          retryDisposition: { kind: "reconcile-first" },
+          details: { workflowId, containerId, postId: nativeId },
+          cause,
+        });
+      }
+    }
 
     return {
       ...base,
@@ -631,6 +652,7 @@ export function instagram(
         media_type: "CAROUSEL",
         children: workflow.childIds.join(","),
         caption: workflow.caption,
+        ...definedFields({ share_to_feed: workflow.shareToFeed }),
       }),
     );
 
@@ -653,6 +675,25 @@ export function instagram(
       return await continueWorkflow(current, account, context);
     } finally {
       await workflows.release?.(workflow.id);
+    }
+  };
+
+  const saveNativeContainer = async (
+    workflowId: string,
+    containerId: string,
+  ): Promise<InstagramWorkflow> => {
+    try {
+      return await workflows.update(workflowId, { parentId: containerId, stage: "parent" });
+    } catch (cause) {
+      throw new SocialError({
+        code: "upstream_failure",
+        operation: "instagram.posts.persist-container",
+        message:
+          "Instagram container was created but its workflow could not be saved. Repair the workflow before resuming publication.",
+        retryDisposition: { kind: "reconcile-first" },
+        details: { workflowId, containerId },
+        cause,
+      });
     }
   };
 
@@ -694,6 +735,26 @@ export function instagram(
     };
   };
 
+  const tagFields = [
+    "id",
+    "caption",
+    "media_type",
+    "permalink",
+    "timestamp",
+    "username",
+    ...(flavor === "facebook-login" ? ["media_product_type"] : []),
+  ];
+
+  const commentScopes =
+    flavor === "facebook-login"
+      ? ["instagram_basic", "instagram_manage_comments", "pages_read_engagement"]
+      : ["instagram_business_basic", "instagram_business_manage_comments"];
+
+  const insightScopes =
+    flavor === "facebook-login"
+      ? ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"]
+      : ["instagram_business_basic", "instagram_business_manage_insights"];
+
   const listMentions: InstagramNative["listMentions"] = async ({
     account,
     cursor,
@@ -704,7 +765,7 @@ export function instagram(
 
     // Both login flavors expose GET /{ig-user-id}/tags; only the host and scopes differ.
     const query = {
-      fields: "id,caption,media_type,media_product_type,permalink,timestamp,username",
+      fields: tagFields.join(","),
       limit: String(pageLimit(limit)),
       ...definedFields({ after: cursor }),
     };
@@ -714,15 +775,7 @@ export function instagram(
       "instagram.mentions.read",
     );
 
-    return page(result, [
-      "id",
-      "caption",
-      "media_type",
-      "media_product_type",
-      "permalink",
-      "timestamp",
-      "username",
-    ]);
+    return page(result, tagFields, true);
   };
 
   const profileFields = [
@@ -775,23 +828,29 @@ export function instagram(
           "posts.list",
           "posts.read",
           "posts.status",
-          "comments.read",
-          "comments.write",
-          "analytics.read",
           "analytics.account.read",
         ].map((operation) => ({
           operation,
           platform: "instagram",
           availability: "available" as const,
         })),
+        ...["comments.read", "comments.write"].map((operation) => ({
+          platform: "instagram",
+          operation,
+          availability: "available" as const,
+          requiredScopes: commentScopes,
+        })),
+        {
+          platform: "instagram",
+          operation: "analytics.read",
+          availability: "available" as const,
+          requiredScopes: insightScopes,
+        },
         {
           platform: "instagram",
           operation: "comments.moderate",
           availability: "available" as const,
-          requiredScopes:
-            flavor === "facebook-login"
-              ? ["instagram_manage_comments", "pages_read_engagement"]
-              : ["instagram_business_manage_comments"],
+          requiredScopes: commentScopes,
           notes:
             "Hide or unhide a comment, or enable or disable comments on media. Instagram Login and Facebook Login are supported where the account and app permissions qualify.",
         },
@@ -799,19 +858,13 @@ export function instagram(
           platform: "instagram",
           operation: "comments.delete",
           availability: "available" as const,
-          requiredScopes:
-            flavor === "facebook-login"
-              ? ["instagram_manage_comments", "pages_read_engagement"]
-              : ["instagram_business_manage_comments"],
+          requiredScopes: commentScopes,
         },
         {
           platform: "instagram",
           operation: "comments.replies.read",
           availability: "available" as const,
-          requiredScopes:
-            flavor === "facebook-login"
-              ? ["instagram_manage_comments", "pages_read_engagement"]
-              : ["instagram_business_manage_comments"],
+          requiredScopes: commentScopes,
         },
         {
           platform: "instagram",
@@ -819,8 +872,8 @@ export function instagram(
           availability: "available" as const,
           requiredScopes:
             flavor === "facebook-login"
-              ? ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"]
-              : ["instagram_business_basic", "instagram_business_manage_insights"],
+              ? ["instagram_basic", "pages_read_engagement"]
+              : ["instagram_business_basic"],
         },
         {
           platform: "instagram",
@@ -888,12 +941,20 @@ export function instagram(
         {
           platform: "instagram",
           operation: "product.tagging",
-          availability: "approval-dependent" as const,
+          availability:
+            flavor === "instagram-login"
+              ? ("unsupported-by-platform" as const)
+              : ("not-implemented-by-adapter" as const),
+          notes:
+            flavor === "instagram-login"
+              ? "Product tagging is unavailable with Instagram Login."
+              : "The adapter does not implement Facebook Login product tagging.",
         },
         {
           platform: "instagram",
           operation: "messages.read",
-          availability: "approval-dependent" as const,
+          availability: "not-implemented-by-adapter" as const,
+          notes: "The adapter does not implement messaging reads.",
         },
         webhookCapability(
           "instagram",
@@ -961,6 +1022,9 @@ export function instagram(
           if (item.kind === "document")
             fail("instagram.document", "Instagram publishing accepts image and video media only.");
 
+          if (item.kind === "image" && (item.altText?.length ?? 0) > 1000)
+            fail("instagram.alt_text", "Image alt text exceeds 1,000 characters.");
+
           if (item.kind === "image" && item.mimeType !== "image/jpeg")
             fail("instagram.jpeg", "Instagram image publishing requires JPEG media.");
 
@@ -1002,12 +1066,14 @@ export function instagram(
         authorize(target.account, context);
         const media = target.content.media ?? [];
         const children: string[] = [];
+        const shareToFeed = optionsObject(target)["shareToFeed"];
 
         const workflow = await workflows.create({
           backend: target.account.backend,
           accountId: target.account.accountId,
           childIds: [],
           caption: target.content.text ?? "",
+          ...definedFields({ shareToFeed: isBoolean(shareToFeed) ? shareToFeed : undefined }),
           stage: "children",
         });
 
@@ -1019,8 +1085,6 @@ export function instagram(
                 operation: "posts.publish",
                 message: "Public HTTPS media required.",
               });
-            const config = optionsObject(target);
-            const shareToFeed = config["shareToFeed"];
             await workflows.update(workflow.id, { stage: "unknown" });
 
             const created = object(
@@ -1034,7 +1098,8 @@ export function instagram(
                       video_url: item.source.url,
                       media_type: media.length > 1 ? "VIDEO" : "REELS",
                       ...definedFields({
-                        share_to_feed: isBoolean(shareToFeed) ? shareToFeed : undefined,
+                        share_to_feed:
+                          media.length === 1 && isBoolean(shareToFeed) ? shareToFeed : undefined,
                       }),
                     }),
                 ...(media.length > 1
@@ -1319,18 +1384,15 @@ export function instagram(
 
           const response = object(
             await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
-              fields: `business_discovery.username(${username}){id,username,name,biography,profile_picture_url,followers_count,follows_count,media_count,website}`,
+              fields: `business_discovery.username(${username}){id,username,biography,followers_count,media_count,website}`,
             }),
           );
 
           profile = publicFields(response["business_discovery"], [
             "id",
             "username",
-            "name",
             "biography",
-            "profile_picture_url",
             "followers_count",
-            "follows_count",
             "media_count",
             "website",
           ]);
@@ -1424,7 +1486,7 @@ export function instagram(
         authorize(account, context);
 
         const query = {
-          fields: "id,caption,media_type,permalink,timestamp,username",
+          fields: tagFields.join(","),
           limit: String(pageLimit(limit)),
           ...definedFields({ after: cursor }),
         };
@@ -1439,7 +1501,8 @@ export function instagram(
             ),
             "instagram.mentions.read",
           ),
-          ["id", "caption", "media_type", "permalink", "timestamp", "username"],
+          tagFields,
+          true,
         );
       },
       async hashtagMedia({ account, hashtagId, kind, cursor, limit, context }) {
@@ -1447,7 +1510,8 @@ export function instagram(
         requireFacebookLogin("instagram.hashtags.search");
 
         const query = {
-          fields: "id,caption,media_type,permalink,timestamp,username",
+          user_id: account.accountId,
+          fields: "id,caption,media_type,permalink,timestamp",
           limit: String(pageLimit(limit, 50)),
           ...definedFields({ after: cursor }),
         };
@@ -1462,7 +1526,7 @@ export function instagram(
             ),
             "instagram.hashtags.search",
           ),
-          ["id", "caption", "media_type", "permalink", "timestamp", "username"],
+          ["id", "caption", "media_type", "permalink", "timestamp"],
         );
       },
       async businessDiscovery({ account, username, fields, context }) {
@@ -1479,7 +1543,7 @@ export function instagram(
 
         const selectedFields =
           fields ??
-          `business_discovery.username(${username}){id,username,name,biography,followers_count,media_count,profile_picture_url,media.limit(25){id,caption,media_type,permalink,timestamp}}`;
+          `business_discovery.username(${username}){id,username,biography,followers_count,media_count,website,media.limit(25){id,caption,media_type,permalink,timestamp}}`;
 
         return object(
           await request(`/${encodeURIComponent(account.accountId)}`, context, undefined, {
@@ -1530,6 +1594,14 @@ export function instagram(
       async publishReel({ account, videoUrl, caption, context }) {
         authorize(account, context);
 
+        const workflow = await workflows.create({
+          backend: account.backend,
+          accountId: account.accountId,
+          childIds: [],
+          caption: "",
+          stage: "unknown",
+        });
+
         const created = object(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
             media_type: "REELS",
@@ -1538,10 +1610,20 @@ export function instagram(
           }),
         );
 
-        return publishContainer(account, string(created["id"]), context);
+        const ready = await saveNativeContainer(workflow.id, string(created["id"]));
+
+        return resumeWorkflow(ready, account, context);
       },
       async publishStory({ account, mediaUrl, videoUrl, context }) {
         authorize(account, context);
+
+        const workflow = await workflows.create({
+          backend: account.backend,
+          accountId: account.accountId,
+          childIds: [],
+          caption: "",
+          stage: "unknown",
+        });
 
         const created = object(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
@@ -1550,7 +1632,9 @@ export function instagram(
           }),
         );
 
-        return publishContainer(account, string(created["id"]), context);
+        const ready = await saveNativeContainer(workflow.id, string(created["id"]));
+
+        return resumeWorkflow(ready, account, context);
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);

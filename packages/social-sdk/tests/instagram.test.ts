@@ -174,7 +174,7 @@ it("makes mentions an alias for the paginated tags reader", async () => {
   assert.deepEqual(result, { items: [{ id: "media1" }], nextCursor: "next" });
 });
 
-it("stops paginating when Graph omits paging.next", async () => {
+it("stops paginating ordinary replies when Graph omits paging.next", async () => {
   const adapter = instagram({
     auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
     fetch: async () =>
@@ -189,7 +189,12 @@ it("stops paginating when Graph omits paging.next", async () => {
     accountId: "ig1",
   });
 
-  const result = await adapter.native?.mentions({ account, context: context() });
+  const result = await adapter.native?.listCommentReplies({
+    account,
+    commentId: "comment",
+    context: context(),
+  });
+
   assert.deepEqual(result, { items: [{ id: "media1" }] });
 });
 

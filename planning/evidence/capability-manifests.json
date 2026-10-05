@@ -3654,30 +3654,43 @@
           "availability": "available"
         },
         {
-          "operation": "comments.read",
-          "platform": "instagram",
-          "availability": "available"
-        },
-        {
-          "operation": "comments.write",
-          "platform": "instagram",
-          "availability": "available"
-        },
-        {
-          "operation": "analytics.read",
-          "platform": "instagram",
-          "availability": "available"
-        },
-        {
           "operation": "analytics.account.read",
           "platform": "instagram",
           "availability": "available"
         },
         {
           "platform": "instagram",
+          "operation": "comments.read",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_comments"
+          ]
+        },
+        {
+          "platform": "instagram",
+          "operation": "comments.write",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_comments"
+          ]
+        },
+        {
+          "platform": "instagram",
+          "operation": "analytics.read",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_insights"
+          ]
+        },
+        {
+          "platform": "instagram",
           "operation": "comments.moderate",
           "availability": "available",
           "requiredScopes": [
+            "instagram_business_basic",
             "instagram_business_manage_comments"
           ],
           "notes": "Hide or unhide a comment, or enable or disable comments on media. Instagram Login and Facebook Login are supported where the account and app permissions qualify."
@@ -3687,6 +3700,7 @@
           "operation": "comments.delete",
           "availability": "available",
           "requiredScopes": [
+            "instagram_business_basic",
             "instagram_business_manage_comments"
           ]
         },
@@ -3695,6 +3709,7 @@
           "operation": "comments.replies.read",
           "availability": "available",
           "requiredScopes": [
+            "instagram_business_basic",
             "instagram_business_manage_comments"
           ]
         },
@@ -3703,8 +3718,7 @@
           "operation": "profiles.read",
           "availability": "available",
           "requiredScopes": [
-            "instagram_business_basic",
-            "instagram_business_manage_insights"
+            "instagram_business_basic"
           ]
         },
         {
@@ -3756,12 +3770,14 @@
         {
           "platform": "instagram",
           "operation": "product.tagging",
-          "availability": "approval-dependent"
+          "availability": "unsupported-by-platform",
+          "notes": "Product tagging is unavailable with Instagram Login."
         },
         {
           "platform": "instagram",
           "operation": "messages.read",
-          "availability": "approval-dependent"
+          "availability": "not-implemented-by-adapter",
+          "notes": "The adapter does not implement messaging reads."
         },
         {
           "platform": "instagram",

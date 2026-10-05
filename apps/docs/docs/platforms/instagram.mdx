@@ -3,17 +3,23 @@ title: Instagram
 description: Publish Instagram professional-account media and use typed native Reels, Stories, hashtag, limit, and mention operations.
 ---
 
-The direct Instagram adapter uses Instagram Login for a professional account by default. Supply an access token and the account ID on the server; the adapter does not perform OAuth, account discovery, or tenant membership checks. Set `auth.flavor` to `"facebook-login"` when using the Facebook Login Graph API host and token.
+The direct Instagram adapter uses Instagram Login for a professional account by default. Supply an access token and the account ID on the server; the adapter does not perform OAuth, account discovery, or tenant membership checks. For Facebook Login, set `auth.flavor` to `"facebook-login"` and supply the access token for the Facebook Page linked to the professional Instagram account. This flavor uses `graph.facebook.com`.
 
 ## Setup
 
 <Steps>
   <Step title="Prepare the professional account">
-    Instagram publishing requires a professional account and the corresponding Meta app products.
-    Account authorization and professional-account eligibility remain application responsibilities.
+    Use an Instagram professional account (Business or Creator) and a Meta app configured with the
+    Instagram product and Business Login. Use the Instagram App ID and Instagram App Secret from the
+    Business Login settings for authorization. Instagram Login publishing needs
+    `instagram_business_basic` and `instagram_business_content_publish`. Follow [Account
+    authentication](/authentication) to authorize the account and obtain an Instagram User access
+    token.
   </Step>
   <Step title="Store credentials server-side">
-    Set `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_ACCOUNT_ID` in server configuration.
+    Set `INSTAGRAM_ACCESS_TOKEN` and `INSTAGRAM_ACCOUNT_ID` in server configuration. Use the
+    professional account’s `user_id`, not the app-scoped identity `id` returned by some login
+    responses.
   </Step>
   <Step title="Configure the adapter">
     Construct the backend and select the account through a connected-account reference.
@@ -27,9 +33,9 @@ import { instagram } from "@opencoredev/social-sdk/instagram";
 const social = createSocial({
   backend: instagram({
     auth: {
-      accessToken: process.env.INSTAGRAM_ACCESS_TOKEN!,
-      accountId: process.env.INSTAGRAM_ACCOUNT_ID!,
-      // Use "facebook-login" for business discovery, tagged media, and hashtag search.
+      accessToken: process.env["INSTAGRAM_ACCESS_TOKEN"]!,
+      accountId: process.env["INSTAGRAM_ACCOUNT_ID"]!,
+      // Tagged media works with either flavor. Discovery and hashtags need Facebook Login.
       flavor: "instagram-login",
     },
   }),
@@ -38,15 +44,21 @@ const social = createSocial({
 const account = connectedAccountRef({
   backend: "default",
   platform: "instagram",
-  accountId: process.env.INSTAGRAM_ACCOUNT_ID!,
+  accountId: process.env["INSTAGRAM_ACCOUNT_ID"]!,
 });
 ```
+
+Standard Access covers accounts the app manages. To serve accounts the app does not manage, request Advanced Access and complete Meta App Review for the relevant permissions. Account authorization and eligibility remain application responsibilities.
+
+Facebook Login publishing needs the linked Page access token, the professional Instagram account ID, and `instagram_basic`, `instagram_content_publish`, and `pages_read_engagement`. When Page access comes through Business Manager, Meta may also require `ads_management` and `ads_read`. Check the permissions for that account’s role. Obtain Facebook Login credentials and Page discovery outside the SDK; Page discovery needs `pages_show_list`. The SDK’s Instagram User token exchange and refresh helpers do not refresh Facebook Page tokens.
+
+Instagram User long-lived tokens expire after 60 days. Refresh a valid token only after it is at least 24 hours old; see [Account authentication](/authentication).
 
 ## Examples
 
 ### Publish an image
 
-Images, videos, and carousels use public HTTPS media.
+Images, videos, and carousels use public HTTPS media. Text-only publishing is unsupported. Supply 1 to 10 attachments; 2 to 10 form a carousel. Captions are limited to 2,200 characters. Images require `image/jpeg`; videos require `video/mp4` or `video/quicktime`. Image `altText` maps to `alt_text` and is limited to 1,000 characters, including on carousel children. Video alt text is omitted.
 
 ```ts
 const result = await social.posts.publish({
@@ -56,6 +68,7 @@ const result = await social.posts.publish({
     media: [
       {
         kind: "image",
+        mimeType: "image/jpeg",
         source: { kind: "https-url", url: "https://cdn.example.com/image.jpg" },
       },
     ],
@@ -65,7 +78,7 @@ const result = await social.posts.publish({
 
 ### Publish a carousel
 
-The adapter stores a workflow for child containers, parent creation, and continuation after asynchronous processing.
+The adapter stores a workflow for child containers, parent creation, and continuation after asynchronous processing. Supply each item’s actual width and height with matching aspect ratios. The dimensions below describe square assets; do not copy them for differently sized media.
 
 ```ts
 const result = await social.posts.publish({
@@ -73,9 +86,27 @@ const result = await social.posts.publish({
   content: {
     text: "Three-part carousel",
     media: [
-      { kind: "image", source: { kind: "https-url", url: "https://cdn.example.com/1.jpg" } },
-      { kind: "image", source: { kind: "https-url", url: "https://cdn.example.com/2.jpg" } },
-      { kind: "video", source: { kind: "https-url", url: "https://cdn.example.com/3.mp4" } },
+      {
+        kind: "image",
+        mimeType: "image/jpeg",
+        width: 1080,
+        height: 1080,
+        source: { kind: "https-url", url: "https://cdn.example.com/1.jpg" },
+      },
+      {
+        kind: "image",
+        mimeType: "image/jpeg",
+        width: 1080,
+        height: 1080,
+        source: { kind: "https-url", url: "https://cdn.example.com/2.jpg" },
+      },
+      {
+        kind: "video",
+        mimeType: "video/mp4",
+        width: 1080,
+        height: 1080,
+        source: { kind: "https-url", url: "https://cdn.example.com/3.mp4" },
+      },
     ],
   },
 });
@@ -83,7 +114,25 @@ const result = await social.posts.publish({
 
 ### Reconcile container processing
 
-Retain the processing outcome and reconcile explicitly. The adapter does not silently crop, change account visibility, or convert unsupported media.
+Retain the processing outcome and call `getDelivery` while it remains processing. The default workflow store is process-local memory. A restart or a separate worker cannot recover its `workflowId` deliveries. For jobs, configure a durable shared `InstagramWorkflowStore` when constructing every adapter instance:
+
+```ts
+import type { InstagramWorkflowStore } from "@opencoredev/social-sdk/instagram";
+
+// Implement this application boundary with your durable shared storage.
+declare const workflowStore: InstagramWorkflowStore;
+const jobsSocial = createSocial({
+  backend: instagram({
+    auth: {
+      accessToken: process.env["INSTAGRAM_ACCESS_TOKEN"]!,
+      accountId: process.env["INSTAGRAM_ACCOUNT_ID"]!,
+    },
+    workflowStore,
+  }),
+});
+```
+
+Publish and reconcile job outcomes through `jobsSocial` on every worker using that shared store. The following continuation uses `social` for the earlier same-process publish example. Persist every workflow field. `claim` must atomically exclude concurrent workers, and `release` should release the transient claim when an operation settles. Preserve `unknown` stages: an ambiguous write must be reconciled without replaying publication. Unpublished containers expire after 24 hours, so scheduling must create containers near publication time. The adapter does not silently crop or convert media.
 
 ```ts
 const outcome = result.outcomes[0];
@@ -93,6 +142,10 @@ if (outcome?.state === "processing" && outcome.delivery) {
 }
 ```
 
+If native `publishReel` or `publishStory` creates a container but cannot save its ID, it throws a `SocialError` with operation `instagram.posts.persist-container`, retry disposition `reconcile-first`, and `details.workflowId` and `details.containerId`. No publication is attempted. Retain these IDs in your authorized job state. After storage recovers, reconcile the stored workflow, save the container ID as `parentId` with stage `parent`, and call `resumePublication(account, workflowId, context)` using the same shared store. Do not rerun the original publishing method to create another container. This repair applies only to that persistence error before publication; preserve `unknown` markers from uncertain publication writes.
+
+If Instagram confirms publication but the final store update fails, the adapter throws a `SocialError` with operation `instagram.posts.persist-publication`, retry disposition `reconcile-first`, and `details.workflowId`, `details.containerId`, and the confirmed `details.postId`. Retain these IDs in authorized job state. After storage recovers, reconcile the workflow and save `postId` as `nativeId`, `containerId` as `parentId`, and stage `published`. Subsequent continuation returns the published post without another provider write. Do not rerun publication: Instagram has already confirmed it.
+
 ### Read comments and reply
 
 The adapter declares post reads, status, analytics, comment reads, and comment replies. Replies require a comment reference returned by a comment read.
@@ -100,7 +153,7 @@ The adapter declares post reads, status, analytics, comment reads, and comment r
 ```ts
 // postRef is the platform-post reference returned by a publish outcome or post read.
 const comments = await social.comments.list(postRef);
-const commentId = comments.items[0]?.id;
+const commentId = comments.items[0]?.["id"];
 if (typeof commentId !== "string") throw new Error("No comment selected");
 
 await social.comments.reply(
@@ -115,11 +168,10 @@ The normalized graph reader returns the authorized professional account when no 
 
 ```ts
 const ownProfile = await social.graph.getProfile(account, {});
-const publicProfile = await social.graph.getProfile(account, { handle: "bluebottle" });
-console.log(ownProfile.handle, publicProfile.displayName);
+console.log(ownProfile.handle);
 ```
 
-The own-profile request is `GET /{ig-user-id}` with profile fields. Handle lookup is `GET /{ig-user-id}?fields=business_discovery.username(...)`. An Instagram Login token raises `unsupported_capability` for handle lookup.
+The own-profile request is `GET /{ig-user-id}` with profile fields. Handle lookup is `GET /{ig-user-id}?fields=business_discovery.username(...)`. An explicit `profileId` must identify the authorized own account. Other profiles use Facebook Login handle discovery, which returns public fields and does not promise `displayName` or `avatarUrl`. An Instagram Login token raises `unsupported_capability` for handle lookup.
 
 ### Moderate comments
 
@@ -127,6 +179,7 @@ Comment moderation uses the Graph API comment and media nodes. `moderateComment`
 
 ```ts
 const instagramNative = social.native("default", { acknowledgeUnsafe: true });
+if (!instagramNative) throw new Error("Instagram native module is unavailable");
 const context = {
   backendInstance: "default",
   correlationId: "instagram-native",
@@ -148,7 +201,7 @@ await instagramNative.setCommentsEnabled({
 await instagramNative.deleteComment({ account, commentId: "17873440459141021", context });
 ```
 
-These mutations accept Instagram User access tokens with Instagram Login or a Facebook User/Page token with Facebook Login. For Instagram Login, request `instagram_business_basic` and `instagram_business_manage_comments`; Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement` (plus any permissions Meta requires for the Page role). Meta limits deletion and hiding by media ownership and does not support live video comments.
+These mutations accept Instagram User access tokens with Instagram Login or the linked Page access token with Facebook Login. For Instagram Login, request `instagram_business_basic` and `instagram_business_manage_comments`; Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement` (plus any permissions Meta requires for the Page role). Only the owner of the media can delete its comments. You cannot reply to hidden comments. Hiding and replies apply to eligible comments on the authorized account’s media, not live video or ad comments. The media owner’s own comments remain visible when hidden. Replies to a reply attach to its top-level comment. Ad comments use a separate provider edge. Comment lists return top-level comments with a page limit of 50; use the replies edge for nested replies. Replies are supported on the authorized account’s media, not arbitrary discovered media. Private replies and mention replies have no SDK methods.
 
 ### Read replies and mentions
 
@@ -173,31 +226,44 @@ const nextReplies = replies.nextCursor
 
 Replies can use either login flavor when the token has the permissions required for the selected Graph host. Instagram Login uses `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`.
 
-`listMentions`, `listTaggedMedia`, and `mentions` read `GET /{ig-user-id}/tags` and return the same cursor-paginated page shape. `mentions` is an alias for `listMentions`. All three work with either login flavor and back the `mentions.read` capability. Instagram Login calls `graph.instagram.com` and needs `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login calls `graph.facebook.com` and needs `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`. Meta does not return private media or Story mentions.
+`listMentions`, `listTaggedMedia`, and `mentions` read `GET /{ig-user-id}/tags` and return the same cursor-paginated page shape. `mentions` is an alias for `listMentions`. All three work with either login flavor and back the `mentions.read` capability. Instagram Login calls `graph.instagram.com` and needs `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login calls `graph.facebook.com` and needs `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`. Tags continuation uses the returned `after` cursor even when Meta omits `paging.next`; ordinary comment edges require `paging.next`. Meta does not return private media or Story mentions.
 
-`mentionedMedia` and `mentionedComment` query the `mentioned_media` and `mentioned_comment` field expansions for a known media or comment ID. They require Facebook Login. Meta's Instagram Login mentions guide documents only the `tags` edge and replies through `POST /{ig-user-id}/mentions`, so an Instagram Login adapter raises `unsupported_capability` for these two methods before sending a request. See Meta's mentions guides for [Instagram Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/mentions) and [Facebook Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/mentions).
+`mentionedMedia` and `mentionedComment` query the `mentioned_media` and `mentioned_comment` field expansions for a known media or comment ID. They require Facebook Login. Meta's Instagram Login mentions guide documents only the `tags` edge and replies through `POST /{ig-user-id}/mentions`, so an Instagram Login adapter raises `unsupported_capability` for these two methods before sending a request. The SDK does not implement the mention-reply endpoint. See Meta's mentions guides for [Instagram Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/mentions) and [Facebook Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/mentions).
 
 ```ts
 const tagged = await instagramNative.listTaggedMedia({ account, limit: 25, context });
 const mentions = await instagramNative.mentions({ account, limit: 25, context });
-const captionMention = await instagramNative.mentionedMedia({
-  account,
-  mediaId: "17873440459141021",
-  context,
-});
-const commentMention = await instagramNative.mentionedComment({
-  account,
-  commentId: "17873440459141022",
-  context,
-});
 ```
 
 ### Business discovery and hashtag search
 
-Business discovery uses Facebook Login and maps to `GET /{ig-user-id}?fields=business_discovery.username(...)`. The default field expansion requests profile counts and a bounded media edge; pass `fields` when you need a different expansion.
+Business discovery uses Facebook Login and maps to `GET /{ig-user-id}?fields=business_discovery.username(...)`. The default expansion requests public profile fields and `media.limit(25)`. Pass `fields` to replace the complete expansion. When the nested media edge returns paging cursors, rebuild that expansion with `media.after(cursor).limit(25){...}` to read the next page; the SDK returns this raw paging data. Discovery media IDs are not authorized `posts.get` targets: Meta does not allow direct media-node reads for another account’s discovered media.
 
 ```ts
-const profile = await instagramNative.businessDiscovery({
+const facebookSocial = createSocial({
+  backend: instagram({
+    auth: {
+      accessToken: process.env["INSTAGRAM_PAGE_ACCESS_TOKEN"]!,
+      accountId: process.env["INSTAGRAM_ACCOUNT_ID"]!,
+      flavor: "facebook-login",
+    },
+  }),
+});
+const facebookNative = facebookSocial.native("default", { acknowledgeUnsafe: true });
+if (!facebookNative) throw new Error("Instagram native module is unavailable");
+const publicProfile = await facebookSocial.graph.getProfile(account, { handle: "bluebottle" });
+console.log(publicProfile.handle);
+const captionMention = await facebookNative.mentionedMedia({
+  account,
+  mediaId: "17873440459141021",
+  context,
+});
+const commentMention = await facebookNative.mentionedComment({
+  account,
+  commentId: "17873440459141022",
+  context,
+});
+const profile = await facebookNative.businessDiscovery({
   account,
   username: "bluebottle",
   fields: "business_discovery.username(bluebottle){id,username,followers_count,media_count}",
@@ -208,10 +274,15 @@ const profile = await instagramNative.businessDiscovery({
 Hashtag search is available only with Facebook Login, Instagram Public Content Access app review, and the `instagram_basic` permission. Call `hashtagSearch` to resolve a name through `GET /ig_hashtag_search`, then read `top_media` or `recent_media` with `hashtagMedia`.
 
 ```ts
-const hashtag = await instagramNative.hashtagSearch({ account, hashtag: "coffee", context });
-// The search response contains the resolved node in data[0].id.
-const hashtagId = "17843857450040591"; // read this from hashtag.data[0].id
-const recent = await instagramNative.hashtagMedia({
+const hashtag = await facebookNative.hashtagSearch({ account, hashtag: "coffee", context });
+const data = hashtag["data"];
+const first = Array.isArray(data) ? data[0] : undefined;
+const hashtagId =
+  first !== null && typeof first === "object" && !Array.isArray(first) ? first["id"] : undefined;
+if (typeof hashtagId !== "string" || hashtagId.length === 0) {
+  throw new Error("Hashtag search returned no ID");
+}
+const recent = await facebookNative.hashtagMedia({
   account,
   hashtagId,
   kind: "recent",
@@ -220,11 +291,11 @@ const recent = await instagramNative.hashtagMedia({
 });
 ```
 
-If an Instagram Login adapter calls a Facebook Login-only operation, it raises `SocialError` with `code: "unsupported_capability"`. Hashtag lookups are limited to 30 unique hashtags in a rolling seven-day period, and media returned by hashtag search cannot be commented on.
+If an Instagram Login adapter calls a Facebook Login-only operation, it raises `SocialError` with `code: "unsupported_capability"`. Search and both `recent_media` and `top_media` reads count toward 30 unique hashtags per professional account in a rolling seven-day period. Repeating a query within that window does not restart its timer. `recent_media` covers public organic media from the last 24 hours, is not chronological, and returns at most 50 results per page; pass the returned `nextCursor` as `cursor` to continue. Stories, promoted media, and private content are excluded. Queries resolve a single hashtag, not arbitrary keyword or combined-tag searches. Media returned by hashtag search cannot be commented on through this API.
 
 ### Read post metrics
 
-Metrics are the values returned by Instagram Insights; absent metrics remain absent.
+Post metrics come from Instagram Insights: non-Story media requests `likes`, `comments`, `saved`, `shares`, and `reach`; Stories request `shares` and `reach`. Absent metrics remain absent. Account metrics are own-user field counters, not the account insights edge. Meta’s freshness and retention windows vary by metric, so store fetched timestamps and do not infer zero from missing values. See [Reports](/reads/reports).
 
 ```ts
 const metrics = await social.analytics.getPostMetrics(postRef);
@@ -233,15 +304,48 @@ for (const metric of metrics) console.log(metric.name, metric.value, metric.unit
 
 ### Receive webhooks
 
-Pass the Meta app secret as `webhookSecret` to verify `X-Hub-Signature-256` through `adapter.webhooks.verify`. Answer Meta's GET verification with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`. Comments and live comments decode to `comment.received` and incoming messages to `message.received`; other fields stay `unknown`. See [Process webhooks](/events) for the handler and the batching rules.
+Pass the Meta app secret as `webhookSecret` to verify `X-Hub-Signature-256` through `adapter.webhooks.verify`. Answer Meta's GET verification with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`. The shared decoder recognizes Facebook Login `entry[].changes[].field/value` and Instagram Login `entry[].field/value`. For a delivery containing only `comments` or `live_comments`, either shape normalizes to `comment.received`. See [Process webhooks](/events) for unknown fields and mixed batches.
+
+Delivery requires the account subscription and app webhook configuration. Enable the account with Meta’s `subscribed_apps` endpoint outside the SDK; the adapter does not subscribe accounts. The app must be Live, and `comments` and `live_comments` require Advanced Access. Comment and mention notifications require a public professional account and eligible owned media; live-comment notifications arrive only during the broadcast.
+
+Facebook Login has a separate `mentions` subscription and `story_insights`; both remain unknown events with their original field names. Instagram Login includes @mentions in `comments` notifications. `messages` is an Instagram Login or Messenger Platform field, not a Facebook Login Instagram field. Messaging requires its own permissions. Facebook Login `story_insights` covers the first 24 hours before Story expiry, and counts below five can be `-1`. Check Meta’s field list for the configured flavor before subscribing. SDK messaging reads remain unimplemented even when a message webhook can be decoded.
 
 ## Native operations
 
-The typed native module exposes Reels and Stories container publishing, post deletion, publishing-limit reads, comment moderation, comment replies, tagged and mentioned media reads, business discovery, and hashtag search. Product tagging and messaging are declared approval dependent and require the corresponding Meta products and app review.
+The typed native module exposes Reels and Stories container publishing, publishing-limit reads, comment moderation, comment replies, tags, and Facebook Login discovery, mention expansions, hashtags, and post deletion. Deletion is Facebook Login-only.
+
+Product tagging and messaging reads are unimplemented SDK features. `product.tagging` is `unsupported-by-platform` for Instagram Login and `not-implemented-by-adapter` for Facebook Login. `messages.read` is `not-implemented-by-adapter` for both flavors; approval does not add a missing method.
+
+A normalized single video publishes as a Reel. Native Reel and Story methods return workflow deliveries that you continue through `getDelivery`, using the same store configured above:
+
+```ts
+const reel = await instagramNative.publishReel({
+  account,
+  videoUrl: "https://cdn.example.com/reel.mp4",
+  caption: "A Reel",
+  context,
+});
+const story = await instagramNative.publishStory({
+  account,
+  mediaUrl: "https://cdn.example.com/story.jpg",
+  context,
+});
+// For a video Story, also supply videoUrl; it replaces the image source.
+for (const publication of [reel, story]) {
+  if (publication.state === "processing" && publication.delivery) {
+    const next = await social.posts.getDelivery(publication.delivery);
+    console.log(next.state); // Keep reconciling explicitly if still processing.
+  }
+}
+const limit = await instagramNative.publishingLimit({ account, context });
+console.log(limit["data"]);
+```
+
+`publishingLimit` returns a provider object with a `data` array, for example `{ data: [{ quota_usage: 3, config: { quota_total: 100, quota_duration: 86400 } }] }`. Read the returned `config.quota_total` and usage for the account’s current publishing allowance. The example is not a fixed SDK cap. `shareToFeed` in normalized publish options maps to `share_to_feed` on a single Reel or carousel parent, never on carousel children. Reel covers, thumbnail offsets, audio names, trial parameters, user tags, collaborators, location, and partnership labels are not implemented publish options.
 
 ## Limits and requirements
 
-- Media must be publicly reachable over HTTPS; the adapter does not upload local bytes.
+- Media must be publicly reachable over HTTPS. Resumable bytes upload is unimplemented, including for Facebook Login. Follow Meta’s current [JPEG/image and Reel specifications](https://developers.facebook.com/documentation/instagram-platform/content-publishing/) for size, duration, aspect ratio, and codecs. The SDK does not transcode files. Unpublished containers expire after 24 hours.
 - Published captions and media cannot be edited. The [IG Media reference](https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/) only documents `comment_enabled` as an update field, so `posts.update` is declared `unsupported-by-platform`.
 - Account authorization and Instagram professional-account eligibility remain application responsibilities.
 - Instagram Login uses `graph.instagram.com`; Facebook Login uses `graph.facebook.com`. Facebook Login operations require the Facebook token, connected Page access, and the permissions listed in Meta's [Instagram Platform documentation](https://developers.facebook.com/documentation/instagram-platform/).

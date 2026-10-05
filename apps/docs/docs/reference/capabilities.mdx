@@ -523,14 +523,14 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | instagram | instagram | posts.list | available | None declared | See adapter setup | None declared |
 | instagram | instagram | posts.read | available | None declared | See adapter setup | None declared |
 | instagram | instagram | posts.status | available | None declared | See adapter setup | None declared |
-| instagram | instagram | comments.read | available | None declared | See adapter setup | None declared |
-| instagram | instagram | comments.write | available | None declared | See adapter setup | None declared |
-| instagram | instagram | analytics.read | available | None declared | See adapter setup | None declared |
 | instagram | instagram | analytics.account.read | available | None declared | See adapter setup | None declared |
-| instagram | instagram | comments.moderate | available | None declared | instagram_business_manage_comments | Hide or unhide a comment, or enable or disable comments on media. Instagram Login and Facebook Login are supported where the account and app permissions qualify. |
-| instagram | instagram | comments.delete | available | None declared | instagram_business_manage_comments | None declared |
-| instagram | instagram | comments.replies.read | available | None declared | instagram_business_manage_comments | None declared |
-| instagram | instagram | profiles.read | available | None declared | instagram_business_basic, instagram_business_manage_insights | None declared |
+| instagram | instagram | comments.read | available | None declared | instagram_business_basic, instagram_business_manage_comments | None declared |
+| instagram | instagram | comments.write | available | None declared | instagram_business_basic, instagram_business_manage_comments | None declared |
+| instagram | instagram | analytics.read | available | None declared | instagram_business_basic, instagram_business_manage_insights | None declared |
+| instagram | instagram | comments.moderate | available | None declared | instagram_business_basic, instagram_business_manage_comments | Hide or unhide a comment, or enable or disable comments on media. Instagram Login and Facebook Login are supported where the account and app permissions qualify. |
+| instagram | instagram | comments.delete | available | None declared | instagram_business_basic, instagram_business_manage_comments | None declared |
+| instagram | instagram | comments.replies.read | available | None declared | instagram_business_basic, instagram_business_manage_comments | None declared |
+| instagram | instagram | profiles.read | available | None declared | instagram_business_basic | None declared |
 | instagram | instagram | reels.publish | available | video | See adapter setup | None declared |
 | instagram | instagram | stories.publish | available | None declared | See adapter setup | None declared |
 | instagram | instagram | profile.update | unsupported-by-platform | None declared | See adapter setup | The IG User node supports reads only. Updating it is not supported. |
@@ -538,8 +538,8 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | instagram | instagram | posts.removeFromPlatform | unsupported-by-platform | None declared | See adapter setup | Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media |
 | instagram | instagram | publishing.limit.read | available | None declared | See adapter setup | None declared |
 | instagram | instagram | mentions.read | available | None declared | instagram_business_basic, instagram_business_manage_comments | Reads the paginated /&#123;ig-user-id&#125;/tags edge on graph.instagram.com. mentionedMedia and mentionedComment require Facebook Login. Story mentions and private media are not returned. |
-| instagram | instagram | product.tagging | approval-dependent | None declared | See adapter setup | None declared |
-| instagram | instagram | messages.read | approval-dependent | None declared | See adapter setup | None declared |
+| instagram | instagram | product.tagging | unsupported-by-platform | None declared | See adapter setup | Product tagging is unavailable with Instagram Login. |
+| instagram | instagram | messages.read | not-implemented-by-adapter | None declared | See adapter setup | The adapter does not implement messaging reads. |
 | instagram | instagram | webhooks.verify | available | None declared | See adapter setup | Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge. |
 | instagram | instagram | notifications.read | unsupported-by-platform | None declared | See adapter setup | The Instagram API has no notifications edge. Use mentions.read, tags, comments, or webhooks instead. |
 | linkedin | linkedin | posts.publish | available | text, image, carousel, video, document | w_member_social | Explicit author URN and public visibility. Organization role and app product approval required. One registered image, 2 to 20 images, one MP4 video, or one document per post; every asset must be AVAILABLE before creating a post. |
