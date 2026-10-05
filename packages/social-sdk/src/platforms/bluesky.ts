@@ -1343,7 +1343,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Bluesky account is inactive or its DID is not valid for this PDS.",
         });
 
-      return { did: auth.did, ...definedFields({ handle: options.session.handle ?? auth.handle }) };
+      return { did: auth.did, ...definedFields({ handle: options.session.handle }) };
     }
 
     const session = object(await xrpc("com.atproto.server.getSession", context));
