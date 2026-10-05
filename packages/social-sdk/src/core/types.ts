@@ -203,8 +203,8 @@ export interface TikTokPublishOptions {
   readonly disableStitch?: boolean;
   readonly brandedContent?: boolean;
   readonly ownBrand?: boolean;
-  readonly aiGenerated?: boolean;
-  readonly draft?: boolean;
+  readonly aiGenerated: boolean;
+  readonly draft: boolean;
   readonly photoCoverIndex?: number;
   readonly title?: string;
   readonly consentGiven: boolean;

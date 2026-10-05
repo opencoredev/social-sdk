@@ -583,7 +583,12 @@ for (const provider of ["zernio", "post-for-me"] as const) {
     assert.equal(
       social.posts.prepare({
         ...request,
-        targets: [{ account, options: { privacy: "SELF_ONLY", consentGiven: true } }],
+        targets: [
+          {
+            account,
+            options: { privacy: "SELF_ONLY", consentGiven: true, aiGenerated: false, draft: false },
+          },
+        ],
       }).ok,
       false,
     );

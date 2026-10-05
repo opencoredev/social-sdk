@@ -3,7 +3,7 @@ title: TikTok
 description: Prepare TikTok creator choices and publish verified media URLs with Social SDK, covering consent, privacy settings, drafts, and processing checks.
 ---
 
-The direct TikTok adapter accepts an existing access token and creator `openId`. The server package also provides `tiktokOAuth` for TikTok Login Kit web authorization and creator discovery. OAuth consent does not replace the adapter's creator preview and publish consent requirements.
+The direct TikTok adapter accepts an existing access token and creator `openId`. The server package also provides `tiktokOAuth` for TikTok Login Kit web authorization and creator discovery. OAuth consent does not replace the creator preview and publish consent requirements.
 
 ## Setup
 
@@ -11,12 +11,13 @@ The direct TikTok adapter accepts an existing access token and creator `openId`.
   <Step title="Connect the creator">
     Use `ConnectionManager` with `tiktokOAuth` to bind the callback to the authenticated tenant,
     show the discovered creator, and persist credentials through an encrypted `credentialSink`. Its
-    default scopes are `user.info.basic` and `video.publish`, sent comma-delimited; refresh with
-    `refreshOAuthToken("tiktok", ...)` and persist any rotated refresh token.
+    default scopes are `user.info.basic` and `video.publish`, sent comma-delimited. Request
+    `video.upload` for inbox drafts, `video.list` for Display API reads and post metrics, and
+    `user.info.stats` for account statistics.
   </Step>
   <Step title="Verify media origins">
-    The adapter uses verified `PULL_FROM_URL` media origins. List every host you will publish from
-    in `verifiedMediaOrigins` and verify them with TikTok.
+    The adapter uses `PULL_FROM_URL`. Verify each media domain or URL prefix with TikTok and list
+    its HTTPS origin in `verifiedMediaOrigins`.
   </Step>
   <Step title="Configure the adapter">
     Construct the backend with the token, `openId`, and verified origins.
@@ -25,14 +26,16 @@ The direct TikTok adapter accepts an existing access token and creator `openId`.
 
 ```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import type { TikTokPublishOptions } from "@opencoredev/social-sdk";
 import { tiktok } from "@opencoredev/social-sdk/tiktok";
+
+const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
+const openId = process.env.TIKTOK_OPEN_ID;
+if (!accessToken || !openId) throw new Error("Configure TikTok credentials on the server.");
 
 const social = createSocial({
   backend: tiktok({
-    auth: {
-      accessToken: process.env.TIKTOK_ACCESS_TOKEN!,
-      openId: process.env.TIKTOK_OPEN_ID!,
-    },
+    auth: { accessToken, openId },
     verifiedMediaOrigins: ["https://media.example.com"],
   }),
 });
@@ -40,124 +43,202 @@ const social = createSocial({
 const account = connectedAccountRef({
   backend: "default",
   platform: "tiktok",
-  accountId: process.env.TIKTOK_OPEN_ID!,
+  accountId: openId,
 });
 ```
+
+TikTok access tokens last 24 hours and refresh tokens last 365 days. `expiresAt` describes access-token expiry. Refresh with `refreshOAuthToken("tiktok", ...)` and persist the new access token and any rotated refresh token. The SDK does not store refresh-token expiry; track it in your application and reconnect the creator when refresh authorization expires. See [Token management](https://developers.tiktok.com/doc/oauth-user-access-token-management).
+
+TikTok domain verification covers the verified domain; URL-prefix verification covers only that prefix. `verifiedMediaOrigins` checks origins only, so configuring an origin does not prove that every path is inside a verified prefix. Your application must enforce that narrower boundary. Pull URLs must not redirect and must remain accessible throughout TikTok's download, which can take up to one hour. See the [Media Transfer Guide](https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide).
 
 ## Examples
 
 ### Fetch creator info before publishing
 
-TikTok requires showing the creator a preview of their current settings and letting them choose from the returned privacy levels. Creator information must be bound to the same backend and account.
+Query creator information before displaying the preview. Show the returned `nickname`, the content and caption, and every available privacy choice. There must be no default privacy selection: require the creator to choose a value in `privacyLevels`.
 
 ```ts
-const creatorInfo = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .creatorInfo(account, {
-    correlationId: "creator-preview",
-    retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
-    authorization: { tenantId: "tenant", principalId: "user" },
-  });
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (!native) throw new Error("TikTok native module is unavailable.");
 
-// Render creatorInfo.privacyLevels and let the creator choose one of the returned values.
+const creatorInfo = await native.creatorInfo(account, {
+  backendInstance: "default",
+  correlationId: "creator-preview",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+  authorization: { tenantId: "tenant", principalId: "user" },
+});
+```
+
+The SDK returns `accountId`, `backend`, `fetchedAt`, `username`, `nickname`, `privacyLevels`, `commentDisabled`, `duetDisabled`, `stitchDisabled`, and `maxVideoDurationSeconds` (or `null` when absent). Keep this snapshot bound to the same account and backend.
+
+When a restriction is disabled by TikTok, disable the corresponding interaction control and submit `true` for `disableComments`, `disableDuet`, or `disableStitch`. Duet and stitch apply only to videos. Check video duration against `maxVideoDurationSeconds`, show commercial-content disclosure prompts for `brandedContent` and `ownBrand`, and ask for the AI-content choice. Branded content cannot use `SELF_ONLY` for Direct Post. Present TikTok's Music Usage Confirmation and obtain the creator's explicit consent before transfer. The adapter refreshes creator information before Direct Post initialization; if privacy or interaction restrictions changed, refresh the preview and ask again.
+
+The following functions take validated choices from your application's submitted creator preview. They do not select privacy or enable interactions on the creator's behalf. Call them only after the preview, disclosure prompts, Music Usage Confirmation, and publish consent are complete.
+
+```ts
+type CreatorChoices = Required<
+  Pick<
+    TikTokPublishOptions,
+    | "privacy"
+    | "disableComments"
+    | "disableDuet"
+    | "disableStitch"
+    | "brandedContent"
+    | "ownBrand"
+    | "aiGenerated"
+  >
+>;
 ```
 
 ### Publish a video
 
+Preparation requires explicit booleans for `aiGenerated` and `draft`, along with every interaction and disclosure choice. `draft: false` selects Direct Post; `draft: true` selects inbox delivery.
+
 ```ts
-const result = await social.posts.publish({
-  targets: [
-    {
-      account,
-      options: {
-        consentGiven: true,
-        creatorInfo,
-        privacy: "PUBLIC_TO_EVERYONE",
-        disableComments: false,
-        disableDuet: false,
-        disableStitch: false,
-        brandedContent: false,
-        ownBrand: false,
-        photoCoverIndex: 0,
-      },
-    },
-  ],
-  content: {
-    text: "A creator-approved caption",
-    media: [
+async function publishVideo(choices: CreatorChoices) {
+  return social.posts.publish({
+    targets: [
       {
-        kind: "video",
-        source: { kind: "https-url", url: "https://media.example.com/video.mp4" },
-        durationSeconds: 8,
+        account,
+        options: {
+          privacy: choices.privacy,
+          disableComments: choices.disableComments,
+          disableDuet: choices.disableDuet,
+          disableStitch: choices.disableStitch,
+          brandedContent: choices.brandedContent,
+          ownBrand: choices.ownBrand,
+          aiGenerated: choices.aiGenerated,
+          consentGiven: true,
+          creatorInfo,
+          draft: false,
+        },
       },
     ],
-  },
-});
+    content: {
+      text: "A creator-approved caption",
+      media: [
+        {
+          kind: "video",
+          source: { kind: "https-url", url: "https://media.example.com/video.mp4" },
+          durationSeconds: 8,
+        },
+      ],
+    },
+  });
+}
 ```
 
 ### Publish a photo carousel
 
-The adapter supports one video or 1–35 photos. `photoCoverIndex` selects the cover image.
+The adapter supports one video or 1–35 photos. `photoCoverIndex` selects the cover image by its zero-based index. Photo titles allow 90 UTF-16 code units and descriptions (`content.text`) allow 4,000; video captions allow 2,200.
 
 ```ts
-const result = await social.posts.publish({
-  targets: [
-    {
-      account,
-      options: {
-        consentGiven: true,
-        creatorInfo,
-        privacy: "PUBLIC_TO_EVERYONE",
-        disableComments: false,
-        disableDuet: false,
-        disableStitch: false,
-        brandedContent: false,
-        ownBrand: false,
-        photoCoverIndex: 1,
+async function publishPhotos(choices: CreatorChoices) {
+  return social.posts.publish({
+    targets: [
+      {
+        account,
+        options: {
+          privacy: choices.privacy,
+          disableComments: choices.disableComments,
+          disableDuet: choices.disableDuet,
+          disableStitch: choices.disableStitch,
+          brandedContent: choices.brandedContent,
+          ownBrand: choices.ownBrand,
+          aiGenerated: choices.aiGenerated,
+          consentGiven: true,
+          creatorInfo,
+          draft: false,
+          photoCoverIndex: 1,
+        },
       },
-    },
-  ],
-  content: {
-    text: "Photo set",
-    media: [
-      { kind: "image", source: { kind: "https-url", url: "https://media.example.com/1.jpg" } },
-      { kind: "image", source: { kind: "https-url", url: "https://media.example.com/2.jpg" } },
     ],
-  },
-});
-```
-
-### Reconcile the publish ID
-
-The initial publish call returns `accepted` with a `publish_id`. Reconcile through `posts.getDelivery`: processing states remain `processing`, a confirmed failure remains `failed`, and a public ID is required before reporting `published`.
-
-```ts
-const outcome = result.outcomes[0];
-if (outcome?.delivery) {
-  const delivery = await social.posts.getDelivery(outcome.delivery);
-  console.log(delivery.state); // processing | published | failed | unknown
+    content: {
+      text: "Photo set",
+      media: [
+        { kind: "image", source: { kind: "https-url", url: "https://media.example.com/1.jpg" } },
+        { kind: "image", source: { kind: "https-url", url: "https://media.example.com/2.jpg" } },
+      ],
+    },
+  });
 }
 ```
 
-Draft/inbox and public posting have different upstream review and audit requirements; the SDK does not claim approval or silently change privacy.
+### Send a video to the creator's inbox
+
+Request `video.upload` for this flow. After showing the preview and obtaining transfer consent, submit explicit choices with `draft: true`. The adapter skips Direct Post creator-info and visibility checks for inbox delivery. The video inbox endpoint transfers the media without `post_info`, so the video caption and other posting choices are not sent. The creator must open TikTok's inbox notification, edit the video, and finish posting in TikTok.
+
+```ts
+async function sendVideoDraft(choices: CreatorChoices) {
+  return social.posts.publish({
+    targets: [
+      {
+        account,
+        options: {
+          privacy: choices.privacy,
+          disableComments: choices.disableComments,
+          disableDuet: choices.disableDuet,
+          disableStitch: choices.disableStitch,
+          brandedContent: choices.brandedContent,
+          ownBrand: choices.ownBrand,
+          aiGenerated: choices.aiGenerated,
+          consentGiven: true,
+          draft: true,
+        },
+      },
+    ],
+    content: {
+      media: [
+        {
+          kind: "video",
+          source: { kind: "https-url", url: "https://media.example.com/video.mp4" },
+          durationSeconds: 8,
+        },
+      ],
+    },
+  });
+}
+```
+
+Photo inbox delivery uses `draft: true` with the photo shape above, including `photoCoverIndex`. The adapter sends photo title and description with `MEDIA_UPLOAD`, but TikTok documents posting controls as Direct Post fields. Do not promise that inbox delivery applies them; the creator reviews and completes the post in TikTok.
+
+### Reconcile the publish ID
+
+Initialization returns `accepted` with the `publish_id` in `outcome.delivery.deliveryId`. Reconcile through `posts.getDelivery`. Download/upload states remain `processing`; `SEND_TO_USER_INBOX` remains `accepted` and requires creator completion. `PUBLISH_COMPLETE` without exactly one public post ID also remains `accepted`, including private or non-public completion. Only a single public identity produces `published`. A confirmed failure is `failed`.
+
+```ts
+async function reconcile(result: Awaited<ReturnType<typeof publishVideo>>) {
+  const outcome = result.outcomes[0];
+  if (outcome?.delivery) {
+    const delivery = await social.posts.getDelivery(outcome.delivery);
+    console.log(delivery.state); // accepted | processing | published | failed | unknown
+    return delivery;
+  }
+}
+```
 
 ### Receive webhooks
 
-Pass the app client secret as `webhookSecret`. `adapter.webhooks.verify` checks `TikTok-Signature` and rejects timestamps more than 300 seconds old; set `webhookToleranceSeconds` to change the window, because TikTok does not publish one. Publish events decode to `publication.updated` with the `publish_id` as `backendRecordId`, and `authorization.removed` decodes to `account.updated`. See [Process webhooks](/events).
+Pass the app client secret as `webhookSecret`. `adapter.webhooks.verify` checks `TikTok-Signature` and rejects timestamps more than 300 seconds old; set `webhookToleranceSeconds` to change the window, because TikTok does not publish one.
 
-## Native operations
+`post.publish.*` events decode to `publication.updated` and use `content.publish_id` as `backendRecordId`. Inspect `originalType` to distinguish the event, `content.reason` for a failure, and `content.post_id` for public availability. Legacy `video.*` events use `share_id` and are not assigned that backend record ID. `authorization.removed` decodes to `account.updated`. See [Process webhooks](/events) and TikTok's [Events guide](https://developers.tiktok.com/doc/webhooks-events).
 
-The typed native module adds the inbox/draft upload path, own-video listing with display fields, and an explicit publish-status query. Post metrics from `social.analytics.getPostMetrics` read like, comment, share, and view counts through the Display API video query and require `video.list`; account metrics require `user.info.stats`. Polling is caller initiated and bounded; the SDK does not run background polling. Comments and direct messages remain platform limits for standard Content Posting and Display API apps.
+## Native operations and Display API reads
+
+The typed native module adds inbox/draft upload, own-video listing with display fields, and an explicit publish-status query. `posts.list` accepts a page size from 1 to 20. The documented Display API surface lists the authorized creator's public videos; it does not promise photo or private-post enumeration. `create_time` is in Unix seconds, while returned pagination cursors are timestamps in milliseconds. Pass cursors back unchanged as strings.
+
+`cover_image_url` expires after six hours. Refresh it through `posts.get` instead of treating it as a permanent asset URL. Post metrics from `social.analytics.getPostMetrics` read like, comment, share, and view counts through the video-query endpoint and require `video.list`; account metrics require `user.info.stats`. A missing requested video is an error; absent individual metric fields stay absent.
+
+Polling is caller initiated and bounded; the SDK does not run background polling. Comments and direct messages remain platform limits for standard Content Posting and Display API apps.
 
 ## Limits and requirements
 
-:::warning
-The adapter rejects missing consent, stale creator choices, unverified origins, unsupported schedules/replies/links, and unknown media duration where required.
-:::
+Unaudited Direct Post clients can post only to private creator accounts with `SELF_ONLY` visibility and are limited to five users in a 24-hour period. Public posting requires TikTok's audit approval. The SDK does not claim approval or silently change privacy. Follow TikTok's [content sharing guidelines](https://developers.tiktok.com/doc/content-sharing-guidelines/) when building the creator preview.
 
-- Explicit privacy and interaction choices are required on every publish, and captions are validated against the format limit.
-- Published posts cannot be edited. The [Content Posting API](https://developers.tiktok.com/doc/content-posting-api-get-started) sets the caption, privacy, and interaction settings only when a post is initialized, so `posts.update` is declared `unsupported-by-platform`.
-- Keep tokens server-side and treat media URLs, creator data, and publish IDs as sensitive.
-- Repository evidence is offline contract and mocked transport coverage; no TikTok app or creator account has been live-verified.
+Direct Post daily caps vary by creator and are typically about 15 posts per creator per day, shared across API clients. Inbox uploads also have a pending-share limit: TikTok documents at most five pending shares in a 24-hour period. Initialization endpoints allow 6 requests per minute per user access token, creator-info queries 20, and status queries 30.
 
-TikTok's [content sharing guidelines](https://developers.tiktok.com/doc/content-sharing-guidelines/) describe creator preview, consent, privacy, and app-audit requirements.
+Provider codes include `rate_limit_exceeded`, `spam_risk_too_many_posts`, `spam_risk_too_many_pending_share`, `reached_active_user_cap`, and `unaudited_client_can_only_post_to_private_accounts`. The SDK preserves structured provider codes as `upstreamCode`; HTTP 429 stays `rate_limited` with its status and validated structured provider code, when present. Rate-limit errors expose a delay disposition bounded to 60 seconds, using `Retry-After` when available and 60 seconds otherwise. This disposition does not replay a write or start automatic polling.
+
+The adapter rejects missing consent, changed creator choices, unverified origins, unsupported schedules/replies/links, and unknown video duration. Published posts cannot be edited: the [Content Posting API](https://developers.tiktok.com/doc/content-posting-api-get-started) sets posting options only during initialization, so `posts.update` is `unsupported-by-platform`.
+
+Keep tokens server-side and treat media URLs, creator data, and publish IDs as sensitive. Repository evidence is offline contract and mocked transport coverage; no TikTok app or creator account has been live-verified.

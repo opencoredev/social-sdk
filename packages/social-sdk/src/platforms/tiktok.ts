@@ -11,7 +11,7 @@ import type {
   PlatformPostRef,
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
-import { parseJson } from "../transport/json.js";
+import { readJson, retryDelay } from "../transport/http.js";
 import {
   array,
   isBoolean,
@@ -82,21 +82,39 @@ const videoFields = [
 
 /**
  * TikTok reports some rejections as 4xx responses with a structured `error.code`.
- * Pass those through as 200 so `data()` can map the provider code.
+ * Pass those through as 200 so `data()` can map the provider code, except
+ * HTTP 429, whose status and Retry-After belong to the transport. Capture its
+ * validated code separately so the transport error retains provider metadata.
+ * Read the original stream within the transport's 16 KiB error-evidence cap
+ * and request signal, so oversized or aborted reads cancel the source.
  */
-function withTikTokErrorBodies(fetch: typeof globalThis.fetch) {
+function withTikTokErrorBodies(
+  fetch: typeof globalThis.fetch,
+  onRateLimitCode: (code: string | undefined) => void,
+  onResponse: (response: Response | undefined) => void,
+) {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
+    onResponse(undefined);
+    onRateLimitCode(undefined);
+
     const response = await fetch(input, init);
+
+    onResponse(response);
 
     if (response.status < 400 || response.status >= 500) return response;
 
-    const body = await response.clone().text();
-
     try {
-      const errorObject = object(object(parseJson(body))["error"]);
+      const body = await readJson(response, 16 * 1024, init?.signal ?? undefined);
+      const errorObject = object(object(body)["error"]);
+
+      if (response.status === 429) {
+        onRateLimitCode(string(errorObject["code"]));
+
+        return response;
+      }
 
       if (errorObject["code"] !== undefined)
-        return new Response(body, {
+        return new Response(JSON.stringify(body), {
           status: 200,
           headers: response.headers,
         });
@@ -111,14 +129,69 @@ function withTikTokErrorBodies(fetch: typeof globalThis.fetch) {
 export function tiktok(
   options: TikTokOptions,
 ): import("../core/adapter.js").SocialAdapter<TikTokNative> {
-  const userFetch = options.fetch;
+  if (!options.auth.accessToken.trim())
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "createAdapter",
+      message: "Configure the selected provider's server-side API key.",
+    });
 
-  const request = managedHttp("https://open.tiktokapis.com", {
-    apiKey: options.auth.accessToken,
-    ...definedFields({
-      fetch: userFetch === undefined ? undefined : withTikTokErrorBodies(userFetch),
-    }),
-  });
+  const request: ReturnType<typeof managedHttp> = async (...args) => {
+    let upstreamCode: string | undefined;
+    let upstreamStatus: number | undefined;
+    let retryAfterMs: number | undefined;
+
+    const httpRequest = managedHttp("https://open.tiktokapis.com", {
+      apiKey: options.auth.accessToken,
+      fetch: withTikTokErrorBodies(
+        (input, init) => (options.fetch ?? globalThis.fetch)(input, init),
+        (code) => {
+          upstreamCode = code;
+        },
+        (response) => {
+          // A received rejection stays definitive even if its optional evidence stalls.
+          upstreamStatus = response?.status;
+          retryAfterMs = retryDelay(response?.headers.get("retry-after") ?? null, Date.now());
+        },
+      ),
+    });
+
+    try {
+      const result = await httpRequest(...args);
+
+      if (object(object(result)["error"])["code"] === "rate_limit_exceeded")
+        throw new SocialError({
+          code: "rate_limited",
+          operation: "tiktok",
+          message: "TikTok rejected the operation because its rate limit was exceeded.",
+          upstreamCode: "rate_limit_exceeded",
+        });
+
+      return result;
+    } catch (error) {
+      if (
+        !(error instanceof SocialError) ||
+        error.code === "cancelled" ||
+        (error.code !== "rate_limited" && upstreamStatus !== 429)
+      )
+        throw error;
+
+      const delay =
+        retryAfterMs ??
+        (error.retryDisposition.kind === "after-delay" ? error.retryDisposition.delayMs : 60_000);
+
+      throw new SocialError({
+        ...error.toJSON(),
+        code: "rate_limited",
+        message: "TikTok rejected the operation because its rate limit was exceeded.",
+        ...definedFields({
+          upstreamCode: upstreamCode ?? error.upstreamCode,
+          upstreamStatus,
+        }),
+        retryDisposition: { kind: "after-delay", delayMs: Math.min(60_000, Math.max(0, delay)) },
+      });
+    }
+  };
 
   const origins = new Set(options.verifiedMediaOrigins.map((value) => httpsUrl(value).origin));
   const now = () => (options.clock?.() ?? new Date()).toISOString();
@@ -146,16 +219,23 @@ export function tiktok(
     if (error["code"] !== "ok")
       throw new SocialError({
         code:
-          error["code"] === "access_token_invalid"
-            ? "reconnect_required"
-            : error["code"] === "scope_not_authorized" ||
-                error["code"] === "unaudited_client_can_only_post_to_private_accounts"
-              ? "missing_permission"
-              : "upstream_failure",
+          error["code"] === "rate_limit_exceeded"
+            ? "rate_limited"
+            : error["code"] === "access_token_invalid"
+              ? "reconnect_required"
+              : error["code"] === "scope_not_authorized" ||
+                  error["code"] === "scope_permission_missed" ||
+                  error["code"] === "unaudited_client_can_only_post_to_private_accounts"
+                ? "missing_permission"
+                : "upstream_failure",
         operation: "tiktok",
         message:
           "TikTok rejected the operation. Check creator eligibility, scope grants, and app audit status.",
         upstreamCode: string(error["code"]),
+        retryDisposition:
+          error["code"] === "rate_limit_exceeded"
+            ? { kind: "after-delay", delayMs: 60_000 }
+            : { kind: "never" },
       });
 
     return object(response["data"]);
@@ -209,6 +289,9 @@ export function tiktok(
       "draft",
     ])
       if (!isBoolean(config[key])) fail(`tiktok.${key}`, `Explicit ${key} choice is required.`);
+
+    if (!draft && config["brandedContent"] === true && config["privacy"] === "SELF_ONLY")
+      fail("tiktok.branded_privacy", "TikTok branded content cannot use private visibility.");
 
     const creatorInfoValue = config["creatorInfo"];
 
@@ -564,6 +647,14 @@ export function tiktok(
         authorize(target.account, context);
         const config = optionsObject(target);
         const draft = config["draft"] === true;
+
+        if (!draft && config["brandedContent"] === true && config["privacy"] === "SELF_ONLY")
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.publish",
+            message: "TikTok branded content cannot use private visibility.",
+          });
+
         const latest = draft ? undefined : await creatorInfo(target.account, context);
         const media = target.content.media ?? [];
         const first = media[0];
@@ -584,7 +675,7 @@ export function tiktok(
           ["stitchDisabled", "disableStitch"],
         ])
           if (
-            first?.kind === "video" &&
+            (remote === "commentDisabled" || first?.kind === "video") &&
             latest &&
             remote &&
             choice &&
@@ -787,7 +878,12 @@ export function tiktok(
           .map(object)
           .find((video) => video["id"] === post.postId);
 
-        if (!row) return [];
+        if (!row)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "analytics.read",
+            message: "TikTok video was not found for this authorization.",
+          });
         const fetchedAt = now();
 
         return (["like_count", "comment_count", "share_count", "view_count"] as const).flatMap(
