@@ -343,3 +343,33 @@ it("storage acceptance before a streamed body is fully consumed stays an error",
       !error.message.includes("signature"),
   );
 });
+
+it("storage rate limits retain Retry-After without retrying the upload", async () => {
+  for (const retryAfter of ["2", "invalid", undefined]) {
+    let calls = 0;
+
+    await assert.rejects(
+      upload({
+        url: "https://storage.example.test/image",
+        allowHost: () => true,
+        maxBytes: 100,
+        source: { mimeType: "image/png", open: () => new Blob(["x"]).stream() },
+        fetch: async () => {
+          calls++;
+
+          return new Response(null, {
+            status: 429,
+            headers: retryAfter === undefined ? {} : { "retry-after": retryAfter },
+          });
+        },
+      }),
+      (error) =>
+        error instanceof HttpError &&
+        error.kind === "http" &&
+        error.status === 429 &&
+        error.retryAfterMs === (retryAfter === "2" ? 2000 : undefined),
+    );
+
+    assert.equal(calls, 1);
+  }
+});

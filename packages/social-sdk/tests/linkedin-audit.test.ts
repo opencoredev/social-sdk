@@ -286,6 +286,48 @@ it("LinkedIn public image uploads report timeout after initialization", async ()
   assert.equal(calls.length, 2);
 });
 
+it("LinkedIn public image uploads preserve rate limits and retry delays without replay", async () => {
+  for (const retryAfter of ["2", undefined]) {
+    let calls = 0;
+
+    const social = createSocial({
+      backend: adapterWith(async (input) => {
+        calls++;
+
+        if (String(input).includes("initializeUpload"))
+          return Response.json({
+            value: { image: "urn:li:image:fixture", uploadUrl: "https://www.linkedin.com/upload" },
+          });
+
+        return new Response(null, {
+          status: 429,
+          headers: retryAfter === undefined ? {} : { "retry-after": retryAfter },
+        });
+      }),
+    });
+
+    await assert.rejects(
+      social.media.upload(
+        {
+          kind: "image",
+          mimeType: "image/png",
+          source: { kind: "blob", blob: new Blob(["x"]), fingerprint: "fixture" },
+        },
+        account,
+      ),
+      {
+        code: "rate_limited",
+        operation: "media.upload",
+        upstreamStatus: 429,
+        retryDisposition:
+          retryAfter === undefined ? { kind: "never" } : { kind: "after-delay", delayMs: 2000 },
+      },
+    );
+
+    assert.equal(calls, 2);
+  }
+});
+
 it("LinkedIn single-image preparation applies the inclusive 4086-character alt-text limit", () => {
   const social = createSocial({ backend: adapterWith(async () => Response.json({})) });
 
