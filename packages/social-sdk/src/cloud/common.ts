@@ -262,7 +262,9 @@ export function managedOptionIssues(
             "ownBrand",
             "aiGenerated",
             "draft",
-            ...(provider === "zernio" ? ["photoCoverIndex"] : []),
+            ...(provider === "zernio"
+              ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
+              : []),
           ],
   };
 
@@ -342,6 +344,24 @@ export function managedOptionIssues(
         media.some((item) => item.kind !== "image"))
     )
       fail("tiktok.cover", "Choose an existing photo index for the cover.");
+
+    if (
+      config["title"] !== undefined &&
+      (!isString(config["title"]) || String(config["title"]).length > 90)
+    )
+      fail("tiktok.title", "Photo titles are limited to 90 characters.");
+
+    if (
+      config["description"] !== undefined &&
+      (!isString(config["description"]) || String(config["description"]).length > 4000)
+    )
+      fail("tiktok.description", "Photo descriptions are limited to 4000 characters.");
+
+    if (config["mediaType"] !== undefined && config["mediaType"] !== "photo")
+      fail("tiktok.media_type", 'mediaType must be "photo" when set.');
+
+    if (config["autoAddMusic"] !== undefined && !isBoolean(config["autoAddMusic"]))
+      fail("tiktok.auto_add_music", "autoAddMusic must be a boolean.");
   }
 
   return issues;

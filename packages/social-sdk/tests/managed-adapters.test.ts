@@ -571,6 +571,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
       assert.equal(native["allowStitch"], true);
       assert.equal(native["isBrandOrganicPost"], true);
       assert.equal(native["videoMadeWithAi"], true);
+      assert.equal(native["autoAddMusic"], false);
     } else {
       const native = object(object(object(payload)["platform_configurations"])["tiktok"]);
 
@@ -601,3 +602,82 @@ for (const provider of ["zernio", "post-for-me"] as const) {
     assert.equal(social.posts.prepare(unmapped).ok, false);
   });
 }
+
+it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", async () => {
+  let payload: JsonValue | undefined;
+
+  const social = createSocial({
+    backend: zernio({
+      apiKey: "test",
+      fetch: async (_input, init) => {
+        payload = JSON.parse(String(init?.body));
+
+        return Response.json({
+          post: {
+            _id: "p-photo",
+            status: "pending",
+            platforms: [{ accountId: "tt1", platform: "tiktok", status: "pending" }],
+          },
+        });
+      },
+    }),
+  });
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "tiktok",
+    accountId: "tt1",
+  });
+
+  const request = {
+    targets: [
+      {
+        account,
+        options: {
+          privacy: "PUBLIC_TO_EVERYONE" as const,
+          consentGiven: true,
+          disableComments: false,
+          disableDuet: false,
+          disableStitch: false,
+          brandedContent: false,
+          ownBrand: true,
+          aiGenerated: false,
+          draft: false,
+          title: "Photo title under ninety",
+          description: "Full caption body for the photo post.",
+          mediaType: "photo" as const,
+          autoAddMusic: false,
+          photoCoverIndex: 0,
+        },
+      },
+    ],
+    content: {
+      text: "ignored when title option is set",
+      media: [
+        {
+          kind: "image" as const,
+          mimeType: "image/jpeg",
+          source: { kind: "https-url" as const, url: "https://media.example.test/1.jpg" },
+        },
+        {
+          kind: "image" as const,
+          mimeType: "image/jpeg",
+          source: { kind: "https-url" as const, url: "https://media.example.test/2.jpg" },
+        },
+      ],
+    },
+  };
+
+  assert.equal(social.posts.prepare(request).ok, true);
+  await social.posts.publish(request);
+
+  const body = object(payload);
+  assert.equal(body["content"], "Photo title under ninety");
+  const native = object(object(array(body["platforms"])[0])["platformSpecificData"]);
+  assert.equal(native["mediaType"], "photo");
+  assert.equal(native["description"], "Full caption body for the photo post.");
+  assert.equal(native["autoAddMusic"], false);
+  assert.equal(native["photoCoverIndex"], 0);
+  assert.equal(native["isBrandOrganicPost"], true);
+  assert.equal(native["allowComment"], true);
+});
