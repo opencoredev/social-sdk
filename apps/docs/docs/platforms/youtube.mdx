@@ -224,7 +224,7 @@ if (uploadStatus.state === "incomplete") {
 }
 ```
 
-`resumeUpload` probes the server's confirmed offset before sending remaining bytes. Publish, resume, and query each get one deadline of at least 15 minutes, or the longer remaining caller budget. A resume probe and its chunks share that deadline. Pass `signal` to cancel earlier. For an expired session (typically HTTP 404/410), confirm the old video's state before starting a new upload; an expired URI cannot be resumed. Recreating a session can create another video.
+`resumeUpload` probes the server's confirmed offset before sending remaining bytes. Publish and resume each get one deadline of at least 15 minutes, or the longer remaining caller budget. A resume probe and its chunks share that deadline. `queryUpload` uses the caller's remaining budget as is, with no 15-minute minimum. Pass `signal` to cancel earlier. For an expired session (typically HTTP 404/410), confirm the old video's state before starting a new upload; an expired URI cannot be resumed. Recreating a session can create another video.
 
 ### Receive push notifications
 
