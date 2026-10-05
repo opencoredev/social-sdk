@@ -1433,7 +1433,7 @@ export function youtube(
           });
 
         return queryYouTubeUpload(session, {
-          timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
+          timeoutMs: remainingBudget(context),
           accessToken: options.auth.accessToken,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
         });
@@ -1566,6 +1566,18 @@ export function youtube(
             });
 
           const snippet = object(body?.["snippet"] ?? {});
+
+          if (
+            action === "update" &&
+            (Object.keys(body ?? {}).some((field) => field !== "id" && field !== "snippet") ||
+              Object.keys(snippet).some((field) => field !== "isDraft") ||
+              (snippet["isDraft"] !== undefined && !isBoolean(snippet["isDraft"])))
+          )
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "captions.update",
+              message: "Caption updates accept only id and a boolean snippet.isDraft.",
+            });
 
           if (action === "update" && !caption && !isBoolean(snippet["isDraft"]))
             throw new SocialError({

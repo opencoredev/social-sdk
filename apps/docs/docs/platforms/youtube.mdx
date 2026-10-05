@@ -33,9 +33,16 @@ These are operation-specific choices, not a request to grant every scope. Use th
 For a connection that discovers channels and uploads videos, configure the provider with these scopes and your encrypted credential store:
 
 ```ts
-import { youtubeOAuth, type OAuthCredentialSink } from "@opencoredev/social-sdk/server";
+import {
+  youtubeOAuth,
+  type ConnectionManager,
+  type OAuthCredentialSink,
+} from "@opencoredev/social-sdk/server";
 
-function createYouTubeConnectionProvider(credentialSink: OAuthCredentialSink) {
+function createYouTubeConnectionProvider(
+  credentialSink: OAuthCredentialSink,
+  selectedChannelId: string,
+) {
   return youtubeOAuth({
     clientId: requiredEnv("GOOGLE_CLIENT_ID"),
     clientSecret: requiredEnv("GOOGLE_CLIENT_SECRET"),
@@ -46,11 +53,25 @@ function createYouTubeConnectionProvider(credentialSink: OAuthCredentialSink) {
       "https://www.googleapis.com/auth/youtube.upload",
     ],
     credentialSink,
+    selectAccounts: () => [selectedChannelId],
+  });
+}
+
+async function completeYouTubeConnection(
+  manager: ConnectionManager,
+  credentialSink: OAuthCredentialSink,
+  selectedChannelId: string,
+  input: Omit<Parameters<ConnectionManager["complete"]>[0], "provider" | "selectedAccountIds">,
+) {
+  return manager.complete({
+    ...input,
+    provider: createYouTubeConnectionProvider(credentialSink, selectedChannelId),
+    selectedAccountIds: [selectedChannelId],
   });
 }
 ```
 
-Supply this provider to the connection flow in the linked guide. Add write or Analytics scopes only for operations your application offers. The adapter configuration below loads the selected channel and token from server configuration.
+This example assumes the chosen channel ID is known before callback discovery. Load it from server-side state for the authenticated tenant and principal. The provider persists credentials only for that ID, and `ConnectionManager.complete` grants access to the same channel. An ID absent from discovery is rejected before credentials are saved. For a picker shown after discovery, use an encrypted attempt-scoped token store during discovery and promote only the chosen channel's credentials after `ConnectionManager.select`. Supply the provider to the connection flow in the linked guide. Add write or Analytics scopes only for operations your application offers. The adapter configuration below loads the selected channel and token from server configuration.
 
 ```ts
 import { readFile, writeFile } from "node:fs/promises";
@@ -306,7 +327,7 @@ YouTube deletes any mutable property that a write leaves out, so the adapter rea
 
 Thumbnails must be Blob inputs. [`thumbnails.set`](https://developers.google.com/youtube/v3/docs/thumbnails/set) accepts `image/jpeg`, `image/png`, and `application/octet-stream`, up to 50 MB. Custom thumbnails require channel eligibility; an upstream 403 raises `missing_permission`. The example uses an existing JPEG file.
 
-Caption insertion needs metadata (`language`, `name`, and the selected video's ID) and a caption Blob. Updates can change only `snippet.isDraft` without media, or replace bytes without a snippet (`part=id`). Supply `isDraft` explicitly to change draft status; a draft track is not visible to viewers. Download with `action: "download"` and a `captionId`; downloads are bounded by the caller's remaining elapsed budget and honor cancellation.
+Caption insertion needs metadata (`language`, `name`, and the selected video's ID) and a caption Blob. Updates can change only `snippet.isDraft` without media, or replace bytes without a snippet (`part=id`). Other update metadata, including `name` and `language`, is rejected locally with `invalid_input`; YouTube accepts only `id` and `snippet.isDraft` for updates. Supply `isDraft` explicitly to change draft status; a draft track is not visible to viewers. Download with `action: "download"` and a `captionId`; downloads are bounded by the caller's remaining elapsed budget and honor cancellation.
 
 Held-for-review threads use `native.heldComments`. [`comments.delete`](https://developers.google.com/youtube/v3/docs/comments/delete) is restricted to the comment's original author. Pass the top-level comment ID, not a reply-thread container. A forbidden deletion raises `missing_permission`. To remove another user's comment from your video, use `commentsModeration` with `moderationStatus: "rejected"`. Rejected moderation is irreversible through the API. Comment replies verify the parent thread's video before inserting a reply.
 
@@ -381,7 +402,7 @@ Uploads from unaudited API projects created after July 28, 2020 are restricted t
 - Google's [current quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost) gives `videos.insert` and `search.list` separate buckets of 100 calls per day, at 1 unit per call. Other list/get calls generally cost 1 unit from the Data API quota.
 - Video update/delete and playlist writes cost 50 units; schedule cancellation costs 51 including its ownership read. `thumbnails.set` costs 50; captions list/delete cost 50, insert 400, update 450, and download 200; subscription and comment mutations cost 50. Additional adapter reads consume their own units.
 - Channel upload caps are separate from project quota. `uploadLimitExceeded` and `quotaExceeded` raise `rate_limited` during upload with a sanitized upstream reason. Neither is retried automatically; resolve the cap or quota before starting another write.
-- Upload, resume, and status probes get at least 15 minutes per invocation. Pass a longer budget for large files and a `signal` to cancel early.
+- Upload and resume get at least 15 minutes per invocation. Status probes honor the caller's remaining elapsed budget. Pass a longer budget for large files and a `signal` to cancel early.
 - Current evidence is contract coverage, not a live channel verification.
 
 See YouTube's [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) documentation for current audit and quota rules, [videos.update](https://developers.google.com/youtube/v3/docs/videos/update) and the [videos resource](https://developers.google.com/youtube/v3/docs/videos#status.publishAt) for `status.publishAt` rules, and [channels.update](https://developers.google.com/youtube/v3/docs/channels/update) for the channel fields you can write.

@@ -248,7 +248,7 @@ it("video patches write only mutable fields, clear null fields, and clear schedu
   );
 });
 
-it("resume and query allow the upload minimum despite a short budget and honor abort", async () => {
+it("query honors a short budget while resume retains its upload minimum and both honor abort", async () => {
   const session = {
     url: "https://www.googleapis.com/upload/youtube/v3/videos?upload_id=test",
     size: 1,
@@ -266,7 +266,7 @@ it("resume and query allow the upload minimum despite a short budget and honor a
   });
 
   const short = () => ({ ...context(), retryBudget: { maxAttempts: 1, maxElapsedMs: 5 } });
-  assert.equal((await adapter.native!.queryUpload(session, short())).state, "incomplete");
+  await assert.rejects(adapter.native!.queryUpload(session, short()), { code: "timeout" });
   assert.equal((await adapter.native!.resumeUpload(session, media, short())).state, "incomplete");
 
   for (const action of ["query", "resume"]) {
@@ -752,4 +752,40 @@ it("caption updates reject empty changes and retain metadata-only draft updates"
   }
 
   assert.equal(calls, 2);
+});
+
+it("caption replacement rejects unsupported metadata before dispatch", async () => {
+  let calls = 0;
+
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async () => {
+      calls++;
+
+      return Response.json({ id: "c1" });
+    },
+  });
+
+  for (const body of [
+    { snippet: { name: "English" } },
+    { snippet: { language: "en", isDraft: false } },
+    { snippet: { videoId: "video1" } },
+    { snippet: { isDraft: "false" } },
+    { snippet: { isDraft: null } },
+    { snippet: { isDraft: false }, unsupported: true },
+  ]) {
+    await assert.rejects(
+      adapter.native!.captions({
+        action: "update",
+        videoId: "video1",
+        captionId: "c1",
+        caption: media,
+        body,
+        context: context(),
+      }),
+      { code: "invalid_input" },
+    );
+  }
+
+  assert.equal(calls, 0);
 });
