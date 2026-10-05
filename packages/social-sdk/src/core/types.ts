@@ -282,7 +282,9 @@ export interface PublishSequenceFailure {
 
 export interface PublishSequenceResult {
   readonly status: PublicationStatus;
-  /** Results for items that were dispatched, in request order. Failed items are in `failures`. */
+  /** Returned publish results in request order, including results with failed outcomes.
+   * Items whose publish call throws a SocialError are omitted and recorded by index in `failures`.
+   * Items skipped after stopping or missing a published parent appear in neither array. */
   readonly items: readonly PublishResult[];
   readonly failures: readonly PublishSequenceFailure[];
 }

@@ -56,6 +56,8 @@ export interface OAuthProviderOptions {
   readonly timeoutMs?: number;
   /** Maximum response body size. Defaults to one MiB. */
   readonly maxResponseBytes?: number;
+  /** Cancels token requests and account discovery, including continuation pages. */
+  readonly signal?: AbortSignal;
 }
 
 type ProviderKind = "youtube" | "x" | "threads" | "tiktok" | "instagram" | "linkedin";
@@ -280,6 +282,12 @@ async function body(response: Response, operation: string, maxBytes: number): Pr
 }
 
 function parseScopes(value: JsonField): readonly string[] | undefined {
+  if (Array.isArray(value)) {
+    if (!value.every(isString)) fail("oauth.token", "OAuth provider returned invalid scopes");
+
+    return value;
+  }
+
   const scope = optionalString(value);
 
   return scope === undefined ? undefined : scope.split(/[\s,]+/).filter(Boolean);
@@ -325,7 +333,12 @@ function tokenResult(data: JsonObject, kind: ProviderKind): TokenResult {
     nested = asRecord(first, "oauth.token");
   }
 
-  const token = tokenSet(nested);
+  const token = tokenSet(
+    kind === "instagram" && nested["permissions"] !== undefined
+      ? { ...nested, scope: nested["permissions"] }
+      : nested,
+  );
+
   const accountHint = optionalString(nested["user_id"]) ?? optionalString(nested["open_id"]);
 
   return accountHint === undefined ? { token } : { token, accountHint };
@@ -342,38 +355,42 @@ async function request(
 
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
     fail("oauth.config", "timeoutMs must be a positive safe integer", "invalid_input");
+
+  if (options.signal?.aborted) fail(operation, "OAuth provider request cancelled", "cancelled");
   const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  options.signal?.addEventListener("abort", onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let raceTimer: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    // AbortController handles standards-compliant fetch implementations; the
-    // race also bounds injected fetchers that ignore AbortSignal.
-    const timeout = new Promise<never>((_, reject) => {
-      raceTimer = setTimeout(
-        () => reject(new DOMException("OAuth request timed out", "AbortError")),
-        timeoutMs,
+    // Race injected fetchers and response readers that ignore AbortSignal.
+    const aborted = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener(
+        "abort",
+        () => reject(new DOMException("OAuth request aborted", "AbortError")),
+        { once: true },
       );
     });
 
     const response = await Promise.race([
       fetcher(url, { ...init, redirect: "error", signal: controller.signal }),
-      timeout,
+      aborted,
     ]);
 
     return await Promise.race([
       body(response, operation, options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES),
-      timeout,
+      aborted,
     ]);
   } catch (error) {
     if (error instanceof SocialError) throw error;
+
+    if (options.signal?.aborted) fail(operation, "OAuth provider request cancelled", "cancelled");
 
     if (isAbortError(error)) fail(operation, "OAuth provider request timed out", "timeout");
     fail(operation, "OAuth provider request failed", "upstream_failure", error);
   } finally {
     clearTimeout(timer);
-
-    if (raceTimer !== undefined) clearTimeout(raceTimer);
+    options.signal?.removeEventListener("abort", onAbort);
   }
 
   fail("oauth.internal", "OAuth request did not produce a result");
@@ -395,7 +412,7 @@ function providerIdentity(
   hint: string | undefined,
   discovered: readonly ConnectionAccount[],
 ): void {
-  if (hint === undefined) return;
+  if (hint === undefined || kind === "instagram") return;
   const normalized = kind === "linkedin" ? `urn:li:person:${hint}` : hint;
 
   if (
@@ -608,27 +625,47 @@ async function discover(
   const auth = { Authorization: `Bearer ${token.accessToken}`, accept: "application/json" };
 
   if (kind === "youtube") {
-    const data = await request(
-      fetcher,
-      "https://www.googleapis.com/youtube/v3/channels?part=id,snippet&mine=true",
-      { headers: auth },
-      "youtube.account",
-      options,
+    const accounts: ConnectionAccount[] = [];
+    const seen = new Set<string>();
+
+    const url = new URL(
+      "https://www.googleapis.com/youtube/v3/channels?part=id,snippet&mine=true&maxResults=50",
     );
 
-    const items = Array.isArray(data["items"]) ? data["items"] : [];
-
-    return items.map((item) => {
-      const row = asRecord(item, "youtube.account");
-      const snippet = asRecord(row["snippet"] ?? {}, "youtube.account");
-
-      return account(
-        "youtube",
-        backend,
-        requiredString(row["id"], "channel id", "youtube.account"),
-        stringOr(snippet["title"], "YouTube channel"),
+    for (let page = 0; page < 100; page++) {
+      const data = await request(
+        fetcher,
+        url.toString(),
+        { headers: auth },
+        "youtube.account",
+        options,
       );
-    });
+
+      const items = Array.isArray(data["items"]) ? data["items"] : [];
+
+      for (const item of items) {
+        const row = asRecord(item, "youtube.account");
+        const snippet = asRecord(row["snippet"] ?? {}, "youtube.account");
+        accounts.push(
+          account(
+            "youtube",
+            backend,
+            requiredString(row["id"], "channel id", "youtube.account"),
+            stringOr(snippet["title"], "YouTube channel"),
+          ),
+        );
+      }
+
+      if (data["nextPageToken"] === undefined) return accounts;
+      const next = requiredString(data["nextPageToken"], "nextPageToken", "youtube.account");
+
+      if (seen.has(next))
+        fail("youtube.account", "YouTube account discovery repeated a continuation token");
+      seen.add(next);
+      url.searchParams.set("pageToken", next);
+    }
+
+    fail("youtube.account", "YouTube account discovery exceeded the 100-page limit");
   }
 
   if (kind === "x") {
@@ -712,18 +749,19 @@ async function discover(
       options,
     );
 
-    const discoveredId = requiredString(
-      data["id"] ?? data["user_id"],
+    const discoveredAccountId = requiredString(
+      data["user_id"] ?? data["id"],
       "user id",
       "instagram.account",
     );
 
-    const discoveredUserId = optionalString(data["user_id"]);
-
-    const discoveredAccountId =
-      hint !== undefined && (hint === discoveredId || hint === discoveredUserId)
-        ? hint
-        : discoveredId;
+    // The exchange may identify the app-scoped id; publishing uses user_id.
+    if (hint !== undefined && hint !== discoveredAccountId && hint !== optionalString(data["id"]))
+      fail(
+        "oauth.identity",
+        "OAuth token identity did not match the discovered account",
+        "unauthorized",
+      );
 
     return [
       account(
@@ -824,7 +862,7 @@ async function exchangeLongLived(
     access_token: current.accessToken,
   });
 
-  return tokenSet(
+  const next = tokenSet(
     await request(
       options.fetch ?? webFetch,
       `${endpoint}?${params.toString()}`,
@@ -834,6 +872,10 @@ async function exchangeLongLived(
     ),
     `oauth.${kind}.exchange`,
   );
+
+  return next.scopes === undefined && current.scopes !== undefined
+    ? { ...next, scopes: current.scopes }
+    : next;
 }
 
 /** Exchange a short-lived Threads or Instagram Login token for a long-lived token. */

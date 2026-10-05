@@ -18,8 +18,20 @@ export interface RequestEvent {
   elapsedMs: number;
 }
 
+/** Sanitized, allowlisted provider evidence. Raw error bodies are never retained. */
+export interface HttpErrorData {
+  readonly code:
+    | "idempotency_conflict"
+    | "quotaExceeded"
+    | "usage-capped"
+    | "media-duration-exceeded";
+  readonly existingPostId?: string;
+}
+
 export interface HttpRequest {
   url: URL;
+  /** Opt-in operation decoder, limited to 16 KiB and the configured response cap. */
+  decodeErrorBody?: (body: JsonValue, status: number) => HttpErrorData | undefined;
   method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
   headers?: HeadersInit;
   body?: BodyInit;
@@ -47,6 +59,7 @@ export class HttpError extends Error {
     readonly status?: number,
     readonly retryAfterMs?: number,
     readonly requestId?: string,
+    readonly data?: HttpErrorData,
   ) {
     super(message);
   }
@@ -304,7 +317,18 @@ export function createHttp(options: HttpOptions = {}) {
           delay ??= rateLimitResetDelay(response.headers.get("x-rate-limit-reset"), currentTime);
           const responseRequestId = requestId(response.headers);
           lastRequestId = responseRequestId ?? lastRequestId;
-          void response.body?.cancel().catch(() => undefined);
+          let data: HttpErrorData | undefined;
+
+          if (input.decodeErrorBody) {
+            try {
+              data = input.decodeErrorBody(
+                await readJson(response, Math.min(maxBytes, 16 * 1024), controller.signal),
+                response.status,
+              );
+            } catch {
+              // Invalid, oversized, or unrecognized bodies retain the status-only fallback.
+            }
+          } else void response.body?.cancel().catch(() => undefined);
           // Response bodies and URL query strings may contain credentials or user content.
           throw new HttpError(
             `Upstream request failed with HTTP ${response.status}.`,
@@ -313,6 +337,7 @@ export function createHttp(options: HttpOptions = {}) {
             response.status,
             delay,
             responseRequestId,
+            data,
           );
         } catch (error) {
           if (controller.signal.aborted) throw error;
@@ -320,7 +345,8 @@ export function createHttp(options: HttpOptions = {}) {
           const retryable =
             !(error instanceof HttpError) ||
             (error.kind === "http" &&
-              (error.status === 429 || (error.status !== undefined && error.status >= 500)));
+              (error.status === 429 || (error.status !== undefined && error.status >= 500)) &&
+              error.data?.code !== "usage-capped");
 
           if (!safe || !retryable || attempt >= attempts) {
             if (error instanceof HttpError) throw error;

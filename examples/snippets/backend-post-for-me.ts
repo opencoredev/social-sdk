@@ -19,8 +19,8 @@ import {
 } from "@opencoredev/social-sdk/server";
 
 /** Call on your server with the API key from your environment or secret store. */
-export function createPostForMeSocial(apiKey: string) {
-  return createSocial({ backend: postForMe({ apiKey }) });
+export function createPostForMeSocial(apiKey: string, webhookSecret: string) {
+  return createSocial({ backend: postForMe({ apiKey, webhookSecret }) });
 }
 
 export type PostForMeSocial = ReturnType<typeof createPostForMeSocial>;

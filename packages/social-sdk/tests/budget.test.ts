@@ -51,6 +51,8 @@ test("HTTP body and backoff deadlines do not depend on cooperative implementatio
   let calls = 0;
 
   const retry = createHttp({
+    // Keep elapsed arithmetic deterministic so the real timer expires during the hung sleep.
+    now: () => 0,
     timeoutMs: 10,
     fetch: async () => {
       calls++;

@@ -274,3 +274,17 @@ it("maps documented provider record IDs and keeps backend deletion distinct from
 
   assert.equal(result.backendRecordId, "backend-record");
 });
+
+it("reports a verified Zernio body missing its event id as malformed input", async () => {
+  const body = new TextEncoder().encode("{}");
+
+  const headers = new Headers({
+    "X-Zernio-Signature": createHmac("sha256", secret).update(body).digest("hex"),
+  });
+
+  await verifyZernioWebhook({ secret, headers, body });
+  await assert.rejects(decodeWebhook({ provider: "zernio", backend: "managed", body }), {
+    code: "invalid_input",
+    operation: "webhooks.decode",
+  });
+});

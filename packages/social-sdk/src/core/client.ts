@@ -608,13 +608,12 @@ export function createSocial(
         (replyTo.version !== 1 ||
           !["platform-post", "comment"].includes(replyTo.kind) ||
           replyTo.backend !== target.account.backend ||
-          replyTo.platform !== target.account.platform ||
-          replyTo.accountId !== target.account.accountId)
+          replyTo.platform !== target.account.platform)
       ) {
         issues.push(
           preparationIssue(
             "reply.reference_mismatch",
-            "Reply references must use the selected account, backend, and platform",
+            "Reply references must use the selected backend and platform",
             targetIndex,
           ),
         );
@@ -1533,6 +1532,12 @@ export function createSocial(
       ref: import("./types.js").DeliveryRef,
       callOptions?: PublishCallOptions,
     ): Promise<DeliveryOutcome> {
+      if (ref.kind !== "delivery" || ref.version !== 1)
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "posts.getDelivery",
+          message: "Use the version 1 delivery reference returned for this resource.",
+        });
       const correlationId = `social-${++correlationSequence}`;
 
       const account = {

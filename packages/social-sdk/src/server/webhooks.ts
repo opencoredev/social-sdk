@@ -202,7 +202,12 @@ export async function decodeWebhook(input: {
 
   // Post for Me's open-source sender omits its internal event ID from the payload.
   // Exact-body deduplication is a weaker fallback, explicitly reported to callers.
-  if (input.provider === "zernio" && !providerId) denied();
+  if (input.provider === "zernio" && !providerId)
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "webhooks.decode",
+      message: "Zernio webhook body must include an event id.",
+    });
 
   const id =
     providerId ??
@@ -885,6 +890,11 @@ function decodeInstagram(payload: JsonObject): DecodedDelivery {
     const id = optionalString(entry["id"]);
 
     if (id) accountIds.push(id);
+
+    if (entry["field"] !== undefined) {
+      const field = string(entry["field"]);
+      items.push({ originalType: field, type: instagramFieldType(field) });
+    }
 
     if (entry["changes"] !== undefined)
       for (const change of array(entry["changes"])) {

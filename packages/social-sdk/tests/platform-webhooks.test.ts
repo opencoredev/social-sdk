@@ -1133,3 +1133,22 @@ it("wires webhook verification into each direct adapter", async () => {
     "unauthorized",
   );
 });
+
+it("decodes Instagram Login entry fields and Facebook Login changes", async () => {
+  for (const field of ["comments", "live_comments"]) {
+    for (const entry of [
+      { id: "ig-account", field, value: { id: "comment" } },
+      { id: "ig-account", changes: [{ field, value: { id: "comment" } }] },
+    ]) {
+      const event = await decodePlatformWebhook({
+        platform: "instagram",
+        backend: "direct",
+        body: json({ object: "instagram", entry: [entry] }),
+      });
+
+      assert.equal(event.type, "comment.received");
+      assert.equal(event.originalType, field);
+      assert.deepEqual(event.accountIds, ["ig-account"]);
+    }
+  }
+});

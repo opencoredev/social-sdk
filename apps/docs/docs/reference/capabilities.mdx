@@ -7,566 +7,670 @@ This table is generated from the same manifests used by local preparation and th
 
 An omitted operation is unsupported through the normalized API. Some operations need several permissions, and token/product restrictions can differ between member and organization accounts. The setup guide and current provider documentation determine the permissions for your account.
 
-| Backend | Platform | Operation | Declaration | Formats | Scope guidance |
-| --- | --- | --- | --- | --- | --- |
-| mock | * | accounts.read | available | None declared | See adapter setup |
-| mock | * | posts.status | available | None declared | See adapter setup |
-| mock | * | posts.publish | available | text, image, video | See adapter setup |
-| mock | * | comments.read | available | None declared | See adapter setup |
-| mock | * | comments.write | available | None declared | See adapter setup |
-| mock | * | analytics.read | available | None declared | See adapter setup |
-| mock | * | analytics.account.read | available | None declared | See adapter setup |
-| mock | * | analytics.report.read | available | None declared | See adapter setup |
-| mock | * | search.posts | available | None declared | See adapter setup |
-| mock | * | profiles.read | available | None declared | See adapter setup |
-| mock | * | graph.read | available | None declared | See adapter setup |
-| mock | * | graph.follow | available | None declared | See adapter setup |
-| mock | * | graph.unfollow | available | None declared | See adapter setup |
-| mock | * | graph.block | available | None declared | See adapter setup |
-| mock | * | graph.unblock | available | None declared | See adapter setup |
-| mock | * | graph.mute | available | None declared | See adapter setup |
-| mock | * | graph.unmute | available | None declared | See adapter setup |
-| mock | * | posts.read | available | None declared | See adapter setup |
-| mock | * | posts.list | available | None declared | See adapter setup |
-| mock | * | posts.cancelScheduled | available | None declared | See adapter setup |
-| mock | * | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| mock | * | posts.removeFromPlatform | available | None declared | See adapter setup |
-| mock | * | media.upload | available | None declared | See adapter setup |
-| mock | * | messages.read | available | None declared | See adapter setup |
-| mock | * | messages.write | available | None declared | See adapter setup |
-| mock | * | notifications.read | available | None declared | See adapter setup |
-| mock | * | notifications.seen | available | None declared | See adapter setup |
-| mock | * | webhooks.verify | available | None declared | See adapter setup |
-| zernio | x | accounts.read | available | None declared | See adapter setup |
-| zernio | x | posts.publish | available | text, image, video, carousel | See adapter setup |
-| zernio | x | posts.read | available | None declared | See adapter setup |
-| zernio | x | posts.list | available | None declared | See adapter setup |
-| zernio | x | posts.status | available | None declared | See adapter setup |
-| zernio | x | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | x | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | x | analytics.read | available | None declared | See adapter setup |
-| zernio | x | analytics.account.read | available | None declared | See adapter setup |
-| zernio | x | media.upload | available | None declared | See adapter setup |
-| zernio | x | webhooks.verify | available | None declared | See adapter setup |
-| zernio | threads | accounts.read | available | None declared | See adapter setup |
-| zernio | threads | posts.publish | available | text, image, video, carousel | See adapter setup |
-| zernio | threads | posts.read | available | None declared | See adapter setup |
-| zernio | threads | posts.list | available | None declared | See adapter setup |
-| zernio | threads | posts.status | available | None declared | See adapter setup |
-| zernio | threads | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | threads | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | threads | analytics.read | available | None declared | See adapter setup |
-| zernio | threads | analytics.account.read | available | None declared | See adapter setup |
-| zernio | threads | media.upload | available | None declared | See adapter setup |
-| zernio | threads | webhooks.verify | available | None declared | See adapter setup |
-| zernio | bluesky | accounts.read | available | None declared | See adapter setup |
-| zernio | bluesky | posts.publish | available | text, image, video, carousel | See adapter setup |
-| zernio | bluesky | posts.read | available | None declared | See adapter setup |
-| zernio | bluesky | posts.list | available | None declared | See adapter setup |
-| zernio | bluesky | posts.status | available | None declared | See adapter setup |
-| zernio | bluesky | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | bluesky | analytics.read | available | None declared | See adapter setup |
-| zernio | bluesky | analytics.account.read | available | None declared | See adapter setup |
-| zernio | bluesky | media.upload | available | None declared | See adapter setup |
-| zernio | bluesky | webhooks.verify | available | None declared | See adapter setup |
-| zernio | youtube | accounts.read | available | None declared | See adapter setup |
-| zernio | youtube | posts.publish | available | video | See adapter setup |
-| zernio | youtube | posts.read | available | None declared | See adapter setup |
-| zernio | youtube | posts.list | available | None declared | See adapter setup |
-| zernio | youtube | posts.status | available | None declared | See adapter setup |
-| zernio | youtube | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | youtube | analytics.read | available | None declared | See adapter setup |
-| zernio | youtube | analytics.account.read | available | None declared | See adapter setup |
-| zernio | youtube | media.upload | available | None declared | See adapter setup |
-| zernio | youtube | webhooks.verify | available | None declared | See adapter setup |
-| zernio | tiktok | accounts.read | available | None declared | See adapter setup |
-| zernio | tiktok | posts.publish | available | image, video, carousel | See adapter setup |
-| zernio | tiktok | posts.read | available | None declared | See adapter setup |
-| zernio | tiktok | posts.list | available | None declared | See adapter setup |
-| zernio | tiktok | posts.status | available | None declared | See adapter setup |
-| zernio | tiktok | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | tiktok | analytics.read | available | None declared | See adapter setup |
-| zernio | tiktok | analytics.account.read | available | None declared | See adapter setup |
-| zernio | tiktok | media.upload | available | None declared | See adapter setup |
-| zernio | tiktok | webhooks.verify | available | None declared | See adapter setup |
-| zernio | instagram | accounts.read | available | None declared | See adapter setup |
-| zernio | instagram | posts.publish | available | image, video, carousel | See adapter setup |
-| zernio | instagram | posts.read | available | None declared | See adapter setup |
-| zernio | instagram | posts.list | available | None declared | See adapter setup |
-| zernio | instagram | posts.status | available | None declared | See adapter setup |
-| zernio | instagram | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | instagram | analytics.read | available | None declared | See adapter setup |
-| zernio | instagram | analytics.account.read | available | None declared | See adapter setup |
-| zernio | instagram | media.upload | available | None declared | See adapter setup |
-| zernio | instagram | webhooks.verify | available | None declared | See adapter setup |
-| zernio | linkedin | accounts.read | available | None declared | See adapter setup |
-| zernio | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup |
-| zernio | linkedin | posts.read | available | None declared | See adapter setup |
-| zernio | linkedin | posts.list | available | None declared | See adapter setup |
-| zernio | linkedin | posts.status | available | None declared | See adapter setup |
-| zernio | linkedin | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | linkedin | analytics.read | available | None declared | See adapter setup |
-| zernio | linkedin | analytics.account.read | available | None declared | See adapter setup |
-| zernio | linkedin | media.upload | available | None declared | See adapter setup |
-| zernio | linkedin | webhooks.verify | available | None declared | See adapter setup |
-| zernio | facebook | accounts.read | available | None declared | See adapter setup |
-| zernio | facebook | posts.publish | available | text, image, video, carousel | See adapter setup |
-| zernio | facebook | posts.read | available | None declared | See adapter setup |
-| zernio | facebook | posts.list | available | None declared | See adapter setup |
-| zernio | facebook | posts.status | available | None declared | See adapter setup |
-| zernio | facebook | posts.cancelScheduled | available | None declared | See adapter setup |
-| zernio | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| zernio | facebook | analytics.read | available | None declared | See adapter setup |
-| zernio | facebook | analytics.account.read | available | None declared | See adapter setup |
-| zernio | facebook | media.upload | available | None declared | See adapter setup |
-| zernio | facebook | webhooks.verify | available | None declared | See adapter setup |
-| zernio | x | posts.removeFromPlatform | available | None declared | See adapter setup |
-| zernio | threads | posts.removeFromPlatform | available | None declared | See adapter setup |
-| zernio | bluesky | posts.removeFromPlatform | available | None declared | See adapter setup |
-| zernio | youtube | posts.removeFromPlatform | available | None declared | See adapter setup |
-| zernio | linkedin | posts.removeFromPlatform | available | None declared | See adapter setup |
-| zernio | facebook | posts.removeFromPlatform | available | None declared | See adapter setup |
-| zernio | x | comments.read | available | None declared | See adapter setup |
-| zernio | x | comments.write | available | None declared | See adapter setup |
-| zernio | threads | comments.read | available | None declared | See adapter setup |
-| zernio | threads | comments.write | available | None declared | See adapter setup |
-| zernio | bluesky | comments.read | available | None declared | See adapter setup |
-| zernio | bluesky | comments.write | available | None declared | See adapter setup |
-| zernio | youtube | comments.read | available | None declared | See adapter setup |
-| zernio | youtube | comments.write | available | None declared | See adapter setup |
-| zernio | instagram | comments.read | available | None declared | See adapter setup |
-| zernio | instagram | comments.write | available | None declared | See adapter setup |
-| zernio | linkedin | comments.read | available | None declared | See adapter setup |
-| zernio | linkedin | comments.write | available | None declared | See adapter setup |
-| zernio | facebook | comments.read | available | None declared | See adapter setup |
-| zernio | facebook | comments.write | available | None declared | See adapter setup |
-| zernio | x | messages.read | available | None declared | See adapter setup |
-| zernio | x | messages.write | available | None declared | See adapter setup |
-| zernio | bluesky | messages.read | available | None declared | See adapter setup |
-| zernio | bluesky | messages.write | available | None declared | See adapter setup |
-| zernio | instagram | messages.read | available | None declared | See adapter setup |
-| zernio | instagram | messages.write | available | None declared | See adapter setup |
-| zernio | facebook | messages.read | available | None declared | See adapter setup |
-| zernio | facebook | messages.write | available | None declared | See adapter setup |
-| post-for-me | x | accounts.read | available | None declared | See adapter setup |
-| post-for-me | x | posts.publish | available | text, image, video, carousel | See adapter setup |
-| post-for-me | x | posts.read | available | None declared | See adapter setup |
-| post-for-me | x | posts.list | available | None declared | See adapter setup |
-| post-for-me | x | posts.status | available | None declared | See adapter setup |
-| post-for-me | x | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | x | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | x | analytics.read | available | None declared | See adapter setup |
-| post-for-me | x | media.upload | available | None declared | See adapter setup |
-| post-for-me | x | webhooks.verify | available | None declared | See adapter setup |
-| post-for-me | threads | accounts.read | available | None declared | See adapter setup |
-| post-for-me | threads | posts.publish | available | text, image, video, carousel | See adapter setup |
-| post-for-me | threads | posts.read | available | None declared | See adapter setup |
-| post-for-me | threads | posts.list | available | None declared | See adapter setup |
-| post-for-me | threads | posts.status | available | None declared | See adapter setup |
-| post-for-me | threads | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | threads | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | threads | analytics.read | available | None declared | See adapter setup |
-| post-for-me | threads | media.upload | available | None declared | See adapter setup |
-| post-for-me | threads | webhooks.verify | available | None declared | See adapter setup |
-| post-for-me | bluesky | accounts.read | available | None declared | See adapter setup |
-| post-for-me | bluesky | posts.publish | available | text, image, video, carousel | See adapter setup |
-| post-for-me | bluesky | posts.read | available | None declared | See adapter setup |
-| post-for-me | bluesky | posts.list | available | None declared | See adapter setup |
-| post-for-me | bluesky | posts.status | available | None declared | See adapter setup |
-| post-for-me | bluesky | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | bluesky | analytics.read | available | None declared | See adapter setup |
-| post-for-me | bluesky | media.upload | available | None declared | See adapter setup |
-| post-for-me | bluesky | webhooks.verify | available | None declared | See adapter setup |
-| post-for-me | youtube | accounts.read | available | None declared | See adapter setup |
-| post-for-me | youtube | posts.publish | available | video | See adapter setup |
-| post-for-me | youtube | posts.read | available | None declared | See adapter setup |
-| post-for-me | youtube | posts.list | available | None declared | See adapter setup |
-| post-for-me | youtube | posts.status | available | None declared | See adapter setup |
-| post-for-me | youtube | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | youtube | analytics.read | available | None declared | See adapter setup |
-| post-for-me | youtube | media.upload | available | None declared | See adapter setup |
-| post-for-me | youtube | webhooks.verify | available | None declared | See adapter setup |
-| post-for-me | tiktok | accounts.read | available | None declared | See adapter setup |
-| post-for-me | tiktok | posts.publish | available | image, video, carousel | See adapter setup |
-| post-for-me | tiktok | posts.read | available | None declared | See adapter setup |
-| post-for-me | tiktok | posts.list | available | None declared | See adapter setup |
-| post-for-me | tiktok | posts.status | available | None declared | See adapter setup |
-| post-for-me | tiktok | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | tiktok | analytics.read | available | None declared | See adapter setup |
-| post-for-me | tiktok | media.upload | available | None declared | See adapter setup |
-| post-for-me | tiktok | webhooks.verify | available | None declared | See adapter setup |
-| post-for-me | instagram | accounts.read | available | None declared | See adapter setup |
-| post-for-me | instagram | posts.publish | available | image, video, carousel | See adapter setup |
-| post-for-me | instagram | posts.read | available | None declared | See adapter setup |
-| post-for-me | instagram | posts.list | available | None declared | See adapter setup |
-| post-for-me | instagram | posts.status | available | None declared | See adapter setup |
-| post-for-me | instagram | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | instagram | analytics.read | available | None declared | See adapter setup |
-| post-for-me | instagram | media.upload | available | None declared | See adapter setup |
-| post-for-me | instagram | webhooks.verify | available | None declared | See adapter setup |
-| post-for-me | linkedin | accounts.read | available | None declared | See adapter setup |
-| post-for-me | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup |
-| post-for-me | linkedin | posts.read | available | None declared | See adapter setup |
-| post-for-me | linkedin | posts.list | available | None declared | See adapter setup |
-| post-for-me | linkedin | posts.status | available | None declared | See adapter setup |
-| post-for-me | linkedin | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | linkedin | analytics.read | available | None declared | See adapter setup |
-| post-for-me | linkedin | media.upload | available | None declared | See adapter setup |
-| post-for-me | linkedin | webhooks.verify | available | None declared | See adapter setup |
-| post-for-me | facebook | accounts.read | available | None declared | See adapter setup |
-| post-for-me | facebook | posts.publish | available | text, image, video, carousel | See adapter setup |
-| post-for-me | facebook | posts.read | available | None declared | See adapter setup |
-| post-for-me | facebook | posts.list | available | None declared | See adapter setup |
-| post-for-me | facebook | posts.status | available | None declared | See adapter setup |
-| post-for-me | facebook | posts.cancelScheduled | available | None declared | See adapter setup |
-| post-for-me | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| post-for-me | facebook | analytics.read | available | None declared | See adapter setup |
-| post-for-me | facebook | media.upload | available | None declared | See adapter setup |
-| post-for-me | facebook | webhooks.verify | available | None declared | See adapter setup |
-| postfast | x | accounts.read | available | None declared | See adapter setup |
-| postfast | x | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postfast | x | posts.status | available | None declared | See adapter setup |
-| postfast | x | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | x | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | x | analytics.read | available | None declared | See adapter setup |
-| postfast | x | media.upload | available | None declared | See adapter setup |
-| postfast | threads | accounts.read | available | None declared | See adapter setup |
-| postfast | threads | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postfast | threads | posts.status | available | None declared | See adapter setup |
-| postfast | threads | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | threads | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | threads | analytics.read | available | None declared | See adapter setup |
-| postfast | threads | media.upload | available | None declared | See adapter setup |
-| postfast | bluesky | accounts.read | available | None declared | See adapter setup |
-| postfast | bluesky | posts.publish | available | text, image, carousel | See adapter setup |
-| postfast | bluesky | posts.status | available | None declared | See adapter setup |
-| postfast | bluesky | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | bluesky | analytics.read | available | None declared | See adapter setup |
-| postfast | bluesky | media.upload | available | None declared | See adapter setup |
-| postfast | youtube | accounts.read | available | None declared | See adapter setup |
-| postfast | youtube | posts.publish | available | video | See adapter setup |
-| postfast | youtube | posts.status | available | None declared | See adapter setup |
-| postfast | youtube | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | youtube | analytics.read | available | None declared | See adapter setup |
-| postfast | youtube | media.upload | available | None declared | See adapter setup |
-| postfast | tiktok | accounts.read | available | None declared | See adapter setup |
-| postfast | tiktok | posts.publish | available | image, video, carousel | See adapter setup |
-| postfast | tiktok | posts.status | available | None declared | See adapter setup |
-| postfast | tiktok | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | tiktok | analytics.read | available | None declared | See adapter setup |
-| postfast | tiktok | media.upload | available | None declared | See adapter setup |
-| postfast | instagram | accounts.read | available | None declared | See adapter setup |
-| postfast | instagram | posts.publish | available | image, video, carousel | See adapter setup |
-| postfast | instagram | posts.status | available | None declared | See adapter setup |
-| postfast | instagram | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | instagram | analytics.read | available | None declared | See adapter setup |
-| postfast | instagram | media.upload | available | None declared | See adapter setup |
-| postfast | linkedin | accounts.read | available | None declared | See adapter setup |
-| postfast | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postfast | linkedin | posts.status | available | None declared | See adapter setup |
-| postfast | linkedin | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | linkedin | analytics.read | available | None declared | See adapter setup |
-| postfast | linkedin | media.upload | available | None declared | See adapter setup |
-| postfast | facebook | accounts.read | available | None declared | See adapter setup |
-| postfast | facebook | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postfast | facebook | posts.status | available | None declared | See adapter setup |
-| postfast | facebook | posts.cancelScheduled | available | None declared | See adapter setup |
-| postfast | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postfast | facebook | analytics.read | available | None declared | See adapter setup |
-| postfast | facebook | media.upload | available | None declared | See adapter setup |
-| postiz | x | accounts.read | available | None declared | See adapter setup |
-| postiz | x | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postiz | x | posts.status | available | None declared | See adapter setup |
-| postiz | x | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | x | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | x | analytics.read | available | None declared | See adapter setup |
-| postiz | x | media.upload | available | None declared | See adapter setup |
-| postiz | threads | accounts.read | available | None declared | See adapter setup |
-| postiz | threads | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postiz | threads | posts.status | available | None declared | See adapter setup |
-| postiz | threads | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | threads | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | threads | analytics.read | available | None declared | See adapter setup |
-| postiz | threads | media.upload | available | None declared | See adapter setup |
-| postiz | bluesky | accounts.read | available | None declared | See adapter setup |
-| postiz | bluesky | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postiz | bluesky | posts.status | available | None declared | See adapter setup |
-| postiz | bluesky | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | bluesky | analytics.read | available | None declared | See adapter setup |
-| postiz | bluesky | media.upload | available | None declared | See adapter setup |
-| postiz | youtube | accounts.read | available | None declared | See adapter setup |
-| postiz | youtube | posts.publish | available | video | See adapter setup |
-| postiz | youtube | posts.status | available | None declared | See adapter setup |
-| postiz | youtube | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | youtube | analytics.read | available | None declared | See adapter setup |
-| postiz | youtube | media.upload | available | None declared | See adapter setup |
-| postiz | tiktok | accounts.read | available | None declared | See adapter setup |
-| postiz | tiktok | posts.publish | available | image, video, carousel | See adapter setup |
-| postiz | tiktok | posts.status | available | None declared | See adapter setup |
-| postiz | tiktok | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | tiktok | analytics.read | available | None declared | See adapter setup |
-| postiz | tiktok | media.upload | available | None declared | See adapter setup |
-| postiz | instagram | accounts.read | available | None declared | See adapter setup |
-| postiz | instagram | posts.publish | available | image, video, carousel | See adapter setup |
-| postiz | instagram | posts.status | available | None declared | See adapter setup |
-| postiz | instagram | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | instagram | analytics.read | available | None declared | See adapter setup |
-| postiz | instagram | media.upload | available | None declared | See adapter setup |
-| postiz | linkedin | accounts.read | available | None declared | See adapter setup |
-| postiz | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postiz | linkedin | posts.status | available | None declared | See adapter setup |
-| postiz | linkedin | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | linkedin | analytics.read | available | None declared | See adapter setup |
-| postiz | linkedin | media.upload | available | None declared | See adapter setup |
-| postiz | facebook | accounts.read | available | None declared | See adapter setup |
-| postiz | facebook | posts.publish | available | text, image, video, carousel | See adapter setup |
-| postiz | facebook | posts.status | available | None declared | See adapter setup |
-| postiz | facebook | posts.cancelScheduled | available | None declared | See adapter setup |
-| postiz | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup |
-| postiz | facebook | analytics.read | available | None declared | See adapter setup |
-| postiz | facebook | media.upload | available | None declared | See adapter setup |
-| bluesky | bluesky | webhooks.verify | unsupported-by-platform | None declared | See adapter setup |
-| bluesky | bluesky | accounts.read | available | None declared | repo |
-| bluesky | bluesky | posts.publish | available | text, image, video | repo |
-| bluesky | bluesky | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
-| bluesky | bluesky | posts.read | available | text, image | See adapter setup |
-| bluesky | bluesky | graph.read | available | None declared | repo |
-| bluesky | bluesky | graph.follow | available | None declared | repo |
-| bluesky | bluesky | graph.unfollow | available | None declared | repo |
-| bluesky | bluesky | graph.block | available | None declared | repo |
-| bluesky | bluesky | graph.unblock | available | None declared | repo |
-| bluesky | bluesky | graph.mute | available | None declared | repo |
-| bluesky | bluesky | graph.unmute | available | None declared | repo |
-| bluesky | bluesky | likes.read | available | None declared | repo |
-| bluesky | bluesky | likes.write | available | None declared | repo |
-| bluesky | bluesky | lists.read | available | None declared | repo |
-| bluesky | bluesky | lists.write | available | None declared | repo |
-| bluesky | bluesky | profiles.search | available | None declared | repo |
-| bluesky | bluesky | moderation.report | available | None declared | repo |
-| bluesky | bluesky | posts.list | available | text, image | See adapter setup |
-| bluesky | bluesky | comments.read | available | text | See adapter setup |
-| bluesky | bluesky | analytics.read | available | text, image | See adapter setup |
-| bluesky | bluesky | analytics.account.read | available | None declared | See adapter setup |
-| bluesky | bluesky | comments.write | available | text | repo |
-| bluesky | bluesky | posts.publish.video | available | video | repo |
-| bluesky | bluesky | comments.moderate | available | None declared | repo |
-| bluesky | bluesky | media.upload | available | video | repo |
-| bluesky | bluesky | media.video | available | video | repo |
-| bluesky | bluesky | media.status | available | video | See adapter setup |
-| bluesky | bluesky | media.limits.read | available | video | See adapter setup |
-| bluesky | bluesky | posts.update | unsupported-by-platform | None declared | See adapter setup |
-| bluesky | bluesky | posts.repost | available | None declared | See adapter setup |
-| bluesky | bluesky | posts.quote | available | None declared | See adapter setup |
-| bluesky | bluesky | posts.delete | available | None declared | See adapter setup |
-| bluesky | bluesky | posts.removeFromPlatform | available | None declared | See adapter setup |
-| bluesky | bluesky | notifications.read | available | None declared | See adapter setup |
-| bluesky | bluesky | notifications.seen | available | None declared | See adapter setup |
-| bluesky | bluesky | profile.read | available | None declared | See adapter setup |
-| bluesky | bluesky | profiles.read | available | None declared | See adapter setup |
-| bluesky | bluesky | profile.update | available | None declared | See adapter setup |
-| bluesky | bluesky | feeds.read | available | None declared | See adapter setup |
-| bluesky | bluesky | search.posts | available | None declared | See adapter setup |
-| bluesky | bluesky | chat.read | available | None declared | See adapter setup |
-| bluesky | bluesky | chat.write | available | None declared | See adapter setup |
-| x | x | webhooks.verify | available | None declared | See adapter setup |
-| x | x | posts.publish | available | text, image, video | tweet.read, tweet.write, users.read, media.write |
-| x | x | accounts.read | available | None declared | See adapter setup |
-| x | x | posts.list | available | None declared | tweet.read, users.read |
-| x | x | posts.read | available | None declared | See adapter setup |
-| x | x | analytics.read | available | None declared | See adapter setup |
-| x | x | analytics.account.read | available | None declared | See adapter setup |
-| x | x | comments.write | available | None declared | See adapter setup |
-| x | x | posts.repost | available | None declared | See adapter setup |
-| x | x | posts.quote | available | None declared | tweet.read, tweet.write, users.read |
-| x | x | posts.delete | available | None declared | tweet.read, tweet.write, users.read |
-| x | x | polls.create | available | None declared | See adapter setup |
-| x | x | bookmarks.read | available | None declared | See adapter setup |
-| x | x | bookmarks.write | available | None declared | See adapter setup |
-| x | x | follows.write | available | None declared | See adapter setup |
-| x | x | mentions.read | available | None declared | tweet.read, users.read |
-| x | x | likes.read | available | None declared | like.read, tweet.read, users.read |
-| x | x | likes.write | available | None declared | like.write, tweet.read, users.read |
-| x | x | lists.read | available | None declared | list.read, tweet.read, users.read |
-| x | x | lists.write | available | None declared | list.write, tweet.read, users.read |
-| x | x | timelines.read | available | None declared | tweet.read, users.read |
-| x | x | posts.removeFromPlatform | available | None declared | tweet.read, tweet.write, users.read |
-| x | x | posts.update | available | text | tweet.read, tweet.write, users.read |
-| x | x | graph.read | available | None declared | users.read, follows.read, mute.read, block.read |
-| x | x | profiles.read | available | None declared | users.read |
-| x | x | graph.follow | available | None declared | users.read, follows.write |
-| x | x | graph.unfollow | available | None declared | users.read, follows.write |
-| x | x | graph.mute | available | None declared | users.read, mute.write |
-| x | x | graph.unmute | available | None declared | users.read, mute.write |
-| x | x | graph.block | available | None declared | users.read, block.write |
-| x | x | graph.unblock | available | None declared | users.read, block.write |
-| x | x | lists.pinned.read | available | None declared | users.read, list.read |
-| x | x | lists.pinned.write | available | None declared | users.read, list.write |
-| x | x | messages.conversation.write | available | None declared | dm.write |
-| x | x | messages.group.write | available | None declared | dm.write |
-| x | x | comments.read | available | None declared | tweet.read, users.read |
-| x | x | search.posts | available | None declared | tweet.read, users.read |
-| x | x | media.video | available | video | tweet.read, tweet.write, users.read, media.write |
-| x | x | media.gif | available | None declared | tweet.read, tweet.write, users.read, media.write |
-| x | x | messages.read | available | None declared | dm.read, users.read, tweet.read |
-| x | x | notifications.read | unsupported-by-platform | None declared | See adapter setup |
-| x | x | messages.write | available | None declared | dm.write, dm.read, users.read, tweet.read |
-| x | x | comments.moderate | available | None declared | tweet.moderate.write, tweet.read, users.read |
-| x | x | streams.read | available | None declared | See adapter setup |
-| x | x | posts.schedule | not-implemented-by-adapter | None declared | See adapter setup |
-| x | x | profile.update | unsupported-by-platform | None declared | See adapter setup |
-| threads | threads | accounts.read | available | None declared | See adapter setup |
-| threads | threads | webhooks.verify | available | None declared | See adapter setup |
-| threads | threads | posts.publish | available | text, image, video, carousel | threads_basic, threads_content_publish |
-| threads | threads | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
-| threads | threads | posts.read | available | None declared | See adapter setup |
-| threads | threads | posts.list | available | None declared | See adapter setup |
-| threads | threads | posts.status | available | None declared | See adapter setup |
-| threads | threads | analytics.read | available | None declared | threads_basic, threads_manage_insights |
-| threads | threads | analytics.account.read | available | None declared | threads_basic, threads_manage_insights |
-| threads | threads | comments.read | available | None declared | threads_basic, threads_read_replies |
-| threads | threads | comments.write | available | None declared | threads_basic, threads_manage_replies |
-| threads | threads | comments.moderate | available | None declared | threads_manage_replies |
-| threads | threads | comments.delete | available | None declared | threads_basic, threads_delete |
-| threads | threads | posts.quote | available | None declared | threads_basic, threads_content_publish |
-| threads | threads | posts.repost | available | None declared | threads_basic, threads_content_publish |
-| threads | threads | posts.delete | available | None declared | threads_basic, threads_delete |
-| threads | threads | posts.removeFromPlatform | available | None declared | threads_basic, threads_delete |
-| threads | threads | posts.update | unsupported-by-platform | None declared | See adapter setup |
-| threads | threads | profile.read | available | None declared | See adapter setup |
-| threads | threads | profile.update | unsupported-by-platform | None declared | See adapter setup |
-| threads | threads | search.keyword | available | None declared | threads_basic, threads_keyword_search |
-| threads | threads | profiles.read | available | None declared | threads_basic |
-| threads | threads | profiles.search | unsupported-by-platform | None declared | See adapter setup |
-| threads | threads | graph.read | unsupported-by-platform | None declared | See adapter setup |
-| threads | threads | search.posts | available | None declared | threads_basic, threads_keyword_search |
-| threads | threads | mentions.read | available | None declared | threads_basic, threads_manage_mentions |
-| threads | threads | messages.read | unsupported-by-platform | None declared | See adapter setup |
-| threads | threads | notifications.read | unsupported-by-platform | None declared | See adapter setup |
-| youtube | youtube | webhooks.verify | available | None declared | See adapter setup |
-| youtube | youtube | accounts.read | available | None declared | See adapter setup |
-| youtube | youtube | posts.read | available | None declared | See adapter setup |
-| youtube | youtube | posts.list | available | None declared | See adapter setup |
-| youtube | youtube | posts.status | available | None declared | See adapter setup |
-| youtube | youtube | analytics.read | available | None declared | See adapter setup |
-| youtube | youtube | analytics.account.read | available | None declared | See adapter setup |
-| youtube | youtube | comments.read | available | None declared | See adapter setup |
-| youtube | youtube | comments.write | available | None declared | See adapter setup |
-| youtube | youtube | posts.publish | available | video | https://www.googleapis.com/auth/youtube.upload |
-| youtube | youtube | posts.schedule | available | None declared | https://www.googleapis.com/auth/youtube.upload |
-| youtube | youtube | posts.cancelScheduled | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | posts.removeFromPlatform | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | notifications.read | unsupported-by-platform | None declared | See adapter setup |
-| youtube | youtube | playlists.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly |
-| youtube | youtube | playlists.write | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | thumbnails.write | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | videos.update | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | posts.update | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | profile.update | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | videos.delete | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | posts.delete | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | videos.rate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl |
-| youtube | youtube | captions.read | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl |
-| youtube | youtube | captions.write | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl |
-| youtube | youtube | subscriptions.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly |
-| youtube | youtube | subscriptions.write | available | None declared | https://www.googleapis.com/auth/youtube |
-| youtube | youtube | search.keyword | available | None declared | See adapter setup |
-| youtube | youtube | search.posts | available | None declared | https://www.googleapis.com/auth/youtube.readonly |
-| youtube | youtube | comments.moderate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl |
-| youtube | youtube | comments.delete | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl |
-| youtube | youtube | analytics.youtube.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly |
-| youtube | youtube | analytics.report.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly |
-| youtube | youtube | live.broadcasts | available | None declared | https://www.googleapis.com/auth/youtube |
-| tiktok | tiktok | webhooks.verify | available | None declared | See adapter setup |
-| tiktok | tiktok | posts.publish | available | image, video, carousel | video.publish |
-| tiktok | tiktok | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
-| tiktok | tiktok | posts.status | available | None declared | See adapter setup |
-| tiktok | tiktok | posts.read | available | None declared | video.list |
-| tiktok | tiktok | posts.list | available | None declared | video.list |
-| tiktok | tiktok | posts.draft | available | None declared | video.upload |
-| tiktok | tiktok | posts.status.poll | available | None declared | See adapter setup |
-| tiktok | tiktok | posts.update | unsupported-by-platform | None declared | See adapter setup |
-| tiktok | tiktok | comments.read | unsupported-by-platform | None declared | See adapter setup |
-| tiktok | tiktok | messages.read | unsupported-by-platform | None declared | See adapter setup |
-| tiktok | tiktok | notifications.read | unsupported-by-platform | None declared | See adapter setup |
-| tiktok | tiktok | accounts.read | available | None declared | user.info.basic |
-| tiktok | tiktok | analytics.account.read | available | None declared | user.info.stats |
-| tiktok | tiktok | analytics.read | available | None declared | video.list |
-| tiktok | tiktok | profile.update | unsupported-by-platform | None declared | See adapter setup |
-| instagram | instagram | posts.publish | available | image, video, carousel | instagram_business_basic, instagram_business_content_publish |
-| instagram | instagram | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
-| instagram | instagram | posts.update | unsupported-by-platform | None declared | See adapter setup |
-| instagram | instagram | accounts.read | available | None declared | See adapter setup |
-| instagram | instagram | posts.list | available | None declared | See adapter setup |
-| instagram | instagram | posts.read | available | None declared | See adapter setup |
-| instagram | instagram | posts.status | available | None declared | See adapter setup |
-| instagram | instagram | comments.read | available | None declared | See adapter setup |
-| instagram | instagram | comments.write | available | None declared | See adapter setup |
-| instagram | instagram | analytics.read | available | None declared | See adapter setup |
-| instagram | instagram | analytics.account.read | available | None declared | See adapter setup |
-| instagram | instagram | comments.moderate | available | None declared | instagram_business_manage_comments |
-| instagram | instagram | comments.delete | available | None declared | instagram_business_manage_comments |
-| instagram | instagram | comments.replies.read | available | None declared | instagram_business_manage_comments |
-| instagram | instagram | profiles.read | available | None declared | instagram_business_basic, instagram_business_manage_insights |
-| instagram | instagram | reels.publish | available | video | See adapter setup |
-| instagram | instagram | stories.publish | available | None declared | See adapter setup |
-| instagram | instagram | profile.update | unsupported-by-platform | None declared | See adapter setup |
-| instagram | instagram | posts.delete | unsupported-by-platform | None declared | See adapter setup |
-| instagram | instagram | posts.removeFromPlatform | unsupported-by-platform | None declared | See adapter setup |
-| instagram | instagram | publishing.limit.read | available | None declared | See adapter setup |
-| instagram | instagram | mentions.read | available | None declared | instagram_business_basic, instagram_business_manage_comments |
-| instagram | instagram | product.tagging | approval-dependent | None declared | See adapter setup |
-| instagram | instagram | messages.read | approval-dependent | None declared | See adapter setup |
-| instagram | instagram | webhooks.verify | available | None declared | See adapter setup |
-| instagram | instagram | notifications.read | unsupported-by-platform | None declared | See adapter setup |
-| linkedin | linkedin | posts.publish | available | text, image, carousel, video, document | w_member_social |
-| linkedin | linkedin | posts.schedule | unsupported-by-platform | None declared | See adapter setup |
-| linkedin | linkedin | posts.read | available | None declared | r_member_social |
-| linkedin | linkedin | accounts.read | available | None declared | openid, profile |
-| linkedin | linkedin | posts.multi-image | available | carousel | w_member_social |
-| linkedin | linkedin | posts.video | available | video | w_member_social |
-| linkedin | linkedin | posts.document | available | document | w_member_social |
-| linkedin | linkedin | polls.create | available | None declared | See adapter setup |
-| linkedin | linkedin | reactions.write | available | None declared | See adapter setup |
-| linkedin | linkedin | reshares.write | available | None declared | See adapter setup |
-| linkedin | linkedin | posts.update | available | None declared | See adapter setup |
-| linkedin | linkedin | posts.delete | available | None declared | See adapter setup |
-| linkedin | linkedin | posts.removeFromPlatform | available | None declared | See adapter setup |
-| linkedin | linkedin | comments.delete | available | None declared | w_member_social |
-| linkedin | linkedin | analytics.organization.read | account-ineligible | None declared | rw_organization_admin |
-| linkedin | linkedin | articles.create | approval-dependent | None declared | See adapter setup |
-| linkedin | linkedin | profile.update | approval-dependent | None declared | See adapter setup |
-| linkedin | linkedin | messages.write | unsupported-by-platform | None declared | See adapter setup |
-| linkedin | linkedin | webhooks.verify | approval-dependent | None declared | rw_organization_admin |
-| linkedin | linkedin | notifications.read | account-ineligible | None declared | rw_organization_admin |
-| linkedin | linkedin | notifications.seen | unsupported-by-platform | None declared | See adapter setup |
-| linkedin | linkedin | analytics.account.read | account-ineligible | None declared | rw_organization_admin |
-| linkedin | linkedin | analytics.followers.read | account-ineligible | None declared | rw_organization_admin |
-| linkedin | linkedin | analytics.page.read | account-ineligible | None declared | rw_organization_admin |
-| linkedin | linkedin | analytics.shares.read | account-ineligible | None declared | rw_organization_admin |
-| linkedin | linkedin | posts.list | available | None declared | r_member_social |
-| linkedin | linkedin | media.upload | available | image, video, document | See adapter setup |
-| linkedin | linkedin | comments.read | available | None declared | w_member_social, r_member_social |
-| linkedin | linkedin | comments.write | available | None declared | w_member_social, r_member_social |
-| linkedin | linkedin | analytics.read | available | None declared | r_member_social |
+Diagnostic manifests use one fixed setup per adapter: Instagram Login for Instagram and a member author for LinkedIn. Facebook Login deletion and organization-only analytics can therefore appear unavailable in this table. Create the adapter with your actual flavor or author to inspect its declarations.
+
+The adapter ID below identifies the implementation, such as `instagram` or `zernio`. It is not your configured backend instance key: references use the key registered with `createSocial`, such as `default` or `company`.
+
+| Adapter ID | Platform | Operation | Declaration | Formats | Scope guidance | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| mock | * | accounts.read | available | None declared | See adapter setup | None declared |
+| mock | * | posts.status | available | None declared | See adapter setup | None declared |
+| mock | * | posts.publish | available | text, image, video | See adapter setup | None declared |
+| mock | * | comments.read | available | None declared | See adapter setup | None declared |
+| mock | * | comments.write | available | None declared | See adapter setup | None declared |
+| mock | * | analytics.read | available | None declared | See adapter setup | None declared |
+| mock | * | analytics.account.read | available | None declared | See adapter setup | None declared |
+| mock | * | analytics.report.read | available | None declared | See adapter setup | None declared |
+| mock | * | search.posts | available | None declared | See adapter setup | None declared |
+| mock | * | profiles.read | available | None declared | See adapter setup | None declared |
+| mock | * | graph.read | available | None declared | See adapter setup | None declared |
+| mock | * | graph.follow | available | None declared | See adapter setup | None declared |
+| mock | * | graph.unfollow | available | None declared | See adapter setup | None declared |
+| mock | * | graph.block | available | None declared | See adapter setup | None declared |
+| mock | * | graph.unblock | available | None declared | See adapter setup | None declared |
+| mock | * | graph.mute | available | None declared | See adapter setup | None declared |
+| mock | * | graph.unmute | available | None declared | See adapter setup | None declared |
+| mock | * | posts.read | available | None declared | See adapter setup | None declared |
+| mock | * | posts.list | available | None declared | See adapter setup | None declared |
+| mock | * | posts.cancelScheduled | available | None declared | See adapter setup | None declared |
+| mock | * | posts.deleteBackendRecord | available | None declared | See adapter setup | None declared |
+| mock | * | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| mock | * | media.upload | available | None declared | See adapter setup | None declared |
+| mock | * | messages.read | available | None declared | See adapter setup | None declared |
+| mock | * | messages.write | available | None declared | See adapter setup | None declared |
+| mock | * | notifications.read | available | None declared | See adapter setup | None declared |
+| mock | * | notifications.seen | available | None declared | See adapter setup | None declared |
+| mock | * | webhooks.verify | available | None declared | See adapter setup | None declared |
+| zernio | x | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | threads | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | bluesky | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | posts.publish | available | video | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | youtube | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | tiktok | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | instagram | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | linkedin | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | analytics.account.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | facebook | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| zernio | x | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| zernio | threads | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| zernio | bluesky | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| zernio | youtube | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| zernio | linkedin | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| zernio | facebook | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| zernio | x | comments.read | available | None declared | See adapter setup | None declared |
+| zernio | x | comments.write | available | None declared | See adapter setup | None declared |
+| zernio | threads | comments.read | available | None declared | See adapter setup | None declared |
+| zernio | threads | comments.write | available | None declared | See adapter setup | None declared |
+| zernio | bluesky | comments.read | available | None declared | See adapter setup | None declared |
+| zernio | bluesky | comments.write | available | None declared | See adapter setup | None declared |
+| zernio | youtube | comments.read | available | None declared | See adapter setup | None declared |
+| zernio | youtube | comments.write | available | None declared | See adapter setup | None declared |
+| zernio | instagram | comments.read | available | None declared | See adapter setup | None declared |
+| zernio | instagram | comments.write | available | None declared | See adapter setup | None declared |
+| zernio | linkedin | comments.read | available | None declared | See adapter setup | None declared |
+| zernio | linkedin | comments.write | available | None declared | See adapter setup | None declared |
+| zernio | facebook | comments.read | available | None declared | See adapter setup | None declared |
+| zernio | facebook | comments.write | available | None declared | See adapter setup | None declared |
+| zernio | x | messages.read | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| zernio | x | messages.write | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| zernio | bluesky | messages.read | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| zernio | bluesky | messages.write | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| zernio | instagram | messages.read | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| zernio | instagram | messages.write | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| zernio | facebook | messages.read | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| zernio | facebook | messages.write | available | None declared | See adapter setup | Recipient permissions and reply-window eligibility remain upstream constraints. |
+| post-for-me | x | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | x | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | threads | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | bluesky | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | posts.publish | available | video | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | youtube | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | tiktok | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | instagram | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | linkedin | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | posts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | posts.list | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| post-for-me | facebook | webhooks.verify | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | x | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | x | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | x | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | x | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | x | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | x | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | x | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | threads | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | threads | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | threads | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | threads | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | threads | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | threads | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | threads | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | bluesky | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | bluesky | posts.publish | available | text, image, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | bluesky | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | bluesky | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | bluesky | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | bluesky | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | youtube | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | youtube | posts.publish | available | video | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | youtube | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | youtube | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | youtube | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | youtube | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | tiktok | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | tiktok | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | tiktok | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | tiktok | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | tiktok | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | tiktok | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | instagram | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | instagram | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | instagram | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | instagram | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | instagram | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | instagram | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | linkedin | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | linkedin | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | linkedin | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | linkedin | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | linkedin | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | facebook | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | facebook | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | facebook | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | facebook | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | facebook | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postfast | facebook | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | x | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | x | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | x | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | x | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | x | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | x | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | x | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | threads | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | threads | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | threads | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | threads | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | threads | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | threads | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | threads | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | bluesky | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | bluesky | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | bluesky | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | bluesky | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | bluesky | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | bluesky | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | bluesky | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | youtube | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | youtube | posts.publish | available | video | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | youtube | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | youtube | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | youtube | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | youtube | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | youtube | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | tiktok | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | tiktok | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | tiktok | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | tiktok | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | tiktok | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | tiktok | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | tiktok | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | instagram | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | instagram | posts.publish | available | image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | instagram | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | instagram | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | instagram | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | instagram | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | instagram | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | linkedin | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | linkedin | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | linkedin | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | linkedin | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | linkedin | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | linkedin | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | linkedin | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | facebook | accounts.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | facebook | posts.publish | available | text, image, video, carousel | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | facebook | posts.status | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | facebook | posts.cancelScheduled | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | facebook | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| postiz | facebook | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
+| bluesky | bluesky | webhooks.verify | unsupported-by-platform | None declared | See adapter setup | Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose. |
+| bluesky | bluesky | accounts.read | available | None declared | repo | None declared |
+| bluesky | bluesky | posts.publish | available | text, image, video | repo | None declared |
+| bluesky | bluesky | posts.schedule | unsupported-by-platform | None declared | See adapter setup | AT Protocol records are visible once written. The post createdAt field is a client-declared timestamp and does not delay publication. |
+| bluesky | bluesky | posts.read | available | text, image | See adapter setup | None declared |
+| bluesky | bluesky | graph.read | available | None declared | repo | None declared |
+| bluesky | bluesky | graph.follow | available | None declared | repo | None declared |
+| bluesky | bluesky | graph.unfollow | available | None declared | repo | None declared |
+| bluesky | bluesky | graph.block | available | None declared | repo | None declared |
+| bluesky | bluesky | graph.unblock | available | None declared | repo | None declared |
+| bluesky | bluesky | graph.mute | available | None declared | repo | None declared |
+| bluesky | bluesky | graph.unmute | available | None declared | repo | None declared |
+| bluesky | bluesky | likes.read | available | None declared | repo | None declared |
+| bluesky | bluesky | likes.write | available | None declared | repo | None declared |
+| bluesky | bluesky | lists.read | available | None declared | repo | None declared |
+| bluesky | bluesky | lists.write | available | None declared | repo | None declared |
+| bluesky | bluesky | profiles.search | available | None declared | repo | None declared |
+| bluesky | bluesky | moderation.report | available | None declared | repo | None declared |
+| bluesky | bluesky | posts.list | available | text, image | See adapter setup | None declared |
+| bluesky | bluesky | comments.read | available | text | See adapter setup | None declared |
+| bluesky | bluesky | analytics.read | available | text, image | See adapter setup | None declared |
+| bluesky | bluesky | analytics.account.read | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | comments.write | available | text | repo | None declared |
+| bluesky | bluesky | posts.publish.video | available | video | repo | One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls. |
+| bluesky | bluesky | comments.moderate | available | None declared | repo | Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies. |
+| bluesky | bluesky | media.upload | available | video | repo | Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference. |
+| bluesky | bluesky | media.video | available | video | repo | native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job. |
+| bluesky | bluesky | media.status | available | video | See adapter setup | native.getVideoJobStatus reads app.bsky.video.getJobStatus once per call. |
+| bluesky | bluesky | media.limits.read | available | video | See adapter setup | native.getVideoUploadLimits reads the daily video allowance. Uploads do not check it automatically. |
+| bluesky | bluesky | posts.update | unsupported-by-platform | None declared | See adapter setup | Bluesky treats posts as immutable. A putRecord rewrite succeeds on the PDS, but the Bluesky AppView ignores post updates and the new CID breaks existing strong references from replies, quotes, likes, and reposts. |
+| bluesky | bluesky | posts.repost | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | posts.quote | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | posts.delete | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | notifications.read | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | notifications.seen | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | profile.read | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | profiles.read | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | profile.update | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | feeds.read | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | search.posts | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | chat.read | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | chat.write | available | None declared | See adapter setup | None declared |
+| x | x | webhooks.verify | available | None declared | See adapter setup | Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge. |
+| x | x | posts.publish | available | text, image, video | tweet.read, tweet.write, users.read, media.write | User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. |
+| x | x | accounts.read | available | None declared | See adapter setup | None declared |
+| x | x | posts.list | available | None declared | tweet.read, users.read | None declared |
+| x | x | posts.read | available | None declared | See adapter setup | None declared |
+| x | x | analytics.read | available | None declared | See adapter setup | None declared |
+| x | x | analytics.account.read | available | None declared | See adapter setup | None declared |
+| x | x | comments.write | available | None declared | See adapter setup | None declared |
+| x | x | posts.repost | available | None declared | See adapter setup | None declared |
+| x | x | posts.quote | available | None declared | tweet.read, tweet.write, users.read | None declared |
+| x | x | posts.delete | available | None declared | tweet.read, tweet.write, users.read | None declared |
+| x | x | polls.create | available | None declared | See adapter setup | None declared |
+| x | x | bookmarks.read | available | None declared | See adapter setup | None declared |
+| x | x | bookmarks.write | available | None declared | See adapter setup | None declared |
+| x | x | follows.write | available | None declared | See adapter setup | None declared |
+| x | x | mentions.read | available | None declared | tweet.read, users.read | None declared |
+| x | x | likes.read | available | None declared | like.read, tweet.read, users.read | None declared |
+| x | x | likes.write | available | None declared | like.write, tweet.read, users.read | None declared |
+| x | x | lists.read | available | None declared | list.read, tweet.read, users.read | None declared |
+| x | x | lists.write | available | None declared | list.write, tweet.read, users.read | None declared |
+| x | x | timelines.read | available | None declared | tweet.read, users.read | None declared |
+| x | x | posts.removeFromPlatform | available | None declared | tweet.read, tweet.write, users.read | None declared |
+| x | x | posts.update | available | text | tweet.read, tweet.write, users.read | Text-only edit through native.updatePost. X requires X Premium, the account's own post, and a recent post within X's edit window and edit count. Polls, replies to others, reposts, and scheduled posts are not editable. Each edit creates a new post ID. |
+| x | x | graph.read | available | None declared | users.read, follows.read, mute.read, block.read | The required read scope depends on the requested relationship kind. |
+| x | x | profiles.read | available | None declared | users.read | None declared |
+| x | x | graph.follow | available | None declared | users.read, follows.write | Follow writes require an eligible paid X API tier. |
+| x | x | graph.unfollow | available | None declared | users.read, follows.write | Follow writes require an eligible paid X API tier. |
+| x | x | graph.mute | available | None declared | users.read, mute.write | None declared |
+| x | x | graph.unmute | available | None declared | users.read, mute.write | None declared |
+| x | x | graph.block | available | None declared | users.read, block.write | Enterprise plan only. |
+| x | x | graph.unblock | available | None declared | users.read, block.write | Enterprise plan only. |
+| x | x | lists.pinned.read | available | None declared | users.read, list.read | None declared |
+| x | x | lists.pinned.write | available | None declared | users.read, list.write | None declared |
+| x | x | messages.conversation.write | available | None declared | dm.write | None declared |
+| x | x | messages.group.write | available | None declared | dm.write | None declared |
+| x | x | comments.read | available | None declared | tweet.read, users.read | Replies come from recent search with conversation_id, so only replies from the last 7 days are returned. Pass the conversation's root post. Page limits are 10-100. Recent search allows 450 requests per 15 minutes per app and 300 per user, and X bills post reads under the app's plan. |
+| x | x | search.posts | available | None declared | tweet.read, users.read | Recent search covers the last 7 days. Full-archive search requires an eligible X API pay-per-use or Enterprise plan. |
+| x | x | media.video | available | video | tweet.read, tweet.write, users.read, media.write | MP4 Blob chunked INIT/APPEND/FINALIZE with 1 MiB segments and bounded STATUS poll honoring check_after_secs. |
+| x | x | media.gif | available | None declared | tweet.read, tweet.write, users.read, media.write | GIF Blob chunked upload; large GIFs process asynchronously before attach. |
+| x | x | messages.read | available | None declared | dm.read, users.read, tweet.read | Requires a user-context token and an X API tier that includes Direct Messages. |
+| x | x | notifications.read | unsupported-by-platform | None declared | See adapter setup | X API v2 has no notifications list endpoint. Use mentions.read, or the Account Activity or X Activity API webhooks and streams. |
+| x | x | messages.write | available | None declared | dm.write, dm.read, users.read, tweet.read | Requires a user-context token and an X API tier that includes Direct Messages. |
+| x | x | comments.moderate | available | None declared | tweet.moderate.write, tweet.read, users.read | Native hideReply hides or unhides replies in conversations the authenticated user started. Requires a user-context token. |
+| x | x | streams.read | available | None declared | See adapter setup | Filtered stream via native stream, listStreamRules, addStreamRules, and deleteStreamRules with the app-only appBearerToken. Needs X API pay-per-use (1 connection, 1,000 rules of up to 1,024 characters) or Enterprise (multiple connections, 25,000+ rules of up to 2,048 characters). backfillMinutes and startTime/endTime recovery need Enterprise. One caller-controlled connection per iteration; no automatic reconnect. |
+| x | x | posts.schedule | not-implemented-by-adapter | None declared | See adapter setup | X API v2 has no scheduled-post field; POST /2/tweets publishes immediately. X Ads API scheduled Tweets (ads-api.x.com/12/accounts/:account_id/scheduled_tweets) need Ads API approval, an ads account, and OAuth 1.0a-signed requests, which this OAuth 2.0 adapter does not implement (https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests, checked 2026-09-24). Scheduled Tweets default to nullcast=true (promoted-only, not on the public timeline); organic nullcast=false Tweets can only be created by the ads account's full promotable user (https://docs.x.com/x-ads-api/creatives, checked 2026-09-24). Use an application-owned job runner to publish at a chosen time. |
+| x | x | profile.update | unsupported-by-platform | None declared | See adapter setup | X API v2 (OpenAPI 2.168, https://docs.x.com/openapi.json, checked 2026-09-24) has no endpoint that writes the user's profile. The v1.1 POST account/update_profile reference is no longer published on docs.x.com (its developer.x.com URL redirects to https://docs.x.com/overview), and v1.1 user writes require OAuth 1.0a. |
+| threads | threads | accounts.read | available | None declared | See adapter setup | None declared |
+| threads | threads | webhooks.verify | available | None declared | See adapter setup | Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge. |
+| threads | threads | posts.publish | available | text, image, video, carousel | threads_basic, threads_content_publish | None declared |
+| threads | threads | posts.schedule | unsupported-by-platform | None declared | See adapter setup | Threads publishing endpoints have no publish-time parameter; threads_publish publishes immediately. |
+| threads | threads | posts.read | available | None declared | See adapter setup | None declared |
+| threads | threads | posts.list | available | None declared | See adapter setup | None declared |
+| threads | threads | posts.status | available | None declared | See adapter setup | None declared |
+| threads | threads | analytics.read | available | None declared | threads_basic, threads_manage_insights | None declared |
+| threads | threads | analytics.account.read | available | None declared | threads_basic, threads_manage_insights | None declared |
+| threads | threads | comments.read | available | None declared | threads_basic, threads_read_replies | None declared |
+| threads | threads | comments.write | available | None declared | threads_basic, threads_manage_replies | None declared |
+| threads | threads | comments.moderate | available | None declared | threads_manage_replies | Hiding replies and pending-reply moderation require Threads reply-management permissions. |
+| threads | threads | comments.delete | available | None declared | threads_basic, threads_delete | Deletes only replies published by the authenticated user. Threads allows 100 deletions per account per day. Use hideReply for other users' replies. |
+| threads | threads | posts.quote | available | None declared | threads_basic, threads_content_publish | None declared |
+| threads | threads | posts.repost | available | None declared | threads_basic, threads_content_publish | None declared |
+| threads | threads | posts.delete | available | None declared | threads_basic, threads_delete | None declared |
+| threads | threads | posts.removeFromPlatform | available | None declared | threads_basic, threads_delete | None declared |
+| threads | threads | posts.update | unsupported-by-platform | None declared | See adapter setup | The Threads API has no endpoint to edit a published post; text and attachments are set when the container is created. |
+| threads | threads | profile.read | available | None declared | See adapter setup | None declared |
+| threads | threads | profile.update | unsupported-by-platform | None declared | See adapter setup | The Threads API exposes profile reads only. It has no profile write endpoint. |
+| threads | threads | search.keyword | available | None declared | threads_basic, threads_keyword_search | None declared |
+| threads | threads | profiles.read | available | None declared | threads_basic | The profile endpoint reads the authorized app-scoped user; profile lookup requires threads_profile_discovery. |
+| threads | threads | profiles.search | unsupported-by-platform | None declared | See adapter setup | Threads has no profile search endpoint. Profile discovery only looks up an exact username, which profiles.read covers. |
+| threads | threads | graph.read | unsupported-by-platform | None declared | See adapter setup | Threads does not expose follower or following lists. The followers_count metric is available through analytics.account.read. |
+| threads | threads | search.posts | available | None declared | threads_basic, threads_keyword_search | Without threads_keyword_search approval, results are limited to the authorized user's posts. |
+| threads | threads | mentions.read | available | None declared | threads_basic, threads_manage_mentions | None declared |
+| threads | threads | messages.read | unsupported-by-platform | None declared | See adapter setup | Threads does not expose messaging APIs to standard apps. |
+| threads | threads | notifications.read | unsupported-by-platform | None declared | See adapter setup | The Threads API has no notifications endpoint. Use mentions.read, reply reads, or webhooks instead. |
+| youtube | youtube | webhooks.verify | available | None declared | See adapter setup | Verifies the PubSubHubbub X-Hub-Signature for subscriptions created with hub.secret and decodes the Atom feed. Answer the GET verification with answerYouTubeWebhookChallenge. |
+| youtube | youtube | accounts.read | available | None declared | See adapter setup | None declared |
+| youtube | youtube | posts.read | available | None declared | See adapter setup | None declared |
+| youtube | youtube | posts.list | available | None declared | See adapter setup | None declared |
+| youtube | youtube | posts.status | available | None declared | See adapter setup | None declared |
+| youtube | youtube | analytics.read | available | None declared | See adapter setup | None declared |
+| youtube | youtube | analytics.account.read | available | None declared | See adapter setup | None declared |
+| youtube | youtube | comments.read | available | None declared | See adapter setup | None declared |
+| youtube | youtube | comments.write | available | None declared | See adapter setup | None declared |
+| youtube | youtube | posts.publish | available | video | https://www.googleapis.com/auth/youtube.upload | Unaudited projects may be restricted to private visibility. Upload completion and video processing are separate. |
+| youtube | youtube | posts.schedule | available | None declared | https://www.googleapis.com/auth/youtube.upload | Scheduled videos are uploaded private with a future ISO publishAt timestamp. |
+| youtube | youtube | posts.cancelScheduled | available | None declared | https://www.googleapis.com/auth/youtube | Clears status.publishAt with videos.update and keeps the video private. The video is not deleted. Costs 51 quota units (videos.list + videos.update). |
+| youtube | youtube | posts.removeFromPlatform | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | notifications.read | unsupported-by-platform | None declared | See adapter setup | The YouTube Data API has no notifications resource. activities.list reports actions a channel took, not notifications it received. |
+| youtube | youtube | playlists.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly | None declared |
+| youtube | youtube | playlists.write | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | thumbnails.write | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | videos.update | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | posts.update | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | profile.update | available | None declared | https://www.googleapis.com/auth/youtube | Native access: updateProfile. Writes brandingSettings.channel or localizations through channels.update. Each call reads the channel (1 quota unit) and then writes it (50 units). |
+| youtube | youtube | videos.delete | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | posts.delete | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | videos.rate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared |
+| youtube | youtube | captions.read | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared |
+| youtube | youtube | captions.write | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared |
+| youtube | youtube | subscriptions.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly | None declared |
+| youtube | youtube | subscriptions.write | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
+| youtube | youtube | search.keyword | available | None declared | See adapter setup | None declared |
+| youtube | youtube | search.posts | available | None declared | https://www.googleapis.com/auth/youtube.readonly | Uses search.list with type=video. Each request costs 100 quota units. |
+| youtube | youtube | comments.moderate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared |
+| youtube | youtube | comments.delete | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | comments.delete costs 50 quota units. Delete a thread through its top-level comment ID. Google does not document which comments a channel may delete; insufficient permissions return 403 forbidden. |
+| youtube | youtube | analytics.youtube.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly | None declared |
+| youtube | youtube | analytics.report.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly | Reports require an explicit bounded date range and provider-supported metrics. |
+| youtube | youtube | live.broadcasts | available | None declared | https://www.googleapis.com/auth/youtube | The channel must have live streaming enabled in YouTube Studio. Use native access: liveBroadcasts. |
+| tiktok | tiktok | webhooks.verify | available | None declared | See adapter setup | Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event. |
+| tiktok | tiktok | posts.publish | available | image, video, carousel | video.publish | Verified URL source; explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload. |
+| tiktok | tiktok | posts.schedule | unsupported-by-platform | None declared | See adapter setup | Content Posting API post_info has no publish-time field. |
+| tiktok | tiktok | posts.status | available | None declared | See adapter setup | None declared |
+| tiktok | tiktok | posts.read | available | None declared | video.list | None declared |
+| tiktok | tiktok | posts.list | available | None declared | video.list | None declared |
+| tiktok | tiktok | posts.draft | available | None declared | video.upload | None declared |
+| tiktok | tiktok | posts.status.poll | available | None declared | See adapter setup | None declared |
+| tiktok | tiktok | posts.update | unsupported-by-platform | None declared | See adapter setup | The Content Posting API sets caption and privacy only when a post is initialized. It has no endpoint to edit a published post. |
+| tiktok | tiktok | comments.read | unsupported-by-platform | None declared | See adapter setup | Standard Content Posting and Display APIs do not expose comments. |
+| tiktok | tiktok | messages.read | unsupported-by-platform | None declared | See adapter setup | None declared |
+| tiktok | tiktok | notifications.read | unsupported-by-platform | None declared | See adapter setup | TikTok for Developers APIs do not expose a user notification inbox. |
+| tiktok | tiktok | accounts.read | available | None declared | user.info.basic | None declared |
+| tiktok | tiktok | analytics.account.read | available | None declared | user.info.stats | None declared |
+| tiktok | tiktok | analytics.read | available | None declared | video.list | None declared |
+| tiktok | tiktok | profile.update | unsupported-by-platform | None declared | See adapter setup | The Display API reads user info only. TikTok has no profile write endpoint. |
+| instagram | instagram | posts.publish | available | image, video, carousel | instagram_business_basic, instagram_business_content_publish | Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping. |
+| instagram | instagram | posts.schedule | unsupported-by-platform | None declared | See adapter setup | The content publishing API has no publish-time parameter; media_publish publishes immediately and unpublished containers expire after 24 hours. |
+| instagram | instagram | posts.update | unsupported-by-platform | None declared | See adapter setup | Instagram Graph API does not provide an edit endpoint for published media. |
+| instagram | instagram | accounts.read | available | None declared | See adapter setup | None declared |
+| instagram | instagram | posts.list | available | None declared | See adapter setup | None declared |
+| instagram | instagram | posts.read | available | None declared | See adapter setup | None declared |
+| instagram | instagram | posts.status | available | None declared | See adapter setup | None declared |
+| instagram | instagram | comments.read | available | None declared | See adapter setup | None declared |
+| instagram | instagram | comments.write | available | None declared | See adapter setup | None declared |
+| instagram | instagram | analytics.read | available | None declared | See adapter setup | None declared |
+| instagram | instagram | analytics.account.read | available | None declared | See adapter setup | None declared |
+| instagram | instagram | comments.moderate | available | None declared | instagram_business_manage_comments | Hide or unhide a comment, or enable or disable comments on media. Instagram Login and Facebook Login are supported where the account and app permissions qualify. |
+| instagram | instagram | comments.delete | available | None declared | instagram_business_manage_comments | None declared |
+| instagram | instagram | comments.replies.read | available | None declared | instagram_business_manage_comments | None declared |
+| instagram | instagram | profiles.read | available | None declared | instagram_business_basic, instagram_business_manage_insights | None declared |
+| instagram | instagram | reels.publish | available | video | See adapter setup | None declared |
+| instagram | instagram | stories.publish | available | None declared | See adapter setup | None declared |
+| instagram | instagram | profile.update | unsupported-by-platform | None declared | See adapter setup | The IG User node supports reads only. Updating it is not supported. |
+| instagram | instagram | posts.delete | unsupported-by-platform | None declared | See adapter setup | Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media |
+| instagram | instagram | posts.removeFromPlatform | unsupported-by-platform | None declared | See adapter setup | Meta documents media deletion for Instagram API with Facebook Login only. See https://developers.facebook.com/docs/instagram-platform/reference/instagram-media |
+| instagram | instagram | publishing.limit.read | available | None declared | See adapter setup | None declared |
+| instagram | instagram | mentions.read | available | None declared | instagram_business_basic, instagram_business_manage_comments | Reads the paginated /&#123;ig-user-id&#125;/tags edge on graph.instagram.com. mentionedMedia and mentionedComment require Facebook Login. Story mentions and private media are not returned. |
+| instagram | instagram | product.tagging | approval-dependent | None declared | See adapter setup | None declared |
+| instagram | instagram | messages.read | approval-dependent | None declared | See adapter setup | None declared |
+| instagram | instagram | webhooks.verify | available | None declared | See adapter setup | Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge. |
+| instagram | instagram | notifications.read | unsupported-by-platform | None declared | See adapter setup | The Instagram API has no notifications edge. Use mentions.read, tags, comments, or webhooks instead. |
+| linkedin | linkedin | posts.publish | available | text, image, carousel, video, document | w_member_social | Explicit author URN and public visibility. Organization role and app product approval required. One registered image, 2 to 20 images, one MP4 video, or one document per post; every asset must be AVAILABLE before creating a post. |
+| linkedin | linkedin | posts.schedule | unsupported-by-platform | None declared | See adapter setup | The Posts API accepts only lifecycleState PUBLISHED on creation and has no publish-time field. |
+| linkedin | linkedin | posts.read | available | None declared | r_member_social | Member read access is restricted. Publication permission does not grant read permission. |
+| linkedin | linkedin | accounts.read | available | None declared | openid, profile | Returns the configured member only. Reads the OpenID Connect userinfo endpoint and checks that sub matches the author URN. Requires the Sign In with LinkedIn using OpenID Connect product. |
+| linkedin | linkedin | posts.multi-image | available | carousel | w_member_social | Publishes 2 to 20 registered images through posts.publish as organic MultiImage content. Every image must be owned by the author and AVAILABLE. Sponsored multi-image posts are not supported. |
+| linkedin | linkedin | posts.video | available | video | w_member_social | Upload one MP4 Blob (75 KB to 500 MB, 3 seconds to 30 minutes) with media.upload, then publish the video URN once it is AVAILABLE. Check processing with native videoStatus (one read) or the opt-in native waitForVideo (bounded reads within the operation budget). Publishing reads the status once and never waits; a processing video fails with no post created. The attachment caption becomes the optional video title. |
+| linkedin | linkedin | posts.document | available | document | w_member_social | One PDF, PPT, PPTX, DOC or DOCX file up to 100 MB and 300 pages, uploaded through the Documents API. LinkedIn enforces the page limit during processing. Requires a title and AVAILABLE status. |
+| linkedin | linkedin | polls.create | available | None declared | See adapter setup | None declared |
+| linkedin | linkedin | reactions.write | available | None declared | See adapter setup | None declared |
+| linkedin | linkedin | reshares.write | available | None declared | See adapter setup | None declared |
+| linkedin | linkedin | posts.update | available | None declared | See adapter setup | None declared |
+| linkedin | linkedin | posts.delete | available | None declared | See adapter setup | None declared |
+| linkedin | linkedin | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
+| linkedin | linkedin | comments.delete | available | None declared | w_member_social | Native deleteComment needs the post URN and the complete commentUrn. LinkedIn does not document which comments an actor may delete; expect only the configured author's own comments to succeed. |
+| linkedin | linkedin | analytics.organization.read | account-ineligible | None declared | rw_organization_admin | Requires the Community Management API product and organization administrator access. Member accounts are not eligible. |
+| linkedin | linkedin | articles.create | approval-dependent | None declared | See adapter setup | None declared |
+| linkedin | linkedin | profile.update | approval-dependent | None declared | See adapter setup | Member profile writes use the Profile Edit API, which LinkedIn restricts to approved developers. This adapter does not implement it. |
+| linkedin | linkedin | messages.write | unsupported-by-platform | None declared | See adapter setup | None declared |
+| linkedin | linkedin | webhooks.verify | approval-dependent | None declared | rw_organization_admin | LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge. |
+| linkedin | linkedin | notifications.read | account-ineligible | None declared | rw_organization_admin | Organization social-action notifications from the last 60 days, pulled with offset paging. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API. |
+| linkedin | linkedin | notifications.seen | unsupported-by-platform | None declared | See adapter setup | LinkedIn does not expose a seen or read state for notifications. |
+| linkedin | linkedin | analytics.account.read | account-ineligible | None declared | rw_organization_admin | Organization total followers only; authenticated member must administer the organization. No member-profile analytics claimed. |
+| linkedin | linkedin | analytics.followers.read | account-ineligible | None declared | rw_organization_admin | Community Management API product and organization administrator access are required. Member accounts are not eligible. |
+| linkedin | linkedin | analytics.page.read | account-ineligible | None declared | rw_organization_admin | Community Management API product and organization administrator access are required. Member accounts are not eligible. |
+| linkedin | linkedin | analytics.shares.read | account-ineligible | None declared | rw_organization_admin | Community Management API product and organization administrator access are required. Member accounts are not eligible. |
+| linkedin | linkedin | posts.list | available | None declared | r_member_social | Author-feed pagination uses the returned offset cursor. |
+| linkedin | linkedin | media.upload | available | image, video, document | See adapter setup | None declared |
+| linkedin | linkedin | comments.read | available | None declared | w_member_social, r_member_social | Community Management product permissions and author post read access required. Analytics contains returned social-action counts only. |
+| linkedin | linkedin | comments.write | available | None declared | w_member_social, r_member_social | Community Management product permissions and author post read access required. Analytics contains returned social-action counts only. |
+| linkedin | linkedin | analytics.read | available | None declared | r_member_social | Community Management product permissions and author post read access required. Analytics contains returned social-action counts only. |
+
+## Capability IDs and methods
+
+Capability IDs describe routes, not necessarily method names. Native routes require explicit unsafe access and their own authorization checks.
+
+| Capability ID | Implementation method(s) |
+| --- | --- |
+| accounts.read | accounts.list, accounts.get |
+| posts.publish | posts.prepareTarget, posts.publishTarget |
+| posts.read | posts.get |
+| posts.list | posts.list |
+| posts.status | posts.getDelivery |
+| posts.cancelScheduled | posts.cancelScheduled |
+| posts.deleteBackendRecord | posts.deleteBackendRecord |
+| posts.removeFromPlatform | posts.removeFromPlatform |
+| media.upload | media.upload |
+| analytics.read | analytics.getPostMetrics |
+| analytics.account.read | analytics.getAccountMetrics |
+| analytics.report.read | analytics.getReport |
+| search.posts | search.posts |
+| comments.read | comments.list |
+| comments.write | comments.reply |
+| messages.write | messages.send |
+| webhooks.verify | webhooks.verify, webhooks.decode |
+| posts.publish.video | posts.publishTarget |
+| posts.repost | native.repostPost\|native.repost |
+| posts.quote | native.quotePost\|native.quote |
+| posts.delete | native.deletePost\|native.deleteVideo |
+| graph.read | graph.listRelationships |
+| graph.follow | graph.follow\|native.follow\|native.followUser |
+| graph.unfollow | graph.unfollow\|native.unfollow\|native.unfollowUser |
+| graph.block | graph.block\|native.block\|native.blockUser |
+| graph.unblock | graph.unblock\|native.unblock\|native.unblockUser |
+| graph.mute | graph.mute\|native.mute\|native.muteUser |
+| graph.unmute | graph.unmute\|native.unmute\|native.unmuteUser |
+| notifications.read | notifications.list\|native.listNotifications |
+| notifications.seen | notifications.markSeen\|native.markNotificationsSeen |
+| profile.read | native.getProfile |
+| profiles.read | graph.getProfile\|native.getProfile\|native.getUserById\|native.businessDiscovery |
+| profiles.search | native.searchActors |
+| profile.update | native.updateProfile |
+| feeds.read | native.listFeeds |
+| chat.read | native.listConversations, native.listMessages |
+| chat.write | native.sendMessage |
+| polls.create | native.createPoll |
+| bookmarks.read | native.bookmarks |
+| bookmarks.write | native.bookmark, native.removeBookmark |
+| follows.write | native.follow, native.unfollow |
+| media.video | native.uploadVideo |
+| media.gif | native.uploadGif |
+| media.status | native.getVideoJobStatus |
+| media.limits.read | native.getVideoUploadLimits |
+| messages.read | messages.listConversations\|native.listDirectMessages\|native.listConversations |
+| streams.read | native.stream |
+| search.keyword | native.search |
+| mentions.read | native.mentions\|native.listMentions |
+| timelines.read | native.userPosts, native.homeTimeline |
+| likes.read | native.getLikes\|native.likedPosts |
+| likes.write | native.likePost\|native.like, native.unlikePost\|native.unlike |
+| lists.read | native.getList |
+| lists.write | native.createList, native.updateList, native.deleteList |
+| lists.pinned.read | native.pinnedLists |
+| lists.pinned.write | native.pinList, native.unpinList |
+| messages.conversation.write | native.sendConversationMessage |
+| messages.group.write | native.createGroupConversation |
+| moderation.report | native.createModerationReport |
+| comments.moderate | native.hideReply\|native.moderateComment\|native.commentsModeration |
+| comments.delete | native.deleteComment |
+| comments.replies.read | native.listCommentReplies |
+| videos.update | native.updateVideo |
+| videos.delete | native.deleteVideo |
+| videos.rate | native.rateVideo, native.getRating |
+| subscriptions.read | native.subscriptions |
+| subscriptions.write | native.subscriptions |
+| analytics.followers.read | native.getOrganizationFollowerStatistics, native.getOrganizationFollowerCount |
+| analytics.page.read | native.getOrganizationPageStatistics |
+| analytics.shares.read | native.getOrganizationShareStatistics |
+| posts.draft | native.uploadDraft |
+| posts.status.poll | native.publishStatus |
+| reels.publish | native.publishReel |
+| stories.publish | native.publishStory |
+| hashtags.search | native.hashtagSearch |
+| publishing.limit.read | native.publishingLimit |
+| product.tagging | native.publishReel |
+| thumbnails.write | native.setThumbnail |
+| captions.read | native.captions |
+| captions.write | native.captions |
+| playlists.read | native.playlists |
+| playlists.write | native.playlists |
+| posts.schedule | posts.publishTarget |
+| posts.update | native.updateVideo\|native.updatePost |
+| analytics.youtube.read | native.analytics |
+| live.broadcasts | native.liveBroadcasts |
+| posts.multi-image | posts.publishTarget |
+| posts.video | posts.publishTarget, media.upload, native.videoStatus |
+| posts.document | posts.publishTarget, media.upload, native.documentStatus |
+| reactions.write | native.react |
+| reshares.write | native.reshare |
+| analytics.organization.read | native.organizationAnalytics |
+| articles.create | native.updatePost |
 
 Generate this page with `bun scripts/generate-capabilities.ts`. CI uses `--check` to detect drift. The complete manifests, including API revisions, runtimes and notes, are returned by `social-sdk capabilities --adapter NAME --json`.

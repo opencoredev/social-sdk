@@ -1,0 +1,26 @@
+# Implementation status
+
+Updated 2026-10-05 after integrating the provider documentation audit. These states describe source and offline contracts. They do not establish provider approval, account eligibility, live behavior, publication, or release.
+
+| Area | State | Code and documentation | Offline contract evidence |
+| --- | --- | --- | --- |
+| TikTok L-3/L-4/L-5/L-8/L-9 | Documented, implemented, contract-tested | `src/platforms/tiktok.ts`, `src/core/types.ts`; `apps/docs/docs/platforms/tiktok.mdx` | `tests/tiktok.test.ts`; lane commits `455ba49`, `56aa700`, `ca9b654`, `15a3e3b`; required public booleans in `fc0d28f` |
+| Instagram | Documented, implemented, contract-tested | `src/platforms/instagram.ts`, `src/server/oauth.ts`, `src/server/webhooks.ts`; platform and authentication guides | `tests/instagram-audit.test.ts`, `tests/oauth.test.ts`, `tests/platform-webhooks.test.ts`; lane commits `4b71cc8`, `593adde` |
+| Threads | Documented, implemented, contract-tested | `src/platforms/threads.ts`; platform, comments, reports and durable-workflow guides | `tests/threads.test.ts`; lane commits `5359858`, `0829c84` |
+| LinkedIn L-1–L-25 | Documented, implemented, contract-tested | `src/platforms/linkedin.ts`, `src/server/oauth.ts`; LinkedIn and analytics guides | `tests/linkedin.test.ts`, `tests/oauth.test.ts`; lane commits `7143942`, `decbb85` |
+| YouTube L-1–L-24 | Documented, implemented, contract-tested | `src/platforms/youtube.ts`, `src/platforms/youtube-upload.ts`, `src/server/oauth.ts`; YouTube and authentication guides | `tests/youtube-audit.test.ts`, `tests/youtube.test.ts`, `tests/oauth.test.ts`; lane commits `b4f318c`, `edd5dae`; later-page selected-account coverage in `tests/integration-errors.test.ts` |
+| X | Documented, implemented, contract-tested | `src/platforms/x.ts`, `src/platforms/x-stream.ts`; X and shared guides | `tests/x-audit.test.ts`, `tests/x.test.ts`, `tests/x-chunked-media.test.ts`, `tests/x-stream.test.ts`; billing and duration classification in `tests/integration-errors.test.ts` |
+| Bluesky | Documented, implemented, contract-tested | `src/platforms/bluesky.ts`, `src/server/bluesky-oauth.ts`, `src/server/egress.ts`; Bluesky guide | `tests/bluesky.test.ts`, `tests/bluesky-audit.test.ts`, `tests/bluesky-oauth.test.ts`; paired egress policy and pinned fetch required, static URL inspection alone makes no DNS guarantee |
+| Managed backends L-1–L-6, L-11–L-18, L-20, L-23 | Documented, implemented, contract-tested | `src/cloud/`, backend guides and example helpers | `tests/backends-audit.test.ts`, `tests/managed-adapters.test.ts`; `.changeset/backends-audit-contracts.md` |
+| Zernio L-10 and provider error decoding | Documented, implemented, contract-tested | `src/transport/http.ts`, `src/transport/provider-errors.ts`, `src/cloud/common.ts`; Zernio recovery guide | `tests/integration-errors.test.ts`: bounded JSON, safe IDs, nested duplicate IDs, in-progress delay, no replay, Google quota and X usage cap discrimination; `tests/x-chunked-media.test.ts`: public publish duration rejection |
+| Core-code L-1–L-10 | Implemented, contract-tested; related behavior documented | `src/core/client.ts`, `src/server/oauth.ts`, `src/server/webhooks.ts` | `tests/core.test.ts`, `tests/oauth.test.ts`, `tests/webhooks.test.ts`, `tests/platform-webhooks.test.ts`: cross-author replies, delivery kind/version, Instagram identity/grants/events, YouTube discovery |
+| Generated capabilities | Documented and implementation-conformance checked | `scripts/generate-capabilities.ts`, `apps/docs/docs/reference/capabilities.mdx`, `planning/evidence/capability-manifests.json` | Regenerated 559 declarations; `bun scripts/generate-capabilities.ts --check`; fixed diagnostic setup, adapter IDs versus instance keys, notes and method map |
+| Integration examples | Documented, typechecked and offline contract-tested | `examples/snippets/`, `apps/docs/docs/integrations/`, framework and webhook guides | `bun run recipes:check`, OAuth snippet typecheck and deterministic snippets in `bun run release:ci` |
+
+SDK paths in the table are relative to `packages/social-sdk/`. Evidence names refer to tests in the integrated checkout, not live provider runs.
+
+All provider-authorized live verification is **NOT CHECKED**: this audit was explicitly offline. Native approval and account eligibility remain approval-dependent. Release is **NOT PERFORMED** and requires owner authorization through Changesets; no push, PR, deployment, or provider mutation was performed.
+
+Meta deauthorization/data-deletion callbacks and publish-event normalization remain roadmap work. The externally reported Blume generated catalog anchor, generic MCP description, and static-page lastmod wording require generator-owner follow-up; no live endpoint was added to hide those issues. Sponsor-of-record evidence remains an owner matter, and existing assets are preserved.
+
+Compatibility review: the SDK is version 0.5.0. Backend single-use claims, Bluesky OAuth transport/URL requirements, LinkedIn analytics granularity, X native confirmation contracts, and required TikTok type fields use minor changesets for pre-1.0 compatibility changes. Migration instructions are in their changesets. Other audit changes retain patch bumps for corrected invalid inputs, output decoding and documentation. No release has been requested.

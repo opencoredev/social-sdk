@@ -17,7 +17,7 @@ export function createPostFastSocial(apiKey: string) {
 
 export type PostFastSocial = ReturnType<typeof createPostFastSocial>;
 
-/** Schedule a text post. PostFast requires a future schedule time on every post. */
+/** Schedule a text post. PostFast requires a future schedule within one year on every post. */
 export async function scheduleText(
   social: PostFastSocial,
   account: ConnectedAccountRef,
@@ -100,9 +100,9 @@ export async function waitForDelivery(
 function isWaiting(outcome: DeliveryOutcome): boolean {
   switch (outcome.state) {
     case "scheduled": // due later
-    case "accepted": // SCHEDULED/PENDING_APPROVAL: waiting for approval in PostFast
-    case "processing":
+    case "accepted": // pending approval, or confirmed create with an unavailable status read
       return true;
+    case "processing": // not emitted by this adapter
     case "published":
     case "failed":
     case "cancelled":

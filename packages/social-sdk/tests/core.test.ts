@@ -664,7 +664,7 @@ test("idempotency includes reply destinations and isolates provider keys by tena
   assert.notEqual(calls[0]?.idempotencyKey, calls[1]?.idempotencyKey);
 });
 
-test("per-target replies stay bound to their selected backend, platform, and account", () => {
+test("per-target replies stay bound to their selected backend and platform", () => {
   const social = createSocial({ backend: mockBackend() });
 
   const one = connectedAccountRef({
@@ -791,4 +791,93 @@ test("mock publications have independent delivery IDs and reject cross-account r
 
   if (results[0]!.state === "published" && results[1]!.state === "published")
     assert.notEqual(results[0]!.post.postId, results[1]!.post.postId);
+});
+
+test("cross-author replies authorize the acting account and dispatch the parent unchanged", async () => {
+  const acting = connectedAccountRef({
+    backend: "default",
+    platform: "bluesky",
+    accountId: "actor",
+  });
+
+  const parent = {
+    ...acting,
+    kind: "platform-post" as const,
+    accountId: "other-author",
+    postId: "parent",
+  };
+
+  const authorized: string[] = [];
+  let dispatched = false;
+
+  const social = createSocial({
+    backend: adapterFor(async (target) => {
+      dispatched = true;
+      assert.deepEqual(target.replyTo, parent);
+      assert.deepEqual(target.account, acting);
+
+      return {
+        state: "accepted",
+        targetIndex: target.targetIndex,
+        account: target.account,
+        observedAt: new Date().toISOString(),
+      };
+    }),
+    authorization: {
+      authorizeTargets: async ({ accounts }) =>
+        accounts.map((account) => {
+          authorized.push(account.accountId);
+
+          return { account, allowed: account.accountId === "actor" };
+        }),
+    },
+  });
+
+  const result = await social.posts.publish({
+    targets: [{ account: acting }],
+    content: { text: "reply" },
+    replyTo: parent,
+  });
+
+  assert.equal(result.outcomes[0]?.state, "accepted");
+  assert.deepEqual(authorized, ["actor"]);
+  assert.equal(dispatched, true);
+});
+
+test("getDelivery rejects wrong reference kinds and versions before authorization or dispatch", async () => {
+  const backend = mockBackend();
+  let authorizationCalls = 0;
+
+  const social = createSocial({
+    backend,
+    authorization: {
+      authorizeTargets: async ({ accounts }) => {
+        authorizationCalls++;
+
+        return accounts.map((account) => ({ account, allowed: true }));
+      },
+    },
+  });
+
+  for (const patch of [{ kind: "platform-post" }, { version: 2 }]) {
+    const ref = untypedJson<Parameters<typeof social.posts.getDelivery>[0]>(
+      JSON.stringify({
+        kind: "delivery",
+        version: 1,
+        backend: "default",
+        platform: "x",
+        accountId: "mock-account-1",
+        deliveryId: "delivery",
+        ...patch,
+      }),
+    );
+
+    await assert.rejects(social.posts.getDelivery(ref), {
+      code: "invalid_input",
+      operation: "posts.getDelivery",
+    });
+  }
+
+  assert.equal(authorizationCalls, 0);
+  assert.equal(backend.testing.history().length, 0);
 });

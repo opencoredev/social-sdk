@@ -195,6 +195,23 @@ describe("direct OAuth providers", () => {
     assert.equal(accounts[0]?.ref.accountId, "user-1");
   });
 
+  it("uses the professional Instagram id when the token hint is app-scoped", async () => {
+    const provider = instagramOAuth({
+      clientId: "client",
+      fetch: async (url) =>
+        String(url).includes("oauth/access_token")
+          ? response({ access_token: "at", user_id: "app-scoped" })
+          : response({ id: "app-scoped", user_id: "professional", username: "Ada" }),
+    });
+
+    const accounts = await provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["instagram"] },
+    });
+
+    assert.equal(accounts[0]?.ref.accountId, "professional");
+  });
+
   it("uses the versioned LinkedIn organization ACL endpoint and accepts CONTENT_ADMINISTRATOR", async () => {
     const seen: string[] = [];
 
@@ -468,4 +485,191 @@ describe("OAuth transport limits", () => {
       { code: "timeout" },
     );
   });
+});
+
+describe("Instagram granted permissions", () => {
+  for (const permissions of ["instagram_business_basic", ["instagram_business_basic"]]) {
+    it(`preserves partial consent through long-lived exchange (${Array.isArray(permissions) ? "array" : "string"})`, async () => {
+      const saved: (readonly string[] | undefined)[] = [];
+
+      const provider = instagramOAuth({
+        clientId: "client",
+        clientSecret: "secret",
+        credentialSink: {
+          save: async ({ token }) => {
+            saved.push(token.scopes);
+          },
+        },
+        fetch: async (url) => {
+          if (String(url).includes("oauth/access_token"))
+            return response({ access_token: "short", permissions, user_id: "professional" });
+
+          if (String(url).includes("/me?"))
+            return response({ id: "app-scoped", user_id: "professional" });
+
+          return response({ access_token: "long", expires_in: 3600 });
+        },
+      });
+
+      await provider.complete({
+        callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+        attempt: { ...attempt, platforms: ["instagram"] },
+      });
+      assert.deepEqual(saved, [["instagram_business_basic"]]);
+    });
+  }
+});
+
+describe("YouTube discovery pagination", () => {
+  it("requests 50 channels per page and discovers later pages", async () => {
+    const pages: (string | null)[] = [];
+
+    const provider = youtubeOAuth({
+      clientId: "client",
+      fetch: async (url) => {
+        if (!String(url).includes("/channels?")) return response({ access_token: "at" });
+        const query = new URL(String(url)).searchParams;
+        assert.equal(query.get("maxResults"), "50");
+        pages.push(query.get("pageToken"));
+
+        return query.has("pageToken")
+          ? response({ items: [{ id: "later", snippet: { title: "Later" } }] })
+          : response({ items: [{ id: "first" }], nextPageToken: "next" });
+      },
+    });
+
+    const accounts = await provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["youtube"] },
+    });
+
+    assert.deepEqual(
+      accounts.map((item) => item.ref.accountId),
+      ["first", "later"],
+    );
+    assert.deepEqual(pages, [null, "next"]);
+  });
+
+  it("rejects repeated continuation tokens rather than looping", async () => {
+    let pages = 0;
+
+    const provider = youtubeOAuth({
+      clientId: "client",
+      fetch: async (url) => {
+        if (!String(url).includes("/channels?")) return response({ access_token: "at" });
+        pages++;
+
+        return response({ items: [{ id: `channel-${pages}` }], nextPageToken: "repeat" });
+      },
+    });
+
+    await assert.rejects(
+      provider.complete({
+        callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+        attempt: { ...attempt, platforms: ["youtube"] },
+      }),
+      { code: "upstream_failure", operation: "youtube.account" },
+    );
+    assert.equal(pages, 2);
+  });
+});
+
+it("bounds YouTube account discovery without returning an incomplete picker", async () => {
+  let pages = 0;
+
+  const provider = youtubeOAuth({
+    clientId: "client",
+    fetch: async (url) => {
+      if (!String(url).includes("/channels?")) return response({ access_token: "at" });
+      pages++;
+
+      return response({ items: [{ id: `channel-${pages}` }], nextPageToken: `page-${pages}` });
+    },
+  });
+
+  await assert.rejects(
+    provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["youtube"] },
+    }),
+    { code: "upstream_failure", operation: "youtube.account" },
+  );
+  assert.equal(pages, 100);
+});
+
+it("cancels YouTube continuation even when injected fetch ignores the signal", async () => {
+  const controller = new AbortController();
+  let pages = 0;
+
+  const provider = youtubeOAuth({
+    clientId: "client",
+    signal: controller.signal,
+    fetch: async (url) => {
+      if (!String(url).includes("/channels?")) return response({ access_token: "at" });
+      pages++;
+
+      if (pages === 1) return response({ items: [{ id: "first" }], nextPageToken: "next" });
+      controller.abort();
+
+      return await new Promise<Response>(() => {});
+    },
+  });
+
+  await assert.rejects(
+    provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["youtube"] },
+    }),
+    { code: "cancelled", operation: "youtube.account" },
+  );
+  assert.equal(pages, 2);
+});
+
+it("decodes comma-delimited Instagram permissions without adding ungranted scopes", async () => {
+  const saved: (readonly string[] | undefined)[] = [];
+
+  const provider = instagramOAuth({
+    clientId: "client",
+    scopes: [
+      "instagram_business_basic",
+      "instagram_business_manage_comments",
+      "instagram_business_content_publish",
+    ],
+    credentialSink: {
+      save: async ({ token }) => {
+        saved.push(token.scopes);
+      },
+    },
+    fetch: async (url) =>
+      String(url).includes("oauth/access_token")
+        ? response({
+            access_token: "at",
+            permissions: "instagram_business_basic,instagram_business_manage_comments",
+          })
+        : response({ id: "app-scoped", user_id: "professional" }),
+  });
+
+  await provider.complete({
+    callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+    attempt: { ...attempt, platforms: ["instagram"] },
+  });
+  assert.deepEqual(saved, [["instagram_business_basic", "instagram_business_manage_comments"]]);
+});
+
+it("rejects an Instagram token hint unrelated to either discovered identity", async () => {
+  const provider = instagramOAuth({
+    clientId: "client",
+    fetch: async (url) =>
+      String(url).includes("oauth/access_token")
+        ? response({ access_token: "at", user_id: "unrelated" })
+        : response({ id: "app-scoped", user_id: "professional" }),
+  });
+
+  await assert.rejects(
+    provider.complete({
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["instagram"] },
+    }),
+    { code: "unauthorized", operation: "oauth.identity" },
+  );
 });
