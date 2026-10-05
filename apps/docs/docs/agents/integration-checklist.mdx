@@ -10,10 +10,10 @@ Use this sequence when integrating Social SDK into an existing application.
 3. Keep all credentials and native clients in server-only modules.
 4. Build the account membership check before accepting an account reference from application input.
 5. Implement the flow with the deterministic testing backend and explicit scenarios.
-6. Preserve per-target outcomes. Do not translate accepted, queued, or processing states into published.
+6. Preserve per-target outcomes. Do not translate `scheduled`, `accepted`, `processing`, or `unknown` states into published.
 7. Handle uncertain writes through status reconciliation before retrying.
 8. Add provider-specific webhook verification before parsing or acknowledging events.
-9. Run the packed-consumer and runtime checks for the imports the application uses.
+9. Verify the installed package in the application itself: run the application's type check (for example `npx tsc --noEmit`) so every import resolves against `@opencoredev/social-sdk`, run the mock flow in a test, and run `npx social-sdk capabilities --adapter <name> --json` to confirm the route declares the operations you use. The repository's packed-consumer and release checks are for SDK maintainers, not application integrators.
 10. Request human credentials, platform approval, mutation authorization, or spend authorization only for the remaining live step.
 
 The documentation site is static. It publishes Markdown pages and `llms.txt`, but it does not advertise a live MCP endpoint. Use the repository's integration skill for the complete implementation workflow once its examples and commands have been verified against the released package.

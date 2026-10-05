@@ -7,21 +7,22 @@ This guide turns the Social SDK's core contracts into an application integration
 
 ## Build in this order
 
-1. Start with `packages/social-sdk/src/testing` and an in-memory idempotency store. Exercise success, partial, processing, unknown, and failed outcomes.
-2. Add `ConnectionManager` from `@opencoredev/social-sdk/server`. Configure an exact HTTPS callback allowlist, bind attempts to the authenticated tenant and principal, and require explicit account selection before storing grants.
-3. Implement `ConnectionProvider.complete` with the provider's documented callback and token APIs. The SDK does not pretend to complete OAuth for a provider it cannot call.
-4. Pass `{ authorization: { tenantId, principalId } }` to publish and facade calls. Reject account refs that are not members of the requesting tenant before dispatch.
-5. Verify webhook signatures over the untouched request bytes. Decode the event, resolve account IDs to tenant IDs, and call `acceptWebhook` into an application-owned inbox. Unknown mappings are quarantined; duplicates are acknowledged without reprocessing.
+1. Start with `mockBackend` and `MemoryIdempotencyStore` from `@opencoredev/social-sdk/testing`. Exercise success, partial, processing, unknown, and failed outcomes with mock scenarios.
+2. Configure an `AuthorizationPolicy` in `createSocial({ authorization })` that checks your server-owned grants, and pass `{ authorization: { tenantId, principalId } }` from the authenticated session to publish and facade calls. The call option alone is not a grant; without a configured policy the client performs no access check. See [authorization](/concepts/tenant-authorization).
+3. Add `ConnectionManager` from `@opencoredev/social-sdk/server`. Call `begin` with the authenticated tenant and principal and an exact HTTPS callback allowlist, `discover` in the callback handler, and `select` with the accounts the user picked. Only `select` writes grants. Do not call a provider's `complete` method directly; the manager checks the principal, state, redirect, expiry, and one-use code claim around it. See [connect accounts](/authentication).
+4. Use the provider factories from `@opencoredev/social-sdk/server`, such as `xOAuth` or `youtubeOAuth`, or implement `ConnectionProvider` with the provider's documented callback and token APIs. The SDK does not pretend to complete OAuth for a provider it cannot call.
+5. Verify webhook signatures over the untouched request bytes. For managed backends, decode with `decodeWebhook({ provider: "zernio" | "post-for-me", ... })`. For direct platform webhooks, decode with `decodePlatformWebhook({ platform, ... })`. Resolve account IDs to tenant IDs and call `acceptWebhook` into an application-owned inbox. Unmapped events are quarantined; duplicates are acknowledged without reprocessing. See [process webhooks](/events).
 6. Replace in-memory stores with durable transactions for connection attempts, grants, credentials, idempotency, and inbox state before production.
 
 ## Recipes
 
-The repository skill includes executable TypeScript shapes for `skills/integrate-social-sdk/references/mock-server.ts`, `skills/integrate-social-sdk/references/connection-callback.ts`, `skills/integrate-social-sdk/references/render-outcomes.ts`, `skills/integrate-social-sdk/references/webhook-handler.ts`, and `skills/integrate-social-sdk/references/integration.test.ts`.
+The [repository skill](https://github.com/opencoredev/social-sdk/tree/main/skills/integrate-social-sdk) includes TypeScript shapes in `references/mock-server.ts`, `references/connection-callback.ts`, `references/render-outcomes.ts`, `references/webhook-handler.ts`, and `references/integration.test.ts`. They are repository examples, not package exports.
 
 ## Review checklist
 
 - Provider secrets stay on the server.
+- `createSocial` has an `AuthorizationPolicy`, and every call passes the authenticated tenant and principal.
 - Every publish result is rendered per target, including `unknown` and `not-submitted`.
-- Callback state, redirect URI, tenant, principal, expiry, and replay are checked.
+- Callback state, redirect URI, tenant, principal, expiry, and replay are checked by `ConnectionManager`.
 - Webhooks are verified before parsing and accepted into a deduplicated inbox before processing.
 - Tests cover unauthorized selection, callback replay, duplicate events, partial results, and quarantine.

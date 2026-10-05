@@ -17,6 +17,6 @@ social-sdk validate --adapter mock --file request.json --json
 
 `capabilities` reads the actual adapter manifest. Permission, account eligibility and live behavior remain separate checks. `examples` returns a complete mock publish request. Save its `data.request` object as `request.json` to validate it.
 
-`validate` accepts a JSON file up to 1 MiB. It runs local preparation and returns issue codes and target indexes without echoing content, URLs or account IDs. Media inputs in the CLI must be HTTPS URLs. Use the TypeScript SDK to validate Blob, stream and existing media-reference inputs. TikTok source-domain approval cannot be inferred from a JSON URL; validate that configuration through your server's adapter.
+`validate` accepts a JSON file up to 1 MiB. It runs local preparation and returns issue codes and target indexes without echoing content, URLs or account IDs. Attachment sources in the CLI must be HTTPS URLs. Thumbnails accept HTTPS URLs or existing media references. Use the TypeScript SDK to validate Blob, stream and existing media-reference attachment sources. TikTok source-domain approval cannot be inferred from a JSON URL; validate that configuration through your server's adapter.
 
 Every command accepts `--json`. The envelope contains `schemaVersion: 1`, `command`, `ok`, and `data`. Exit code 0 means the diagnostic passed; 1 means a configuration or preparation check failed; 2 means invalid arguments or input. Unknown commands and options fail rather than enabling a network operation.

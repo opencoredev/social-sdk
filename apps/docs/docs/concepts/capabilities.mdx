@@ -11,15 +11,36 @@ Support is never a platform-level checkmark. Each declaration names the backend,
 
 ## Unavailable is an answer
 
-Calling an undeclared operation fails fast with an `unsupported_capability` error before any network request. Applications should surface that as unsupported rather than an empty result, so users see the truth about a route instead of a silent gap.
+The client dispatches an operation only when the adapter's manifest declares it `available` for that platform. How it says no depends on the call:
+
+- `posts.publish` and `posts.prepare` record a preparation issue with code `capability.unavailable` for the target. `publish` then throws `invalid_input` with those issues, and no target is dispatched.
+- Every other facade call throws `unsupported_capability` before any network request.
+
+Applications should surface either as unsupported rather than an empty result, so users see the truth about a route instead of a silent gap.
 
 ## Availability states
 
-Every operation the SDK implements is declared `available`, even when the platform gates it behind a paid tier, an app review, or an enterprise product. The declaration's `requiredScopes` and `notes` say what access you need. If your app has that access, the call goes through. If it does not, the platform rejects the request and the SDK surfaces that as a `SocialError`. Other availability values mark operations the SDK does not implement for that account, such as `approval-dependent` work that is not built yet, `account-ineligible` account types, or features the upstream API does not offer at all.
+Each declaration has one `CapabilityAvailability` value. Only `available` dispatches. Every other value is a reason the client will not dispatch on this route:
 
-## Evidence backs every claim
+| Value                        | Meaning                                                                          |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `available`                  | The adapter implements the operation; the client dispatches it.                  |
+| `unsupported-by-platform`    | The upstream API this adapter uses does not offer the operation.                 |
+| `not-implemented-by-adapter` | The upstream API offers it, but this adapter has no code path.                   |
+| `permission-required`        | The route lacks a permission the operation needs.                                |
+| `reconnect-required`         | The backend reports that the account must reconnect first.                       |
+| `account-ineligible`         | The configured account type cannot use the operation.                            |
+| `runtime-unavailable`        | The operation cannot run in this runtime.                                        |
+| `approval-dependent`         | The route depends on a platform approval the adapter does not assume.            |
+| `unknown-until-request`      | Support cannot be known before a request; the client still does not dispatch it. |
 
-A declaration says what the code implements; [evidence levels](/testing/evidence-levels) say how far it has been proven, from implemented through contract-tested to live-verified and released. A provider's upstream feature is not treated as supported until Social SDK has matching code and evidence. Conformance checks keep the manifests, runtime methods, and generated docs in agreement.
+Some declarations depend on configuration. An adapter can declare an operation `available` for one account flavor or author type and something else for another, so read the manifest from the adapter you configured.
+
+`available` means the code exists, not that your app or account may use it. When the platform gates an operation behind a paid tier, app review, or enterprise product, the declaration's `requiredScopes` and `notes` say so. If your app lacks that access, the platform rejects the request and the SDK surfaces it as a `SocialError`.
+
+## Evidence is a separate scale
+
+Availability describes the manifest. [Evidence levels](/testing/evidence-levels) describe how far a claim has been proven, from implemented through contract-tested to live-verified and released. The two use different vocabularies: `approval-dependent` as an availability value means the client will not dispatch, while the approval-dependent evidence level records that code exists and public use awaits review. Do not infer one from the other. A provider's upstream feature is not treated as supported until Social SDK has matching code and evidence. Conformance checks keep the manifests, runtime methods, and generated docs in agreement.
 
 ## Search is bounded by the provider
 

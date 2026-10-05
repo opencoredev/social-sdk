@@ -1,6 +1,6 @@
 ---
 title: Security
-description: Credential boundaries, tenant authorization, webhook verification, and redaction rules for Social SDK applications.
+description: Credential boundaries, tenant authorization, webhook verification, network egress, and redaction rules for Social SDK applications.
 ---
 
 Social SDK is a server-side library with explicit security boundaries. This page collects the rules that every integration shares; the linked guides cover each mechanism in depth.
@@ -9,26 +9,47 @@ Social SDK is a server-side library with explicit security boundaries. This page
 
 Platform access tokens, managed-provider API keys, OAuth client secrets, refresh tokens, upload session URIs, and webhook secrets are server secrets. They must never reach a browser bundle, a client component, a public reference, a log line, or a fixture. A browser may send an authenticated request naming content and an application-owned account selection; it must never receive backend credentials or an unrestricted connected-account reference.
 
+## Store credentials durably and encrypted
+
+`MemoryCredentialStore`, `MemoryConnectionStore`, and the other memory stores keep plaintext values in process memory and lose them on exit. Use them only in tests. In production, implement `CredentialStore` over encrypted storage keyed by tenant, principal, backend, platform, and account, so one tenant's lookup cannot read another's token.
+
+Token refresh is explicit. The SDK does not refresh tokens in the background; your code calls `refreshOAuthToken` (or `refreshBlueskyOAuthSession`) when a token nears expiry. Replace the stored credential with `compareAndSet` against the revision you read, so two concurrent refreshes cannot overwrite each other's rotated refresh token. See [connect accounts](/authentication).
+
 ## Two separate authorization questions
 
-Application authentication answers who the caller is. Social-account authorization answers whether that caller's tenant may use a specific connected account. The SDK's references detect routing mistakes between backends and platforms, but the application must map the authenticated tenant to the selected account before every account-scoped operation. Never take an account ID from a request body without that check. See [tenant authorization](/concepts/tenant-authorization).
+Application authentication answers who the caller is. Social-account authorization answers whether that caller's tenant may use a specific connected account. The SDK enforces the second question only when `createSocial` has an `AuthorizationPolicy`. The `authorization` call option carries the authenticated tenant and principal to that policy; on its own it grants nothing, and without a policy the client performs no access check. Never take an account ID from a request body without a server-side ownership check. See [authorization](/concepts/tenant-authorization).
 
 ## No implicit network activity
 
-Importing the SDK performs no network request, telemetry, timer, queue, or background poll. Every external call is one your application makes explicitly, with a bounded retry budget and cancellation. Packed-consumer checks verify the zero-network-at-import behavior for every entrypoint.
+Importing the SDK performs no network request, telemetry, timer, queue, or background poll. Every external call is one your application makes explicitly, with a bounded retry budget and cancellation.
+
+## Outbound URLs and private networks
+
+URL checks in the SDK are static. They reject non-HTTPS schemes, `localhost`, credentials in URLs, and IP-literal hosts in private and reserved ranges. They do not resolve DNS, so a public hostname that resolves to a private address still passes.
+
+Where media URLs go depends on the route:
+
+- Managed backends and the Instagram, Threads, and TikTok adapters forward an `https-url` to the provider, which fetches it. Your server does not.
+- The Bluesky adapter fetches remote images itself. It takes an `allowMediaHost` option; restrict it to the hosts you serve media from.
+- Bluesky OAuth resolves handles, DID documents, and server metadata from URLs other parties control. Every OAuth network request requires both `assertEgressAllowed` and an injected `fetch` that pins approved resolved addresses, including connection, refresh, and resource requests. The policy must reject private resolutions; ordinary fetch paired with a policy hook is insufficient. See the [Bluesky transport contract](/platforms/bluesky#setup).
 
 ## Webhooks are verified before parsing
 
-Provider events are verified against the untouched raw request bytes using the provider's real mechanism: an HMAC-SHA256 signature for Zernio, a shared-secret header for Post for Me. Verification failures return before any parsing. Accepted events resolve every referenced account to authorized tenants; events with no common authorized tenant are quarantined rather than delivered. Payload tenant fields are never trusted. See [events](/events).
+Each verifier checks the raw request bytes and throws `unauthorized` before any parsing. The mechanisms differ, and the returned `VerifiedWebhook.bodyAuthenticated` field says which kind you got:
+
+- Zernio and every direct platform verifier compute an HMAC over the body, so the body is authenticated (`bodyAuthenticated: true`).
+- Post for Me sends a shared secret in the `Post-For-Me-Webhook-Secret` header. The verifier compares that header only; the body is not authenticated (`bodyAuthenticated: false`).
+
+Accepted events resolve every referenced account to authorized tenants; events with no common authorized tenant are quarantined rather than delivered. Payload tenant fields are never trusted. See [process webhooks](/events), including the [direct platform verifier table](/events#verify-direct-platform-webhooks).
 
 ## Errors are redacted
 
-Structured errors never contain credentials, tokens, signatures, media bytes, message content, or private account data. Diagnostics are read-only by default and follow the same redaction rules. Report provider request identifiers and retry-after information instead of raw responses. See the [errors reference](/reference/errors).
+Structured errors never contain credentials, tokens, signatures, media bytes, message content, or private account data. Diagnostics are read-only by default and follow the same redaction rules. For support and reconciliation, log `correlationId`, `upstreamStatus`, `upstreamCode`, and `retryDisposition` from `SocialError` instead of raw responses. `SocialError` does not expose provider request IDs. See the [errors reference](/reference/errors).
 
 ## Native access is explicitly unsafe
 
-Typed native modules and `social.native(backend, { acknowledgeUnsafe: true })` bypass the client's tenant-authorization and concurrency middleware. Applications must wrap them in their own authorization policy. See [native access](/concepts/native-access).
+Typed native modules and `social.native(backend, { acknowledgeUnsafe: true })` bypass the client's authorization policy and concurrency middleware. Applications must wrap them in their own authorization checks. See [native access](/concepts/native-access).
 
 ## Uncertain writes are never retried blindly
 
-A lost response after a public write is an unknown outcome, not a failure. Retrying it without reconciliation can double-post. Preserve the delivery reference, reconcile explicitly, and reuse idempotency keys according to the documented policy. See [idempotency and retries](/concepts/idempotency).
+A lost response after a public write is an unknown outcome, not a failure. Retrying it without reconciliation can double-post. Reconcile where the route supports status reads, and use a new idempotency key only after you know the write did not happen. See [idempotency](/concepts/idempotency).

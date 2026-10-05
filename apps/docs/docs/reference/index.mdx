@@ -9,9 +9,7 @@ The public contract currently centers on `createSocial`, `connectedAccountRef`, 
 
 Adapters extend the contract with account, media, reads, search, analytics, comments, messages, webhooks, and native access as their implementations become available. A missing module or capability is unavailable; it is never represented by an empty successful response.
 
-Use [Search posts](/reads/search) for the `SearchPostsInput` contract and a custom adapter registration example. A custom search provider can share a platform with a direct publishing adapter while keeping its own backend key, credentials, and capability declaration.
-
-The CLI and generated capability matrix belong here once their package exports and command output have been verified in a packed consumer. Keep examples compiled against the same source version as this reference.
+Use [Search posts](/reads/search) for the `SearchPostsInput` contract. To add your own route, such as a custom search provider, implement `SocialAdapter` with `defineAdapter`, declare its operations in a `CapabilityManifest`, and register it under its own backend key next to your other adapters. It can share a platform with a direct publishing adapter while keeping its own credentials and capability declarations. The [contributing guide](/contributing) lists what an adapter needs.
 
 See the [capability matrix](/reference/capabilities) and [diagnostic CLI](/reference/cli) for operational contract checks.
 

@@ -15,4 +15,27 @@ An adapter is complete only when its implementation, capability manifest, contra
 - Add deterministic fixtures for success, partial failure, permission, reconnect, rate limit, duplicate event, out-of-order event, and uncertain write scenarios.
 - Keep credentials and real content out of fixtures, logs, docs, and CI output.
 
+## Adapter checklist
+
+Work in a clone of the [repository](https://github.com/opencoredev/social-sdk). A new direct adapter touches these places:
+
+1. **Implementation.** Add `packages/social-sdk/src/platforms/<name>.ts`. Export a factory that returns `defineAdapter({ id, capabilities, posts, ... })`, typed as `SocialAdapter<YourNative>`. Check every account reference against the configured credentials and `context.backendInstance`.
+2. **Manifest.** Declare each operation in the adapter's `CapabilityManifest` with an honest `availability`, `formats`, `requiredScopes`, and `notes`. Mark an operation `available` only when the adapter has a code path for it.
+3. **Subpath export.** Add `"./<name>"` to `exports` in `packages/social-sdk/package.json`, pointing at the built `dist/platforms/<name>.js` and `.d.ts`. Do not re-export platform adapters from the package root.
+4. **CLI.** Add the adapter to `adapterNames` and `createDiagnosticAdapter` in `packages/social-sdk/src/cli.ts`, so `social-sdk capabilities --adapter <name>` works offline.
+5. **Generated matrix.** If you add a new operation name, map it to its method in `implementationPaths` in `scripts/generate-capabilities.ts`. Build the package, then run `bun scripts/generate-capabilities.ts` and commit the regenerated [capability matrix](/reference/capabilities). CI runs it with `--check` and fails on drift.
+6. **Tests.** Add `packages/social-sdk/tests/<name>.test.ts` with an injected `fetch` and recorded, redacted fixtures. Cover the scenarios listed above. Tests must stay offline.
+7. **Docs.** Add `apps/docs/docs/platforms/<name>.mdx` and list it in that folder's `meta.ts`. Every example must compile against the real exports. Date your provider sources.
+8. **Changeset.** Run `bunx changeset` and choose an honest bump; a new adapter is a minor change.
+
+Before handing off, run the repository checks from the root:
+
+```sh
+bun install --frozen-lockfile
+bun run release:ci
+bun run test:node
+```
+
+`release:ci` runs the release gate: lint, formatting, type checks, tests, the build, and package checks. Listing a check here does not mean it passes; read the output.
+
 The [evidence levels](/testing/evidence-levels) page explains what contract tests can and cannot prove. Live verification and platform approval remain separate human-owned gates.

@@ -1,48 +1,72 @@
 ---
 title: Idempotency
-description: Use idempotency keys, content fingerprints, and bounded retry budgets so at-least-once schedulers and retries never double-post to a platform.
+description: How idempotency keys, a durable claim store, payload fingerprints, and bounded retry budgets limit duplicate posts, and where they cannot.
 ---
 
-Publishing is a public write. Social SDK's idempotency and retry model exists so a crashed process, a replayed job, or a double-submitted form cannot post the same content twice.
+Publishing is a public write. Social SDK's idempotency model lets an application replay the same publish intent without dispatching it again, but only when the client has a durable `IdempotencyStore`. It cannot prove that a platform did or did not complete a write whose response was lost.
 
-## Idempotency keys
+## Keys need a store
 
 A publish request accepts an application-chosen `idempotencyKey`. Derive it from your own durable identity for the intent, such as a draft ID, so every retry of the same intent carries the same key.
 
 ```ts
-const result = await social.posts.publish({
-  targets: [{ account }],
-  content: { text: "Release day" },
-  idempotencyKey: draftId,
-});
+const social = createSocial({ backend, idempotencyStore });
+
+const result = await social.posts.publish(
+  {
+    targets: [{ account }],
+    content: { text: "Release day" },
+    idempotencyKey: draftId,
+  },
+  { authorization: { tenantId, principalId } },
+);
 ```
 
-Configure a durable store through `createSocial({ idempotencyStore })` when publications must survive process restarts. The testing entrypoint ships `MemoryIdempotencyStore` for local development and CI.
+The client deduplicates only when both `idempotencyKey` and `createSocial({ idempotencyStore })` are present. Without a store, every call dispatches. Adapters also receive a derived per-target key. The Zernio adapter sends it as a request header and the Post for Me adapter sends it as `external_id`. Direct platform adapters do not send it, so the SDK makes no provider-side deduplication promise.
+
+`MemoryIdempotencyStore` from `@opencoredev/social-sdk/testing` is for tests and local development. It loses every claim when the process exits. Production needs a store whose `claim` and `saveOutcome` are atomic in shared durable storage.
+
+## What a claimed key does
+
+The first call with a key claims it and records each target's outcome as it finishes. A later call with the same key and the same payload does not dispatch. It returns the saved outcome for each target. A target that was claimed but has no saved outcome, for example because the process crashed mid-dispatch, comes back as `unknown` with reason `ambiguous-submission`.
+
+The claim is scoped by `options.authorization.tenantId` from the call, so pass the authenticated tenant on every publish. Two tenants using the same key get separate claims. Calls without a tenant share one scope.
 
 ## Fingerprints detect changed intent
 
-Idempotency fingerprints include target content, options, reply references, and schedules. Reusing a key with changed content produces an `idempotency_conflict` error instead of silently publishing something different. Provider request keys also include the tenant scope, so a shared account cannot collapse two tenants' independent intentions into one provider request.
+The claim stores a fingerprint of every prepared target: account, content, options, reply reference, and schedule. Reusing a key with different content, options, or a different set of targets throws `idempotency_conflict` before any dispatch. A key therefore cannot be reused to retry a subset of the original targets.
 
 ## Retry budgets are bounded
 
-Every external operation accepts a retry budget with a maximum attempt count and a total elapsed-time budget. Reads may retry within that budget. Public writes are dispatched once; the transport does not resend a mutation whose response was lost.
+Calls accept `retryBudget: { maxAttempts, maxElapsedMs }`. The default is one attempt within 30 seconds. Reads may retry within that budget. Public writes are dispatched once; the transport does not resend a mutation whose response was lost.
 
 ## Unknown is not failure
 
-A timeout or transport failure after dispatch produces an `unknown` outcome, because the platform may have completed the write. Blindly retrying an unknown outcome is how applications double-post. Preserve the delivery reference, reconcile with `posts.getDelivery`, and retry only after the reconciled state says the write did not happen.
+A timeout, cancellation, or transport failure after dispatch produces an `unknown` outcome, because the platform may have completed the write. Do not retry it with a new key until you have evidence the write did not happen.
+
+An `unknown` outcome may have no `delivery` reference. When it has one, reconcile with `posts.getDelivery` only if the adapter declares `posts.status` as available for that platform. Several direct adapters, including X, Bluesky, and LinkedIn, do not implement it. Without a reference or status support, check the account's recent posts or the provider dashboard.
 
 ```ts
 const outcome = result.outcomes[0];
-if (outcome?.state === "unknown" && outcome.delivery) {
-  const delivery = await social.posts.getDelivery(outcome.delivery);
-  if (delivery.state === "failed") {
-    // Safe to retry with the same idempotency key.
+
+if (outcome?.state === "unknown") {
+  if (outcome.delivery !== undefined && supportsStatus(outcome.account)) {
+    const reconciled = await social.posts.getDelivery(outcome.delivery, {
+      authorization: { tenantId, principalId },
+    });
+    // Act on reconciled.state, and on reconciled.retryDisposition when it is "failed".
+  } else {
+    // No status route: search recent posts on the account before deciding anything.
   }
 }
 ```
 
-## Retries select failed targets only
+`supportsStatus` stands for your own check against `social.capabilities()` for `posts.status`.
 
-Each target gets an independent outcome. A retry must select only the failed or uncertain targets, keeping successful deliveries untouched. The request-level key plus per-target fingerprints make that selection safe.
+A `failed` outcome carries a `retryDisposition`. `never` means do not retry, `after-delay` gives a wait in milliseconds, `after-reconnect` needs new credentials, and `reconcile-first` means the write state is still uncertain.
 
-Job runners with at-least-once semantics pair well with this model: the runner may re-execute, and the key makes re-execution harmless. See the [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), and [Restate](/integrations/restate) patterns.
+## Retrying after a confirmed non-write
+
+Because a claimed key replays its saved outcomes, sending the same key again does not retry anything. To retry, use a new key, and include only the targets you have confirmed were not written. Keep the original key and outcomes for the targets that published.
+
+Job runners with at-least-once semantics pair well with a durable store: the runner may re-execute, and the stored claim returns the recorded outcomes instead of dispatching again. See the [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), and [Restate](/integrations/restate) patterns.

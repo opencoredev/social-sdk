@@ -9,12 +9,29 @@ The shared operation model covers what every platform can express faithfully. Ev
 
 Adapters expose a typed native module for platform-specific operations: reposts, quotes, polls, follows, profile updates, feed discovery, thumbnails, captions, and more. Platform search routes that have no faithful shared contract remain native; the normalized `search.posts` operation is listed separately in the capability manifest. The [capability matrix](/reference/capabilities) lists each platform's native declarations.
 
+Each platform has its own native module type, and an adapter's `native` is optional, so check it before calling. This example uses the Threads adapter, whose native `getProfile` takes the acting account and an operation context:
+
 ```ts
+import { createSocial, type AdapterOperationContext } from "@opencoredev/social-sdk";
+import { threads } from "@opencoredev/social-sdk/threads";
+
+const social = createSocial({ backend: threads({ auth: { userId, accessToken } }) });
 const native = social.native("default", { acknowledgeUnsafe: true });
+if (native === undefined) throw new Error("This adapter has no native module");
+
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: crypto.randomUUID(),
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+};
+
+// Authorize the account for the current tenant first: native calls skip the policy.
 const profile = await native.getProfile({ account, context });
 ```
 
-Selected reactions also ship as credential-ready helpers importable straight from a platform entrypoint, such as `xLike` and `xUnlike`, for server code that manages its own credentials. Native modules also cover media workflows, graph operations, notification reads, platform search, captions, playlists, analytics products, and gated live or messaging routes where the provider exposes them. Moderation and reporting are not normalized or generally implemented across the bundled adapters.
+Method names and inputs differ by platform. The X native module, for example, has no `getProfile`; it uses `getMe`, `getUserById`, and `getUserByUsername`. Check the platform page before calling.
+
+Selected reactions also ship as credential-ready helpers importable straight from a platform entrypoint, such as `xLike` and `xUnlike`, for server code that manages its own credentials. Native modules also cover media workflows, graph operations, notification reads, platform search, captions, playlists, analytics products, and gated live or messaging routes where the provider exposes them. Moderation and reporting are not normalized. Some adapters expose them natively: `hideReply` on X, Threads, and Bluesky, comment moderation on YouTube and Instagram, and `createModerationReport` on Bluesky. See [comments and messages](/comments).
 
 ## What acknowledgeUnsafe means
 

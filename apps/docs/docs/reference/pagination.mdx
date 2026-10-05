@@ -3,7 +3,7 @@ title: Pagination and iteration
 description: Traverse authorized account pages with query-bound cursors, lazy iteration, cancellation, and explicit page and item limits.
 ---
 
-`social.accounts.list` returns one `Page<AccountRecord>`. A page contains `items` and may contain `nextCursor`. Pass that cursor unchanged with the same backend, tenant authorization, and page size to read the next page.
+`social.accounts.list` returns one `Page<AccountRecord>`. A page contains `items` and may contain `nextCursor` and optional provider `metadata`. Pass that cursor unchanged with the same backend, tenant authorization, and page size to read the next page.
 
 The client wraps provider cursors with their query scope. Switching the backend, tenant, or `limit` while reusing a cursor fails locally before the adapter runs. A cursor carries navigation state, not an authorization grant. The application still authorizes the accounts on every returned page. Avoid logging cursor contents because an upstream cursor may contain provider query details.
 
@@ -40,7 +40,7 @@ Account pagination and iteration have deterministic tests under Node and Bun. Pr
 
 ## Feeds, search, comments, and conversations
 
-`posts.list(account, options)`, `social.search.posts(account, options)`, `comments.list(post, options)`, `messages.listConversations(account, options)`, `messages.listMessages(conversation, options)`, `notifications.list(account, options)`, and `graph.listRelationships(account, options)` accept `cursor` and `limit`. Their cursors bind the backend, tenant, account, resource, query where applicable, relationship kind, and page size. Pass the returned value unchanged. An adapter with no upstream continuation rejects a supplied cursor instead of returning page one again.
+`posts.list(account, options)`, `social.search.posts(account, options)`, `comments.list(post, options)`, `messages.listConversations(account, options)`, `messages.listMessages(conversation, options)`, `notifications.list(account, options)`, and `graph.listRelationships(account, options)` accept `cursor` and `limit`. Their cursors bind the backend, tenant, account, resource, query where applicable, relationship kind, and page size. Pass the returned value unchanged. The client validates cursor scope before dispatch; continuation support depends on the adapter. Direct account lists and mock lists may ignore a supplied cursor and return their first page. Bluesky comment listing explicitly rejects supplied cursors because it has no upstream continuation.
 
 Use `posts.iterate`, `search.iteratePosts`, `comments.iterate`, `messages.iterateConversations`, `messages.iterateMessages`, or `notifications.iterate` for lazy bounded traversal. `graph.listRelationships` is page-based. Each iterator accepts the same `maxPages`, `maxItems`, and cancellation controls as account iteration. The capability manifest identifies which adapters implement each list operation.
 

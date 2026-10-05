@@ -32,27 +32,36 @@ flowchart LR
 
 ## Account connection and ownership
 
-The application owns tenant membership. The backend owns its connection and token lifecycle. A browser request cannot turn a display identifier into an authorized backend call.
+The application owns tenant membership. The backend owns its connection and token lifecycle. Discovered accounts are only candidates: a tenant grant exists only after the user picks accounts and `select` stores them. A browser request cannot turn a display identifier into an authorized backend call.
 
 ```mermaid
 sequenceDiagram
   participant User
   participant App as Application server
-  participant Store as Tenant/account store
-  participant Backend
-  User->>App: Start or resume connection
-  App->>Backend: Create provider connection/session
-  Backend-->>App: Callback or connection event
-  App->>Store: Save tenant membership + backend reference
-  App-->>User: Show authorized account choice
-  User->>App: Request operation for chosen account
-  App->>Store: Check tenant membership and backend instance
-  App->>Backend: Execute with server-held credentials
+  participant Manager as ConnectionManager + store
+  participant Provider as Provider OAuth
+  User->>App: Start connection (authenticated)
+  App->>Manager: begin(tenant, principal, redirect allowlist)
+  Manager-->>App: Authorization URL + attempt ID
+  App-->>User: Redirect to provider
+  User->>Provider: Consent
+  Provider-->>App: Callback with code and state
+  App->>Manager: discover(attempt, callback URL, state)
+  Manager->>Provider: Exchange code, list accounts
+  Manager->>Manager: Save discovered accounts (no grants yet)
+  Manager-->>App: Discovered accounts
+  App-->>User: Account picker
+  User->>App: Chosen account IDs
+  App->>Manager: select(attempt, tenant, principal, chosen IDs)
+  Manager->>Manager: Consume attempt + save tenant grants
+  User->>App: Request operation for a granted account
+  App->>App: Check grant (AuthorizationPolicy)
+  App->>Provider: Execute with server-held credentials
 ```
 
 ## Per-target publication lifecycle
 
-One publication intent can fan out to several targets, but every delivery has its own lifecycle. `accepted` and `processing` remain pending.
+One publication intent can fan out to several targets, but every delivery has its own outcome. `scheduled`, `accepted`, and `processing` are pending and need later reconciliation. `published` always carries a `PlatformPostRef` in `post`; the provider-native identifiers inside it are optional.
 
 ```mermaid
 flowchart TD
@@ -60,15 +69,19 @@ flowchart TD
   Prepare --> Fanout{One delivery per target}
   Fanout --> A[Target A]
   Fanout --> B[Target B]
-  A --> AState{Destination state}
-  B --> BState{Destination state}
-  AState -->|published + native ref| DoneA[Published A]
-  AState -->|failed| FailedA[Failed A]
-  AState -->|unknown or processing| ReconcileA[Reconcile A]
-  BState -->|published + native ref| DoneB[Published B]
-  BState -->|failed| FailedB[Failed B]
-  BState -->|unknown or processing| ReconcileB[Reconcile B]
+  A --> AState{Target outcome}
+  B --> BState{Target outcome}
+  AState -->|published + PlatformPostRef| DoneA[Published A]
+  AState -->|failed / cancelled / not-submitted| StopA[Not published A]
+  AState -->|scheduled / accepted / processing| PendingA[Pending A: reconcile later]
+  AState -->|unknown| ReconcileA[Unknown A: reconcile before retry]
+  BState -->|published + PlatformPostRef| DoneB[Published B]
+  BState -->|failed / cancelled / not-submitted| StopB[Not published B]
+  BState -->|scheduled / accepted / processing| PendingB[Pending B: reconcile later]
+  BState -->|unknown| ReconcileB[Unknown B: reconcile before retry]
 ```
+
+The publication `status` summarizes the targets. It is `complete` when every target published, `pending` when every target is pending, and `partial` for any other mix, including published plus processing. Read each target's `state` rather than the summary.
 
 ## Durable webhook acceptance
 

@@ -9,11 +9,15 @@ Authentication has two layers. The platform or managed provider authenticates th
 
 Platform app secrets, OAuth client secrets, access and refresh tokens, provider API keys, and webhook secrets belong in a server-side secret store. A browser can request a connection or operation through your application, but it must not receive unrestricted credentials or native clients.
 
-## Connection lifecycle
+## Account lifecycle
 
 Treat start, callback, successful connection, reconnect, unlink, disconnect, and upstream revocation as separate states. Store the backend instance, platform account identifier, tenant membership, scopes, token revision, and reconnect status in application-owned records. A display handle is not a stable authorization key.
 
-The current adapter reports permission and reconnect failures as structured outcomes. The application chooses whether to ask the user to reconnect, remove a membership, or revoke an upstream grant.
+Adapters report permission and reconnect failures as structured errors and outcomes. Everything after that is your application's action:
+
+- **Unlink** removes one tenant's grant. Delete the grant row; other tenants and the stored token are unaffected.
+- **Disconnect** removes your stored credential. The provider grant still exists, and the user can reconnect without new consent on most providers.
+- **Revoke** invalidates the token at the provider. The SDK has no general revoke operation, so call the provider's endpoint yourself and then delete the stored credential. Google, X, and TikTok document revocation endpoints: [Google](https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke), [X](https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/user-access-token), and [TikTok](https://developers.tiktok.com/doc/oauth-user-access-token-management). For other providers, check the provider's own documentation; some only let the user remove the app from their account settings.
 
 See [tenant authorization](/concepts/tenant-authorization) and the [account ownership diagram](/concepts/architecture#account-connection-and-ownership) for the request boundary.
 
@@ -42,11 +46,18 @@ The server package includes direct OAuth factories for YouTube, X, TikTok, Threa
 <PlatformTabs>
 <PlatformTab platform="youtube">
 
-**Default scopes:** `openid`, profile, `youtube.readonly`, and
-`youtube.upload`. **PKCE:** the provider flow does not add PKCE.
+**Default scopes:**
 
-Google refresh tokens use `refreshOAuthToken("youtube", ...)`. Pass narrower
-`scopes` if your app only reads channel data.
+- `openid`
+- `https://www.googleapis.com/auth/userinfo.profile`
+- `https://www.googleapis.com/auth/youtube.readonly`
+- `https://www.googleapis.com/auth/youtube.upload`
+
+**PKCE:** the provider flow does not add PKCE.
+
+Account discovery calls `channels.list` with `mine=true`, which does not accept `youtube.upload` alone. Keep `youtube.readonly` (or a broader YouTube scope) in any custom `scopes` list, or discovery fails. The defaults cannot read YouTube Analytics reports or edit videos and comments. Add `https://www.googleapis.com/auth/yt-analytics.readonly` for analytics reports and `https://www.googleapis.com/auth/youtube.force-ssl` for comment writes and moderation.
+
+While your Google Cloud OAuth consent screen is in Testing with an external user type, Google expires refresh tokens after seven days. Publishing the consent screen removes that limit. This is separate from the YouTube API Services compliance audit, which governs quota and some uploads.
 
 ```ts
 const provider = youtubeOAuth({ clientId, clientSecret, redirectUri, credentialSink });
@@ -60,26 +71,39 @@ const next = await refreshOAuthToken("youtube", { clientId, clientSecret }, curr
 and `media.write`.
 **PKCE:** S256.
 
-Refresh tokens can rotate. Persist the returned replacement atomically.
+Refresh tokens can rotate. Persist the returned replacement atomically, as shown in [refresh and persist](#refresh-and-persist).
 
 ```ts
 const provider = xOAuth({ clientId, clientSecret, redirectUri, credentialSink });
 const next = await refreshOAuthToken("x", { clientId, clientSecret }, current);
-// Save next.refreshToken in the same write that replaces current.
 ```
 
 </PlatformTab>
 <PlatformTab platform="tiktok">
 
-**Default scopes:** `user.info.basic` and `video.publish`. **PKCE:** the web Login Kit flow
-does not add PKCE.
+**Default scopes:** `user.info.basic` and `video.publish`, which cover direct
+posting only. **PKCE:** the web Login Kit flow does not add PKCE.
 
-Refresh tokens can rotate. Scopes are sent comma-delimited.
+Add `video.upload` to send drafts to the creator's inbox, `video.list` to read
+posted videos, and `user.info.stats` for follower and like counts. Scopes are
+sent comma-delimited. The user can approve a subset, so check the granted
+`scopes` on the stored token.
+
+Login Kit for Web accepts only registered redirect URIs that are absolute
+`https` URLs with no query parameters and no fragment, under 512 characters,
+up to 10 per app. `ConnectionManager` also accepts local HTTP and query-bearing
+callbacks for other providers, so it will not catch a TikTok mismatch for you.
+
+Access tokens last 24 hours and refresh tokens 365 days. A refresh can return
+a different refresh token, and TikTok requires you to use the new one.
 
 ```ts
 const provider = tiktokOAuth({ clientId, clientSecret, redirectUri, credentialSink });
 const next = await refreshOAuthToken("tiktok", { clientId, clientSecret }, current);
+// Replace the stored token with next, including next.refreshToken.
 ```
+
+Source: [TikTok token management](https://developers.tiktok.com/doc/oauth-user-access-token-management) and [Login Kit for Web](https://developers.tiktok.com/doc/login-kit-web), accessed 2026-10-05.
 
 </PlatformTab>
 <PlatformTab platform="threads">
@@ -87,17 +111,19 @@ const next = await refreshOAuthToken("tiktok", { clientId, clientSecret }, curre
 **Default scopes:** `threads_basic` and `threads_content_publish`. **PKCE:**
 none is fabricated.
 
-Call `exchangeLongLivedOAuthToken("threads", ...)`, then
-`refreshOAuthToken("threads", ...)`.
+When you pass `clientSecret`, the provider exchanges the callback's short-lived
+token for a long-lived token (about 60 days) before it calls your
+`credentialSink`. You only need `exchangeLongLivedOAuthToken` for a short-lived
+token you obtained outside the provider.
+
+Refresh a long-lived token that is at least 24 hours old and not yet expired.
+Refreshing returns a new access token; store it in place of the old one.
 
 ```ts
 const provider = threadsOAuth({ clientId, clientSecret, redirectUri, credentialSink });
-const longLived = await exchangeLongLivedOAuthToken(
-  "threads",
-  { clientId, clientSecret },
-  shortLived,
-);
-const next = await refreshOAuthToken("threads", { clientId, clientSecret }, longLived);
+
+// Later, from your own scheduled job:
+const next = await refreshOAuthToken("threads", { clientId, clientSecret }, stored);
 ```
 
 </PlatformTab>
@@ -106,17 +132,24 @@ const next = await refreshOAuthToken("threads", { clientId, clientSecret }, long
 **Default scopes:** `instagram_business_basic` and
 `instagram_business_content_publish`. **PKCE:** none is fabricated.
 
-Call `exchangeLongLivedOAuthToken("instagram", ...)`, then
-`refreshOAuthToken("instagram", ...)`.
+This is the Instagram API with Instagram Login. `clientId` and `clientSecret`
+are the Instagram app ID and Instagram app secret from the Instagram product
+settings in your Meta app dashboard, not the Meta app ID and secret.
+
+The code exchange at `api.instagram.com` returns a short-lived token. When you
+pass `clientSecret`, the provider exchanges it for a long-lived token (about 60
+days) at `graph.instagram.com` before it calls your `credentialSink`. Use
+`exchangeLongLivedOAuthToken` only for a short-lived token you obtained outside
+the provider.
+
+Refresh a long-lived token that is at least 24 hours old and not yet expired,
+and store the returned access token.
 
 ```ts
 const provider = instagramOAuth({ clientId, clientSecret, redirectUri, credentialSink });
-const longLived = await exchangeLongLivedOAuthToken(
-  "instagram",
-  { clientId, clientSecret },
-  shortLived,
-);
-const next = await refreshOAuthToken("instagram", { clientId, clientSecret }, longLived);
+
+// Later, from your own scheduled job:
+const next = await refreshOAuthToken("instagram", { clientId, clientSecret }, stored);
 ```
 
 </PlatformTab>
@@ -125,8 +158,13 @@ const next = await refreshOAuthToken("instagram", { clientId, clientSecret }, lo
 **Default scopes:** `openid`, `profile`, and `w_member_social`. **PKCE:** none
 is fabricated.
 
-LinkedIn's authorization-code response does not expose refresh, so reconnect
-when the grant is unavailable. Set `linkedinApiVersion` explicitly as `YYYYMM`.
+LinkedIn returns a refresh token only to applications it has approved for
+programmatic refresh. When the token response includes one, the provider stores
+it with the access token, and `refreshOAuthToken("linkedin", ...)` uses it. The
+refresh token's one-year lifetime does not reset when you refresh. Without a
+refresh token, or after it expires, ask the user to reconnect.
+
+Set `linkedinApiVersion` explicitly as `YYYYMM`.
 
 ```ts
 const provider = linkedinOAuth({
@@ -136,38 +174,83 @@ const provider = linkedinOAuth({
   credentialSink,
   linkedinApiVersion: "202609",
 });
+
+if (stored.refreshToken !== undefined) {
+  const next = await refreshOAuthToken("linkedin", { clientId, clientSecret }, stored);
+}
 ```
+
+Source: [LinkedIn programmatic refresh tokens](https://learn.microsoft.com/en-us/linkedin/shared/authentication/programmatic-refresh-tokens).
 
 </PlatformTab>
 <PlatformTab platform="bluesky">
 
-**Default scopes:** `atproto` and `transition:generic`. **PKCE:** S256, sent in a
+**Default scope:** `atproto transition:generic`. **PKCE:** S256, sent in a
 pushed authorization request with DPoP-bound tokens.
 
-Bluesky uses `blueskyOAuth`, which follows the AT Protocol OAuth profile instead
-of a fixed provider endpoint. Pass the handle, DID, or server URL the user typed
-as `loginHint` to `begin`. There is no client secret: `clientId` is the URL of
-your client metadata document, and confidential clients sign with an ES256
-`clientKey`. The verified session goes to `sessionSink` rather than
-`credentialSink`. Refresh tokens rotate.
+`transition:generic` is broad. It grants the same access as a Bluesky app
+password: create, update, and delete any record type, upload blobs, and call
+most endpoints. It does not include direct messages. To use the adapter's
+`chat.bsky` methods, also request `transition:chat.bsky`, which works only
+together with `transition:generic`. Request it only when your app sends or
+reads messages.
+
+For narrower access, pass granular permissions in `scope`, for example
+`atproto repo:app.bsky.feed.post?action=create blob:*/*` for an app that only
+creates posts. Reads that the PDS proxies to the Bluesky App View also need
+matching `rpc:` permissions with an `aud`. See the AT Protocol
+[permission spec](https://atproto.com/specs/permission).
+
+The `scope` in your client metadata document must list every scope you might
+request, and each authorization request must be a subset of it. Build the
+document with `blueskyOAuthClientMetadata({ scope, ... })` using the same value.
+
+`blueskyOAuth` follows the AT Protocol OAuth profile instead of a fixed provider
+endpoint. Pass the handle, DID, or server URL the user typed as `loginHint` to
+`begin`. There is no client secret: `clientId` is the URL of your client
+metadata document, and confidential clients sign with an ES256 `clientKey`. The
+verified session goes to `sessionSink` rather than `credentialSink`.
+
+The session holds the access token, a rotating refresh token, and `dpopKey`,
+the private key the tokens are bound to. Encrypt and store the whole session
+object, and replace it after every refresh.
 
 ```ts
-const provider = blueskyOAuth({ clientId, clientKey, redirectUri, sessionSink });
+const scope = "atproto transition:generic transition:chat.bsky";
+const secureRequests = { assertEgressAllowed: assertPublicEgress, fetch: pinnedFetch };
+const provider = blueskyOAuth({
+  clientId,
+  clientKey,
+  redirectUri,
+  scope,
+  sessionSink,
+  ...secureRequests,
+});
 await manager.begin({
   ...request,
   platforms: ["bluesky"],
   provider,
   loginHint: "alice.bsky.social",
 });
-const next = await refreshBlueskyOAuthSession(current, { clientId, clientKey });
+const next = await refreshBlueskyOAuthSession(current, { clientId, clientKey, ...secureRequests });
+// Store next in place of current, in one compare-and-set write.
 ```
 
-See the [Bluesky page](/platforms/bluesky) for client metadata and the adapter transport.
+Every Bluesky OAuth network request requires both `assertEgressAllowed` and an
+address-pinned `fetch`, including connection, refresh, and resource requests.
+`assertPublicEgress` and `pinnedFetch` above are application services: the policy
+must reject private resolutions, and the transport must connect only to approved
+addresses. See the [Bluesky transport contract](/platforms/bluesky#setup)
+for the complete setup and client metadata.
+
+Source: [AT Protocol OAuth](https://atproto.com/specs/oauth), accessed 2026-10-05.
 
 </PlatformTab>
 </PlatformTabs>
 
 The defaults are a starting point. Pass `scopes` for the operation you are connecting, such as a read-only Google scope list for an analytics dashboard or LinkedIn's organization permission when your app has that product approval. Provider app review, account eligibility, callback registration, and quota remain application setup responsibilities.
+
+## Complete server flow
 
 When a provider discovers more than one account, the default credential sink receives credentials for every validated account. Pass `selectAccounts` to an OAuth factory when credentials should be persisted for only a chosen subset. The selector receives the discovered accounts and attempt and must return distinct discovered account IDs. This selection controls credential persistence; `ConnectionManager.select` still controls which discovered accounts become tenant grants.
 
@@ -186,7 +269,9 @@ const credentialRows = new Map<string, unknown>();
 const credentials: OAuthCredentialSink = {
   async save(input) {
     // Replace this map with encrypted, tenant-scoped persistence in production.
-    const key = `${input.attempt.tenantId}:${input.account.ref.platform}:${input.account.ref.accountId}`;
+    const { tenantId, principalId, backend } = input.attempt;
+    const { platform, accountId } = input.account.ref;
+    const key = JSON.stringify([tenantId, principalId, backend, platform, accountId]);
     credentialRows.set(key, input.token);
   },
 };
@@ -194,7 +279,12 @@ const provider = youtubeOAuth({
   clientId: process.env.GOOGLE_OAUTH_CLIENT_ID!,
   clientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
   redirectUri: "https://app.example.com/oauth/youtube/callback",
-  scopes: ["openid", "https://www.googleapis.com/auth/youtube.upload"],
+  // youtube.readonly is required: account discovery calls channels.list with mine=true.
+  scopes: [
+    "openid",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.upload",
+  ],
   credentialSink: credentials,
 });
 const manager = new ConnectionManager({ store });
@@ -208,7 +298,7 @@ export async function handleConnection(input: {
 }) {
   // Authenticated server request: return started.authorizationUrl to the browser.
   const started = await manager.begin({
-    backend: "direct",
+    backend: "default", // the registry key the consuming client uses for this adapter
     tenantId: input.tenantId,
     principalId: input.principalId,
     platforms: ["youtube"],
@@ -239,4 +329,34 @@ export async function handleConnection(input: {
 }
 ```
 
-`MemoryConnectionStore` and an in-memory credential sink are suitable for tests only. A production sink must encrypt tokens at rest, restrict reads by tenant and principal, redact tokens from logs, and support atomic refresh-token rotation. The callback URL and returned state come from the provider redirect; do not accept an account ID or token from browser form data. The repository contains runnable TypeScript versions of this flow in `examples/snippets/oauth-youtube.ts` and `examples/snippets/oauth-tiktok.ts`. They use environment variables for client credentials and stop after returning the authorization URL until an application supplies a callback.
+The `backend` passed to `begin` becomes the `backend` field of every discovered account reference, and the client routes on it. Use the same key your client registers the adapter under: `createSocial({ backend })` registers a single adapter as `"default"`, and `createSocial({ backends: { youtube } })` registers it as `"youtube"`. A grant saved under any other key fails with `Unknown backend instance`.
+
+`MemoryConnectionStore` and an in-memory credential sink are suitable for tests only. A production sink must encrypt tokens at rest, key them by tenant and principal as the example does, restrict reads to that tenant and principal, redact tokens from logs, and support atomic refresh-token rotation. The callback URL and returned state come from the provider redirect; do not accept an account ID or token from browser form data. The repository contains runnable TypeScript versions of this flow in `examples/snippets/oauth-youtube.ts` and `examples/snippets/oauth-tiktok.ts`. They use environment variables for client credentials and stop after returning the authorization URL until an application supplies a callback.
+
+## Refresh and persist
+
+The refresh helpers make one request and return the new token set. They do not store anything and do not run on a schedule. Your code decides when to refresh and must replace the stored credential atomically, because a provider that rotates refresh tokens invalidates the old one. Two workers refreshing the same account at once can otherwise overwrite each other.
+
+Acquire a shared lock before reading and refreshing the credential, then save against the revision you read. `CredentialManager.rotate` does this ordering; compare-and-set alone cannot prevent two workers from sending the same rotating token to the provider.
+
+```ts
+import { CredentialManager, refreshOAuthToken } from "@opencoredev/social-sdk/server";
+
+async function refreshStored(manager: CredentialManager, key: string) {
+  return manager.rotate(key, (current) =>
+    refreshOAuthToken(
+      "tiktok",
+      {
+        clientId,
+        clientSecret,
+        signal: AbortSignal.timeout(15_000),
+      },
+      current,
+    ),
+  );
+}
+```
+
+Construct the manager with your durable credential store and a lock shared by every worker, not a process-local memory lock. Set its lock lifetime longer than the refresh request deadline and renew or fence the lease if work can outlive it. A busy lock raises `upstream_failure` before calling the provider; reload after the active worker finishes. If persistence fails after rotation, reconcile or reconnect rather than blindly resending the old token. Encrypt stored values and use collision-free keys, such as the encoded identity tuple above.
+
+For Bluesky, apply the same locking and revision checks to the whole `BlueskyOAuthSession`; the token-only manager does not store its DPoP key.

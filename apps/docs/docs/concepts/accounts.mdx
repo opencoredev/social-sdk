@@ -7,7 +7,7 @@ A connected account is a platform identity a backend can act as: an X user, a Th
 
 ## Accounts belong to a backend
 
-An account record lives on the route that produced it. A direct adapter's account comes from your own credentials; a hosted platform's account is a provider record. The same human on the same platform through two backends is two distinct connected accounts, and nothing transfers between them automatically.
+An account record lives on the route that produced it. A direct adapter's account comes from your own credentials; a managed backend's account is a provider record. The same human on the same platform through two backends is two distinct connected accounts, and nothing transfers between them automatically.
 
 ## Discover, then select
 
@@ -36,7 +36,9 @@ const account = connectedAccountRef({
 });
 ```
 
-References detect routing mistakes: an account bound to one backend is rejected by another. They are not secrets and not authorization; see [Authorization](/concepts/tenant-authorization).
+The `backend` field is the registry key you gave the adapter in `createSocial`, not the adapter's product ID. `createSocial({ backend: x(...) })` registers the adapter as `"default"`; `createSocial({ backends: { brand: x(...) } })` registers it as `"brand"`. The client routes each call to the adapter under that key and rejects an unknown key with `invalid_input`.
+
+That routing is a string lookup. It is not a stored ownership record or a signature, so a caller who can edit a reference can point it at any other configured backend. References are not secrets and not authorization. Two separate checks protect accounts: your [`AuthorizationPolicy`](/concepts/tenant-authorization) decides whether the tenant may use the account, and each direct adapter rejects references for an account other than the one its credentials are configured for.
 
 ## Ownership is application data
 

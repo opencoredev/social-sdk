@@ -1,48 +1,199 @@
 ---
 title: Mount in your framework
-description: Mount the example Request/Response handler in Node, Bun, Next.js App Router, and Hono fetch-based servers with server-side authorization.
+description: Mount the repository example's Request/Response handler in Node, Bun, Next.js App Router, and Hono fetch-based servers with server-side authorization.
 ---
 
-The example exposes one standard `Request`/`Response` handler. Keep the backend, session, and membership configuration on the server, then adapt that handler to your framework's fetch entry point.
+The repository's [example application](https://github.com/opencoredev/social-sdk/tree/main/apps/example) exposes one standard `Request`/`Response` handler. It is a private workspace package, not an npm package or SDK subpath. The handler is repository example code, not part of the published `@opencoredev/social-sdk` package, so these recipes assume you have cloned the repository or copied `apps/example/src` into your own application. Adjust the import paths below to wherever that code lives.
 
-## Node or Bun
+To try it unchanged, run it from the repository root:
 
-`apps/example/src/server.ts` converts Node's incoming request to a web `Request` and writes the returned `Response`. The same pattern works in Bun's `Bun.serve`:
-
-```ts
-import { createExampleHandler } from "../../apps/example/src/app.js";
-
-const handler = createExampleHandler();
-Bun.serve({ port: 3030, fetch: handler.handle });
+```sh
+bun install --frozen-lockfile
+bun run --cwd packages/social-sdk build
+bun run --cwd apps/example dev
 ```
 
-The default backend is the deterministic local mock. Configure a managed backend explicitly on the server and provide an authenticated session and membership check before using real accounts.
+The server listens on port 3030 and uses the deterministic mock backend.
+
+## Configure the handler
+
+`createExampleHandler` checks the request `Host` and `Origin` against allowlists. With no options, they allow only `localhost:3030` and its loopback equivalents, so a Next.js app on port 3000 or any deployed host gets rejected. Authenticate each request before constructing its handler. Keep the backend and durable database shared, but create a fresh handler with that caller's session and membership check:
+
+```ts
+// src/social/handler.ts, using code copied from apps/example/src
+import { createExampleHandler, type ExampleHandler } from "./example/app.js";
+
+export async function withSocialHandler(
+  request: Request,
+  run: (handler: ExampleHandler) => Promise<Response>,
+): Promise<Response> {
+  const user = await authenticate(request);
+  if (user === undefined) return new Response("unauthorized", { status: 401 });
+
+  const handler = createExampleHandler({
+    allowedHosts: ["localhost:3000", "app.example.com"],
+    allowedOrigins: ["http://localhost:3000", "https://app.example.com"],
+    backend, // shared server-side adapter
+    database, // shared durable database, retained between requests
+    backendName: "default",
+    session: { principal: user.id, tenantId: user.tenantId },
+    membership: (session, accountId) => grants.has(session.tenantId, accountId),
+  });
+  try {
+    return await run(handler);
+  } finally {
+    await handler.close(); // does not close an application-supplied database
+  }
+}
+```
+
+`authenticate`, `backend`, `database`, and `grants` are application services: authenticate the incoming request, supply the server-side adapter and a shared durable `ExampleDatabase`, and check server-owned grants. Never cache a handler carrying one caller's session for reuse by other callers. Close the shared database at application shutdown. Without `backend`, the handler uses the mock.
+
+## Node
+
+`apps/example/src/server.ts` is the Node bridge. It converts Node's incoming request to a web `Request`, streams the body, and writes the returned `Response`. Copy it rather than reimplementing that conversion.
+
+## Bun
+
+`Bun.serve` accepts a request handler directly. This recipe is Bun-only:
+
+```ts
+import { withSocialHandler } from "./social/handler.js";
+import { receiveEvent } from "./social/webhook.js";
+
+Bun.serve({
+  port: 3000,
+  fetch: (request) => {
+    if (new URL(request.url).pathname === "/webhooks/zernio") {
+      return request.method === "POST"
+        ? receiveEvent(request)
+        : new Response("method not allowed", { status: 405 });
+    }
+    return withSocialHandler(request, (handler) => handler.handle(request));
+  },
+});
+```
 
 ## Next.js App Router
 
-Create the catch-all route `app/api/social/[...path]/route.ts` and delegate both methods to the handler. The route module must remain server-only:
+Create the catch-all route `app/api/social/[...path]/route.ts` and pass your configured handler to `createNextRoute`. The route module must remain server-only:
 
 ```ts
-import { createNextRoute } from "../../apps/example/src/frameworks/next-route.js";
+import { createNextRoute } from "@/social/example/frameworks/next-route";
+import { withSocialHandler } from "@/social/handler";
 
-export const { GET, POST } = createNextRoute();
+export function GET(request: Request) {
+  return withSocialHandler(request, (handler) => createNextRoute(handler).GET(request));
+}
+
+export function POST(request: Request) {
+  return withSocialHandler(request, (handler) => createNextRoute(handler).POST(request));
+}
 ```
 
-For application-specific configuration, pass an injected handler to `createNextRoute` rather than reading provider keys in a client component.
+Mount signed provider deliveries outside that authenticated catch-all, for example in `app/webhooks/zernio/route.ts`:
+
+```ts
+export { receiveEvent as POST } from "@/social/webhook";
+```
+
+Do not read provider keys in a client component.
 
 ## Hono
 
-Hono's fetch entry point accepts the same web primitives. Use the adapter where your Hono app is created:
+Hono's fetch entry point accepts the same web primitives:
 
 ```ts
 import { Hono } from "hono";
-import { createExampleHandler } from "../../apps/example/src/app.js";
-import { createHonoFetch } from "../../apps/example/src/frameworks/hono.js";
+import { createHonoFetch } from "./social/example/frameworks/hono.js";
+import { withSocialHandler } from "./social/handler.js";
+import { receiveEvent } from "./social/webhook.js";
 
-const example = createHonoFetch(createExampleHandler());
 const app = new Hono();
-app.all("/social/*", (c) => example(c.req.raw));
+app.post("/webhooks/zernio", (c) => receiveEvent(c.req.raw));
+app.all("/social/*", (c) => {
+  const request = c.req.raw;
+  return withSocialHandler(request, (handler) => createHonoFetch(handler)(request));
+});
 export default app;
 ```
 
-All three routes preserve the same account authorization, per-target publication outcomes, idempotency, reconciliation, and webhook verification behavior. Test them with the mock backend before adding provider credentials.
+## Separate webhook intake
+
+The framework routes above use an example-compatible `receiveEvent`, shown below, in `src/social/webhook.ts`. Copy the bounded `readBody` helper from [process webhooks](/events) into `src/social/bounded-body.ts` and export it. Reuse the same configured Zernio `backend`, `database`, and `grants` services as the user handler. Set the backend's `webhookSecret` and `ZERNIO_WEBHOOK_SECRET` to the same server-side secret.
+
+```ts
+// src/social/webhook.ts, using code copied from apps/example/src
+import { SocialError } from "@opencoredev/social-sdk";
+import { acceptWebhook, decodeWebhook, verifyZernioWebhook } from "@opencoredev/social-sdk/server";
+import { createExampleHandler } from "./example/app.js";
+import { readBody } from "./bounded-body.js";
+
+export async function receiveEvent(request: Request): Promise<Response> {
+  const raw = await readBody(request);
+  if (raw === undefined) return new Response("payload too large", { status: 413 });
+  try {
+    await verifyZernioWebhook({
+      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+      headers: request.headers,
+      body: raw,
+    });
+  } catch (error) {
+    if (error instanceof SocialError && error.code === "unauthorized") {
+      return new Response("unauthorized", { status: 401 });
+    }
+    throw error;
+  }
+
+  const event = await decodeWebhook({ provider: "zernio", backend: "default", body: raw });
+  let tenants: Set<string> | undefined;
+  for (const accountId of event.accountIds) {
+    const mapped = new Set(await resolveTenants("default", [accountId]));
+    tenants = tenants === undefined ? mapped : new Set([...tenants].filter((id) => mapped.has(id)));
+  }
+  const tenantId = tenants?.size === 1 ? [...tenants][0] : undefined;
+  if (tenantId === undefined) {
+    // Keep unassigned deliveries out of every tenant's inbox.
+    const result = await acceptWebhook({
+      event,
+      endpointId: "/webhooks/zernio",
+      inbox: quarantineInbox,
+      resolveTenants: async () => [],
+    });
+    return Response.json(result, { status: 200 });
+  }
+
+  const handler = createExampleHandler({
+    allowedHosts: ["localhost:3000", "app.example.com"],
+    allowedOrigins: ["http://localhost:3000", "https://app.example.com"],
+    backend,
+    database,
+    backendName: "default",
+    session: { principal: "webhook-intake", tenantId },
+    membership: (session, accountId) => grants.has(session.tenantId, accountId),
+  });
+  try {
+    const url = new URL(request.url);
+    url.pathname = "/api/events";
+    return await handler.handle(
+      new Request(url, {
+        method: "POST",
+        headers: request.headers,
+        body: new Uint8Array(raw),
+      }),
+    );
+  } finally {
+    await handler.close();
+  }
+}
+```
+
+`resolveTenants` is your server-owned account directory. Resolve each account separately and take the intersection, so a tenant must own every account in the event. Neither the payload nor an unauthenticated request chooses the tenant. Unknown or unrelated accounts, and events mapped to more than one tenant, are durably accepted into `quarantineInbox` with no tenant IDs. A failed quarantine write throws, so the provider is not acknowledged before persistence. This example intake requires one unambiguous owning tenant for normal processing. The example intake re-verifies the signature, matches `backendRecordId` against its saved delivery index, and writes its own inbox payload with `tenantId` and `publicationKey`. Events without a matching publication, or outside its supported event types, are durably quarantined. A provider retry safely repeats accepted deliveries through inbox deduplication.
+
+Register `/webhooks/zernio` as the provider callback, outside application user authentication. Invoke the authenticated example worker at `/api/events/process` through the mounted user route (for Next.js, `/api/social/events/process`; for Hono, `/social/events/process`). The worker must use the same database, backend registry key, and tenant grant lookup as this intake. It reads that same example inbox, reconciles the stored publication with the provider, and commits the projection and inbox completion together. Keep processing, replay, and report endpoints behind application authentication.
+
+Supply `quarantineInbox` as a durable application-owned implementation of the SDK's `EventInbox` contract. It is an administrator-only quarantine, separate from tenant inboxes and the example worker. Persist the decoded event, deduplication key, empty tenant list, and `quarantined` state atomically; encrypt its private data at rest and restrict access to authorized operators. After resolving account ownership, an operator must match the saved delivery to a publication and explicitly reconcile it before applying any effect. Do not assign unknown accounts to a default tenant or feed this quarantine directly into `/api/events/process`.
+
+The generic `acceptWebhook` recipe in the events guide is for an application-owned inbox and worker. The quarantine above uses that contract only for unassigned storage; normal mapped deliveries use the example's own inbox and processing schema. Other providers need their own verifier and acknowledgment rules; follow the events guide.
+
+The user routes preserve the same account authorization, per-target publication outcomes, idempotency, and reconciliation behavior. Test them with the mock backend before adding provider credentials. For framework-specific guides that use the SDK directly instead of the example handler, see [integrations](/integrations).

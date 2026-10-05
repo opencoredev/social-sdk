@@ -3,33 +3,67 @@ title: Errors
 description: Handle every SocialError code with its retry disposition, carried context fields, preparation issues, and redacted JSON serialization.
 ---
 
-Every failure surfaces as a `SocialError` with a stable code, the operation that failed, and a machine-readable retry disposition. Errors are redacted by design: no credentials, tokens, media, or message content.
+`SocialError` describes thrown SDK errors with a stable code, operation, and retry disposition. Publication also returns per-target outcomes: adapter and queue failures can appear as `failed`, `unknown`, `not-submitted`, or `cancelled` instead of throwing. Inspect every outcome. `accepted` and `processing` do not confirm publication.
 
-## Catch and branch on the code
+Errors are redacted by design: no credentials, tokens, media, or message content.
+
+## Handle publication outcomes and thrown errors
 
 ```ts
-import { SocialError } from "@opencoredev/social-sdk";
+import { createSocial, connectedAccountRef, SocialError } from "@opencoredev/social-sdk";
+import { mockBackend } from "@opencoredev/social-sdk/testing";
+
+const social = createSocial({ backend: mockBackend() });
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "x",
+  accountId: "mock-account-1",
+});
 
 try {
-  await social.posts.publish({ targets: [{ account }], content: { text } });
-} catch (error) {
-  if (error instanceof SocialError) {
-    switch (error.code) {
-      case "reconnect_required":
-        // Send the tenant back through the connection flow.
+  const result = await social.posts.publish({
+    targets: [{ account }],
+    content: { text: "Hello from the mock backend" },
+  });
+  for (const outcome of result.outcomes) {
+    switch (outcome.state) {
+      case "failed":
+        console.log(outcome.code, outcome.retryDisposition.kind);
+        // Apply the disposition before considering another submission.
         break;
-      case "rate_limited":
-        // Honor the retry disposition below.
+      case "unknown":
+        // Reconcile saved delivery references before retrying.
+        console.log("Publication needs reconciliation");
         break;
-      case "ambiguous_outcome":
-        // Reconcile before any retry.
+      case "not-submitted":
+        console.log("Target was not submitted", outcome.reason);
+        break;
+      case "cancelled":
+        console.log("Target was cancelled");
         break;
       default:
-        report(error.toJSON());
+        console.log(outcome.state);
     }
+  }
+} catch (error) {
+  if (!(error instanceof SocialError)) throw error;
+  switch (error.code) {
+    case "invalid_input":
+      // Fix the preparation issues before submitting again.
+      break;
+    case "idempotency_conflict":
+      // Restore the original request or use a key for a new logical publication.
+      break;
+    case "unauthorized":
+      // Verify the server-side grant for the acting account.
+      break;
+    default:
+      console.log(error.toJSON());
   }
 }
 ```
+
+Preparation, authorization, and idempotency errors can throw before dispatch. A returned result preserves each target's state, including failures after other targets succeeded.
 
 ## Error codes
 
@@ -61,12 +95,14 @@ Each error carries a `retryDisposition` stating what a safe client may do next:
 
 | Disposition                        | What it means                                                                 |
 | ---------------------------------- | ----------------------------------------------------------------------------- |
-| `{ kind: "never" }`                | Retrying cannot succeed; fix the input, permission, or configuration.         |
-| `{ kind: "after-delay", delayMs }` | Retry after the stated delay, typically for rate limits.                      |
+| `{ kind: "never" }`                | No safe automatic retry was computed; inspect the outcome and cause.          |
+| `{ kind: "after-delay", delayMs }` | Retry after `retryDisposition.delayMs`, typically for rate limits.            |
 | `{ kind: "after-reconnect" }`      | Retry only after the account completes a new connection flow.                 |
 | `{ kind: "reconcile-first" }`      | Reconcile the saved reference before deciding; blind retries can double-post. |
 
-Honor `reconcile-first` strictly for public writes: it is the disposition attached to ambiguous outcomes.
+Choose retry policy from the disposition and target outcome, rather than the error code alone. `never` does not prove a later retry cannot succeed: a rate limit without a parsed delay can carry it. The public delay is `retryDisposition.delayMs` when `kind` is `after-delay`.
+
+Honor `reconcile-first` for writes that may already have happened. A `timeout` can carry either `never` or `reconcile-first`, depending on whether the write is uncertain. Reconcile an `unknown` outcome before resubmitting; an error code alone does not establish whether a target was published.
 
 ## What an error carries
 

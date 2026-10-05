@@ -5,15 +5,50 @@ description: Enforce account ownership and server-only credential boundaries whe
 
 Social SDK references help detect routing mistakes, but they do not replace application authorization. Before every account-scoped operation, server code must map the authenticated tenant or user to the selected account.
 
+## Authorization is opt in
+
+The client checks account access only when you configure an `AuthorizationPolicy` in `createSocial`. With a policy, every facade call (publish, reads, comments, messages, graph, analytics, delivery status) asks the policy before dispatch and throws `unauthorized` when any account is denied. Without a policy, the client skips the check entirely.
+
+The `authorization` call option is not a grant. It carries the authenticated caller's `tenantId` and `principalId` to your policy and scopes idempotency claims. Passing it to a client that has no policy authorizes nothing.
+
+```ts
+import { createSocial, type AuthorizationPolicy } from "@opencoredev/social-sdk";
+
+const policy: AuthorizationPolicy = {
+  async authorizeTargets({ operation, accounts, context }) {
+    const tenantId = context.authorization?.tenantId;
+
+    return Promise.all(
+      accounts.map(async (account) => ({
+        account,
+        allowed: tenantId !== undefined && (await grants.allows({ tenantId, account, operation })),
+      })),
+    );
+  },
+};
+
+const social = createSocial({ backend, authorization: policy, idempotencyStore });
+
+// tenantId and principalId come from your authenticated session, never the request body.
+await social.posts.publish(
+  { targets: [{ account }], content: { text: "Release day" }, idempotencyKey: draftId },
+  { authorization: { tenantId: session.tenantId, principalId: session.userId } },
+);
+```
+
+`grants.allows` stands for your own lookup against server-owned grant storage, such as the `ConnectionGrant` rows that `ConnectionManager.select` writes. `mockSharedAccountAuthorization` in `@opencoredev/social-sdk/testing` is a fixed-membership policy for tests.
+
+Typed native modules and `social.native(...)` bypass the policy. Check access yourself before calling them.
+
 ## Required checks
 
 1. Authenticate the application request.
 2. Resolve the account from server-owned storage.
-3. Confirm the tenant has the requested role for that account and operation.
-4. Confirm the reference belongs to the configured backend instance and expected platform.
-5. Perform the operation with credentials loaded on the server.
+3. Confirm the tenant has the requested role for that account and operation, either in your policy or before the call.
+4. Confirm the reference names the backend instance and platform you expect. The SDK routes on the `backend` string; it does not prove who owns the reference.
+5. Perform the operation with credentials loaded on the server, passing the authenticated `authorization` context.
 6. Record a redacted correlation identifier and destination outcomes for reconciliation.
 
 Never accept an account identifier from the browser and pass it directly to a managed provider. Never place provider keys, access tokens, refresh tokens, OAuth client secrets, webhook secrets, or unrestricted native clients in browser code.
 
-Shared accounts require an explicit membership model. Disconnecting an application record, unlinking one tenant, and revoking the upstream authorization are different actions; choose the one the user requested and describe its consequences before mutation.
+Shared accounts require an explicit membership model. Disconnecting an application record, unlinking one tenant, and revoking the upstream authorization are different actions; choose the one the user requested and describe its consequences before mutation. The SDK has no general operation that revokes provider tokens; see [authentication](/authentication#account-lifecycle).

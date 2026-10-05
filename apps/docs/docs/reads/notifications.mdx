@@ -11,10 +11,14 @@ and expose native mention reads instead. YouTube and TikTok have neither.
 ## Normalized API
 
 ```ts
-social.notifications.list(account, { cursor?, limit? }, options?)
-social.notifications.iterate(account, { limit?, maxPages?, maxItems? }, options?)
-social.notifications.markSeen(account, { seenAt? }, options?)
+social.notifications.list(account, { cursor?, limit?, signal?, authorization?, retryBudget? })
+social.notifications.iterate(account, { limit?, maxPages?, maxItems?, signal?, authorization?, retryBudget? })
+social.notifications.markSeen(account, { seenAt? }, { signal?, authorization?, retryBudget? })
 ```
+
+`list` and `iterate` take one options object after the account, which combines
+pagination with the call options. `markSeen` takes its input and the call
+options separately.
 
 `list` returns `Page<JsonObject>` with `items` and optional opaque `nextCursor`.
 Pass that cursor unchanged to the next `list` call. `iterate` follows cursors
@@ -23,8 +27,20 @@ lazily within its bounds. `markSeen` returns `void`; `notifications.read` and
 
 The examples assume one `social` client built with the platform's adapter and an
 `account` from `connectedAccountRef`. `accountId` is the Bluesky DID, the
-LinkedIn organization URN, the X or Threads user ID, or the Instagram account ID. Native calls also take the
-`context` your application passes to adapter operations.
+LinkedIn organization URN, the X or Threads user ID, or the Instagram account ID.
+
+Native examples guard the optional native module and pass an operation context:
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (native === undefined) throw new Error("This adapter has no native module");
+
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: crypto.randomUUID(),
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+};
+```
 
 ## Platform support
 
@@ -70,15 +86,15 @@ accounts declare `notifications.read` as `account-ineligible`.
 
 **Native** `mentions` only. X API v2 has no notifications list endpoint. The
 Account Activity API and X Activity API push events to webhooks or streams, which
-this read does not cover. Needs a user access token with `mentions.read`.
-Subject to X API paging and rate limits.
+this read does not cover. Needs a user access token with the OAuth scopes
+`tweet.read` and `users.read`. (`mentions.read` is the SDK capability name in
+the manifest, not an OAuth scope.) Subject to X API paging and rate limits.
 
 Configure `x({ auth: { userId, accessToken } })` and use the X user ID as
 `accountId`. The method calls `GET /2/users/:id/mentions` and returns a
 `Page<JsonObject>` of X posts.
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
 const page = await native.mentions({ account, limit: 50, context });
 ```
 
@@ -99,7 +115,6 @@ edge on the matching Graph host and returns tagged-media objects with a cursor.
 Meta does not return private media or Story mentions.
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
 const page = await native.listMentions({ account, limit: 50, context });
 ```
 
@@ -117,8 +132,7 @@ Configure `threads({ auth: { userId, accessToken } })`. The method calls the
 `/:threads-user-id/mentions` edge and returns the provider JSON unchanged.
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
-const page = await native.mentions({ account, context });
+const mentions = await native.mentions({ account, context });
 ```
 
 Store the provider cursor and pass it as `cursor` on the next call. The provider

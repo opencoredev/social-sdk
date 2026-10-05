@@ -16,7 +16,67 @@ verifyZernioWebhook(input: {
 }): Promise<VerifiedWebhook>;
 ```
 
-`verifyPostForMeWebhook` takes the same input. Pass a web `Headers` object and the raw body bytes. Fetch-based frameworks already have `request.headers`; in Node frameworks, use `new Headers(req.headers as Record<string, string>)`. On success the verifier resolves to a `VerifiedWebhook` with `valid: true`. On any failure, including a missing secret, a bad signature, or an oversized body, it throws a `SocialError` with code `unauthorized`. The Zernio and Post for Me adapters expose the same check as `adapter.webhooks.verify({ headers, body }, context)`, using the adapter's `webhookSecret`.
+`verifyPostForMeWebhook` takes the same input. Pass a web `Headers` object and the exact raw body bytes, before any JSON or form parser touches them.
+
+The verifier checks `maxBytes` against bytes you already hold, so cap the body while you read it. Do not call `request.arrayBuffer()` on a webhook route: it buffers the whole request, signed or not, before any check runs. In fetch-based handlers, read `request.body` with a limit and stop as soon as it is exceeded:
+
+```ts
+async function readBody(request: Request, maxBytes = 1024 * 1024): Promise<Uint8Array | undefined> {
+  if (Number(request.headers.get("content-length")) > maxBytes) return undefined;
+  if (request.body === null) return new Uint8Array();
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+```
+
+`readBody` returns `undefined` for an oversized request; answer it with 413. A server or platform body limit at or below `maxBytes` that rejects the request before your handler runs works too. In Node frameworks, copy the headers and read the body with the same kind of cap:
+
+```ts
+import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
+
+function webHeaders(raw: IncomingHttpHeaders): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(raw)) {
+    if (typeof value === "string") headers.set(name, value);
+    else if (Array.isArray(value)) for (const item of value) headers.append(name, item);
+  }
+  return headers;
+}
+
+async function rawBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    if (!(chunk instanceof Uint8Array)) throw new TypeError("Expected binary request data");
+    size += chunk.byteLength;
+    if (size > maxBytes) throw new RangeError("Webhook body too large");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+```
+
+Frameworks that parse bodies by default need a raw-body route; see the [Express](/integrations/express), [NestJS](/integrations/nestjs), and [Hono](/integrations/hono) guides. On success the verifier resolves to a `VerifiedWebhook` with `valid: true`. On any failure, including a missing secret, a bad signature, or an oversized body, it throws a `SocialError` with code `unauthorized`. The Zernio and Post for Me adapters expose the same check as `adapter.webhooks.verify({ headers, body }, context)`, using the adapter's `webhookSecret`.
 
 After verification, decode the provider event, resolve every referenced account ID to application tenants, and atomically accept it into a durable inbox. Events with no common authorized tenant are quarantined. Use a provider event ID for Zernio; Post for Me falls back to an exact-body digest when the provider omits an event ID. Duplicate acceptance returns `duplicate`, while processing remains a separate recoverable worker step.
 
@@ -25,7 +85,8 @@ import { SocialError } from "@opencoredev/social-sdk";
 import { acceptWebhook, decodeWebhook, verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
 export async function receiveEvent(request: Request): Promise<Response> {
-  const body = new Uint8Array(await request.arrayBuffer());
+  const body = await readBody(request);
+  if (body === undefined) return new Response("payload too large", { status: 413 });
 
   try {
     await verifyZernioWebhook({
@@ -41,12 +102,33 @@ export async function receiveEvent(request: Request): Promise<Response> {
   }
 
   const event = await decodeWebhook({ provider: "zernio", backend: backendName, body });
-  const result = await acceptWebhook({ event, endpointId, inbox, resolveTenants });
-  return new Response(result.state, { status: 202 });
+  const { state, quarantined } = await acceptWebhook({ event, endpointId, inbox, resolveTenants });
+  // Both accepted and duplicate deliveries are stored; acknowledge them so the provider stops retrying.
+  // quarantined events are stored but not delivered to any tenant; alert on them.
+  return Response.json({ state, quarantined }, { status: 200 });
 }
 ```
 
-Only the verify call sits inside the `try`, so a failure in decoding or in your inbox is not reported as an authentication error.
+`readBody` is the helper above. Only the verify call sits inside the `try`, so a failure in decoding or in your inbox is not reported as an authentication error.
+
+`acceptWebhook` resolves tenants before it writes: it calls `resolveTenants` for every account and stores the event as `pending` or `quarantined` in the same `inbox.accept` call. Do not accept first and check tenants later.
+
+## Acknowledge correctly
+
+The status code tells the provider whether to retry:
+
+- After a durable `accepted` or `duplicate` result, return a 2xx quickly. Do the real work in a worker, not in the request.
+- A verification failure means you rejected the delivery. Return 401 (but see YouTube below), and do not store it.
+- A decode or inbox failure means you did not accept it. Return 5xx so the provider retries.
+
+Provider rules differ:
+
+- Zernio expects a timely 2xx.
+- TikTok treats anything other than 200 as a failure and retries for up to 72 hours. Return exactly 200.
+- Meta retries failed deliveries for up to 36 hours.
+- YouTube (WebSub) expects a 2xx even when the signature check fails; drop the delivery instead of returning 401.
+- X sends a GET with a `crc_token` when you register the webhook and periodically after that. Answer it with `answerXWebhookChallenge`, or X disables the webhook. See X's [webhook guide](https://docs.x.com/x-api/webhooks/introduction).
+- YouTube needs a WebSub subscription first: POST to `https://pubsubhubbub.appspot.com/subscribe` with `hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=<CHANNEL_ID>`, your callback, and `hub.secret`, and renew it before the lease expires. See YouTube's [push notification guide](https://developers.google.com/youtube/v3/guides/push_notifications).
 
 Persist the inbox state and the application effect together where possible. A worker may crash after acceptance; replay pending events and make the effect idempotent. Never trust a payload tenant field, assign an unmapped account to a default tenant, or log credentials, signatures, message content, or private account data. See the [authentication guide](/authentication), [capability matrix](/reference/capabilities), and [integration checklist](/agents/integration-checklist).
 
@@ -83,7 +165,8 @@ export async function instagramWebhook(request: Request): Promise<Response> {
       return new Response(answer.body, { status: answer.status, headers: answer.headers });
     }
 
-    const body = new Uint8Array(await request.arrayBuffer());
+    const body = await readBody(request);
+    if (body === undefined) return new Response("payload too large", { status: 413 });
     await verifyMetaWebhook({
       secret: process.env.META_APP_SECRET!,
       headers: request.headers,
@@ -103,20 +186,20 @@ export async function instagramWebhook(request: Request): Promise<Response> {
 
 The direct adapters expose the same POST check as `adapter.webhooks.verify({ headers, body }, context)` when you pass `webhookSecret`, and `adapter.webhooks.decode` returns the decoded event. Without `webhookSecret`, verification always fails. The handshakes are not part of the adapter interface because they need the query string, so call the helpers directly.
 
-`decodePlatformWebhook` turns one verified delivery into one `SocialEvent`. None of these platforms sends a delivery ID (LinkedIn's `notificationId` identifies a notification, not a delivery), so `identity` is `body-digest` and `id` is the SHA-256 of the body. Meta can batch many updates into one delivery. The event keeps all of them in `data`, and `type` is specific only when every update maps to the same type; otherwise it is `unknown` and `originalType` lists the source types. Keys that look like credentials are redacted.
+`decodePlatformWebhook` turns one verified delivery into one `SocialEvent`. The decoder does not read a provider delivery ID for any of these platforms, so `identity` is `body-digest` and `id` is the SHA-256 of the body. That is SDK behavior, not a platform guarantee: X Activity API deliveries carry an `event_uuid` the decoder currently ignores, and LinkedIn's `notificationId` identifies a notification rather than a delivery. Meta can batch many updates into one delivery. The event keeps all of them in `data`, and `type` is specific only when every update maps to the same type; otherwise it is `unknown` and `originalType` lists the source types. Keys that look like credentials are redacted.
 
 A body without the platform's documented event container throws `invalid_input` with operation `webhooks.decode`; the error never includes the payload. Instagram needs `object: "instagram"` and a non-empty `entry` array. Threads needs a `values` object with a `field` and a `value` object; it has no `object` or `entry` wrapper. X needs at least one `*_events` array, a `user_event` object, or an X Activity API `data` object with an `event_type`. TikTok needs an `event`, and when `content` is present it must be a string holding serialized JSON for an object. A well-formed delivery whose event type the SDK does not map still decodes, as an `unknown` event with the source type in `originalType`, so new platform event types do not break your handler.
 
-| Platform  | Mapped types                                                                                                                     | Account IDs                                                                   |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Instagram | `comments` and `live_comments` to `comment.received`; incoming `messages` to `message.received`                                  | `entry[].id`                                                                  |
-| Threads   | `replies` to `comment.received`; `delete` to `post.removed`; `mentions` and `publish` stay `unknown`                             | Root post owner for replies, post owner for deletes, `target_id` for mentions |
-| X         | `direct_message_events` to `message.received`; `tweet_delete_events` to `post.removed`; `user_event.revoke` to `account.updated` | `for_user_id`, or the revoking user                                           |
-| YouTube   | New and updated videos stay `unknown` with `data.videos`; an Atom tombstone maps to `post.removed`                               | `yt:channelId`                                                                |
-| TikTok    | `post.publish.*` and the older `video.*` events to `publication.updated`; `authorization.removed` to `account.updated`           | `user_openid`                                                                 |
-| LinkedIn  | Organization social action `COMMENT` to `comment.received`; other actions and other event types stay `unknown`                   | `organizationalEntity`                                                        |
+| Platform  | Mapped types                                                                                                                                                               | Account IDs                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Instagram | `comments` and `live_comments` to `comment.received`; incoming `messages` to `message.received`                                                                            | `entry[].id`                                                                  |
+| Threads   | `replies` to `comment.received`; `delete` to `post.removed`; `mentions` and `publish` stay `unknown`                                                                       | Root post owner for replies, post owner for deletes, `target_id` for mentions |
+| X         | `direct_message_events` to `message.received`; `tweet_delete_events` to `post.removed`; `user_event.revoke` to `account.updated`                                           | `for_user_id`, or the revoking user                                           |
+| YouTube   | New and updated videos stay `unknown` with `data.videos`; an Atom tombstone maps to `post.removed`                                                                         | `yt:channelId`                                                                |
+| TikTok    | `post.publish.*`, `video.upload.failed`, and `video.publish.completed` to `publication.updated`; `authorization.removed` to `account.updated`; other events stay `unknown` | `user_openid`                                                                 |
+| LinkedIn  | Organization social action `COMMENT` to `comment.received`; other actions and other event types stay `unknown`                                                             | `organizationalEntity`                                                        |
 
-For TikTok `post.publish.*` events, `backendRecordId` is the `publish_id`, so you can match the event to the delivery reference returned by `posts.publish`. `occurredAt` comes from `create_time`. Events that stay `unknown` still carry their payload in `data`; route them by `originalType`.
+For TikTok `post.publish.*` events, `backendRecordId` is the `publish_id` from `content`, so you can match the event to the delivery reference returned by `posts.publish`. It is set only for those events and only when `content` has a `publish_id`; the legacy `video.*` events never set it. The parsed `content` stays in `data.content`, including `reason` on `post.publish.failed` and `post_id` on `post.publish.publicly_available`. `occurredAt` comes from `create_time`. Events that stay `unknown` still carry their payload in `data`; route them by `originalType`.
 
 Platform behavior to plan for:
 
@@ -126,7 +209,8 @@ Platform behavior to plan for:
 - X is replacing the Account Activity API with X Activity API. Deliveries use the same signature. An X Activity delivery decodes as `unknown` with its `event_type` in `originalType` and no account IDs, so `acceptWebhook` quarantines it until you map it yourself.
 - X sends `X-Twitter-Webhooks-Signature-OAuth2` when your app has an OAuth 2.0 client secret and may send both headers during migration. When the OAuth 2.0 header is present it alone decides, and the legacy header is ignored, so pass the OAuth 2.0 client secret once your app has one.
 - TikTok does not publish a replay window. The SDK rejects signatures more than 300 seconds from the current time; pass `toleranceSeconds` to `verifyTikTokWebhook` or `webhookToleranceSeconds` to the adapter to change it.
-- LinkedIn enables webhooks only for apps with an approved webhook use case, so the adapter declares `webhooks.verify` as `approval-dependent`. Organization social action notifications also need the Community Management API, the `rw_organization_admin` scope, and an organization administrator, and they fire for likes, comments, and shares only on public posts. `ADMIN_COMMENT` (the page's own comment), edits, deletions, likes, shares, and mentions decode as `unknown` with the action in `originalType`. `occurredAt` is the latest `lastModifiedAt` in the batch.
+- LinkedIn enables webhooks only for apps with an approved webhook use case, so the adapter declares `webhooks.verify` as `approval-dependent`. Organization social action notifications also need the Community Management API, the `rw_organization_admin` scope, and an organization administrator, and they fire for likes, comments, and shares only on public posts.
+- LinkedIn sends organization notifications only after you create a subscription with `PUT /rest/eventSubscriptions`, using an administrator's token, once your endpoint has passed validation. The subscription ends when that member's grant or administrator role ends. The SDK does not create, renew, or monitor subscriptions; manage them yourself. See LinkedIn's [organization social action notifications](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications). `ADMIN_COMMENT` (the page's own comment), edits, deletions, likes, shares, and mentions decode as `unknown` with the action in `originalType`. `occurredAt` is the latest `lastModifiedAt` in the batch.
 - LinkedIn re-validates the endpoint every 2 hours and blocks it after three failed checks, so keep the GET handler fast; LinkedIn allows 3 seconds. For parent-child applications LinkedIn adds `applicationId` to the check; pass `secretForApplication` to answer with that application's client secret. LinkedIn does not document which secret signs POST deliveries for child applications.
 - LinkedIn retries failed deliveries every 5 minutes for 8 hours and keeps missed organization notifications for 60 days through the organization notifications API. It sends the same `notificationId` to each subscribed member, so one action can arrive more than once.
 - Bluesky has no webhooks. Events arrive over WebSocket streams you subscribe to, the relay firehose (`com.atproto.sync.subscribeRepos`) or Jetstream, so the adapter declares `webhooks.verify` as `unsupported-by-platform`.
@@ -135,8 +219,8 @@ Sources, accessed 2026-09-24: [Meta Webhooks getting started](https://developers
 
 ## Run the example worker
 
-The example accepts signed Zernio and shared-secret Post for Me events at `POST /api/events`. Configure `ZERNIO_WEBHOOK_SECRET` or `POST_FOR_ME_WEBHOOK_SECRET` with the matching backend. The handler resolves the normalized `backendRecordId` against its durable delivery index, checks every event account against the session's membership, and quarantines events without one matching saved publication. It ignores tenant fields in provider payloads.
+The repository example accepts signed Zernio and shared-secret Post for Me events at `POST /api/events`. Configure `ZERNIO_WEBHOOK_SECRET` or `POST_FOR_ME_WEBHOOK_SECRET` with the matching backend. The handler resolves the normalized `backendRecordId` against its durable delivery index and checks every event account against the session's membership. It quarantines an event when no saved publication matches, or when its type is anything other than `publication.updated`, `post.removed`, or `backend-record.deleted`. That allowlist is the example's projection choice; `acceptWebhook` and `EventInbox` accept every event type. The handler ignores tenant fields in provider payloads.
 
-Invoke `POST /api/events/process` explicitly to process at most 100 pending events. The worker reads current delivery status and commits its projection with inbox completion in one Postgres transaction. No background polling starts when a webhook arrives. `POST /api/events/replay` reports pending work without repeating completed effects.
+Invoke `POST /api/events/process` explicitly to process at most 100 pending events. The worker first reads current delivery status from the provider, outside any database transaction, and then commits its projection together with inbox completion in one Postgres transaction. No background polling starts when a webhook arrives. `POST /api/events/replay` reports pending work without repeating completed effects.
 
 `post.removed` reports native removal; `backend-record.deleted` reports provider-record deletion. They are distinct from the historical publishing outcome. The example keeps removal reports separately and exposes them through `POST /api/events/reports` with the publication's `idempotencyKey`. Zernio warns that its listing-based deletion detection can produce false positives and does not retract those notices. Verify current native state before treating a report as permanent deletion. Older processing snapshots cannot overwrite a saved terminal publication.

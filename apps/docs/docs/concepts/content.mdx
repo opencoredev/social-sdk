@@ -7,7 +7,9 @@ A publication carries one shared content object to every selected target, plus p
 
 ## Shared content, per-target options
 
-Content holds the text and media list. Target options hold platform-specific requirements: YouTube's title, visibility, and audience flags, TikTok's consent and privacy choices, Bluesky's languages and mentions. The shape keeps one intent reusable across destinations without pretending platforms want identical input.
+Content holds the text, media list, and link. Target options hold platform-specific requirements: YouTube's title, visibility, and audience flags, TikTok's consent and privacy choices, Bluesky's languages and mentions. The shape keeps one intent reusable across destinations without pretending platforms want identical input.
+
+A target can also carry `content` that replaces shared fields for that target only. Each of `text`, `media`, and `link` you set on the target replaces the shared field of the same name; fields you leave out are inherited.
 
 ```ts
 await social.posts.publish({
@@ -16,19 +18,20 @@ await social.posts.publish({
       account: youtubeAccount,
       options: { title: "Release", visibility: "private", madeForKids: false },
     },
-    { account: xAccount },
+    // X gets shorter text and keeps the shared video.
+    { account: xAccount, content: { text: "Release day. Notes in the thread." } },
   ],
-  content: { text: "Release day", media: [video] },
+  content: { text: "Release day: what changed and why.", media: [video] },
 });
 ```
 
 ## Formats are declared per route
 
-Text, image, video, and carousel are content formats, and each capability declaration lists the formats it accepts. The same platform can differ by route: check the [capability matrix](/reference/capabilities) rather than assuming.
+Text, image, video, carousel, and document are the content formats adapters declare, and each capability declaration lists the formats it accepts. Ordered multi-post threads go through `posts.publishSequence` rather than a format; see [publishing](/publishing#publish-a-sequence). The same platform can differ by route: check the [capability matrix](/reference/capabilities) rather than assuming.
 
 ## Validation is platform-real
 
-Preparation applies each platform's actual rules: X's weighted 280-character counting, Bluesky's grapheme lengths, byte-offset mentions, and four-image cap, Threads' ten-item carousels, LinkedIn's 2 to 20 image multi-image posts, YouTube's title bounds. Failures return structured issues naming the field and rule, before the platform is contacted.
+Preparation applies the rules each adapter implements, which follow the platform where it documents a limit and are narrower where the adapter supports less: X's weighted 280-character counting, Bluesky's grapheme lengths and byte-offset mentions, the Bluesky adapter's four-image or one-video posts, the Threads adapter's carousels of up to twenty items, LinkedIn's 2 to 20 image multi-image posts, YouTube's title bounds, and the TikTok adapter's `PULL_FROM_URL` transfer from verified HTTPS origins. These are the current adapter caps, not a statement that the platform API offers nothing else. Failures return structured issues naming the field and rule, before the platform is contacted.
 
 ## Nothing is transformed silently
 

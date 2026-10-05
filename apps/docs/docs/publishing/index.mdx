@@ -7,21 +7,163 @@ A publication request records application intent. It has shared content, explici
 
 ## Prepare locally
 
-Preparation validates known content combinations, references, target ownership, capability declarations, and media inputs without uploading or publishing. It should report missing fields and warnings before a network call. Preparation never crops, truncates, rewrites, changes visibility, or adds a destination to make a request pass.
+`posts.prepare(request)` validates content combinations, references, capability declarations, and media inputs without uploading or publishing. It returns `{ ok, targets, issues }`; each issue names a `code`, `message`, `severity`, and usually a `targetIndex`. Preparation never crops, truncates, rewrites, changes visibility, or adds a destination to make a request pass. `posts.publish` runs the same preparation and throws `invalid_input` with the issues if any is an error, before dispatching any target.
+
+Checking whether the tenant may use each target account is not part of preparation. `publish` asks your configured `AuthorizationPolicy` first; see [authorization](/concepts/tenant-authorization).
+
+## Publish to several targets
+
+```ts
+import { SocialError } from "@opencoredev/social-sdk";
+
+const request = {
+  targets: [
+    { account: xAccount, content: { text: "Release day. Notes below." } },
+    {
+      account: youtubeAccount,
+      options: { title: "Release day", visibility: "private", madeForKids: false },
+    },
+  ],
+  content: { text: "Release day: what changed and why.", media: [video] },
+  idempotencyKey: draftId,
+} as const;
+
+const plan = social.posts.prepare(request);
+if (!plan.ok) return plan.issues; // show field-level problems to the user
+
+const result = await social.posts.publish(request, {
+  authorization: { tenantId, principalId },
+});
+
+for (const outcome of result.outcomes) {
+  switch (outcome.state) {
+    case "published":
+      await savePost(outcome.targetIndex, outcome.post, outcome.url);
+      break;
+    case "scheduled":
+    case "accepted":
+    case "processing":
+      await savePending(outcome.targetIndex, outcome.delivery);
+      break;
+    case "unknown":
+      await flagForReconciliation(outcome.targetIndex, outcome.delivery);
+      break;
+    case "failed":
+      await saveFailure(outcome.targetIndex, outcome.code, outcome.retryDisposition);
+      break;
+    case "not-submitted":
+    case "cancelled":
+      await saveNotSent(outcome.targetIndex, outcome.reason);
+      break;
+  }
+}
+```
+
+The X target replaces the shared text and keeps the shared video; the YouTube target keeps both and adds its required options. See [content](/concepts/content) for override rules and [media](/concepts/media) for each adapter's media limits.
 
 ## Interpret results
 
-`published` requires a destination-specific native post reference. `accepted` and `processing` remain pending. A failed target can coexist with a published target. An uncertain write must be reconciled before a retry that could create public content twice.
+Each target has its own `state`. `published` carries a `PlatformPostRef` in `post`. `scheduled`, `accepted`, and `processing` remain pending. A failed target can coexist with a published target. An `unknown` write must be reconciled before a retry that could create public content twice; see [idempotency](/concepts/idempotency).
 
-The [per-target lifecycle diagram](/concepts/architecture#per-target-publication-lifecycle) shows why a single aggregate status cannot stand in for destination results. Media uploads, video processing, scheduling, cancellation, and removal each have additional backend and platform constraints; consult the adapter capability manifest before enabling them.
+`result.status` is `complete` only when every target published, `pending` when every target is pending, and `partial` otherwise. The [per-target lifecycle diagram](/concepts/architecture#per-target-publication-lifecycle) shows why that summary cannot stand in for destination results.
 
 Continue with the [platform support matrix](/platforms) and [capability declarations](/reference/capabilities) before selecting destinations.
 
-## Reply and retry scope
+## Drafts
+
+A draft is a target option, not a separate method, and only some routes support it. On the direct TikTok adapter, `draft: true` sends the video to the creator's TikTok inbox for them to finish and post. It needs the `video.upload` scope instead of `video.publish`.
+
+```ts
+await social.posts.publish(
+  {
+    targets: [
+      {
+        account: tiktokAccount,
+        options: {
+          privacy: "SELF_ONLY",
+          consentGiven: true,
+          draft: true,
+          // The adapter requires an explicit choice for each of these.
+          disableComments: false,
+          disableDuet: false,
+          disableStitch: false,
+          brandedContent: false,
+          ownBrand: false,
+          aiGenerated: false,
+        },
+      },
+    ],
+    content: { media: [video] },
+    idempotencyKey: draftId,
+  },
+  { authorization: { tenantId, principalId } },
+);
+```
+
+A draft target returns `accepted` with a delivery reference, not `published`, because nothing is public yet. Draft uploads skip the creator-info check that direct posts require. See [TikTok](/platforms/tiktok).
+
+## Reply to a post
 
 Set `replyTo` on a target when destinations reply to different native posts or comments. A request-level `replyTo` applies to all its targets. Every reply reference must use the selected target's account, backend, and platform; mismatches fail preparation before dispatch.
 
-Idempotency fingerprints include target content, options, reply references, and schedules. Changing any of these under a previously claimed logical key produces an idempotency conflict. Provider request keys also include the tenant scope, so shared accounts do not collapse two tenants' independent publication intentions into one provider request.
+Replies through `posts.publish` work only on these direct adapters:
+
+| Route          | Accepted `replyTo`                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------- |
+| Direct X       | `PlatformPostRef` of the parent post                                                                        |
+| Direct Bluesky | `PlatformPostRef`, ideally with `native.uri` and `native.cid`; otherwise the adapter reads the parent first |
+| Direct Threads | `PlatformPostRef` or `CommentRef`; the adapter replies to its `postId`                                      |
+
+The direct YouTube, TikTok, Instagram, and LinkedIn adapters and every managed backend reject `replyTo` during preparation. To reply to a comment on those routes, use [`comments.reply`](/comments).
+
+On X, self-serve API access can reply only when the parent post's author mentioned or quoted the replying account. Enterprise access is exempt. Other replies fail at X. Source: [X create post](https://docs.x.com/x-api/posts/create-post) and [X changelog](https://docs.x.com/changelog), accessed 2026-10-05.
+
+## Publish a sequence
+
+`posts.publishSequence` publishes ordered items one after another, for threads and multi-part posts:
+
+```ts
+const items = [
+  { targets: [{ account: xAccount }], content: { text: "1/ What changed." } },
+  { targets: [{ account: xAccount }], content: { text: "2/ Why it matters." } },
+];
+const sequence = await social.posts.publishSequence(
+  {
+    items,
+    idempotencyKey: draftId,
+    replyToPrevious: true,
+    stopOnFailure: true,
+  },
+  { authorization: { tenantId, principalId } },
+);
+
+// Items whose publish call threw. They have no outcomes.
+for (const failure of sequence.failures) {
+  await saveItemError(failure.index, failure.code);
+}
+
+// Items that returned a result. A returned item can still hold failed, pending, or unknown targets.
+for (const item of sequence.items) {
+  if (item.status !== "complete") await flagItem(item.publication, item.status);
+  for (const outcome of item.outcomes) {
+    await recordOutcome(item.publication, outcome); // the switch from the multi-target example
+  }
+}
+
+// Attempts form a contiguous prefix, including calls that threw.
+const attempted = sequence.items.length + sequence.failures.length;
+for (let index = attempted; index < items.length; index++) {
+  await saveSkippedItem(index, "sequence-stopped");
+}
+```
+
+Every item is prepared and authorized before the first one is sent. Item `n` uses the idempotency key `${idempotencyKey}:n`. With `replyToPrevious`, each item replies to the post the previous item created, so every item must target the same single account and must not set its own `replyTo`; the route must also accept replies. If an item does not publish, the chain stops, because the next item would otherwise post as an unrelated root post.
+
+Keep the original item list and record its unattempted suffix too. Read both result lists. `result.failures` records only items whose `posts.publish` call threw a `SocialError`, with the item's index and error code. An item that returned a result goes into `result.items` even when its targets failed, are still pending, or are `unknown`, and `result.failures` stays empty for it. Check every entry's `status` and each of its `outcomes` as in [interpret results](#interpret-results). `result.items` keeps request order but skips items that threw or were never sent, so its positions match request indexes only up to the first item that threw. `result.status` is `partial` whenever an item was not sent or returned `partial`.
+
+## Retry scope
+
+Idempotency fingerprints include target content, options, reply references, and schedules. Changing any of these under a previously claimed logical key produces an idempotency conflict. Claims are scoped by the call's `authorization.tenantId`, so two tenants using the same key on a shared account get separate claims.
 
 The client's `concurrency` limit applies to each backend across overlapping reads and writes on that client. A queued cancellation does not dispatch a write. Native adapter access bypasses client coordination and must be managed explicitly by the application.
 
@@ -38,7 +180,7 @@ A direct adapter accepts `schedule` only when the platform stores the post and p
 | TikTok    | `unsupported-by-platform`    | [Direct Post `post_info`](https://developers.tiktok.com/doc/content-posting-api-reference-direct-post) has no publish-time field.                                                                                                                                                                                                                                                   |
 | LinkedIn  | `unsupported-by-platform`    | The [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api) accepts only `lifecycleState: "PUBLISHED"` on creation and has no publish-time field.                                                                                                                                                                                   |
 
-These sources were checked on 2026-09-24. Because these adapters never create a scheduled post, they do not implement `posts.cancelScheduled`. To publish later on these platforms, run the publish from your own durable job runner, or use a hosted backend that schedules on your behalf.
+These sources were checked on 2026-09-24. Because these adapters never create a scheduled post, they do not implement `posts.cancelScheduled`. To publish later on these platforms, run the publish from your own durable job runner, or use a managed backend that schedules on your behalf.
 
 ## Cancel a schedule or remove content
 

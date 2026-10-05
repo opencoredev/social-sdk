@@ -32,8 +32,18 @@ const social = createSocial({
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: userId });
 ```
 
-Native calls also take an operation `context`, for example
-`{ backendInstance: "default", correlationId: "graph", retryBudget: { maxAttempts: 2, maxElapsedMs: 30_000 } }`.
+Native calls take the guarded native module and an operation `context`:
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (native === undefined) throw new Error("This adapter has no native module");
+
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: "graph",
+  retryBudget: { maxAttempts: 2, maxElapsedMs: 30_000 },
+};
+```
 
 ## Platform support
 
@@ -48,25 +58,26 @@ unmute, block, and unblock. **Scopes:** `users.read`, `follows.read`/`follows.wr
 `mute.read`/`mute.write`, `block.read`/`block.write`. Block and unblock are Enterprise-plan only.
 
 Configure `x()` with the connected user's ID and, for user-context operations, an access token.
-`appBearerToken` is a separate app-only credential, used for profile and relationship reads when
-`auth.accessToken` is absent. Every mutation needs a user token and fails with
-`missing_permission` without one.
+`appBearerToken` is a separate app-only credential. Profile lookups and follower and following
+reads can use it when `auth.accessToken` is absent. Blocked and muted lists and every mutation
+need a user token with the scopes above and fail with `missing_permission` without one.
 
 ```ts
 const followers = await social.graph.listRelationships(account, { kind: "followers", limit: 100 });
 ```
 
 Profile records normalize the user ID, name, username, and description, with the validated user
-object under `native`. Relationship pages keep X user IDs as profile refs and do not invent a
-`since` timestamp. User reads accept 1 to 1,000 items; relationship endpoints accept 1 to 100. An
-invalid size raises `invalid_input`. A revoked or expired user token raises `reconnect_required`.
+object under `native`. `getProfile` reads one user per call. Relationship pages keep X user IDs as
+profile refs and do not invent a `since` timestamp, and accept a `limit` of 1 to 100; the SDK does
+not expose X's larger page sizes. An invalid size raises `invalid_input`. A revoked or expired user
+token raises `reconnect_required`.
 
 X lists are native only: owned lists, list members, list following, and pinned lists. Pinned reads
-use `lists.pinned.read` (`users.read`, `list.read`):
+need `users.read` and `list.read`. X returns all pinned lists in one response, so the method takes
+no cursor or limit:
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
-const pinned = await native.pinnedLists({ account, limit: 25, context });
+const pinned = await native.pinnedLists({ account, context });
 ```
 
 </PlatformTab>
@@ -92,7 +103,6 @@ Bluesky lists are native only and need `repo`. The native surface covers list cr
 changes, list reads, and list mute and block:
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
 const lists = await native.getLists({ account, actor: did, limit: 50, context });
 ```
 
@@ -102,17 +112,22 @@ const lists = await native.getLists({ account, actor: did, limit: 50, context })
 **Supported:** profile only. **Scope:** `threads_basic` for `profiles.read`.
 
 Configure the adapter with the authorized Threads user ID and access token. Handle lookup also
-depends on Threads profile discovery; without it, lookup is limited to the authorized app-scoped
-user.
+depends on Threads profile discovery (`threads_profile_discovery`). Under Standard Access, Meta
+limits discovery to a small set of official accounts until your app has Advanced Access; see
+[Threads profiles](https://developers.facebook.com/docs/threads/threads-profiles).
 
 ```ts
 const adapter = threads({ auth: { userId, accessToken } });
 ```
 
-The adapter returns profile ID, username, name, profile picture, biography, and verification data
-where present. Handle lookup calls `GET /profile_lookup`, which needs an exact username match and
-only returns public profiles with at least 100 followers. Its `follower_count` and seven-day
-engagement counts stay in `native`.
+For the authorized user, the adapter returns the profile ID, username, name, profile picture,
+biography, and verification data where present.
+
+Handle lookup calls `GET /profile_lookup` with an exact username and requests only `username`,
+`name`, `profile_picture_url`, `biography`, and `is_verified`. Meta returns only public profiles
+with at least 100 followers. The response has no user ID, so the record's
+`ref.profileId` is the synthetic value `lookup:<username>` and `native._profileIdUnavailable` is
+`true`. That ID is not a Threads user ID; do not pass it to other Threads calls.
 
 Threads has no endpoint that lists followers or followed accounts, so the manifest declares
 `graph.read` as `unsupported-by-platform`, and `listRelationships` raises `unsupported_capability`
@@ -125,30 +140,46 @@ count, read the `followers_count` metric with `social.analytics.getAccountMetric
 **Supported:** profile only. **Scopes:** `instagram_business_basic` and
 `instagram_business_manage_insights`, on a professional account.
 
-`instagram()` uses Instagram Login by default. Set `auth.flavor` to `"facebook-login"` and use a
-Facebook Login token when you need business-discovery lookup by handle.
+`instagram()` uses Instagram Login by default. The scopes depend on the login flavor:
+
+- Instagram Login (default): `instagram_business_basic` and `instagram_business_manage_insights`.
+- Facebook Login (`auth.flavor: "facebook-login"`): `instagram_basic`,
+  `instagram_manage_insights`, and `pages_read_engagement`.
 
 ```ts
 const adapter = instagram({ auth: { accessToken, accountId } });
 const own = await social.graph.getProfile(account, {});
 ```
 
-A profile record contains the normalized ID, username, name, biography, and profile image, with
-provider fields in `native`. Handle lookup validates the handle. Relationship reads and mutations
-raise `unsupported_capability`.
+`getProfile` accepts three selectors. `{}` reads the connected account. `{ profileId }` reads an
+Instagram user ID your token can access. `{ handle }` uses business discovery to read another
+professional account by username; it needs Facebook Login and raises `unsupported_capability`
+under Instagram Login. A profile record contains the normalized ID, username, name, biography, and
+profile image, with provider fields in `native`. Relationship reads and mutations raise
+`unsupported_capability`. See Meta's
+[business discovery](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/business-discovery)
+guide for eligibility.
 
 </PlatformTab>
 <PlatformTab platform="youtube">
 
-**Supported:** no normalized graph. Subscriptions are native and need
-`https://www.googleapis.com/auth/youtube.readonly`.
+**Supported:** no normalized graph. Subscriptions are native. Listing needs
+`https://www.googleapis.com/auth/youtube.readonly`; subscribing and unsubscribing need
+`https://www.googleapis.com/auth/youtube` or `youtube.force-ssl`.
 
 Read or change subscriptions through the native adapter. The response is provider JSON, including
-`nextPageToken` when more results are available.
+`nextPageToken` when more results are available. Without `channelId`, `list` returns the
+authorized user's own subscriptions:
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
-const subscriptions = await native.subscriptions({ action: "list", channelId, context });
+const mine = await native.subscriptions({ action: "list", context });
+```
+
+Passing `channelId` lists the channels that channel subscribes to, which YouTube returns only when
+that channel's subscriptions are public:
+
+```ts
+const theirs = await native.subscriptions({ action: "list", channelId: "UC_other", context });
 ```
 
 </PlatformTab>

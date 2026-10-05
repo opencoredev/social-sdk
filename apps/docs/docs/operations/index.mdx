@@ -7,15 +7,23 @@ Social SDK performs only the work an application explicitly requests. It does no
 
 ## Request controls
 
-Pass cancellation and a bounded retry budget to external operations. Use idempotency for writes where the adapter supports it. A timeout or cancellation after dispatch is an unknown outcome until the backend is reconciled. Do not treat elapsed time as proof that no public post exists.
+Every facade call accepts `{ signal, authorization, retryBudget }`. The default retry budget is `{ maxAttempts: 1, maxElapsedMs: 30000 }`: one attempt, and at most 30 seconds for all transport requests made under one operation.
+
+- `maxAttempts` applies to reads only. The shared HTTP transport accepts at most five attempts for `GET` and `HEAD`, and adapters cap it further (the Bluesky adapter uses at most three). It retries network errors, 429, and 5xx responses with backoff and honors `Retry-After`. Writes are always sent once.
+- `maxElapsedMs` is shared by the sequential requests of one operation in the adapters that read it (X, YouTube, LinkedIn, Bluesky, and the managed backends). Once it runs out, the next request fails with `timeout` before dispatch. Each HTTP transport also has its own per-request ceiling, 30 seconds by default, which applies on every route.
+- YouTube video uploads are the exception: the resumable upload gets at least 15 minutes, or the remaining budget when that is longer.
+
+A timeout or cancellation after dispatch is an unknown outcome until the backend is reconciled. Do not treat elapsed time as proof that no public post exists. See [idempotency](/concepts/idempotency).
 
 ## Cost and limits
 
-The package does not bill or proxy usage. Platform and managed-provider plans may charge separately, and each provider or platform can apply quotas or rate limits. Report retry-after information and provider request identifiers without logging credentials or content.
+The package does not bill or proxy usage. Platform and managed-provider plans may charge separately, and each provider or platform can apply quotas or rate limits. A rate-limited call fails with `rate_limited`. When the adapter maps the provider's `Retry-After` value, `retryDisposition` is `after-delay` with that delay; otherwise wait before retrying on your own schedule.
 
 ## Diagnostics
 
-Diagnostics should be explicit, read-only by default, and redact secrets, tokens, media, message bodies, and account credentials. A capability check may contact a backend only when the application requests it and should include freshness and provenance in the result.
+Diagnostics should be explicit, read-only, and redact secrets, tokens, media, message bodies, and account credentials. For each failure, log the `SocialError` fields `code`, `operation`, `correlationId`, `upstreamStatus`, `upstreamCode`, and `retryDisposition`. `SocialError` does not carry provider request IDs.
+
+`social.capabilities()` returns each adapter's static manifest. It is local and makes no request. Before dispatch, the client checks the operation against that manifest; it does not probe the backend, the account's scopes, or its eligibility. Account-specific problems surface when the provider rejects the call.
 
 ## Route webhook payloads
 
@@ -29,6 +37,11 @@ Operation guides: [reads and analytics](/reads), [comments and messaging](/comme
 
 ## Bound overlapping work
 
-`createSocial({ concurrency: 4, maxQueued: 100, ... })` gives each configured backend instance four active operation slots and at most 100 queued operations. Reads, uploads, publishing, comments, messages, and lifecycle mutations share that backend's slots. Another backend can proceed independently. A full queue fails with `rate_limited` before adapter I/O; an aborted queued request is removed without dispatch.
+`createSocial({ concurrency: 4, maxQueued: 100, ... })` gives each configured backend instance four active operation slots and at most 100 queued operations. Those are the defaults. Reads, uploads, publishing, comments, messages, and lifecycle mutations share that backend's slots. Another backend can proceed independently.
 
-These limits govern this client instance. Raw adapter/native access bypasses them, and separate client instances do not coordinate quotas. Sequential transport requests sharing one operation context consume its `retryBudget.maxElapsedMs`; queued time precedes transport dispatch. Persist application jobs explicitly if work must survive process restarts.
+When the queue is full, the result depends on the call:
+
+- `posts.publish` does not throw. The affected target gets a `not-submitted` outcome with reason `capacity`, and a target whose `signal` aborts while queued gets `cancelled` with reason `before-submission`. Other targets keep their own outcomes.
+- Every other facade call throws `rate_limited` before adapter I/O, or `cancelled` when its signal aborts while queued.
+
+These limits govern this client instance. Raw adapter and native access bypass them, and separate client instances do not coordinate quotas. Time spent in the queue does not count against `retryBudget.maxElapsedMs`, which starts at the first transport request. Persist application jobs explicitly if work must survive process restarts.

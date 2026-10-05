@@ -35,9 +35,13 @@ requires it, the operation `context` your application passes to adapter calls.
 `searchRecentPosts` and `searchAllPosts`. **Scopes:** `tweet.read` and
 `users.read`.
 
-Recent search uses `auth.accessToken`, covers the last 7 days, and accepts a
-limit of 10 to 100. Full-archive search (`scope: "all"`) uses `appBearerToken`,
-needs eligible pay-per-use or Enterprise access, and accepts 10 to 500.
+Recent search (`scope: "recent"`, the default) covers the last 7 days and
+accepts a limit of 10 to 100. Full-archive search (`scope: "all"`) needs
+eligible pay-per-use or Enterprise access and accepts 10 to 500.
+
+Both scopes use `auth.accessToken` when it is configured, and fall back to
+`appBearerToken` only when there is no user token. With neither configured,
+the call fails before any request.
 
 ```ts
 const page = await social.search.posts(account, {
@@ -47,9 +51,13 @@ const page = await social.search.posts(account, {
 ```
 
 By default the adapter requests IDs, text, author, timestamps, metrics,
-language, entities, attachments, and referenced tweets. Recent queries are
-limited to 512 characters and full-archive queries to 4096. Invalid bounds or
-timestamps raise `invalid_input`; missing access raises `missing_permission`.
+language, entities, attachments, and referenced tweets. Reposts are included
+unless the query excludes them with `-is:retweet`. The SDK rejects queries
+longer than 4096 characters; X applies its own query-length and operator
+limits by access level, so a shorter query can still be rejected upstream. See
+X's [query guide](https://docs.x.com/x-api/posts/search/integrate/build-a-query).
+Invalid bounds or timestamps raise `invalid_input`; missing access raises
+`missing_permission`.
 The native methods expose X tweet fields, expansions, user fields, and media
 fields:
 
@@ -100,8 +108,13 @@ Search uses the authorized user ID and access token. Without
 posts. The normalized page holds provider post objects and a continuation
 cursor.
 
-Use native search for TOP or RECENT ordering, tag mode, media type, author, or
-time bounds:
+Normalized search maps `startTime` and `endTime` to Threads' `since` and
+`until`, and accepts a `limit` of 1 to 100. It rejects `scope: "all"`. It
+sends no ordering, so Threads uses its default `TOP` ranking; that is ranking,
+not a recent-only time horizon.
+
+Use native search for `RECENT` ordering, tag mode, media type, or author
+filters:
 
 ```ts
 const result = await native.search({
@@ -125,16 +138,22 @@ use `social.graph.getProfile(account, { handle })` for that.
 **Normalized** `search.posts` with `recent` only, plus native search.
 **Scope:** `https://www.googleapis.com/auth/youtube.readonly`.
 
-YouTube uses an OAuth `accessToken` and a `channelId`. Results are public video
-search records with provider IDs and `snippet`.
+YouTube uses an OAuth `accessToken` and a `channelId`. Search is global: it
+queries all public YouTube videos, not only the configured channel. Results are
+video search records with provider IDs and `snippet`.
 
 ```ts
 const page = await social.search.posts(account, { query: "distributed systems", limit: 50 });
 ```
 
 `scope: "all"` raises `invalid_input`. The default limit is 25 and the maximum
-is 50. Time bounds map to `publishedAfter` and `publishedBefore`. Each request
-costs 100 quota units. A missing scope raises `missing_permission`.
+is 50. Time bounds map to `publishedAfter` and `publishedBefore`.
+
+`search.list` has its own quota bucket, separate from the 10,000 daily units
+the other endpoints share. By default a project gets 100 search calls per day,
+each costing 1 unit, and every additional page is another call. A missing scope
+raises `missing_permission`. Source: [YouTube quota costs](https://developers.google.com/youtube/v3/determine_quota_cost),
+accessed 2026-10-05.
 
 </PlatformTab>
 <PlatformTab platform="instagram">
@@ -146,12 +165,36 @@ Look up the hashtag ID first, then read its media with `kind: "recent"` or
 `"top"`:
 
 ```ts
+import type { JsonObject, JsonValue } from "@opencoredev/social-sdk";
+
+const isList = (value: JsonValue | undefined): value is readonly JsonValue[] =>
+  Array.isArray(value);
+const isObject = (value: JsonValue | undefined): value is JsonObject =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 const found = await native.hashtagSearch({ account, hashtag: "opensource", context });
-const media = await native.hashtagMedia({ account, hashtagId, kind: "recent", limit: 25, context });
+const first = isList(found["data"]) ? found["data"][0] : undefined;
+const hashtagId = isObject(first) ? first["id"] : undefined;
+
+if (typeof hashtagId === "string") {
+  const media = await native.hashtagMedia({
+    account,
+    hashtagId,
+    kind: "recent",
+    limit: 25,
+    context,
+  });
+}
 ```
 
-The media page uses `paging.cursors.after`. With Instagram Login,
-`instagram.hashtags.search` raises `missing_permission`.
+`hashtagSearch` returns `{ data: [{ id }] }`. The media page uses
+`paging.cursors.after`. With Instagram Login, both methods raise
+`unsupported_capability` before any request.
+
+Meta limits each Instagram account to 30 unique hashtags in a rolling 7-day
+window, and recent media covers only the last 24 hours. See Meta's
+[hashtag search](https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-hashtag-search)
+reference.
 
 </PlatformTab>
 </PlatformTabs>

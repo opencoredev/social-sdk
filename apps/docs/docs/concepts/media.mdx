@@ -23,7 +23,7 @@ Every attachment names a `kind` (image, video, or document) and a `source`. Docu
 { kind: "image", source: { kind: "media-ref", ref: mediaRef } }
 ```
 
-Blob and stream sources require a content fingerprint, which feeds idempotency so a retried request reuses the same upload identity. Optional fields like `mimeType`, `byteSize`, dimensions, `durationSeconds`, `altText`, and captions travel with the attachment where platforms accept them.
+Blob and stream sources require a content fingerprint, which feeds idempotency so a retried request reuses the same upload identity. Optional fields `mimeType`, `filename`, `byteSize`, `width`, `height`, `durationSeconds`, `altText`, `caption`, and `thumbnail` travel with the attachment where platforms accept them. See [Instagram image alt text](/platforms/instagram#publish-an-image) for its field mapping and limit.
 
 ## Streams are bounded and replayable
 
@@ -31,7 +31,15 @@ Uploads read streams with bounded buffering, so a large video does not sit fully
 
 ## Platforms differ, loudly
 
-Each adapter validates media against its platform's real rules during local preparation: which sources it accepts, size ceilings, item counts, required fields. TikTok accepts verified HTTPS origins only. The X adapter uploads images up to 5 MiB each; video and GIF uploads are not supported yet. LinkedIn accepts one MP4 video per post, uploaded from a Blob of 75 KB to 500 MB, and publishes it only after LinkedIn reports it `AVAILABLE`. LinkedIn also accepts one uploaded PDF, PPT, PPTX, DOC, or DOCX document per post, up to 100 MB, with a required title. Bluesky posts take up to four images or one MP4 video that was uploaded first with `media.upload`. YouTube requires exactly one video with explicit visibility. Nothing is silently cropped, converted, or dropped; unsupported input fails preparation with a structured issue. The platform pages document each rule set.
+Each adapter validates media against the rules it implements during local preparation: which sources it accepts, size ceilings, item counts, required fields. These are the current adapter limits, not a full list of what each platform API allows:
+
+- TikTok uses `PULL_FROM_URL`, so it accepts only `https-url` media on an origin you list in `verifiedMediaOrigins` and have verified in your TikTok app.
+- X takes up to four JPEG or PNG image Blobs of up to 5 MiB each, or one MP4 video Blob up to the 16 GiB upload ceiling (account size and duration eligibility may be lower), or one GIF Blob up to 15 MiB.
+- LinkedIn accepts one MP4 video per post, uploaded from a Blob of 75 KB to 500 MB, and publishes it only after LinkedIn reports it `AVAILABLE`. It also accepts one uploaded PDF, PPT, PPTX, DOC, or DOCX document per post, up to 100 MB and 300 pages. LinkedIn requires a document title, which the adapter takes from the attachment's `caption`, then its `filename`.
+- Bluesky posts take up to four images or one MP4 video that was uploaded first with `media.upload`.
+- YouTube requires exactly one video, plus `title`, `visibility`, and `madeForKids` in the target options.
+
+Nothing is silently cropped, converted, or dropped; unsupported input fails preparation with a structured issue. The platform pages document each rule set.
 
 ## Upload once, reference later
 

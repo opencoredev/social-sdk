@@ -9,16 +9,55 @@ assume one `social` client built with the platform's adapter, an `account` from
 
 ## Comments
 
+Comment items are provider-shaped `JsonObject`s, so the field that identifies a
+comment differs by platform. Read it with a check rather than assuming a
+top-level `id`:
+
 ```ts
+import type { JsonObject, JsonValue } from "@opencoredev/social-sdk";
+
+function isObject(value: JsonValue | undefined): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function commentIdOf(platform: string, item: JsonObject): string | undefined {
+  if (platform === "bluesky") {
+    // Bluesky returns thread views: { post: { uri, cid, ... }, replies? }.
+    const post = item["post"];
+    const uri = isObject(post) ? post["uri"] : undefined;
+    return typeof uri === "string" ? uri : undefined;
+  }
+  // LinkedIn replies need the full comment URN, not the numeric id.
+  const value = platform === "linkedin" ? item["commentUrn"] : item["id"];
+  return typeof value === "string" ? value : undefined;
+}
+
 const comments = await social.comments.list(post, { limit: 20 });
-const commentId = String(comments.items[0]?.["id"]);
-await social.comments.reply({ ...post, kind: "comment", commentId }, { text: "Thanks." });
+const first = comments.items[0];
+const commentId = first === undefined ? undefined : commentIdOf(post.platform, first);
+
+if (commentId !== undefined) {
+  await social.comments.reply({ ...post, kind: "comment", commentId }, { text: "Thanks." });
+}
 ```
 
 `comments.list(post, { cursor, limit })` returns `{ items, nextCursor? }`. Pass
-`nextCursor` back unchanged. `comments.iterate` follows pages. `comments.reply`
-takes a comment reference: the post reference fields plus `kind: "comment"` and
-the provider `commentId`.
+`nextCursor` back unchanged. `comments.reply` takes a comment reference: the
+post reference fields plus `kind: "comment"` and the provider `commentId`.
+
+Pagination is route-specific:
+
+- X, Instagram, YouTube, and LinkedIn accept `limit` and return a cursor when
+  more pages exist. X takes 10 through 100, Instagram 1 through 50, and YouTube
+  and LinkedIn 1 through 100. Instagram, YouTube, and LinkedIn default to 25.
+- Threads ignores `limit` and returns Meta's default page size with an `after`
+  cursor.
+- Bluesky returns only the direct replies in the post's thread view, never
+  returns a cursor, and rejects a `cursor` with `unsupported_capability`.
+
+`comments.iterate` follows only the `nextCursor` values the route returns. It
+does not walk nested replies, so on Bluesky it yields one page of direct
+replies.
 
 ## Messages
 
@@ -29,10 +68,36 @@ const conversations = await social.messages.listConversations(account, { limit: 
 `messages.listConversations(account, { cursor, limit })` returns
 `{ items, nextCursor? }`. `listMessages` takes a conversation reference, and
 `messages.send(ref, { text })` writes to it. `messages.iterateConversations` and
-`messages.iterateMessages` follow pages. Only X and Bluesky implement normalized
-messages.
+`messages.iterateMessages` follow pages.
+
+Normalized messages run on two kinds of route:
+
+- The direct X adapter.
+- The managed Zernio backend for X, Bluesky, Instagram, and Facebook accounts
+  connected through Zernio. Recipient permissions and reply windows still apply
+  upstream.
+
+The direct Bluesky adapter exposes chat only through its native module, shown
+below. Calling `social.messages` on a direct Bluesky account raises
+`unsupported_capability`.
 
 ## Platform support
+
+Native examples in the tabs assume a client built with that platform's adapter
+under the `"default"` key, a guarded native module, and an operation context:
+
+```ts
+import type { AdapterOperationContext } from "@opencoredev/social-sdk";
+
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (native === undefined) throw new Error("This adapter has no native module");
+
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: crypto.randomUUID(),
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+};
+```
 
 <PlatformTabs>
 <PlatformTab platform="x">
@@ -55,15 +120,14 @@ keeps only 30 days of DM events, so it is not a complete historical inbox.
 Native `sendDirectMessage`, `sendConversationMessage`, and
 `createGroupConversation` are available from the acknowledged X native adapter.
 
-Native `deleteComment` deletes a reply post with `DELETE /2/tweets/{id}`. X only
-lets the authenticated user delete their own posts, so you cannot remove someone
-else's reply. If X does not confirm `deleted: true`, the SDK raises
-`ambiguous_outcome`.
+A reply on X is a post, so delete one with native `deletePost` and the reply's
+post ID. It calls `DELETE /2/tweets/{id}`. X only lets the authenticated user
+delete their own posts, so you cannot remove someone else's reply.
 
 ```ts
 const conversations = await social.messages.listConversations(account, { limit: 20 });
 await native.sendDirectMessage({ account, participantId, text: "Hello.", context });
-await native.deleteComment({ account, commentId: replyPostId, context });
+await native.deletePost({ account, postId: replyPostId, context });
 ```
 
 Native `hideReply` hides or unhides a reply in a conversation the authenticated
@@ -77,27 +141,30 @@ await native.hideReply({ account, replyId, hidden: true, context });
 </PlatformTab>
 <PlatformTab platform="bluesky">
 
-**Comments** list and reply. **Messages:** chat conversations, messages, and
-send. **Access:** an authenticated session with `chat.read` and `chat.write`.
+**Comments** list and reply. **Messages:** native chat methods only.
+**Access:** an authenticated session. Chat needs a session that includes
+`transition:chat.bsky`; see [connect accounts](/authentication).
 
-Configure `bluesky({ auth: { service, did, accessJwt } })`. Comment items keep
-their AT Protocol identifiers. Chat is normalized when the authenticated session
-has the declared chat capabilities.
+Configure `bluesky({ auth: { service, did, accessJwt } })`. Comment items are
+thread views; the reply's AT-URI is `item.post.uri`. Use that URI as the
+`commentId` when replying.
+
+Chat runs through the native module, not `social.messages`. Each method takes
+the acting account and returns the provider-shaped `chat.bsky.convo` response:
 
 ```ts
-const conversation = { ...account, kind: "conversation", conversationId } as const;
-const messages = await social.messages.listMessages(conversation, { limit: 50 });
-await social.messages.send(conversation, { text: "Thanks for reaching out." });
+const convos = await native.listConversations({ account, limit: 20, context });
+const messages = await native.listMessages({ account, conversationId, limit: 50, context });
+await native.sendMessage({ account, conversationId, text: "Thanks for reaching out.", context });
 ```
 
-Native `deleteComment` takes the reply's `at://` URI and calls
-`com.atproto.repo.deleteRecord`. It only deletes replies stored in the
-authenticated account's repository; a URI from another DID raises
-`unauthorized`.
-To hide another account's reply in your own thread, use `hideReply`.
+A reply on Bluesky is a post. Delete one with native `deletePost` and its `uri`
+and `cid`. It only deletes posts in the authenticated account's repository; a
+URI from another DID raises `unauthorized`. To hide another account's reply in
+your own thread, use `hideReply`.
 
 ```ts
-await native.deleteComment({ account, commentId: replyUri, context });
+await native.deletePost({ account, post: { uri: replyUri, cid: replyCid }, context });
 ```
 
 Native `hideReply` hides or unhides a reply by adding its AT-URI to, or removing
@@ -115,15 +182,17 @@ await native.hideReply({ account, replyUri, hidden: true, context });
 </PlatformTab>
 <PlatformTab platform="threads">
 
-**Comments** list and reply. **Messages:** not supported. **Scopes:**
-`threads_basic`, `threads_read_replies`, and `threads_manage_replies`.
+**Comments** list and reply. **Messages:** not supported. Listing needs
+`threads_basic` and `threads_read_replies`. Replying needs `threads_basic` and
+`threads_content_publish`. Hiding or managing replies needs `threads_basic` and
+`threads_manage_replies`.
 
 Configure `threads({ auth: { userId, accessToken } })`. Messaging is
 `unsupported-by-platform`, so message calls raise `unsupported_capability`.
 
-Moderation is native. `hideReply` hides or unhides a reply, and
-`listConversation`, `listPendingReplies`, and `managePendingReply` cover the
-rest:
+Moderation is native. `hideReply` hides or unhides a top-level reply to your
+post; Meta hides its nested replies with it. `listConversation`,
+`listPendingReplies`, and `managePendingReply` cover the rest.
 
 Native `deleteComment` deletes a reply the authenticated user published, using
 `DELETE /{threads-media-id}`. It needs `threads_delete` and counts toward Meta's
@@ -138,63 +207,91 @@ await native.deleteComment({ account, commentId: replyMediaId, context });
 <PlatformTab platform="youtube">
 
 **Comments** list and reply. **Messages:** not supported. **Access:** an OAuth
-token for the channel; moderation needs `youtube.force-ssl`.
+token for the channel. Replies, moderation, and deletion all need
+`https://www.googleapis.com/auth/youtube.force-ssl`, which the default
+connection scopes do not include.
 
 Configure `youtube({ auth: { accessToken, channelId } })` for the authorized
-channel. Native `heldComments` lists comments held for review. Native
-`commentsModeration` supports `setModerationStatus`, `update`, and `delete`.
-`setModerationStatus` requires a `moderationStatus` such as `published`,
-`heldForReview`, or `rejected`; omitting it raises `invalid_input`.
+channel. Native `heldComments` lists comment threads held for review. Each held
+thread's comment ID is `snippet.topLevelComment.id`, not the thread `id`.
 
-Native `deleteComment` calls `comments.delete` with a comment ID. Pass the
-top-level comment ID, not the thread ID. Google does not document which comments
-a channel may delete; a 403 raises `missing_permission`. To remove another
-user's comment from your video, set its moderation status to `rejected`.
+Native `commentsModeration` supports `setModerationStatus`, `update`, and
+`delete`. `setModerationStatus` must be called by the owner of the channel or
+video and requires a `moderationStatus` of `published`, `heldForReview`, or
+`rejected`; omitting it raises `invalid_input`. `banAuthor: true` is valid only
+with `rejected`.
+
+Native `deleteComment` calls `comments.delete`, which YouTube allows only for
+the comment's original author. To remove another user's comment from your
+video, set its moderation status to `rejected`.
 
 ```ts
 const held = await native.heldComments({ maxResults: 20, context });
 await native.commentsModeration({
   action: "setModerationStatus",
-  commentId,
-  moderationStatus: "published",
+  commentId, // snippet.topLevelComment.id from a held thread
+  moderationStatus: "rejected",
+  banAuthor: true,
   context,
 });
 ```
 
+Source: [comments.setModerationStatus](https://developers.google.com/youtube/v3/docs/comments/setModerationStatus), accessed 2026-10-05.
+
 </PlatformTab>
 <PlatformTab platform="instagram">
 
-**Comments** list and reply. **Messages:** not supported. **Access:** a
-professional account with comment-management permission.
+**Comments** list and reply. **Messages:** not implemented by this adapter.
+**Access:** a professional account with comment-management permission.
 
 Configure `instagram({ auth: { accessToken, accountId, flavor } })`. `flavor`
 defaults to `instagram-login`; use `facebook-login` where the adapter requires
-Facebook Login. Instagram DMs raise `unsupported_capability`.
+Facebook Login. Meta offers Instagram messaging, but this adapter does not
+implement it, so message calls raise `unsupported_capability`. Zernio exposes
+Instagram messages as a managed backend.
+
+Native moderation covers hiding and deleting comments, listing replies to one
+comment, and turning comments on or off for a media object:
 
 ```ts
 await native.moderateComment({ account, commentId, hidden: true, context });
 await native.deleteComment({ account, commentId, context });
+const replies = await native.listCommentReplies({ account, commentId, limit: 25, context });
+await native.setCommentsEnabled({ account, mediaId, enabled: false, context });
 ```
 
 </PlatformTab>
 <PlatformTab platform="linkedin">
 
-**Comments** list and reply. **Messages:** not supported. **Scopes:**
-`r_member_social` and `w_member_social`, with an author URN.
+**Comments** list and reply. **Messages:** not supported. Member comments need
+`r_member_social_feed` for reads and `w_member_social_feed` for replies.
+Organization comments need `r_organization_social_feed` and
+`w_organization_social_feed`, respectively. These permissions require Community
+Management approval. The adapter also reads the parent post before comment
+operations: grant `r_member_social` for member authors or `r_organization_social`
+for organization authors for that separate preflight.
 
 Configure `linkedin({ auth: { accessToken, author }, apiVersion })`. `author` is
 a `urn:li:person:<id>` or `urn:li:organization:<id>`; organization actions need
 administrator access.
 
-LinkedIn comments use Social Actions and may return composite URNs. If a write
-is accepted without a returned URN, the SDK can raise `ambiguous_outcome`.
-LinkedIn messages raise `unsupported_capability`. Hiding comments is
-`unsupported-by-platform`: the Comments API has no hide or moderation-status
-operation.
+LinkedIn comments use Social Actions. Reply with the item's full `commentUrn`
+(`urn:li:comment:(urn:li:activity:…,…)`), not its numeric `id`; any other value
+raises `invalid_input`. If a write is accepted without a returned URN, the SDK
+can raise `ambiguous_outcome`. LinkedIn messages raise
+`unsupported_capability`. Hiding comments is `unsupported-by-platform`: the
+Comments API has no hide or moderation-status operation.
 
 ```ts
 const comments = await social.comments.list(post, { limit: 20 });
-await social.comments.reply({ ...post, kind: "comment", commentId }, { text: "Thanks." });
+const commentUrn = comments.items[0]?.["commentUrn"];
+
+if (typeof commentUrn === "string") {
+  await social.comments.reply(
+    { ...post, kind: "comment", commentId: commentUrn },
+    { text: "Thanks." },
+  );
+}
 ```
 
 Native `deleteComment` takes the share or UGC post URN and the full comment

@@ -13,13 +13,18 @@ provider-native likes lists. See [Search](/reads/search),
 The facade returns provider-shaped `JsonObject` items in a `Page`:
 
 ```ts
-const page = await social.posts.list(account, { limit: 25 });
+const page = await social.posts.list(account, { limit: 20 });
 const one = await social.posts.get(platformPostRef);
 ```
 
 Pass `nextCursor` back unchanged with the same account and options. Cursors
 are opaque. `posts.iterate(account, { maxPages, maxItems })` is lazy and
-bounded.
+bounded. Page-size limits differ by route; 20 is valid on every direct adapter
+(TikTok allows at most 20, YouTube and Instagram at most 50, the others 100).
+
+Items are projections, not full provider objects. Most adapters copy a fixed
+list of scalar fields and drop nested objects and arrays, so the tabs below
+list what each route actually returns.
 
 The examples assume one client and one connected account for the adapter you
 configure below:
@@ -57,8 +62,9 @@ import { x } from "@opencoredev/social-sdk/x";
 const adapter = x({ auth: { userId: "123", accessToken: process.env.X_ACCESS_TOKEN! } });
 ```
 
-Items may include `id`, `text`, `author_id`, timestamps, referenced tweets,
-and `public_metrics`. User timeline, home timeline, mentions, liked posts,
+`posts.list` and `posts.get` return `id`, `text`, `author_id`, `created_at`,
+and `conversation_id`. They do not include `public_metrics` or referenced
+posts; read counts with `analytics.getPostMetrics`. User timeline, home timeline, mentions, liked posts,
 and liking users are native operations: `userPosts`, `homeTimeline`,
 `mentions`, `likedPosts`, and `likingUsers`. They need the matching X read
 capability, user scopes, and an eligible API tier. Missing access raises
@@ -67,8 +73,9 @@ capability, user scopes, and an eligible API tier. Missing access raises
 </PlatformTab>
 <PlatformTab platform="bluesky">
 
-**Reads:** author feed, list, and get. **Metrics:** account and post, plus
-native likes lists. **Access:** `repo`. Feed page size is 1 to 100.
+**Reads:** author feed through `posts.list`, plus native `getPost` and
+`getPostThread`. **Metrics:** account and post, plus native likes lists.
+**Access:** `repo`. Feed page size is 1 to 100.
 
 Use a PDS service and DID with an access JWT, or an OAuth session.
 
@@ -84,11 +91,17 @@ const adapter = bluesky({
 });
 ```
 
-Author-feed items keep their AT Protocol records and embeds. The normalized
-post ref can carry the native `uri` and `cid`. Native `getLikes` lists users
-who liked a post; `getActorLikes` lists posts an actor liked. `getAuthorFeed`,
-`getPostThread`, and `getPosts` keep provider cursors. An invalid page size
-raises `invalid_input`.
+`posts.list` reads the account's author feed. Each item is
+`{ post, reason? }`, where `post` has `uri`, `cid`, the like, repost, reply,
+and quote counts, `indexedAt`, and public `author` fields (`did`, `handle`,
+`displayName`, `avatar`). Validated nested fields include record text, timestamps,
+facets, reply references, and embeds; AppView embeds; labels; and repost reasons.
+Image, video, external-link, and quoted-post embeds are retained, including quotes
+with attached media. Fields outside the public allowlist are omitted. Use native
+`getPost({ uri })` or `getPostThread({ uri })` for additional record or thread data;
+neither returns a cursor. The normalized post ref can carry the native `uri`
+and `cid`. Native `getLikes` lists users who liked a post; `getActorLikes`
+lists posts an actor liked. An invalid page size raises `invalid_input`.
 
 </PlatformTab>
 <PlatformTab platform="threads">
@@ -104,10 +117,11 @@ import { threads } from "@opencoredev/social-sdk/threads";
 const adapter = threads({ auth: { userId: "th_123", accessToken: process.env.THREADS_TOKEN! } });
 ```
 
-Items contain `id`, `text`, `username`, `media_type`, `permalink`, and
-`timestamp`. The `after` cursor is opaque. Threads has post and selected
-account insights but no normalized likes list. Mentions, search, and post
-details are native.
+List items contain `id`, `text`, `username`, `media_type`, `permalink`, and
+`timestamp`. The `after` cursor is opaque. `posts.get` and `search.posts` are
+normalized; `posts.get` returns the post fields the native `getPost` reads.
+Threads has post and selected account insights but no normalized likes list.
+Mentions and keyword search options beyond the normalized input are native.
 
 </PlatformTab>
 <PlatformTab platform="instagram">
@@ -152,8 +166,10 @@ const adapter = youtube({
 });
 ```
 
-`posts.get` returns `snippet`, `status`, `statistics`, and processing
-details. Statistics can include views, likes, and comments. Playlists and
+`posts.get` returns `id`, `snippet` (`title`, `description`, `channelId`,
+`publishedAt`), and `status` (`privacyStatus`, `uploadStatus`,
+`selfDeclaredMadeForKids`). It does not include statistics; read view, like,
+and comment counts with `analytics.getPostMetrics`. Playlists and
 playlist items are native. Reports need the separate
 `https://www.googleapis.com/auth/yt-analytics.readonly` scope and a bounded
 query. An inaccessible video raises an error instead of returning an empty item.
@@ -215,5 +231,7 @@ failures use `reconnect_required` or `unauthorized`; denied scopes use
 throttling uses `rate_limited`; and inaccessible resources can be `not_found`
 or `gone`. Do not turn errors into empty pages or zero metrics.
 
-Facebook has no post-read or analytics implementation in this SDK. Inspect
-`social.capabilities()` before enabling a feature.
+There is no direct Facebook adapter, so the direct routes above have no
+Facebook post reads or analytics. Managed backends that cover Facebook
+declare their own support. Inspect `social.capabilities()` before enabling a
+feature.
