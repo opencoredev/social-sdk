@@ -161,7 +161,9 @@ The unique constraint on the tenant and idempotency key keeps one row per public
 
 The LinkedIn adapter has no delivery-status read. A LinkedIn publish settles during the call and never returns `processing`, and `posts.getDelivery` throws a `SocialError` with code `unsupported_capability` for a LinkedIn reference. A LinkedIn `unknown` needs review: check the author's posts before anything publishes again.
 
-For backends that implement `posts.status`, such as Threads, Instagram, TikTok, YouTube, or a managed backend (see the [capability matrix](/reference/capabilities)), run reconciliation from pg_cron plus a server endpoint, or any scheduler you own. Read the tenant's rows whose state is `processing`, call `social.posts.getDelivery` with the saved delivery reference and the row's tenant, and update the row. The SDK does not poll in the background.
+For backends that implement `posts.status`, such as Threads, Instagram, TikTok, YouTube, or a managed backend (see the [capability matrix](/reference/capabilities)), run reconciliation from pg_cron plus a server endpoint, or any scheduler you own. The SDK does not poll in the background.
+
+Read the tenant's rows whose state is `accepted`, `processing`, or `scheduled` and whose saved outcome has a delivery reference. TikTok can return `accepted` before publication; YouTube and managed backends can return `scheduled`. Check that the tenant still has an active grant for the reference's backend, platform, and account ID before calling `social.posts.getDelivery`. Update both the row's state and complete outcome together, preserving the delivery reference for later checks. Stop reconciling terminal outcomes; leave an `unknown` outcome for review.
 
 ## Webhook inbox
 

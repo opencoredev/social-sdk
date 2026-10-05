@@ -130,6 +130,15 @@ export const reconcile = internalAction({
     const saved = await ctx.runQuery(internal.deliveries.get, { id: args.deliveryId });
     if (!saved?.delivery) return; // no reference to read; leave the row for review
 
+    // Recheck the current grant; the account may have been disconnected or reassigned.
+    const authorized = await ctx.runQuery(internal.accounts.authorizedForDelivery, {
+      tenantId: saved.tenantId,
+      backend: saved.delivery.backend,
+      platform: saved.delivery.platform,
+      accountId: saved.delivery.accountId,
+    });
+    if (!authorized) return; // leave the row for review without continuing the workflow
+
     const social = createSocialClient(ctx);
     const outcome = await social.posts.getDelivery(saved.delivery, {
       authorization: { tenantId: saved.tenantId },
@@ -141,6 +150,8 @@ export const reconcile = internalAction({
   },
 });
 ```
+
+`internal.accounts.authorizedForDelivery` is an application-owned query. It returns `true` only when the tenant still has an active grant for the exact backend, platform, and account ID. Removed, disconnected, or reassigned accounts return `false`. The client above has no SDK authorization policy, so passing `tenantId` alone does not enforce ownership. Recheck the grant on every scheduled run before a status call, which can continue a provider publishing workflow.
 
 Convex [scheduled functions](https://docs.convex.dev/scheduling/scheduled-functions) or crons can trigger reconciliation at the cadence you choose. The schedule belongs to your application; the SDK never polls on its own. Adapters that keep a local workflow, such as Threads and Instagram, also need a durable `workflowStore` shared by every action, because the default in-memory store disappears when the action ends.
 
