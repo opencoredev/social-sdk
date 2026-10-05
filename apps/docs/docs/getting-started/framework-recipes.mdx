@@ -130,7 +130,7 @@ import { createExampleHandler } from "./example/app.js";
 import { readBody } from "./bounded-body.js";
 
 export async function receiveEvent(request: Request): Promise<Response> {
-  const raw = await readBody(request);
+  const raw = await readBody(request, 1_000_000);
   if (raw === undefined) return new Response("payload too large", { status: 413 });
   try {
     await verifyZernioWebhook({
