@@ -28,7 +28,6 @@ import {
   isString,
   optionalArray,
   optionalNumber,
-  optionalObject,
   optionalString,
   type JsonField,
 } from "../transport/validation.js";
@@ -207,6 +206,22 @@ function fail(
   });
 }
 
+// Meta counts emoji as UTF-8 bytes; ordinary Unicode remains character-counted.
+// RGI_Emoji includes flags, keycaps, modifiers and joined emoji sequences.
+function threadsTextLength(text: string): number {
+  let emojiBytes = 0;
+
+  const encoder = new TextEncoder();
+
+  const ordinary = text.replace(new RegExp("\\p{RGI_Emoji}", "gv"), (emoji) => {
+    emojiBytes += encoder.encode(emoji).length;
+
+    return "";
+  });
+
+  return Array.from(ordinary).length + emojiBytes;
+}
+
 const accountRef = (backend: string, accountId: string) =>
   connectedAccountRef({ backend, platform: "threads", accountId });
 
@@ -368,7 +383,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       context,
     );
 
-    const allowed = new Set<string>([...metricNames, "link_total_values"]);
+    const allowed = new Set<string>(metricNames);
 
     return array(result["data"]).flatMap((entry) => {
       const row = object(entry);
@@ -385,10 +400,24 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const totalValue = optionalNumber(total?.["value"]);
 
-      const value =
-        totalValue ?? (latest === undefined ? undefined : optionalNumber(object(latest)["value"]));
+      const linkValues =
+        name === "clicks"
+          ? (optionalArray(row["link_total_values"]) ?? []).flatMap((entry) => {
+              const value = isJsonObject(entry) ? optionalNumber(entry["value"]) : undefined;
 
-      if (value === undefined) return [];
+              return value === undefined ? [] : [value];
+            })
+          : [];
+
+      const linkTotal =
+        linkValues.length > 0 ? linkValues.reduce((sum, value) => sum + value, 0) : undefined;
+
+      const value =
+        linkTotal ??
+        totalValue ??
+        (latest === undefined ? undefined : optionalNumber(object(latest)["value"]));
+
+      if (value === undefined || !Number.isFinite(value)) return [];
 
       const latestEnd =
         latest === undefined ? undefined : optionalString(object(latest)["end_time"]);
@@ -413,7 +442,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       return [
         {
-          name: name === "link_total_values" ? "clicks" : name,
+          name,
           value,
           unit: "count" as const,
           period,
@@ -713,13 +742,13 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         operation: "comments.write",
         platform: "threads",
         availability: "available",
-        requiredScopes: ["threads_basic", "threads_manage_replies"],
+        requiredScopes: ["threads_basic", "threads_content_publish"],
       },
       {
         operation: "comments.moderate",
         platform: "threads",
         availability: "available",
-        requiredScopes: ["threads_manage_replies"],
+        requiredScopes: ["threads_basic", "threads_manage_replies"],
         notes:
           "Hiding replies and pending-reply moderation require Threads reply-management permissions.",
       },
@@ -1189,11 +1218,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const media = target.content.media ?? [];
 
-        if ((target.content.text?.length ?? 0) > 500)
-          add("text.too_long", "Threads text is limited to 500 characters.");
+        if (threadsTextLength(target.content.text ?? "") > 500)
+          add(
+            "text.too_long",
+            "Threads text is limited to 500 characters, counting emoji as UTF-8 bytes.",
+          );
 
-        if (media.length > 10)
-          add("media.too_many", "Threads carousels support at most ten items.");
+        if (media.length > 20)
+          add("media.too_many", "Threads carousels support at most twenty items.");
 
         if (!media.length && !target.content.text)
           add("content.empty", "Threads requires text or media.");
@@ -1219,8 +1251,13 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           )
             add("media.format", "Threads images must be JPEG or PNG.");
 
-          if (item.kind === "video" && item.mimeType && item.mimeType !== "video/mp4")
-            add("media.format", "Threads videos must be MP4.");
+          if (
+            item.kind === "video" &&
+            item.mimeType &&
+            item.mimeType !== "video/mp4" &&
+            item.mimeType !== "video/quicktime"
+          )
+            add("media.format", "Threads videos must be MP4 or MOV.");
 
           if (item.kind === "document")
             add("media.format", "Threads publishing accepts image and video media only.");
@@ -1363,14 +1400,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           context,
         );
 
-        const rows = (optionalArray(result["data"]) ?? []).filter(isJsonObject);
-
-        const cursors = optionalObject(optionalObject(result["paging"])?.["cursors"]);
-
-        return {
-          items: rows,
-          ...definedFields({ nextCursor: optionalString(cursors?.["after"]) }),
-        };
+        return pageFrom(result);
       },
       async reply(comment: CommentRef, content: { text: string }, context): Promise<CommentRef> {
         authorize(comment, "threads.comments.reply");
@@ -1397,7 +1427,17 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           context,
         );
 
-        return { ...comment, commentId: optionalString(result["id"]) ?? comment.commentId };
+        const replyId = optionalString(result["id"]);
+
+        if (!replyId || replyId === comment.commentId)
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "threads.comments.reply",
+            message: "Threads publish did not return a new reply ID; reconcile before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        return { ...comment, commentId: replyId };
       },
     },
     analytics: {
@@ -1406,7 +1446,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         authorize(post, "threads.analytics");
 
         const r = await request(
-          `${encodeURIComponent(post.postId)}/insights?metric=views,likes,replies,reposts,quotes,shares,link_total_values`,
+          `${encodeURIComponent(post.postId)}/insights?metric=views,likes,replies,reposts,quotes,shares`,
           { method: "GET", ...definedFields({ signal: c.signal }) },
           "threads.analytics",
           c,
@@ -1422,9 +1462,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
               ? optionalNumber(object(first)["value"])
               : optionalNumber(row["value"]);
 
-          const rawName = optionalString(row["name"]);
-
-          const name = rawName === "link_total_values" ? "clicks" : rawName;
+          const name = optionalString(row["name"]);
 
           return value === undefined || name === undefined
             ? []

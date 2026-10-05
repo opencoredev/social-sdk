@@ -517,3 +517,218 @@ test("Threads declares profile search and relationship reads as unsupported by t
     });
   assert.equal(requests, 0);
 });
+
+test("Threads replies require a new ID and do not replay an ambiguous publish", async () => {
+  let writes = 0;
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async () => Response.json(++writes === 1 ? { id: "container" } : {}),
+  });
+
+  await assert.rejects(
+    adapter.comments!.reply(
+      { ...account, kind: "comment", commentId: "parent", postId: "post" },
+      { text: "reply" },
+      context,
+    ),
+    { code: "ambiguous_outcome", retryDisposition: { kind: "reconcile-first" } },
+  );
+
+  assert.equal(writes, 2);
+});
+
+for (const continuing of [false, true])
+  test(`Threads replies ${continuing ? "continue" : "stop"} based on paging.next`, async () => {
+    const adapter = threads({
+      auth: { userId: "u1", accessToken: "fixture" },
+      fetch: async () =>
+        Response.json({
+          data: [{ id: "reply" }],
+          paging: {
+            cursors: { after: "cursor" },
+            next: continuing ? "https://graph.threads.net/next" : undefined,
+          },
+        }),
+    });
+
+    const page = await adapter.comments!.list(
+      { ...account, kind: "platform-post", postId: "post" },
+      {},
+      context,
+    );
+
+    assert.equal(page.nextCursor, continuing ? "cursor" : undefined);
+
+    assert.equal(page.items.length, 1);
+  });
+
+test("Threads post insights request only supported media metrics", async () => {
+  let requested: URL | undefined;
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async (input) => {
+      requested = new URL(String(input));
+
+      return Response.json({ data: [] });
+    },
+  });
+
+  await adapter.analytics!.getPostMetrics(
+    { ...account, kind: "platform-post", postId: "post" },
+    context,
+  );
+
+  assert.equal(requested?.searchParams.get("metric"), "views,likes,replies,reposts,quotes,shares");
+});
+
+test("Threads sums documented clicks link totals without inventing missing values", async () => {
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async () =>
+      Response.json({
+        data: [
+          {
+            name: "clicks",
+            period: "day",
+            link_total_values: [
+              { link_url: "https://example.com/a", value: 12 },
+              { link_url: "https://example.com/b", value: 3 },
+            ],
+          },
+          { name: "clicks", link_total_values: [] },
+          { name: "clicks", link_total_values: [{ value: "missing" }] },
+          { name: "clicks", link_total_values: [{ value: 0 }] },
+        ],
+      }),
+  });
+
+  const metrics = await adapter.analytics!.getAccountMetrics!(account, context);
+
+  assert.deepEqual(
+    metrics.map((metric) => metric.value),
+    [15, 0],
+  );
+});
+
+for (const [text, accepted] of [
+  ["😀".repeat(125), true],
+  ["😀".repeat(126), false],
+  ["é".repeat(500), true],
+  ["界".repeat(500), true],
+  ["🇺🇸".repeat(62), true],
+  ["🇺🇸".repeat(63), false],
+  ["👨‍👩‍👧‍👦".repeat(20), true],
+  ["👨‍👩‍👧‍👦".repeat(21), false],
+  ["©".repeat(500), true],
+  ["©️".repeat(100), true],
+  ["©️".repeat(101), false],
+  ["界".repeat(501), false],
+  ["a".repeat(500), true],
+  ["a".repeat(501), false],
+] as const)
+  test(`Threads counts text of length ${text.length} with acceptance ${accepted}`, async () => {
+    const adapter = threads({ auth: { userId: "u1", accessToken: "fixture" } });
+
+    const issues = await adapter.posts!.prepareTarget!({
+      targetIndex: 0,
+      targetKey: "t",
+      account,
+      content: { text },
+    });
+
+    assert.equal(
+      issues.some((issue) => issue.code === "text.too_long"),
+      !accepted,
+    );
+  });
+
+for (const mimeType of ["video/mp4", "video/quicktime", "video/webm"])
+  test(`Threads validates video MIME ${mimeType}`, async () => {
+    const adapter = threads({ auth: { userId: "u1", accessToken: "fixture" } });
+
+    const issues = await adapter.posts!.prepareTarget!({
+      targetIndex: 0,
+      targetKey: "t",
+      account,
+      content: {
+        media: [
+          {
+            kind: "video",
+            mimeType,
+            source: { kind: "https-url", url: "https://cdn.example.test/video" },
+          },
+        ],
+      },
+    });
+
+    assert.equal(
+      issues.some((issue) => issue.code === "media.format"),
+      mimeType === "video/webm",
+    );
+  });
+
+test("Threads accepts twenty ordered carousel children and rejects twenty-one", async () => {
+  const writes: URL[] = [];
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+
+      if (init?.method === "GET") return Response.json({ status: "FINISHED" });
+      writes.push(url);
+
+      return Response.json({ id: `id-${writes.length}` });
+    },
+  });
+
+  const media = Array.from({ length: 21 }, (_, i) => ({
+    kind: "image" as const,
+    source: { kind: "https-url" as const, url: `https://cdn.example.test/${i}.jpg` },
+  }));
+
+  const target = {
+    targetIndex: 0,
+    targetKey: "t",
+    account,
+    content: { media: media.slice(0, 20) },
+  };
+
+  assert.deepEqual(await adapter.posts!.prepareTarget!(target), []);
+
+  const issues = await adapter.posts!.prepareTarget!({ ...target, content: { media } });
+
+  assert.ok(issues.some((issue) => issue.code === "media.too_many"));
+
+  assert.equal((await adapter.posts!.publishTarget(target, context)).state, "published");
+
+  assert.equal(writes.length, 22);
+
+  assert.deepEqual(
+    writes.slice(0, 20).map((url) => url.searchParams.get("image_url")),
+    media.slice(0, 20).map((item) => item.source.url),
+  );
+
+  assert.equal(
+    writes[20]?.searchParams.get("children"),
+    Array.from({ length: 20 }, (_, i) => `id-${i + 1}`).join(","),
+  );
+});
+
+test("Threads reply capability scopes match publishing and moderation endpoints", () => {
+  const adapter = threads({ auth: { userId: "u1", accessToken: "fixture" } });
+
+  assert.deepEqual(
+    adapter.capabilities.capabilities.find((item) => item.operation === "comments.write")
+      ?.requiredScopes,
+    ["threads_basic", "threads_content_publish"],
+  );
+
+  assert.deepEqual(
+    adapter.capabilities.capabilities.find((item) => item.operation === "comments.moderate")
+      ?.requiredScopes,
+    ["threads_basic", "threads_manage_replies"],
+  );
+});

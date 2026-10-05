@@ -448,8 +448,8 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | threads | threads | analytics.read | available | None declared | threads_basic, threads_manage_insights | None declared |
 | threads | threads | analytics.account.read | available | None declared | threads_basic, threads_manage_insights | None declared |
 | threads | threads | comments.read | available | None declared | threads_basic, threads_read_replies | None declared |
-| threads | threads | comments.write | available | None declared | threads_basic, threads_manage_replies | None declared |
-| threads | threads | comments.moderate | available | None declared | threads_manage_replies | Hiding replies and pending-reply moderation require Threads reply-management permissions. |
+| threads | threads | comments.write | available | None declared | threads_basic, threads_content_publish | None declared |
+| threads | threads | comments.moderate | available | None declared | threads_basic, threads_manage_replies | Hiding replies and pending-reply moderation require Threads reply-management permissions. |
 | threads | threads | comments.delete | available | None declared | threads_basic, threads_delete | Deletes only replies published by the authenticated user. Threads allows 100 deletions per account per day. Use hideReply for other users' replies. |
 | threads | threads | posts.quote | available | None declared | threads_basic, threads_content_publish | None declared |
 | threads | threads | posts.repost | available | None declared | threads_basic, threads_content_publish | None declared |

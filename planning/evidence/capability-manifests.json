@@ -3060,7 +3060,7 @@
           "availability": "available",
           "requiredScopes": [
             "threads_basic",
-            "threads_manage_replies"
+            "threads_content_publish"
           ]
         },
         {
@@ -3068,6 +3068,7 @@
           "platform": "threads",
           "availability": "available",
           "requiredScopes": [
+            "threads_basic",
             "threads_manage_replies"
           ],
           "notes": "Hiding replies and pending-reply moderation require Threads reply-management permissions."

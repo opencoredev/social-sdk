@@ -3,7 +3,7 @@ title: Threads
 description: Publish Threads containers, carousels, and media while preserving processing outcomes for explicit reconciliation.
 ---
 
-The direct Threads adapter uses an existing user access token and Threads user ID. OAuth and account selection are application responsibilities. Set `THREADS_GRAPH_VERSION` deliberately when a version other than the adapter default (`v1.0`) is required.
+The direct Threads adapter uses an existing user access token and Threads user ID. Use the exported `threadsOAuth`, `exchangeLongLivedOAuthToken`, and `refreshOAuthToken` server helpers with the [authentication guide](/docs/authentication). Account selection and token storage remain application responsibilities. Set `THREADS_GRAPH_VERSION` deliberately when a version other than the adapter default (`v1.0`) is required.
 
 ## Setup
 
@@ -23,14 +23,18 @@ The direct Threads adapter uses an existing user access token and Threads user I
 
 ```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
-import { threads } from "@opencoredev/social-sdk/threads";
+import { threads, type ThreadsWorkflowStore } from "@opencoredev/social-sdk/threads";
+
+// Supply your application’s shared, persistent implementation.
+declare const sharedThreadsWorkflowStore: ThreadsWorkflowStore;
 
 const social = createSocial({
   backend: threads({
-    graphVersion: process.env.THREADS_GRAPH_VERSION,
+    graphVersion: process.env["THREADS_GRAPH_VERSION"] ?? "v1.0",
+    workflowStore: sharedThreadsWorkflowStore,
     auth: {
-      userId: process.env.THREADS_USER_ID!,
-      accessToken: process.env.THREADS_ACCESS_TOKEN!,
+      userId: process.env["THREADS_USER_ID"]!,
+      accessToken: process.env["THREADS_ACCESS_TOKEN"]!,
     },
   }),
 });
@@ -38,7 +42,7 @@ const social = createSocial({
 const account = connectedAccountRef({
   backend: "default",
   platform: "threads",
-  accountId: process.env.THREADS_USER_ID!,
+  accountId: process.env["THREADS_USER_ID"]!,
 });
 ```
 
@@ -72,9 +76,27 @@ const result = await social.posts.publish({
 });
 ```
 
+For a MOV video, declare the supported MIME type:
+
+```ts
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: {
+    text: "A short clip",
+    media: [
+      {
+        kind: "video",
+        mimeType: "video/quicktime",
+        source: { kind: "https-url", url: "https://cdn.example.com/clip.mov" },
+      },
+    ],
+  },
+});
+```
+
 ### Publish a carousel
 
-Carousel children are created before the parent container. The adapter accepts at most ten media items.
+Carousel children are created before the parent container. The adapter accepts two through twenty media items.
 
 ```ts
 const result = await social.posts.publish({
@@ -93,39 +115,165 @@ const result = await social.posts.publish({
 });
 ```
 
-### Reconcile a processing container
+### Continue a processing container
 
-Threads publishing has two upstream phases: container creation and `threads_publish`. If the publish call does not return a native post ID, the result is `processing`; retain the delivery reference and reconcile explicitly. A returned ID produces `published`. Unknown upstream responses remain unknown. There is no automatic polling or cross-provider fallback.
+Threads creates containers before calling `threads_publish`. Unfinished containers return `processing`; a native post ID produces `published`. A missing publish ID, lost write response, or persisted workflow stage of `unknown` returns `unknown`, because submission may already have succeeded. Retain the delivery reference. Do not start a fresh publish to recover an uncertain write.
+
+The default `MemoryThreadsWorkflowStore` is process-local. A later job or another process must use the same application-owned shared `ThreadsWorkflowStore`, configured in setup above. Implement `create`, `get`, and `update` with durable storage; `claim` must atomically exclude concurrent workers. Implement `release` to relinquish claims, and arrange recovery of abandoned claims after worker failure. Store every workflow field, including account ownership and stage, before acknowledging writes. The SDK provides the interface, not a database implementation.
+
+`getDelivery` can advance a known unfinished workflow, but it does not resolve an `unknown` stage automatically. Native `resumePublication` explicitly continues a known workflow; an unknown stage stays unknown and is never replayed. Investigate ambiguous submissions using application-owned evidence before taking another write action.
 
 ```ts
 const outcome = result.outcomes[0];
 if (outcome?.state === "processing" && outcome.delivery) {
-  // Later, from your own job runner:
   const delivery = await social.posts.getDelivery(outcome.delivery);
   console.log(delivery.state); // published | processing | failed | unknown
 }
 ```
 
-## Beyond publishing
+## Authorization
 
-Reads, lifetime metrics, replies, quote posts, reposts, deletion, keyword search, and mentions are exposed through the typed adapter and native module. Normalized search is `social.search.posts(account, { query, cursor, limit, startTime, endTime, scope })`; it calls `GET /keyword_search` with the documented post fields and returns a page with an optional next cursor. Threads supports the recent search horizon only, so `scope: "all"` is rejected with `invalid_input`. The native search method additionally accepts `searchType` (`TOP` or `RECENT`), `searchMode` (`KEYWORD` or `TAG`), `mediaType`, `since`, `until`, and `authorUsername`. Public keyword search requires Meta's `threads_keyword_search` approval; without it, results may be limited to the authorized account's own posts. The adapter sends `q` and preserves empty result pages as `{ items: [] }`.
+Publishing and creating replies require `threads_basic` and `threads_content_publish`, which the OAuth preset requests by default. Add scopes for the operations your app uses:
 
-Profile reads use `GET /{threads-user-id}?fields=...` for the authorized app-scoped user. A public username can use `GET /profile_lookup?username=...`, which requires `threads_profile_discovery` and is subject to Meta's discovery limits. Profile responses are mapped from `profile_picture_url` and `biography`; if discovery omits an ID, the adapter preserves that limitation in the native result instead of claiming the username is a provider ID. Threads does not expose follow, block, or mute APIs, so those graph operations are not advertised.
+| Operation                              | Additional scope alongside `threads_basic` |
+| -------------------------------------- | ------------------------------------------ |
+| Read replies and conversations         | `threads_read_replies`                     |
+| Hide replies or manage pending replies | `threads_manage_replies`                   |
+| Account and post insights              | `threads_manage_insights`                  |
+| Keyword search                         | `threads_keyword_search`                   |
+| Delete your own media                  | `threads_delete`                           |
+| Mentions                               | `threads_manage_mentions`                  |
+| Exact public-username discovery        | `threads_profile_discovery`                |
 
-Two operations are declared `unsupported-by-platform` in the capability manifest. `profiles.search` is unsupported because profile discovery only matches an exact username and Threads has no query-based profile search. `graph.read` is unsupported because the Threads user node has no followers or following edge. The authorized user's total follower count is still available as the `followers_count` metric from `social.analytics.getAccountMetrics`, which requires `threads_manage_insights`.
+Replying to another user's post requires a post ID obtained through keyword search or mentions; the corresponding grant is required to retrieve it. You can also reply to your own posts. Reply creation uses publishing permissions, not the moderation grant.
 
-Reply moderation is available through native methods: `hideReply` calls `POST /{reply-id}/manage_reply` with `hide=true|false`; `listConversation` calls `GET /{media-id}/conversation`; `listPendingReplies` calls `GET /{media-id}/pending_replies`; and `managePendingReply` calls `POST /{reply-id}/manage_pending_reply` with `approve=true|false`. These operations require `threads_manage_replies` (and `threads_read_replies` for reads). Mentions call `GET /{threads-user-id}/mentions` and require `threads_manage_mentions` approval.
+When `threadsOAuth` has a `clientSecret`, its `complete` call automatically exchanges the short-lived token for a long-lived token. Do not exchange that result again. Manual `exchangeLongLivedOAuthToken` is for an unexpired short-lived token. Short-lived tokens last one hour; long-lived tokens last 60 days. Refresh an unexpired long-lived token only after it is at least 24 hours old, then persist its new expiry. Public-profile permission grants last 90 days and refresh extends them. Meta's Get Started and long-lived-token guides disagree about private-profile grant extension; treat private-profile eligibility as provider-defined and check the current guides.
 
-`deleteComment({ account, commentId, context })` deletes a reply with `DELETE /{threads-media-id}`, where the ID is the reply media ID returned when the reply was published. Meta only allows deleting media the authenticated user created, requires `threads_basic` and `threads_delete`, and limits each profile to 100 deletions per 24 hours. Use `hideReply` for replies from other users. See Meta's [delete posts](https://developers.facebook.com/docs/threads/posts/delete-posts) guide.
+## Reads, search, and insights
 
-## Limits and requirements
+Normalized search is `social.search.posts(account, { query, cursor, limit, startTime, endTime, scope })`. The adapter rejects `scope: "all"` with `invalid_input`; this is an SDK restriction. It omits `search_type`, so Meta defaults to `TOP` ranking. Native search below selects `RECENT` explicitly, and also supports tag mode, media type, author, and time filters. Meta documents a `since` floor of Unix `1688540400` (July 5, 2023).
 
-:::note
-The direct Threads adapter does not advertise native scheduling. Schedule a publish through an application-owned durable job runner when your workflow needs it.
-:::
+Public search requires `threads_keyword_search` approval; without it, results may be limited to the authorized user's own posts. Sensitive or offensive keywords return empty results. Meta allows 2,200 queries per user per rolling 24 hours across apps; queries without results do not count. Empty pages stay `{ items: [] }`. The adapter exposes a next cursor only when the response includes `paging.next`; current provider references do not guarantee keyword-search cursor support.
 
-- Text, one HTTPS image or video, and carousels are supported.
-- The token, user ID, scopes, app review, and account eligibility remain server-owned setup.
-- Existing repository evidence covers adapter contract behavior and mocked transports; no live Threads account has been verified.
+Own-profile reads request `id,username,name,threads_profile_picture_url,threads_biography,is_verified` from the authorized user node. Exact username discovery requests `username,name,profile_picture_url,biography,is_verified` from `/profile_lookup`. Discovery always returns a synthetic `lookup:<handle>` profile reference and `native._profileIdUnavailable: true`, even if an unsolicited ID appears. That synthetic ID cannot be reused as a provider user ID. The request does not ask for follower or engagement counts.
 
-Consult Meta's [Threads API collection](https://www.postman.com/meta/threads/documentation/dht3nzz/threads-api) for current fields, permissions, media processing, and version changes.
+Username discovery additionally needs `threads_profile_discovery`. Meta limits it to public profiles with at least 100 followers and 1,000 lookups per user per rolling 24 hours. Standard access is limited to @meta, @threads, @instagram, and @facebook; broader access needs approval.
+
+Both insight calls require `threads_basic` and `threads_manage_insights`:
+
+```ts
+import { platformPostRef } from "@opencoredev/social-sdk";
+
+const post = platformPostRef({
+  backend: "default",
+  platform: "threads",
+  accountId: account.accountId,
+  postId: "YOUR_PUBLISHED_POST_ID",
+});
+const accountMetrics = await social.analytics.getAccountMetrics(account);
+const postMetrics = await social.analytics.getPostMetrics(post);
+```
+
+Account metrics are `views` (profile views), `likes`, `replies`, `reposts`, `quotes`, `clicks`, and `followers_count`. Only `followers_count` is a lifetime total. The adapter sends no date range, so other account metrics use Meta's default yesterday-through-today range. It returns only the latest daily `views` point, with the day ending at `end_time`; engagement `total_value` rows describe the provider window. Clicks sum finite numeric `link_total_values[].value` entries; missing data is omitted, not reported as zero. A total without a documented lifetime period retains `period: "unknown"`. Account date-range selection, series, and demographic breakdowns are not exposed.
+
+Post metrics are lifetime `views,likes,replies,reposts,quotes,shares`. Meta marks views and shares as in development. Reply counts cover replies on a root post; for a media item that is itself a reply, only direct replies count and nested replies are excluded. Repost facades can return empty insights; an empty response is not evidence of zero. See [reports](/docs/reads/reports) and Meta's [insights guide](https://developers.facebook.com/documentation/threads/insights).
+
+## Native operations
+
+Native calls return provider JSON and bypass normalized operation handling. Obtain the typed handle with the explicit acknowledgment, guard its presence, and supply a matching context. Native IDs below are placeholders for media owned by or visible to the authorized account.
+
+```ts
+import type { AdapterOperationContext } from "@opencoredev/social-sdk";
+
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (!native) throw new Error("Threads native module is unavailable");
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: "threads-job",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+};
+
+const found = await native.search({
+  account,
+  query: "open source",
+  searchType: "RECENT",
+  searchMode: "KEYWORD",
+  since: "1688540400",
+  limit: 25,
+  context,
+});
+const mentions = await native.mentions({ account, context });
+const profile = await native.getProfile({ account, context });
+const media = await native.getPost(post.postId, context);
+const container = await native.getContainer("YOUR_CONTAINER_ID", context);
+
+if (outcome?.state === "processing" && outcome.delivery) {
+  const continued = await native.resumePublication(account, outcome.delivery.deliveryId, context);
+  console.log(continued.state);
+}
+```
+
+Native `quotePost({ account, postId, text, context })` and `repost({ account, postId, context })` perform writes and require publishing grants. Mentions need `threads_manage_mentions` approval; standard access may only expose tester data, and private media is omitted.
+
+### Replies and moderation
+
+`social.comments.list(post, { cursor })` reads top-level replies. It follows provider default page sizing; the adapter does not send a `limit`. Native `listConversation` returns a flattened conversation including nested replies. Reply reads require `threads_basic` and `threads_read_replies`.
+
+`hideReply` requires `threads_basic` and `threads_manage_replies`. Target a top-level reply to your post: hiding it hides the whole reply subtree, and `hide: false` unhides it. Pending reads additionally need `threads_read_replies`. Use `approvalStatus: "pending"` or `"ignored"`; `approve: false` ignores a pending reply reversibly, and it can later be approved with `true`.
+
+```ts
+const replies = await social.comments.list(post, {});
+const conversation = await native.listConversation({ account, mediaId: post.postId, context });
+const pending = await native.listPendingReplies({
+  account,
+  mediaId: post.postId,
+  approvalStatus: "pending",
+  context,
+});
+await native.hideReply({ account, replyId: "YOUR_TOP_LEVEL_REPLY_ID", hide: true, context });
+await native.hideReply({ account, replyId: "YOUR_TOP_LEVEL_REPLY_ID", hide: false, context });
+await native.managePendingReply({
+  account,
+  replyId: "YOUR_PENDING_REPLY_ID",
+  approve: false,
+  context,
+});
+await native.managePendingReply({
+  account,
+  replyId: "YOUR_PENDING_REPLY_ID",
+  approve: true,
+  context,
+});
+```
+
+A reply publish without a new ID raises `ambiguous_outcome` with `reconcile-first`; do not repeat the mutation blindly. See Meta's [reply management](https://developers.facebook.com/documentation/threads/reply-management) and [reply creation](https://developers.facebook.com/documentation/threads/retrieve-and-manage-replies/create-replies) guides.
+
+### Delete owned media
+
+Meta only allows deleting media the authenticated user created. Deletion requires `threads_basic` and `threads_delete` and is limited to 100 per profile per 24 hours. Use `hideReply` for replies from other users. These calls delete provider media:
+
+```ts
+await native.deletePost({ account, postId: "YOUR_OWN_POST_ID", context });
+await native.deleteComment({ account, commentId: "YOUR_OWN_PUBLISHED_REPLY_ID", context });
+```
+
+See Meta's [delete posts](https://developers.facebook.com/documentation/threads/posts/delete-posts) guide.
+
+## Webhooks
+
+Pass your server-held Threads app secret as `webhookSecret` in the adapter options to verify `X-Hub-Signature-256`. Use the exported `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server` for Meta's GET subscription handshake, with your application-owned verification token. See [events](/docs/events) for routing and decoding: replies and deletions normalize, while publish and mention deliveries currently retain an unknown event type. Confirm the signing secret against a real authorized delivery before relying on it.
+
+Meta requires the Threads webhooks sub-use case, appropriate access and permissions, and Live mode for applicable apps. Private-media restrictions apply. See the [webhooks guide](https://developers.facebook.com/documentation/threads/webhooks) for current eligibility.
+
+## Limits and unsupported operations
+
+- Text is limited to 500 characters. The adapter counts ordinary Unicode code points as characters and emoji sequences by their UTF-8 byte length. For example, 125 `😀` emoji use the full budget; 126 exceed it. It does not count all non-ASCII text as bytes.
+- Publish text, one image or video, or a carousel of two through twenty media items. Use public HTTPS URLs; local uploads and document media are rejected. Declared image MIME types must be `image/jpeg` or `image/png`; video MIME types must be `video/mp4` or `video/quicktime` (MOV). Alt text is limited to 1,000 characters by the adapter's string-length check.
+- The mapped `replyControl` values are `everyone`, `accountsYouFollow`, and `mentionedOnly`. Other options are rejected as unmapped. Additional provider reply audiences, polls, topic tags, and explicit link-preview options are not implemented.
+- Publishing is immediate. Native scheduling is `unsupported-by-platform`; use an application-owned durable runner to dispatch at the desired time.
+- Meta allows 250 API-published posts per profile per rolling 24 hours; a carousel counts as one. The adapter does not read the publishing-quota endpoint.
+- Credentials, grants, app review, and account eligibility remain server-owned setup. Contract tests use mocked transports; no live Threads account has been verified.
+
+Scheduling, post updates, profile updates, profile search, graph reads, messages, and notifications are declared `unsupported-by-platform`. Published text and attachments cannot be edited through this API; profiles are read-only. Profile discovery only matches exact usernames, so it does not provide query-based profile search. Threads has no follower/following edges or follow, block, and mute operations; use the `followers_count` insight for the authorized user's aggregate count. Standard apps have no messaging or notification-inbox API.
+
+Sources: Meta's [posts](https://developers.facebook.com/documentation/threads/posts), [keyword search](https://developers.facebook.com/documentation/threads/keyword-search), [profile discovery](https://developers.facebook.com/documentation/threads/threads-profiles), [long-lived tokens](https://developers.facebook.com/documentation/threads/get-started/long-lived-tokens), and [Threads API collection](https://www.postman.com/meta/threads/documentation/dht3nzz/threads-api). Provider details were checked against the October 5, 2026 audit sources; verify current permission and version changes before enabling live operations.
