@@ -557,23 +557,7 @@ export function instagram(
 
     const nativeId = string(result["id"]);
 
-    if (workflowId) {
-      try {
-        await workflows.update(workflowId, { nativeId, stage: "published", parentId: containerId });
-      } catch (cause) {
-        throw new SocialError({
-          code: "upstream_failure",
-          operation: "instagram.posts.persist-publication",
-          message:
-            "Instagram confirmed publication but its post ID could not be saved. Repair the workflow without repeating publication.",
-          retryDisposition: { kind: "reconcile-first" },
-          details: { workflowId, containerId, postId: nativeId },
-          cause,
-        });
-      }
-    }
-
-    return {
+    const outcome: DeliveryOutcome = {
       ...base,
       state: "published",
       backendState: "PUBLISHED",
@@ -586,6 +570,17 @@ export function instagram(
         postId: nativeId,
       },
     };
+
+    if (workflowId) {
+      try {
+        await workflows.update(workflowId, { nativeId, stage: "published", parentId: containerId });
+      } catch {
+        // Publication is confirmed. Preserve its reference even if the workflow stays unknown.
+        return outcome;
+      }
+    }
+
+    return outcome;
   };
 
   const processing = (
@@ -1138,6 +1133,7 @@ export function instagram(
         }
 
         await workflows.update(workflow.id, { parentId: containerId, stage: "parent" });
+
         const result = await publishContainer(target.account, containerId, context, workflow.id);
 
         return { ...result, targetIndex: target.targetIndex };

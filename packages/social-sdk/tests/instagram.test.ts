@@ -541,7 +541,10 @@ it("keeps an ambiguous marker when persistence fails after accepted publish", as
     workflowStore: store,
   });
 
-  await assert.rejects(async () => adapter.posts?.publishTarget(target(account), context()));
+  const outcome = await adapter.posts?.publishTarget(target(account), context());
+  assert.ok(outcome?.state === "published");
+  assert.equal(outcome.post.postId, "native");
+  assert.equal(outcome.backendState, "PUBLISHED");
   const id = [...store.rows.keys()][0];
   assert.ok(id);
   const resumed = await adapter.native?.resumePublication(account, id, context());

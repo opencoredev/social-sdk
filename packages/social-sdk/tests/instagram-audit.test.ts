@@ -484,35 +484,29 @@ it("retains published post recovery IDs when final workflow updates reject", asy
       const adapter = instagram(options);
       assert.ok(adapter.native);
       const native = adapter.native;
-      let recovery: JsonObject | undefined;
 
-      try {
-        if (kind === "reel")
-          await native.publishReel({ account, videoUrl: "https://cdn.example/reel.mp4", context });
-        else
-          await native.publishStory({
-            account,
-            mediaUrl: "https://cdn.example/story.jpg",
-            context,
-          });
-      } catch (error) {
-        assert.ok(error instanceof SocialError);
-        assert.equal(error.code, "upstream_failure");
-        assert.equal(error.retryDisposition.kind, "reconcile-first");
-        assert.deepEqual(error.details, {
-          workflowId: "workflow",
-          containerId: "container",
-          postId: "published",
-        });
-        recovery = error.toJSON().details;
-      }
+      const published =
+        kind === "reel"
+          ? await native.publishReel({ account, videoUrl: "https://cdn.example/reel.mp4", context })
+          : await native.publishStory({
+              account,
+              mediaUrl: "https://cdn.example/story.jpg",
+              context,
+            });
 
+      assert.equal(published.state, "published");
+
+      if (published.state !== "published") assert.fail("expected confirmed publication");
+      assert.ok(published.delivery);
       assert.equal(containers, 1);
       assert.equal(publishes, 1);
-      assert.ok(recovery);
-      const workflowId = string(recovery["workflowId"]);
-      const containerId = string(recovery["containerId"]);
-      const postId = string(recovery["postId"]);
+      const workflowId = published.delivery.deliveryId;
+      assert.ok(saved);
+      const containerId = string(saved.parentId);
+      const postId = published.post.postId;
+      assert.equal(workflowId, "workflow");
+      assert.equal(containerId, "container");
+      assert.equal(postId, "published");
 
       rejectUpdates = false;
       await store.update(workflowId, {
@@ -526,6 +520,91 @@ it("retains published post recovery IDs when final workflow updates reject", asy
       assert.equal(outcome.state, "published");
       assert.equal(containers, 1);
       assert.equal(publishes, 1);
+    }
+  }
+});
+
+it("preserves confirmed publication through the normalized path when the final save fails", async () => {
+  for (const carousel of [false, true]) {
+    for (const committed of [false, true]) {
+      let saved: InstagramWorkflow | undefined;
+      let publishes = 0;
+
+      const store: InstagramWorkflowStore = {
+        async create(input) {
+          saved = { ...input, id: "workflow" };
+
+          return saved;
+        },
+        async get() {
+          return saved;
+        },
+        async update(id, update) {
+          assert.ok(saved);
+          assert.equal(id, saved.id);
+
+          if (!update.nativeId || committed) saved = { ...saved, ...update };
+
+          if (update.nativeId) throw new Error("final save unavailable");
+
+          return saved;
+        },
+        async claim() {
+          return true;
+        },
+      };
+
+      const social = createSocial({
+        backend: instagram({
+          auth: { accessToken: "token", accountId: "ig1" },
+          workflowStore: store,
+          fetch: async (input) => {
+            const url = new URL(String(input));
+
+            if (url.pathname.endsWith("/media")) return Response.json({ id: "container" });
+
+            if (url.pathname.endsWith("/media_publish")) {
+              publishes++;
+
+              return Response.json({ id: "confirmed-post" });
+            }
+
+            return Response.json({ status_code: "FINISHED" });
+          },
+        }),
+      });
+
+      const image: MediaAttachment = {
+        kind: "image",
+        mimeType: "image/jpeg",
+        width: 1080,
+        height: 1080,
+        source: { kind: "https-url", url: "https://cdn.example/image.jpg" },
+      };
+
+      const result = await social.posts.publish({
+        content: { media: carousel ? [image, image] : [image] },
+        targets: [{ account }],
+      });
+
+      const outcome = result.outcomes[0];
+      assert.ok(outcome);
+      assert.equal(outcome.state, "published");
+
+      if (outcome.state !== "published") assert.fail("confirmed publication must retain its post");
+      assert.equal(outcome.post.postId, "confirmed-post");
+      assert.equal(outcome.delivery?.deliveryId, "workflow");
+      assert.equal(outcome.backendState, "PUBLISHED");
+      assert.equal(result.status, "complete");
+      assert.ok(outcome.delivery);
+      assert.equal(
+        (await social.posts.getDelivery(outcome.delivery)).state,
+        committed ? "published" : "unknown",
+      );
+      assert.equal(publishes, 1);
+      assert.ok(saved);
+      assert.equal(saved.parentId, "container");
+      assert.equal(saved.stage, committed ? "published" : "unknown");
     }
   }
 });
