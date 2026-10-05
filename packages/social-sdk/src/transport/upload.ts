@@ -1,4 +1,4 @@
-import { abortable, HttpError } from "./http.js";
+import { abortable, HttpError, retryDelay } from "./http.js";
 
 export interface UploadSource {
   mimeType: string;
@@ -238,6 +238,7 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
         "http",
         true,
         response.status,
+        retryDelay(response.headers.get("retry-after"), Date.now()),
       );
 
     if (source.size !== undefined && bytes !== source.size)

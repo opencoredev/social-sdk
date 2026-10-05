@@ -19,6 +19,7 @@ import { createHttp, HttpError } from "../transport/http.js";
 import {
   array,
   isJsonObject,
+  isJsonArray,
   object,
   string,
   optionalString,
@@ -63,6 +64,11 @@ export interface LinkedInTimeInterval {
   readonly end?: number;
 }
 
+/** Page and share statistics do not support WEEK. */
+export interface LinkedInPageShareTimeInterval extends LinkedInTimeInterval {
+  readonly granularity: "DAY" | "MONTH";
+}
+
 export interface LinkedInFollowerBreakdown {
   readonly dimension:
     | "function"
@@ -90,11 +96,15 @@ export interface LinkedInPageStatistics {
   readonly interval?: LinkedInTimeInterval | undefined;
   readonly views: Readonly<Record<string, number>>;
   readonly clicks: Readonly<Record<string, number>>;
+  /** Provider click dimensions, including custom-button arrays. */
+  readonly rawClicks: JsonObject;
   readonly breakdowns: {
     readonly dimension: string;
     readonly value: string;
     readonly views: Readonly<Record<string, number>>;
     readonly clicks: Readonly<Record<string, number>>;
+    /** Provider click dimensions, including custom-button arrays. */
+    readonly rawClicks: JsonObject;
   }[];
 }
 
@@ -206,12 +216,12 @@ export interface LinkedInNative {
   }) => Promise<readonly LinkedInFollowerStatistics[]>;
   readonly getOrganizationPageStatistics: (input: {
     readonly account: ConnectedAccountRef;
-    readonly interval?: LinkedInTimeInterval;
+    readonly interval?: LinkedInPageShareTimeInterval;
     readonly context: AdapterOperationContext;
   }) => Promise<readonly LinkedInPageStatistics[]>;
   readonly getOrganizationShareStatistics: (input: {
     readonly account: ConnectedAccountRef;
-    readonly interval?: LinkedInTimeInterval;
+    readonly interval?: LinkedInPageShareTimeInterval;
     readonly context: AdapterOperationContext;
   }) => Promise<readonly LinkedInShareStatistics[]>;
   readonly getOrganizationFollowerCount: (input: {
@@ -574,6 +584,22 @@ export function linkedin(
         message: "Provide JPEG, PNG or GIF bytes as a Blob or replayable stream.",
       });
 
+    const maxBytes = 20 * 1024 * 1024;
+    const size = media.byteSize ?? (source.kind === "blob" ? source.blob.size : undefined);
+    const knownSizes = [size, source.kind === "blob" ? source.blob.size : undefined];
+
+    if (
+      knownSizes.some(
+        (value) =>
+          value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || value > maxBytes),
+      )
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message: "LinkedIn image bytes must be nonempty and fit the SDK's local 20 MiB cap.",
+      });
+
     const initialized = object(
       object(
         await request("/rest/images?action=initializeUpload", context, {
@@ -591,19 +617,42 @@ export function linkedin(
         message: "LinkedIn returned an invalid image identifier.",
       });
 
-    const size = media.byteSize ?? (source.kind === "blob" ? source.blob.size : undefined);
+    try {
+      await upload({
+        url: string(initialized["uploadUrl"]),
+        source: {
+          mimeType: media.mimeType!,
+          ...definedFields({ size }),
+          open: source.kind === "blob" ? () => source.blob.stream() : source.open,
+        },
+        allowHost: (host) => host === "www.linkedin.com",
+        maxBytes,
+        timeoutMs: remainingBudget(context),
+        ...definedFields({ fetch: options.fetch, signal: context.signal }),
+      });
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
 
-    await upload({
-      url: string(initialized["uploadUrl"]),
-      source: {
-        mimeType: media.mimeType!,
-        ...definedFields({ size }),
-        open: source.kind === "blob" ? () => source.blob.stream() : source.open,
-      },
-      allowHost: (host) => host === "www.linkedin.com",
-      maxBytes: 20 * 1024 * 1024,
-      ...definedFields({ fetch: options.fetch, signal: context.signal }),
-    });
+      throw new SocialError({
+        code:
+          error.kind === "timeout"
+            ? "timeout"
+            : error.kind === "cancelled"
+              ? "cancelled"
+              : error.status === 429
+                ? "rate_limited"
+                : error.kind === "invalid-input"
+                  ? "invalid_input"
+                  : "media_error",
+        operation: "media.upload",
+        message: `LinkedIn image upload did not complete: ${error.message}`,
+        upstreamStatus: error.status,
+        retryDisposition:
+          error.status === 429 && error.retryAfterMs !== undefined
+            ? { kind: "after-delay", delayMs: error.retryAfterMs }
+            : { kind: "never" },
+      });
+    }
 
     return {
       kind: "media",
@@ -1166,11 +1215,18 @@ export function linkedin(
 
       const range = `(timeRange:(${rangeParts.join(",")}),timeGranularityType:${interval.granularity})`;
 
-      if (!["DAY", "WEEK", "MONTH"].includes(interval.granularity))
+      if (
+        !(
+          path === "/rest/organizationalEntityFollowerStatistics"
+            ? ["DAY", "WEEK", "MONTH"]
+            : ["DAY", "MONTH"]
+        ).includes(interval.granularity)
+      )
         throw new SocialError({
           code: "invalid_input",
           operation: "analytics.organization.read",
-          message: "Interval granularity must be DAY, WEEK or MONTH.",
+          message:
+            "Follower intervals support DAY, WEEK or MONTH; page and share intervals support DAY or MONTH.",
         });
       params.push(`timeIntervals=${range}`);
     }
@@ -1179,31 +1235,31 @@ export function linkedin(
   };
 
   const numberMap = (value: JsonField) => {
-    const row = value === undefined ? {} : object(value);
-
     const output: Record<string, number> = {};
 
-    for (const [key, item] of Object.entries(row)) {
+    const visit = (item: JsonField, key: string): void => {
       const number = optionalNumber(item);
 
       if (number !== undefined) output[key] = number;
-      else if (isJsonObject(item)) {
-        const nestedObject = item;
+      else if (isJsonArray(item)) {
+        item.forEach((entry, index) => visit(entry, `${key}[${index}]`));
+      } else if (isJsonObject(item)) {
+        for (const [nestedKey, nestedValue] of Object.entries(item)) {
+          // Keep existing total-view/click names. Unique views always retain their field name.
+          const name =
+            ["pageViews", "clicks", "count"].includes(nestedKey) || nestedKey === key
+              ? key
+              : key
+                ? `${key}.${nestedKey}`
+                : nestedKey;
 
-        const nested = ["pageViews", "uniquePageViews", "clicks", "count"]
-          .map((name) => optionalNumber(nestedObject[name]))
-          .find((candidate) => candidate !== undefined);
-
-        if (nested !== undefined) output[key] = nested;
-        else {
-          for (const [nestedKey, nestedValue] of Object.entries(nestedObject)) {
-            const nestedNumber = optionalNumber(nestedValue);
-
-            if (nestedNumber !== undefined) output[`${key}.${nestedKey}`] = nestedNumber;
-          }
+          visit(nestedValue, name);
         }
       }
-    }
+    };
+
+    for (const [key, item] of Object.entries(value === undefined ? {} : object(value)))
+      visit(item, key);
 
     return output;
   };
@@ -1320,6 +1376,7 @@ export function linkedin(
           value: label,
           views: numberMap(views),
           clicks: numberMap(clicks),
+          rawClicks: clicks,
         });
       }
     }
@@ -1342,6 +1399,7 @@ export function linkedin(
         ...definedFields({ interval: parseInterval(row, requestedGranularity) }),
         views: numberMap(total["views"]),
         clicks: numberMap(total["clicks"]),
+        rawClicks: total["clicks"] === undefined ? {} : object(total["clicks"]),
         breakdowns: pageBreakdowns(row),
       };
     });
@@ -1384,8 +1442,9 @@ export function linkedin(
               ? "w_organization_social"
               : "w_member_social",
           ],
-          notes:
-            "Explicit author URN and public visibility. Organization role and app product approval required. One registered image, 2 to 20 images, one MP4 video, or one document per post; every asset must be AVAILABLE before creating a post.",
+          notes: options.auth.author.startsWith("urn:li:organization:")
+            ? "Explicit organization author and public visibility. Requires product approval and ADMINISTRATOR, CONTENT_ADMIN (ACL CONTENT_ADMINISTRATOR) or DIRECT_SPONSORED_CONTENT_POSTER role. Supports image, multi-image, video and document posts."
+            : "Explicit member author and public visibility. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts.",
         },
         {
           platform: "linkedin",
@@ -1404,7 +1463,7 @@ export function linkedin(
               : "r_member_social",
           ],
           notes:
-            "Member read access is restricted. Publication permission does not grant read permission.",
+            "Member post reads require the closed r_member_social grant, unavailable to new apps. Publication permission does not grant read permission.",
         },
         {
           platform: "linkedin",
@@ -1457,7 +1516,16 @@ export function linkedin(
             "One PDF, PPT, PPTX, DOC or DOCX file up to 100 MB and 300 pages, uploaded through the Documents API. LinkedIn enforces the page limit during processing. Requires a title and AVAILABLE status.",
         },
         { platform: "linkedin", operation: "polls.create", availability: "available" as const },
-        { platform: "linkedin", operation: "reactions.write", availability: "available" as const },
+        {
+          platform: "linkedin",
+          operation: "reactions.write",
+          availability: "available" as const,
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "w_organization_social_feed"
+              : "w_member_social_feed",
+          ],
+        },
         { platform: "linkedin", operation: "reshares.write", availability: "available" as const },
         { platform: "linkedin", operation: "posts.update", availability: "available" as const },
         { platform: "linkedin", operation: "posts.delete", availability: "available" as const },
@@ -1472,8 +1540,8 @@ export function linkedin(
           availability: "available" as const,
           requiredScopes: [
             options.auth.author.startsWith("urn:li:organization:")
-              ? "w_organization_social"
-              : "w_member_social",
+              ? "w_organization_social_feed"
+              : "w_member_social_feed",
           ],
           notes:
             "Native deleteComment needs the post URN and the complete commentUrn. LinkedIn does not document which comments an actor may delete; expect only the configured author's own comments to succeed.",
@@ -1491,19 +1559,23 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "articles.create",
-          availability: "approval-dependent" as const,
+          availability: "not-implemented-by-adapter" as const,
+          notes:
+            "Ordinary article-link content is a Posts API format, but this adapter does not implement it and rejects content.link.",
         },
         {
           platform: "linkedin",
           operation: "profile.update",
-          availability: "approval-dependent" as const,
+          availability: "not-implemented-by-adapter" as const,
           notes:
             "Member profile writes use the Profile Edit API, which LinkedIn restricts to approved developers. This adapter does not implement it.",
         },
         {
           platform: "linkedin",
           operation: "messages.write",
-          availability: "unsupported-by-platform" as const,
+          availability: "not-implemented-by-adapter" as const,
+          notes:
+            "LinkedIn has a restricted partner Messages API. This adapter implements no message send method.",
         },
         {
           platform: "linkedin",
@@ -1537,7 +1609,7 @@ export function linkedin(
             : ("account-ineligible" as const),
           requiredScopes: ["rw_organization_admin"],
           notes:
-            "Organization total followers only; authenticated member must administer the organization. No member-profile analytics claimed.",
+            "Total followers for the configured organization from networkSizes with COMPANY_FOLLOWED_BY_MEMBER. The provider documents this count for any organization; SDK author binding still applies. No member-profile analytics claimed.",
         },
         ...["analytics.followers.read", "analytics.page.read", "analytics.shares.read"].map(
           (operation) => ({
@@ -1572,11 +1644,27 @@ export function linkedin(
           platform: "linkedin" as const,
           operation,
           availability: "available" as const,
-          ...(operation === "analytics.read"
-            ? { requiredScopes: ["r_member_social"] }
-            : { requiredScopes: ["w_member_social", "r_member_social"] }),
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? operation === "comments.write"
+                ? "w_organization_social_feed"
+                : "r_organization_social_feed"
+              : operation === "comments.write"
+                ? "w_member_social_feed"
+                : "r_member_social_feed",
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "r_organization_social"
+              : "r_member_social",
+            ...(operation === "comments.write"
+              ? [
+                  options.auth.author.startsWith("urn:li:organization:")
+                    ? "r_organization_social_feed"
+                    : "r_member_social_feed",
+                ]
+              : []),
+          ],
           notes:
-            "Community Management product permissions and author post read access required. Analytics contains returned social-action counts only.",
+            "Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only.",
         })),
       ],
     },
@@ -1655,8 +1743,8 @@ export function linkedin(
           );
 
         for (const item of media) {
-          if (media.length > 1 && (item.altText?.length ?? 0) > 4086)
-            fail("linkedin.alt_text", "LinkedIn multi-image alt text exceeds 4,086 characters.");
+          if (item.kind === "image" && (item.altText?.length ?? 0) > 4086)
+            fail("linkedin.alt_text", "LinkedIn image alt text exceeds 4,086 characters.");
 
           if (item.kind === "document") continue;
 
@@ -1949,12 +2037,29 @@ export function linkedin(
               "LinkedIn comment pagination requires a returned offset and a page size from 1 to 100.",
           });
 
-        const result = object(
-          await request(
-            `/rest/socialActions/${encodeURIComponent(ref.postId)}/comments?start=${start}&count=${count}`,
-            context,
-          ),
-        );
+        let result: JsonObject;
+
+        try {
+          result = object(
+            await request(
+              `/rest/socialActions/${encodeURIComponent(ref.postId)}/comments?start=${start}&count=${count}`,
+              context,
+            ),
+          );
+        } catch (error) {
+          // A collection 404 can also follow post deletion; verify it is still readable.
+          if (
+            error instanceof SocialError &&
+            error.code === "not_found" &&
+            error.upstreamStatus === 404
+          ) {
+            await readPost(ref, context);
+
+            return { items: [] };
+          }
+
+          throw error;
+        }
 
         const items = array(result["elements"]).map((value) => {
           const row = object(value);
@@ -1990,7 +2095,9 @@ export function linkedin(
 
         await readCommentablePost({ ...ref, kind: "platform-post" }, context);
 
-        const match = /^urn:li:comment:\(urn:li:activity:(\d+),(\d+)\)$/.exec(ref.commentId);
+        const match = /^urn:li:comment:\((urn:li:(?:activity|share|ugcPost):\d+),(\d+)\)$/.exec(
+          ref.commentId,
+        );
 
         if (!match)
           throw new SocialError({
@@ -2015,11 +2122,7 @@ export function linkedin(
 
         const parentObject = optionalString(parent["object"]);
 
-        if (
-          parentObject !== undefined &&
-          parentObject !== ref.postId &&
-          parentObject !== `urn:li:activity:${match[1]}`
-        )
+        if (parentObject !== undefined && parentObject !== ref.postId && parentObject !== match[1])
           throw new SocialError({
             code: "unauthorized",
             operation: "comments.write",
@@ -2444,7 +2547,7 @@ export function linkedin(
           "DELETE",
         );
       },
-      async organizationAnalytics({ account, context }) {
+      async organizationAnalytics({ account, query, context }) {
         authorize(account, context);
 
         if (!account.accountId.startsWith("urn:li:organization:"))
@@ -2454,9 +2557,62 @@ export function linkedin(
             message: "Organization analytics requires an organization author.",
           });
 
+        const invalidQuery = () =>
+          new SocialError({
+            code: "invalid_input",
+            operation: "analytics.organization.read",
+            message:
+              "Supported query fields are q=organizationalEntity, the configured organizationalEntity, and timeIntervals with DAY or MONTH and a timeRange start/end. Use typed statistics methods for other reports.",
+          });
+
+        let interval: LinkedInPageShareTimeInterval | undefined;
+
+        if (query !== undefined) {
+          if (
+            Object.keys(query).some(
+              (key) => !["q", "organizationalEntity", "timeIntervals"].includes(key),
+            ) ||
+            (query["q"] !== undefined && query["q"] !== "organizationalEntity") ||
+            (query["organizationalEntity"] !== undefined &&
+              query["organizationalEntity"] !== account.accountId)
+          )
+            throw invalidQuery();
+          const intervals = query["timeIntervals"];
+
+          if (intervals !== undefined) {
+            if (
+              !isJsonObject(intervals) ||
+              Object.keys(intervals).some(
+                (key) => !["timeGranularityType", "timeRange"].includes(key),
+              )
+            )
+              throw invalidQuery();
+            const granularity = intervals["timeGranularityType"];
+            const range = intervals["timeRange"];
+
+            if (
+              (granularity !== "DAY" && granularity !== "MONTH") ||
+              !isJsonObject(range) ||
+              Object.keys(range).some((key) => !["start", "end"].includes(key))
+            )
+              throw invalidQuery();
+            const start = optionalNumber(range["start"]);
+            const end = optionalNumber(range["end"]);
+
+            if (start === undefined || (range["end"] !== undefined && end === undefined))
+              throw invalidQuery();
+            interval = { granularity, start, ...definedFields({ end }) };
+          }
+        }
+
         return object(
           await request(
-            `/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${encodeURIComponent(account.accountId)}`,
+            statisticsPath(
+              "/rest/organizationalEntityShareStatistics",
+              "organizationalEntity",
+              account,
+              interval,
+            ),
             context,
           ),
         );

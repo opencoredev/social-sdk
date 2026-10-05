@@ -9,15 +9,35 @@ The direct LinkedIn adapter supports account reads, normalized text, single-imag
 
 <Steps>
   <Step title="Check product approvals and scopes">
-    Member publishing needs `w_member_social`; organization publishing needs `w_organization_social`
-    and an eligible page role. Community Management comments and social actions use separate feed
-    permissions. A token that publishes successfully may still lack read permission. Account reads
-    need `openid` and `profile` for a member author, or `rw_organization_admin` for an organization
-    author.
+    Create a developer app associated with a LinkedIn Page and have the Page verify the app's association. Share on LinkedIn grants
+    `w_member_social` for member publishing. Organization publishing requires Community Management
+    access and `w_organization_social`, plus an eligible Page role: `ADMINISTRATOR`, `CONTENT_ADMIN`
+    (the ACL wire value is `CONTENT_ADMINISTRATOR`), or `DIRECT_SPONSORED_CONTENT_POSTER`.
+    Organization lookup, discovery, and statistics require administrator eligibility; a content
+    administrator can publish yet fail `accounts.get` or be absent from discovery.
+
+    Community Management Development access is limited to 500 calls per app and 100 calls per member
+    per app per day. Standard access requires LinkedIn approval within 12 months to retain access;
+    webhooks are unavailable in Development.
+    See [LinkedIn access tiers](https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access).
+    The SDK's default [OAuth setup](/authentication) requests `openid`, `profile`, and
+    `w_member_social`, which does not grant organization publishing or feed access.
+
+    Comments, reactions, and social-action counters use `r_member_social_feed` or
+    `r_organization_social_feed` for reads and `w_member_social_feed` or
+    `w_organization_social_feed` for writes. The adapter's comment and counter preflights also read
+    the post, and replies read the parent comment before writing, so replies need both feed read
+    and feed write grants. Member post reads require the closed `r_member_social` grant, which new
+    apps cannot obtain; publishing permission does not grant read permission. Account reads need `openid` and
+    `profile` for a member author, or `rw_organization_admin` for an organization author.
+
   </Step>
   <Step title="Pick the author URN and API version">
     Configure a member or organization author URN and an explicit monthly API version such as
-    `202609`.
+    `202609`. Monthly versions sunset and need maintenance. Review the
+    [version guidance](https://learn.microsoft.com/en-us/linkedin/marketing/versioning) and
+    [migration notes](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/recent-changes)
+    before choosing or upgrading a supported header.
   </Step>
   <Step title="Configure the adapter">
     Construct the backend and select the author through a connected-account reference.
@@ -31,12 +51,21 @@ import { linkedin } from "@opencoredev/social-sdk/linkedin";
 const social = createSocial({
   backend: linkedin({
     auth: {
-      accessToken: process.env.LINKEDIN_ACCESS_TOKEN!,
+      accessToken: process.env["LINKEDIN_ACCESS_TOKEN"]!,
       author: "urn:li:organization:123",
     },
     apiVersion: "202609",
   }),
 });
+
+// Call this for each independent native operation to start a fresh time budget.
+const createOperationContext = () => ({
+  backendInstance: "default",
+  correlationId: "linkedin-example",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+});
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (!native) throw new Error("LinkedIn native operations are unavailable");
 
 const account = connectedAccountRef({
   backend: "default",
@@ -78,9 +107,11 @@ the member administers through the `organizationAcls` roleAssignee finder. Only 
 1 to 100.
 
 ```ts
-const organizations = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .listAdministeredOrganizations({ account, limit: 25, context });
+const organizations = await native.listAdministeredOrganizations({
+  account,
+  limit: 25,
+  context: createOperationContext(),
+});
 for (const item of organizations.items) console.log(item.organization);
 ```
 
@@ -100,7 +131,7 @@ const result = await social.posts.publish({
 
 ### Upload an image, then publish it
 
-Upload through `social.media.upload`, store the account-bound media reference, and use that reference in a publish request. The adapter checks the upstream owner and requires `AVAILABLE` before creating the post. A still-processing image needs an explicit later check through the native image-status helper; the adapter does not poll in the background.
+Upload through `social.media.upload`, store the account-bound media reference, and use that reference in a publish request. Initialization and byte transfer share the operation deadline; an expired byte transfer returns `timeout` and is not retried automatically. Image-storage HTTP 429 responses return `rate_limited`, with an `after-delay` retry disposition when LinkedIn provides a valid `Retry-After` header. The SDK does not replay the upload. The adapter checks the upstream owner and rejects a returned status other than `AVAILABLE` before creating the post. A successful image read without a status currently passes this check. A still-processing image needs an explicit later check through the native image-status helper; the adapter does not poll in the background.
 
 ```ts
 const mediaRef = await social.media.upload(
@@ -126,7 +157,7 @@ const result = await social.posts.publish({
 
 Pass 2 to 20 uploaded image references to publish a LinkedIn multi-image post. The adapter sends them as `content.multiImage` in the order you list them. A single image still uses `content.media`. Preparation rejects more than 20 images, alt text over 4,086 characters, a video mixed with other media, and references that belong to another author or backend.
 
-Before creating the post, the adapter reads each image and stops if any image belongs to another author or is not `AVAILABLE`. No post is created in that case. The same member-token exception applies as for a single image: if LinkedIn returns 403 when reading a member's image, the adapter skips that check and still sends the create request.
+Before creating the post, the adapter reads each image and stops if any image belongs to another author or has a returned status other than `AVAILABLE`. No post is created when it stops. A successful read that returns no status passes the check, and the adapter sends the create request. The same member-token exception applies as for a single image: if LinkedIn returns 403 when reading a member's image, the adapter skips that check and still sends the create request.
 
 ```ts
 // files holds { blob, contentHash } for each PNG, in display order.
@@ -158,11 +189,11 @@ const result = await social.posts.publish({
 });
 ```
 
-LinkedIn accepts JPEG, PNG, and GIF images under 36,152,320 pixels, and GIFs of up to 250 frames. The adapter cannot check pixel or frame counts on an uploaded reference, so LinkedIn enforces those limits. The API creates organic multi-image posts only; sponsored multi-image posts are not supported.
+The SDK applies a local 20 MiB image byte cap; this is SDK policy, not a LinkedIn provider limit. Known empty or oversized files fail before upload initialization, and streams remain bounded while uploading. LinkedIn accepts JPEG, PNG, and GIF images under 36,152,320 pixels, and GIFs of up to 250 frames. The adapter cannot check pixel or frame counts on an uploaded reference, so LinkedIn enforces those limits. The API creates organic multi-image posts only; sponsored multi-image posts are not supported.
 
 ### Upload a video, then publish it
 
-A LinkedIn post can carry one MP4 video of 75 KB to 500 MB and 3 seconds to 30 minutes. Pass the file as a Blob, for example from `fs.openAsBlob` in Node.js. The upload sends the parts LinkedIn asks for, finalizes the video, and returns its `urn:li:video` reference without waiting for processing.
+A LinkedIn post can carry one MP4 video of 3 seconds to 30 minutes. The SDK accepts 75,000 to 524,288,000 bytes inclusive. Pass the file as a Blob, for example from `fs.openAsBlob` in Node.js. The upload sends the parts LinkedIn asks for, finalizes the video, and returns its `urn:li:video` reference without waiting for processing.
 
 LinkedIn processes the video after the upload and does not document how long that takes. The native `videoStatus` helper sends one request per call, so your application decides when to check again. If you would rather wait in the same call, the native `waitForVideo` helper is an opt-in, bounded version: it reads the status, and while the video is `PROCESSING` or `WAITING_UPLOAD` it waits `intervalMs` (default 5,000) and reads again, up to `maxChecks` reads (default 12, at most 60). It stops early when the next wait would not fit the context's elapsed budget, and it rejects with `cancelled` when the context signal aborts. It returns the last status it read, which can still be `PROCESSING`, and it never creates a post.
 
@@ -182,13 +213,15 @@ const videoRef = await social.media.upload(
 );
 
 // Later, from your own job or request handler, check once:
-const native = social.native("default", { acknowledgeUnsafe: true });
-let video = await native.videoStatus(videoRef, context);
+let video = await native.videoStatus(videoRef, createOperationContext());
 
 // Or wait in this call, bounded by the checks and the context's elapsed budget:
-video = await native.waitForVideo(videoRef, context, { intervalMs: 5_000, maxChecks: 12 });
+video = await native.waitForVideo(videoRef, createOperationContext(), {
+  intervalMs: 5_000,
+  maxChecks: 12,
+});
 
-if (video.status === "AVAILABLE") {
+if (video["status"] === "AVAILABLE") {
   await social.posts.publish({
     targets: [{ account }],
     content: {
@@ -214,10 +247,16 @@ A document post carries one PDF, PPT, PPTX, DOC, or DOCX file. LinkedIn accepts 
 LinkedIn requires a title for document posts. The adapter uses the attachment `caption`, or `filename` when the caption is missing or blank. Preparation fails without a title, when the document shares the post with other media, or when `altText` is set, because LinkedIn documents have no alt text field.
 
 ```ts
+import { createHash } from "node:crypto";
+
+// Hash the exact bytes in pdf, the Blob you will upload.
+const documentHash = createHash("sha256")
+  .update(new Uint8Array(await pdf.arrayBuffer()))
+  .digest("hex");
 const documentRef = await social.media.upload(
   {
     kind: "document",
-    source: { kind: "blob", blob: pdf },
+    source: { kind: "blob", blob: pdf, fingerprint: documentHash },
     mimeType: "application/pdf",
     filename: "q3-report.pdf",
   },
@@ -225,11 +264,9 @@ const documentRef = await social.media.upload(
 );
 
 // Later, after LinkedIn finishes processing the file.
-const status = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .documentStatus(documentRef, context);
+const status = await native.documentStatus(documentRef, createOperationContext());
 
-if (status.status === "AVAILABLE") {
+if (status["status"] === "AVAILABLE") {
   const result = await social.posts.publish({
     targets: [{ account }],
     content: {
@@ -243,6 +280,7 @@ if (status.status === "AVAILABLE") {
       ],
     },
   });
+  console.log(result.outcomes.map((outcome) => outcome.state));
 }
 ```
 
@@ -252,24 +290,20 @@ Upload failures are not retried. If a storage upload times out or fails after th
 
 ### Handle the returned URN
 
-Post creation returns its native URN in the `x-restli-id` header. Missing native identity produces an unknown outcome. Preserve the result and reconcile before retrying.
-
-```ts
-const outcome = result.outcomes[0];
-if (outcome?.state === "unknown" && outcome.delivery) {
-  const delivery = await social.posts.getDelivery(outcome.delivery);
-  console.log(delivery.state);
-}
-```
+Post creation returns its native URN in the `x-restli-id` header. Missing native identity produces
+an unknown outcome. Preserve the complete result as uncertain; this adapter has no post-status or
+`getDelivery` method and returns no delivery reference. When your token has post-read permission,
+you can inspect the author feed or read a known post to reconcile. A matching post may not be found
+or uniquely identified. Do not automatically resubmit an uncertain create.
 
 ### Read comments and reply
 
-Replies require the complete `commentUrn` returned by comment reads, including its activity and comment identifiers.
+Replies require the complete composite `commentUrn` returned by comment reads, with an activity, share, or ugcPost root and the comment identifier. The numeric `id` alone is not a reply reference. A readable post with an empty comment collection returns `items: []`. After a comments-collection 404, the SDK re-checks the parent post before returning an empty page. A post deleted between the first read and the comments request returns `not_found`; other re-check failures propagate.
 
 ```ts
 // postRef is the platform-post reference returned by a publish outcome or post read.
 const comments = await social.comments.list(postRef);
-const commentId = comments.items[0]?.id;
+const commentId = comments.items[0]?.["commentUrn"];
 if (typeof commentId !== "string") throw new Error("No comment selected");
 
 await social.comments.reply(
@@ -280,7 +314,15 @@ await social.comments.reply(
 
 ### Read organization metrics
 
-Organization account metrics read the total follower count from the versioned `networkSizes` endpoint. They require `rw_organization_admin` and an administrator role for the configured organization. Member-profile account metrics remain unavailable; organization analytics require the organization product and role.
+Organization account metrics and native `getOrganizationFollowerCount` read the configured
+organization's total follower count from `/rest/networkSizes/{orgUrn}` with
+`edgeType=COMPANY_FOLLOWED_BY_MEMBER`. The Organization Lookup reference documents this count for
+any organization; the SDK still binds the request to its configured organization author. Administrator
+requirements on follower, page, and share statistics are separate from this count endpoint.
+
+`getPostMetrics` returns social-action likes and comments only. Organization counts and reports are
+organization-only in this adapter. Separate member creator post, profile, and video analytics exist
+upstream but are not implemented here.
 
 ```ts
 const metrics = await social.analytics.getAccountMetrics(account);
@@ -292,43 +334,67 @@ Metrics contain only counts returned by LinkedIn. Missing counts remain absent, 
 ### Read Community Management statistics
 
 The typed native module exposes organization follower demographics and gains, page views and clicks,
-share statistics, and the follower count. These calls require the Community Management API product,
-an organization administrator grant (`rw_organization_admin` or `r_organization_admin`), and an
+and share statistics. These statistics calls require the Community Management API product,
+the endpoint-documented `rw_organization_admin` grant, an administrator role, and an
 organization account. Member accounts fail before a request is sent. Empty `elements` responses return
-an empty array.
+an empty array. The access-control reference separately describes `r_organization_admin` as a
+read-only analytics permission, but endpoint-specific equivalence has not been verified. Capability
+metadata conservatively lists `rw_organization_admin`; it does not require both scopes.
 
 ```ts
-const followers = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .getOrganizationFollowerStatistics({ account, context });
-const pages = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .getOrganizationPageStatistics({
-    account,
-    interval: { granularity: "DAY", start: Date.now() - 7 * 86_400_000 },
-    context,
-  });
-const shares = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .getOrganizationShareStatistics({ account, context });
-const followerCount = await social
-  .native("default", { acknowledgeUnsafe: true })
-  .getOrganizationFollowerCount({ account, context });
+const followers = await native.getOrganizationFollowerStatistics({
+  account,
+  context: createOperationContext(),
+});
+const pages = await native.getOrganizationPageStatistics({
+  account,
+  interval: { granularity: "DAY", start: Date.now() - 7 * 86_400_000 },
+  context: createOperationContext(),
+});
+const shares = await native.getOrganizationShareStatistics({
+  account,
+  context: createOperationContext(),
+});
+const followerCount = await native.getOrganizationFollowerCount({
+  account,
+  context: createOperationContext(),
+});
 ```
 
 These methods call `organizationalEntityFollowerStatistics`, `organizationPageStatistics`,
 `organizationalEntityShareStatistics`, and `networkSizes/{orgUrn}` with the configured
-`LinkedIn-Version` header. Lifetime follower results include demographic breakdowns. Time-bound
-follower results contain organic and paid gains, while page and share results contain the provider's
-returned time-bucket metrics. For a time-bound request, pass a nonnegative epoch-millisecond
-`start` (and optionally `end`) with `granularity: "DAY"`, `"WEEK"`, or `"MONTH"`. The adapter sends
-the Rest.li 2.0 query form `timeIntervals=(timeRange:(start:...,end:...),timeGranularityType:DAY)`
-with literal delimiters, as required by LinkedIn. The response's `timeRange` is preserved in the
-returned `interval`, using the requested granularity when LinkedIn omits it from each row.
+`LinkedIn-Version` header. Lifetime follower results include demographic breakdowns. In lifetime
+facets, `organicFollowerCount` includes organic plus paid followers; do not add `paidFollowerCount`.
+Time-bound `organicFollowerGain` and `paidFollowerGain` are separate gain measures.
 
-Page statistics preserve nested click metrics such as `careersPageClicks` and
-`mobileCareersPageClicks`, as well as nested view counts such as `allPageViews` and
-`uniquePageViews`.
+Pass a nonnegative epoch-millisecond `start` and optional `end`. The SDK forwards these numbers
+literally. Each endpoint has different bounds:
+
+| Report              | Granularity            | Start     | End       |
+| ------------------- | ---------------------- | --------- | --------- |
+| Follower statistics | `DAY`, `WEEK`, `MONTH` | Inclusive | Exclusive |
+| Page statistics     | `DAY`, `MONTH`         | Exclusive | Inclusive |
+| Share statistics    | `DAY`, `MONTH`         | Inclusive | Exclusive |
+
+The adapter sends the Rest.li query form
+`timeIntervals=(timeRange:(start:...,end:...),timeGranularityType:DAY)` and preserves the response's
+`timeRange` as `interval`, using the requested granularity when the row omits it.
+
+Share statistics cover organic activity in a rolling 12-month window. Time-bound `shareCount`
+excludes instant reposts, and `likeCount` can be negative. Time-bound follower data covers the
+12 months before the request through two days before it and has no demographic facets. Empty
+history outside these windows does not establish zero lifetime activity.
+
+Page statistics preserve nested view and click counts. Existing total-view names such as
+`allPageViews` remain stable; a nested unique count appears as `allPageViews.uniquePageViews`.
+A unique-only field is never labeled as total views. Indexed custom-button counts appear in
+`clicks`, and `rawClicks` retains the provider arrays and their dimensions, also on breakdown rows.
+
+The legacy native `organizationAnalytics({ account, query, context })` returns raw share statistics.
+It accepts `q: "organizationalEntity"`, the configured `organizationalEntity`, and
+`timeIntervals: { timeGranularityType: "DAY" | "MONTH", timeRange: { start, end? } }`.
+Omit `query` for lifetime totals. Unsupported fields, including per-post filters, fail locally;
+they are not silently ignored.
 
 ### Read organization notifications
 
@@ -339,26 +405,43 @@ Member accounts declare `notifications.read` as `account-ineligible` and fail be
 
 ```ts
 const page = await social.notifications.list(account, { limit: 50 });
-for (const item of page.items) console.log(item.action, item.sourcePost);
+for (const item of page.items) console.log(item["action"], item["sourcePost"]);
 ```
 
 The adapter calls `organizationalEntityNotifications` with the criteria finder and all seven action
 types. Each item keeps `notificationId`, `organizationalEntity`, `action`, `sourcePost`,
 `generatedActivity`, and `lastModifiedAt`. The cursor is a Rest.li offset. LinkedIn keeps
 notifications for 60 days and recommends webhooks for ongoing delivery, so treat this read as a
-backfill or recovery path. LinkedIn has no seen state, so `notifications.seen` is
+backfill or recovery path. For push delivery, see [events](/events): obtain portal approval,
+register and validate the webhook, then create the organization's subscription externally with
+`PUT /rest/eventSubscriptions`. This package does not create or renew subscriptions. Authorization
+expiry or loss of administrator eligibility terminates the subscription; signature verification
+alone does not start delivery. LinkedIn has no seen state, so `notifications.seen` is
 `unsupported-by-platform`.
 
 ## Native operations
 
-The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, comment deletion, video and document status checks, and organization analytics. Multi-image, video, and document posts go through `social.posts.publish`. Articles remain approval dependent.
+The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, comment deletion, video and document status checks, and organization analytics. Multi-image, video, and document posts go through `social.posts.publish`. Ordinary article-link posts are a Posts API format, but `articles.create` and `profile.update` are
+`not-implemented-by-adapter`. The adapter rejects `content.link`; article creation is roadmap work.
+Profile editing also has a separate upstream approval requirement. Approval does not add an absent
+SDK method.
 
-`deleteComment({ account, postId, commentId, context })` calls `DELETE /rest/socialActions/{postUrn}/comments/{commentId}`. Pass the `urn:li:share` or `urn:li:ugcPost` URN and the full comment URN returned by comment reads. Organization authors need `w_organization_social`, and the SDK adds the required `actor` query. Member authors need `w_member_social`. LinkedIn does not document which comments an actor may delete.
+`deleteComment({ account, postId, commentId, context })` calls `DELETE /rest/socialActions/{postUrn}/comments/{numericCommentId}`. Pass the `urn:li:share` or `urn:li:ugcPost` URN and the full comment URN returned by comment reads. The HTTP path uses the numeric comment ID extracted from the full URN. Organization authors need `w_organization_social_feed`, and the SDK adds the required `actor` query. Member authors need `w_member_social_feed`. LinkedIn does not document which comments an actor may delete.
 
 ## Limits and requirements
 
-- Member read access is restricted; check the current LinkedIn product approvals and role rules before enabling read operations.
-- Messaging is unsupported.
+- Commentary is limited to 3,000 characters and publication uses public visibility only.
+- Shared `content.text` preserves literal text: `#` and `@` do not create annotations. The adapter
+  escapes LinkedIn little-text syntax. Native `updatePost` accepts raw provider JSON, so callers
+  must supply intentional little-text markup themselves.
+- Post reads return only `id`, `author`, `commentary`, `visibility`, `lifecycleState`, `createdAt`,
+  and `lastModifiedAt`; they do not return content-rich media or link objects.
+- Link posts, post replies, and scheduling are not implemented. Comment replies are supported.
+- Member post reads need the closed `r_member_social` grant, unavailable to new apps. This differs
+  from `w_member_social` publishing and the separate feed permissions.
+- LinkedIn has a restricted partner Messages API, but this adapter implements no send method.
+- Native `videoStatus` reports `duration` in milliseconds. `processingFailureReason` is returned
+  only when the provider supplies it.
 - Current evidence is offline contract tests; no account, app approval, or live post has been verified.
 
 Sources: [Sign In with LinkedIn using OpenID Connect](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2), [Organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [Organization lookup](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api), [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [MultiImage API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api), [Videos API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api), [Documents API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api), [Post API schema](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api), [Organization social action notifications](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications) (API version 202609, accessed 2026-09-24).

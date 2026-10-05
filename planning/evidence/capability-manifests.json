@@ -3821,7 +3821,7 @@
           "requiredScopes": [
             "w_member_social"
           ],
-          "notes": "Explicit author URN and public visibility. Organization role and app product approval required. One registered image, 2 to 20 images, one MP4 video, or one document per post; every asset must be AVAILABLE before creating a post."
+          "notes": "Explicit member author and public visibility. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts."
         },
         {
           "platform": "linkedin",
@@ -3836,7 +3836,7 @@
           "requiredScopes": [
             "r_member_social"
           ],
-          "notes": "Member read access is restricted. Publication permission does not grant read permission."
+          "notes": "Member post reads require the closed r_member_social grant, unavailable to new apps. Publication permission does not grant read permission."
         },
         {
           "platform": "linkedin",
@@ -3892,7 +3892,10 @@
         {
           "platform": "linkedin",
           "operation": "reactions.write",
-          "availability": "available"
+          "availability": "available",
+          "requiredScopes": [
+            "w_member_social_feed"
+          ]
         },
         {
           "platform": "linkedin",
@@ -3919,7 +3922,7 @@
           "operation": "comments.delete",
           "availability": "available",
           "requiredScopes": [
-            "w_member_social"
+            "w_member_social_feed"
           ],
           "notes": "Native deleteComment needs the post URN and the complete commentUrn. LinkedIn does not document which comments an actor may delete; expect only the configured author's own comments to succeed."
         },
@@ -3935,18 +3938,20 @@
         {
           "platform": "linkedin",
           "operation": "articles.create",
-          "availability": "approval-dependent"
+          "availability": "not-implemented-by-adapter",
+          "notes": "Ordinary article-link content is a Posts API format, but this adapter does not implement it and rejects content.link."
         },
         {
           "platform": "linkedin",
           "operation": "profile.update",
-          "availability": "approval-dependent",
+          "availability": "not-implemented-by-adapter",
           "notes": "Member profile writes use the Profile Edit API, which LinkedIn restricts to approved developers. This adapter does not implement it."
         },
         {
           "platform": "linkedin",
           "operation": "messages.write",
-          "availability": "unsupported-by-platform"
+          "availability": "not-implemented-by-adapter",
+          "notes": "LinkedIn has a restricted partner Messages API. This adapter implements no message send method."
         },
         {
           "platform": "linkedin",
@@ -3979,7 +3984,7 @@
           "requiredScopes": [
             "rw_organization_admin"
           ],
-          "notes": "Organization total followers only; authenticated member must administer the organization. No member-profile analytics claimed."
+          "notes": "Total followers for the configured organization from networkSizes with COMPANY_FOLLOWED_BY_MEMBER. The provider documents this count for any organization; SDK author binding still applies. No member-profile analytics claimed."
         },
         {
           "platform": "linkedin",
@@ -4032,29 +4037,31 @@
           "operation": "comments.read",
           "availability": "available",
           "requiredScopes": [
-            "w_member_social",
+            "r_member_social_feed",
             "r_member_social"
           ],
-          "notes": "Community Management product permissions and author post read access required. Analytics contains returned social-action counts only."
+          "notes": "Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only."
         },
         {
           "platform": "linkedin",
           "operation": "comments.write",
           "availability": "available",
           "requiredScopes": [
-            "w_member_social",
-            "r_member_social"
+            "w_member_social_feed",
+            "r_member_social",
+            "r_member_social_feed"
           ],
-          "notes": "Community Management product permissions and author post read access required. Analytics contains returned social-action counts only."
+          "notes": "Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only."
         },
         {
           "platform": "linkedin",
           "operation": "analytics.read",
           "availability": "available",
           "requiredScopes": [
+            "r_member_social_feed",
             "r_member_social"
           ],
-          "notes": "Community Management product permissions and author post read access required. Analytics contains returned social-action counts only."
+          "notes": "Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only."
         }
       ]
     }

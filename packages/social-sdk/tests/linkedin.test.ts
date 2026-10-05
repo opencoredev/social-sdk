@@ -464,6 +464,7 @@ it("LinkedIn normalizes organization follower, page, share, and count statistics
         organization: organization.accountId,
         views: { allPageViews: 7 },
         clicks: {},
+        rawClicks: {},
         breakdowns: [],
       },
     ],
