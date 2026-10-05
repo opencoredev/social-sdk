@@ -189,7 +189,7 @@ it("Adapters declare profile.update according to each platform's documented API"
     ["threads", "unsupported-by-platform"],
     ["instagram", "unsupported-by-platform"],
     ["tiktok", "unsupported-by-platform"],
-    ["linkedin", "approval-dependent"],
+    ["linkedin", "not-implemented-by-adapter"],
   ];
 
   for (const [name, availability] of expected) {
