@@ -5,6 +5,7 @@ import { bluesky } from "../src/platforms/bluesky.js";
 import { SocialError } from "../src/core/errors.js";
 import { object, array } from "../src/transport/validation.js";
 import { parseJson } from "../src/transport/json.js";
+import { definedFields } from "../src/core/fields.js";
 import type { AdapterOperationContext, JsonValue, MediaAttachment } from "../src/core/index.js";
 
 const account = connectedAccountRef({
@@ -326,6 +327,34 @@ test("Bluesky OAuth connectivity requires an authenticated PDS read", async () =
   }
 
   assert.ok(paths.every((path) => path.startsWith("/xrpc/com.atproto.server.checkAccountStatus")));
+});
+
+test("Bluesky OAuth account reads never use an unverified configured handle", async () => {
+  for (const handle of [undefined, "verified.example"]) {
+    const adapter = bluesky({
+      auth: { service: auth.service, did: auth.did, handle: "unverified.example" },
+      session: {
+        did: auth.did,
+        ...definedFields({ handle }),
+        fetchHandler: async (path) => {
+          assert.equal(path, "/xrpc/com.atproto.server.checkAccountStatus");
+
+          return json({ activated: true, validDid: true });
+        },
+      },
+    });
+
+    assert.ok(adapter.accounts);
+
+    const detail = await adapter.accounts.get(account, context);
+    const page = await adapter.accounts.list({}, context);
+
+    for (const result of [detail, ...page.items]) {
+      assert.equal(result.status, "connected");
+      assert.equal(result.handle, handle);
+      assert.equal(result.displayName, handle ?? auth.did);
+    }
+  }
 });
 
 test("Bluesky author feeds preserve validated nested public fields and omit absent fields", async () => {
