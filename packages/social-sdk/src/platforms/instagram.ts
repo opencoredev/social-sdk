@@ -575,8 +575,8 @@ export function instagram(
       try {
         await workflows.update(workflowId, { nativeId, stage: "published", parentId: containerId });
       } catch {
-        // Publication is confirmed. Preserve its reference even if the workflow stays unknown.
-        return outcome;
+        // Publication is confirmed, but callers must repair the workflow before relying on it.
+        return { ...outcome, backendState: "PUBLISHED_WORKFLOW_SAVE_FAILED" };
       }
     }
 

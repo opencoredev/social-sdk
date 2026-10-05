@@ -495,6 +495,7 @@ it("retains published post recovery IDs when final workflow updates reject", asy
             });
 
       assert.equal(published.state, "published");
+      assert.equal(published.backendState, "PUBLISHED_WORKFLOW_SAVE_FAILED");
 
       if (published.state !== "published") assert.fail("expected confirmed publication");
       assert.ok(published.delivery);
@@ -594,7 +595,7 @@ it("preserves confirmed publication through the normalized path when the final s
       if (outcome.state !== "published") assert.fail("confirmed publication must retain its post");
       assert.equal(outcome.post.postId, "confirmed-post");
       assert.equal(outcome.delivery?.deliveryId, "workflow");
-      assert.equal(outcome.backendState, "PUBLISHED");
+      assert.equal(outcome.backendState, "PUBLISHED_WORKFLOW_SAVE_FAILED");
       assert.equal(result.status, "complete");
       assert.ok(outcome.delivery);
       assert.equal(
