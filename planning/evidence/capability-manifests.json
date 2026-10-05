@@ -2232,15 +2232,13 @@
           "operation": "webhooks.verify",
           "platform": "bluesky",
           "availability": "unsupported-by-platform",
-          "notes": "Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose."
+          "notes": "Bluesky has no signed webhook delivery. Read the connected account inbox with notifications.list and markSeen. The firehose and Jetstream are network indexing streams; filtering by the connected DID watches its authored records, not inbound mentions or replies."
         },
         {
           "operation": "accounts.read",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "posts.publish",
@@ -2251,9 +2249,7 @@
             "image",
             "video"
           ],
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "posts.schedule",
@@ -2274,105 +2270,79 @@
           "operation": "graph.read",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "graph.follow",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "graph.unfollow",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "graph.block",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "graph.unblock",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "graph.mute",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "graph.unmute",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "likes.read",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "likes.write",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "lists.read",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "lists.write",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "profiles.search",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "moderation.report",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "posts.list",
@@ -2386,10 +2356,7 @@
         {
           "operation": "comments.read",
           "platform": "bluesky",
-          "availability": "available",
-          "formats": [
-            "text"
-          ]
+          "availability": "available"
         },
         {
           "operation": "analytics.read",
@@ -2412,9 +2379,7 @@
           "formats": [
             "text"
           ],
-          "requiredScopes": [
-            "repo"
-          ]
+          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "posts.publish.video",
@@ -2423,18 +2388,12 @@
           "formats": [
             "video"
           ],
-          "requiredScopes": [
-            "repo"
-          ],
           "notes": "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls."
         },
         {
           "operation": "comments.moderate",
           "platform": "bluesky",
           "availability": "available",
-          "requiredScopes": [
-            "repo"
-          ],
           "notes": "Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies."
         },
         {
@@ -2444,9 +2403,6 @@
           "formats": [
             "video"
           ],
-          "requiredScopes": [
-            "repo"
-          ],
           "notes": "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference."
         },
         {
@@ -2455,9 +2411,6 @@
           "availability": "available",
           "formats": [
             "video"
-          ],
-          "requiredScopes": [
-            "repo"
           ],
           "notes": "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job."
         },
@@ -2488,67 +2441,80 @@
         {
           "operation": "posts.repost",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "posts.quote",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "posts.delete",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "posts.removeFromPlatform",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "notifications.read",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "notifications.seen",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "profile.read",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "profiles.read",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "profile.update",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "feeds.read",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "search.posts",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant."
         },
         {
           "operation": "chat.read",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Native chat calls proxy through did:web:api.bsky.chat#bsky_chat. OAuth needs atproto transition:generic transition:chat.bsky in requested and metadata scopes, or appropriate rpc:chat.bsky... permissions; transition:generic alone excludes chat. Inspect returned grants. Application authorization is required."
         },
         {
           "operation": "chat.write",
           "platform": "bluesky",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Native chat calls proxy through did:web:api.bsky.chat#bsky_chat. OAuth needs atproto transition:generic transition:chat.bsky in requested and metadata scopes, or appropriate rpc:chat.bsky... permissions; transition:generic alone excludes chat. Inspect returned grants. Application authorization is required."
         }
       ]
     }

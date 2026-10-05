@@ -68,6 +68,7 @@ export interface BlueskyOAuthSigningKey {
 }
 
 export interface BlueskyOAuthRequestOptions {
+  /** Address-pinned HTTPS transport required for untrusted discovered hosts. */
   readonly fetch?: typeof globalThis.fetch;
   /** Maximum time for one HTTP request or DNS lookup. Defaults to ten seconds. */
   readonly timeoutMs?: number;
@@ -81,13 +82,10 @@ export interface BlueskyOAuthRequestOptions {
   /** PLC directory used for `did:plc` documents. Defaults to https://plc.directory. */
   readonly plcDirectoryUrl?: string;
   /**
-   * Extra check run before every outgoing request and every redirect hop, after
-   * the built-in checks. The built-in checks allow only HTTPS, reject `localhost`
-   * names, and reject IP-literal hosts in loopback, private, link-local, CGNAT,
-   * multicast, and reserved ranges. They cannot see where a hostname resolves.
-   * Throw to block the request. For DNS-level protection, also pass a `fetch`
-   * that pins resolved addresses, since a lookup here can differ from the one
-   * `fetch` makes.
+   * Required policy hook run before every request and redirect hop. Resolve all
+   * addresses, reject non-public destinations, and use the paired `fetch` to
+   * pin the approved address through connection establishment. The built-in
+   * literal guard remains active. A hook without a pinned transport is unsafe.
    */
   readonly assertEgressAllowed?: (url: URL) => void | Promise<void>;
 }
@@ -119,6 +117,7 @@ export interface BlueskyOAuthSession {
 }
 
 export interface BlueskyOAuthSessionSink {
+  /** Atomic write: rejection must leave no readable session or grant behind. */
   save(input: {
     readonly account: ConnectionAccount;
     readonly session: BlueskyOAuthSession;
@@ -141,8 +140,12 @@ export interface BlueskyOAuthOptions extends BlueskyOAuthClientOptions {
 
 export interface BlueskyOAuthTransport {
   readonly did: string;
+  /** Handle verified when the session was issued, when available. */
+  readonly handle?: string;
   /** Verified PDS origin, suitable for the adapter's `auth.service`. */
   readonly service: string;
+  /** Protocol failures require application intervention before further use. */
+  readonly health: "healthy" | "protocol-error";
   fetchHandler(pathname: string, init?: RequestInit): Promise<Response>;
 }
 
@@ -418,7 +421,12 @@ async function assertEgress(
   if (reason !== undefined)
     fail(operation, `Bluesky OAuth request target is not allowed: ${reason}`, "unauthorized");
 
-  if (hook === undefined) return;
+  if (hook === undefined)
+    fail(
+      operation,
+      "Bluesky OAuth requires assertEgressAllowed and an address-pinned fetch transport",
+      "invalid_config",
+    );
 
   try {
     await hook(new URL(url));
@@ -470,6 +478,13 @@ async function send(
 
     for (let hop = 0; ; hop++) {
       await race(assertEgress(target, operation, options.assertEgressAllowed));
+
+      if (options.fetch === undefined)
+        fail(
+          operation,
+          "Bluesky OAuth requires an address-pinned fetch transport",
+          "invalid_config",
+        );
 
       const response = await race(
         fetcher(target.toString(), { ...init, redirect: "manual", signal: controller.signal }),
@@ -1507,7 +1522,17 @@ export function blueskyOAuth(options: BlueskyOAuthOptions): ConnectionProvider {
           }),
         };
 
-        await options.sessionSink.save({ account, session, attempt: input.attempt });
+        await verifyOrRevoke(
+          () => options.sessionSink!.save({ account, session, attempt: input.attempt }),
+          {
+            endpoint: state.revocationEndpoint,
+            issuer: state.issuer,
+            tokens: issuedTokens(exchanged.json),
+            dpopKey: state.dpopKey,
+            nonce: exchanged.nonce,
+            options,
+          },
+        );
       }
 
       return [account];
@@ -1584,27 +1609,89 @@ function replayable(body: BodyInit | null | undefined): boolean {
   return !(typeof ReadableStream !== "undefined" && body instanceof ReadableStream);
 }
 
+/** Inspect a bounded clone while leaving the original response available. */
+async function resourceNonceChallenge(
+  response: Response,
+  timeoutMs: number,
+  signal: AbortSignal | null | undefined,
+): Promise<boolean> {
+  if (signal?.aborted) return false;
+  const clone = response.clone();
+
+  if (clone.body === null) return false;
+  const reader = clone.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopInspection = () => {};
+
+  const stopped = new Promise<undefined>((resolve) => {
+    stopInspection = () => resolve(undefined);
+    timer = setTimeout(stopInspection, timeoutMs);
+    signal?.addEventListener("abort", stopInspection, { once: true });
+  });
+
+  try {
+    for (;;) {
+      const part = await Promise.race([reader.read(), stopped]);
+
+      if (part === undefined) return false;
+
+      if (part.done) break;
+      size += part.value.byteLength;
+
+      if (size > DEFAULT_MAX_RESPONSE_BYTES) return false;
+      chunks.push(part.value);
+    }
+
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    const value = parseJsonValue(new TextDecoder().decode(bytes));
+
+    return isJsonObject(value) && value["error"] === "use_dpop_nonce";
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", stopInspection);
+    // A tee branch's cancellation can wait for the original consumer. Do not
+    // block returning the original response on that cancellation promise.
+    void reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 /**
- * DPoP transport for the Bluesky adapter's `session` option. Every request gets
- * `Authorization: DPoP <token>` and a fresh proof with `ath`. When the PDS
- * answers 401 with `use_dpop_nonce`, a replayable request is sent once more with
- * the new nonce (RFC 9449 section 9). It never refreshes tokens; call
- * `refreshBlueskyOAuthSession` before `expiresAt`.
- *
- * A PDS response without a `DPoP-Nonce` header is returned rather than rejected:
- * by then the PDS has already processed the request, and turning a completed
- * write into an error would hide its outcome.
+ * DPoP transport with one replay of an explicit 400/401 nonce challenge.
+ * Missing-nonce responses fail closed. The error's non-serialized `cause` is
+ * the original Response for reconciliation; writes are never replayed then.
  */
 export function blueskyOAuthTransport(
   session: BlueskyOAuthSession,
-  options: Pick<BlueskyOAuthRequestOptions, "fetch" | "assertEgressAllowed"> = {},
+  options: Pick<BlueskyOAuthRequestOptions, "fetch" | "assertEgressAllowed" | "timeoutMs"> = {},
 ): BlueskyOAuthTransport {
   const verified = parseBlueskyOAuthSession(session);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)
+    fail("bluesky.oauth.config", "timeoutMs must be a positive safe integer", "invalid_config");
+
   const fetcher = options.fetch ?? globalThis.fetch;
   let nonce: string | undefined;
+  let health: "healthy" | "protocol-error" = "healthy";
 
   return {
+    get health() {
+      return health;
+    },
     did: verified.did,
+    ...definedFields({ handle: verified.handle }),
     service: verified.pdsUrl,
     async fetchHandler(pathname, init = {}) {
       if (!pathname.startsWith("/") || pathname.startsWith("//"))
@@ -1624,6 +1711,20 @@ export function blueskyOAuthTransport(
         );
 
       await assertEgress(url, "bluesky.oauth.transport", options.assertEgressAllowed);
+
+      if (options.fetch === undefined)
+        fail(
+          "bluesky.oauth.transport",
+          "Bluesky OAuth requires an address-pinned fetch transport",
+          "invalid_config",
+        );
+
+      if (health === "protocol-error")
+        fail(
+          "bluesky.oauth.transport",
+          "Bluesky OAuth transport has a nonce protocol failure; reconcile and restore the session",
+          "upstream_failure",
+        );
       const method = (init.method ?? "GET").toUpperCase();
 
       const request = async (proofNonce: string | undefined): Promise<Response> => {
@@ -1640,34 +1741,51 @@ export function blueskyOAuthTransport(
           }),
         );
 
-        return fetcher(url.toString(), { ...init, method, headers });
+        await assertEgress(url, "bluesky.oauth.transport", options.assertEgressAllowed);
+
+        return fetcher(url.toString(), { ...init, method, headers, redirect: "manual" });
+      };
+
+      const requireNonce = (response: Response): Response => {
+        const next = response.headers.get("DPoP-Nonce");
+
+        if (!next) {
+          health = "protocol-error";
+          const mutation = method !== "GET" && method !== "HEAD";
+          throw new SocialError({
+            code: mutation ? "ambiguous_outcome" : "upstream_failure",
+            operation: "bluesky.oauth.transport",
+            message:
+              "Bluesky PDS response is missing a DPoP-Nonce header; inspect the original response before any retry.",
+            upstreamStatus: response.status,
+            retryDisposition: mutation ? { kind: "reconcile-first" } : { kind: "never" },
+            details: { sessionHealth: "protocol-error", responseAvailableInCause: true },
+            cause: response,
+          });
+        }
+
+        nonce = next;
+
+        return response;
       };
 
       const sent = nonce;
-      const response = await request(sent);
-      const next = response.headers.get("DPoP-Nonce") ?? undefined;
-
-      if (next !== undefined) nonce = next;
-
+      const response = requireNonce(await request(sent));
+      const next = nonce;
       const challenge = response.headers.get("WWW-Authenticate") ?? "";
 
-      if (
-        response.status !== 401 ||
-        next === undefined ||
-        next === sent ||
-        !challenge.startsWith("DPoP") ||
-        !challenge.includes('error="use_dpop_nonce"') ||
-        !replayable(init.body)
-      )
-        return response;
+      let nonceChallenge =
+        response.status === 401 &&
+        /^DPoP\b/i.test(challenge) &&
+        challenge.includes('error="use_dpop_nonce"');
 
+      if (response.status === 400 && next !== sent && replayable(init.body))
+        nonceChallenge = await resourceNonceChallenge(response, timeoutMs, init.signal);
+
+      if (!nonceChallenge || next === sent || !replayable(init.body)) return response;
       await response.body?.cancel();
-      const retried = await request(next);
-      const latest = retried.headers.get("DPoP-Nonce");
 
-      if (latest !== null) nonce = latest;
-
-      return retried;
+      return requireNonce(await request(next));
     },
   };
 }
@@ -1742,6 +1860,28 @@ export async function refreshBlueskyOAuthSession(
 
 // Client metadata ---------------------------------------------------------------------
 
+// URL parsing ignores ASCII whitespace and treats backslashes as separators.
+// Reject those spellings before comparing the original authority to URL's host.
+// Hostname case is harmless; default ports and other authority normalization are not.
+function checkUrlIdentity(value: string, url: URL, field: string): void {
+  const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1];
+
+  const hasIgnoredCharacters = [...value].some(
+    (character) =>
+      character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127 || character === "\\",
+  );
+
+  if (
+    hasIgnoredCharacters ||
+    (url.protocol === "https:" && authority?.toLowerCase() !== url.host.toLowerCase())
+  )
+    fail(
+      "bluesky.oauth.metadata",
+      `${field} must use an unambiguous URL spelling without an explicit default port`,
+      "invalid_config",
+    );
+}
+
 function metadataUrl(value: string, field: string): URL {
   let url: URL;
 
@@ -1753,6 +1893,8 @@ function metadataUrl(value: string, field: string): URL {
 
   if (url.protocol !== "https:" || url.username || url.password || url.hash)
     fail("bluesky.oauth.metadata", `${field} must be an HTTPS URL`, "invalid_config");
+
+  checkUrlIdentity(value, url, field);
 
   return url;
 }
@@ -1773,6 +1915,8 @@ function checkRedirect(value: string, clientId: URL, applicationType: "web" | "n
       "redirect_uris entries must not contain credentials or fragments",
       "invalid_config",
     );
+
+  checkUrlIdentity(value, url, "redirect_uris entries");
 
   if (url.protocol === "https:") {
     if (applicationType === "native" && url.origin !== clientId.origin)

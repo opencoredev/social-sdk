@@ -291,7 +291,7 @@ describe("Bluesky adapter", () => {
               kind: "image",
               source: {
                 kind: "blob",
-                blob: new Blob([new Uint8Array([1, 2])]),
+                blob: new Blob([new Uint8Array([1, 2])], { type: "image/png" }),
                 fingerprint: "img",
               },
             },
@@ -350,14 +350,14 @@ describe("Bluesky adapter", () => {
   });
 });
 
-it("OAuth account discovery uses the verified session audience and profile DID", async () => {
+it("OAuth account discovery checks authenticated account status through the session audience", async () => {
   const session = {
     did: "did:plc:oauth",
     async fetchHandler(pathname: string) {
       assert.equal(this.did, "did:plc:oauth");
-      assert.equal(pathname, "/xrpc/app.bsky.actor.getProfile?actor=did%3Aplc%3Aoauth");
+      assert.equal(pathname, "/xrpc/com.atproto.server.checkAccountStatus");
 
-      return Response.json({ did: this.did, handle: "oauth.example" });
+      return Response.json({ activated: true, validDid: true });
     },
   };
 
@@ -376,7 +376,7 @@ it("OAuth account discovery uses the verified session audience and profile DID",
   );
 
   assert.equal(page.items[0]?.ref.accountId, session.did);
-  assert.equal(page.items[0]?.handle, "oauth.example");
+  assert.equal(page.items[0]?.status, "connected");
 });
 
 it("Bluesky reactions validate owned like URIs and never replay ambiguous writes", async () => {

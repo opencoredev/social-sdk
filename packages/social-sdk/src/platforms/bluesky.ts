@@ -38,9 +38,8 @@ import {
   string,
   type JsonField,
 } from "../transport/validation.js";
-import { publicFields } from "../cloud/common.js";
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 2_000_000;
 
 const MAX_IMAGES = 4;
 
@@ -69,6 +68,7 @@ export interface BlueskyOptions {
   /** Restored @atproto OAuthSession transport. Its DPoP-aware fetchHandler is used directly. */
   readonly session?: {
     readonly did: string;
+    readonly handle?: string;
     readonly fetchHandler: (pathname: string, init?: RequestInit) => Promise<Response>;
   };
   /** HTTPS origin of the Bluesky video service. Defaults to https://video.bsky.app. */
@@ -602,7 +602,15 @@ function linkFacets(text: string): RichTextFacet[] {
   const urlPattern = /https?:\/\/[^\s<>]+/g;
 
   for (const match of text.matchAll(urlPattern)) {
-    const value = match[0]?.replace(/[.,;:!?)]*$/u, "");
+    let value = match[0]?.replace(/[.,;:!?]*$/u, "");
+
+    if (value !== undefined) {
+      while (
+        value.endsWith(")") &&
+        (value.match(/\)/g)?.length ?? 0) > (value.match(/\(/g)?.length ?? 0)
+      )
+        value = value.slice(0, -1).replace(/[.,;:!?]*$/u, "");
+    }
 
     const start = match.index;
 
@@ -622,8 +630,8 @@ function linkFacets(text: string): RichTextFacet[] {
   return facets;
 }
 
-function invalidRichText(message: string): never {
-  throw new SocialError({ code: "invalid_input", operation: "bluesky.prepare", message });
+function invalidRichText(message: string, operation = "bluesky.prepare"): never {
+  throw new SocialError({ code: "invalid_input", operation, message });
 }
 
 /** Caller-supplied publish options arrive untyped; this only admits non-array objects. */
@@ -734,10 +742,209 @@ function richTextOptions(text: string, target: PreparedPublishTarget): JsonObjec
   return definedFields({ langs, facets: facets.length ? facets : undefined });
 }
 
+interface PublicProjection {
+  readonly variants?: Readonly<Record<string, PublicProjection>>;
+  readonly strings?: readonly string[];
+  readonly numbers?: readonly string[];
+  readonly booleans?: readonly string[];
+  readonly objects?: Readonly<Record<string, PublicProjection>>;
+  readonly arrays?: Readonly<Record<string, PublicProjection>>;
+}
+
+function projectPublic(value: JsonField, projection: PublicProjection): JsonObject {
+  const source = object(value);
+
+  if (projection.variants !== undefined) {
+    const type = optionalString(source["$type"]);
+    const variant = type === undefined ? undefined : projection.variants[type];
+
+    return projectPublic(source, variant ?? { strings: ["$type"] });
+  }
+
+  const result: Record<string, JsonValue> = {};
+
+  for (const field of projection.strings ?? []) {
+    const item = optionalString(source[field]);
+
+    if (item !== undefined) result[field] = item;
+  }
+
+  for (const field of projection.numbers ?? []) {
+    const item = optionalNumber(source[field]);
+
+    if (item !== undefined) result[field] = item;
+  }
+
+  for (const field of projection.booleans ?? []) {
+    const item = source[field];
+
+    if (item !== undefined) {
+      if (!isBoolean(item))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "bluesky.posts.list",
+          message: "Bluesky returned an invalid public boolean field.",
+        });
+      result[field] = item;
+    }
+  }
+
+  for (const [field, nested] of Object.entries(projection.objects ?? {}))
+    if (source[field] !== undefined) result[field] = projectPublic(source[field], nested);
+
+  for (const [field, nested] of Object.entries(projection.arrays ?? {}))
+    if (source[field] !== undefined)
+      result[field] = array(source[field]).map((item) => projectPublic(item, nested));
+
+  return result;
+}
+
+const publicAuthor: PublicProjection = { strings: ["did", "handle", "displayName", "avatar"] };
+
+const publicStrongRef: PublicProjection = { strings: ["uri", "cid"] };
+
+const publicBlob: PublicProjection = {
+  strings: ["$type", "mimeType"],
+  numbers: ["size"],
+  objects: { ref: { strings: ["$link"] } },
+};
+
+const publicAspectRatio: PublicProjection = { numbers: ["width", "height"] };
+
+const publicMediaRecord: PublicProjection = {
+  variants: {
+    "app.bsky.embed.images": {
+      strings: ["$type"],
+      arrays: {
+        images: {
+          strings: ["alt"],
+          objects: { image: publicBlob, aspectRatio: publicAspectRatio },
+        },
+      },
+    },
+    "app.bsky.embed.video": {
+      strings: ["$type", "alt"],
+      objects: { video: publicBlob, aspectRatio: publicAspectRatio },
+    },
+    "app.bsky.embed.external": {
+      strings: ["$type"],
+      objects: {
+        external: { strings: ["uri", "title", "description"], objects: { thumb: publicBlob } },
+      },
+    },
+  },
+};
+
+const publicRecordEmbed: PublicProjection = {
+  strings: ["$type"],
+  objects: { record: publicStrongRef },
+};
+
+const publicEmbed: PublicProjection = {
+  variants: {
+    ...publicMediaRecord.variants,
+    "app.bsky.embed.record": publicRecordEmbed,
+    "app.bsky.embed.recordWithMedia": {
+      strings: ["$type"],
+      objects: { record: publicRecordEmbed, media: publicMediaRecord },
+    },
+  },
+};
+
+const publicMediaView: PublicProjection = {
+  variants: {
+    "app.bsky.embed.images#view": {
+      strings: ["$type"],
+      arrays: {
+        images: {
+          strings: ["alt", "thumb", "fullsize"],
+          objects: { aspectRatio: publicAspectRatio },
+        },
+      },
+    },
+    "app.bsky.embed.video#view": {
+      strings: ["$type", "cid", "playlist", "thumbnail", "alt"],
+      objects: { aspectRatio: publicAspectRatio },
+    },
+    "app.bsky.embed.external#view": {
+      strings: ["$type"],
+      objects: { external: { strings: ["uri", "title", "description", "thumb"] } },
+    },
+  },
+};
+
+const publicPostRecord: PublicProjection = {
+  strings: ["$type", "text", "createdAt"],
+  objects: {
+    reply: { objects: { root: publicStrongRef, parent: publicStrongRef } },
+    embed: publicEmbed,
+  },
+  arrays: {
+    facets: {
+      objects: { index: { numbers: ["byteStart", "byteEnd"] } },
+      arrays: { features: { strings: ["$type", "uri", "did", "tag"] } },
+    },
+  },
+};
+
+const publicRecordView: PublicProjection = {
+  strings: ["$type"],
+  objects: {
+    record: {
+      strings: ["$type", "uri", "cid", "indexedAt"],
+      objects: { author: publicAuthor, value: publicPostRecord },
+      arrays: {
+        get embeds() {
+          return publicEmbedView;
+        },
+      },
+    },
+  },
+};
+
+const publicEmbedView: PublicProjection = {
+  variants: {
+    ...publicMediaView.variants,
+    "app.bsky.embed.record#view": publicRecordView,
+    "app.bsky.embed.recordWithMedia#view": {
+      strings: ["$type"],
+      objects: { record: publicRecordView, media: publicMediaView },
+    },
+  },
+};
+
+const publicFeedPost: PublicProjection = {
+  strings: ["uri", "cid", "indexedAt"],
+  numbers: ["likeCount", "repostCount", "replyCount", "quoteCount"],
+  objects: { author: publicAuthor, record: publicPostRecord, embed: publicEmbedView },
+  arrays: {
+    labels: {
+      strings: ["src", "uri", "cid", "val", "cts", "exp"],
+      booleans: ["neg"],
+      numbers: ["ver"],
+    },
+  },
+};
+
 function graphemeCount(text: string): number {
   return Intl.Segmenter === undefined
     ? Array.from(text).length
     : [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].length;
+}
+
+function validatePostText(text: string, operation = "bluesky.prepare"): void {
+  if (new TextEncoder().encode(text).byteLength > 3000 || graphemeCount(text) > 300)
+    invalidRichText(
+      "Bluesky posts must be at most 300 graphemes and 3,000 UTF-8 bytes.",
+      operation,
+    );
+}
+
+function imageMimeType(value: string | undefined): string {
+  if (value === undefined || !/^image\/[a-z0-9!#$&^_.+-]+$/i.test(value))
+    invalidRichText("Bluesky images require a declared image/* MIME type.");
+
+  return value.toLowerCase();
 }
 
 async function readMedia(
@@ -745,6 +952,7 @@ async function readMedia(
   fetcher: typeof globalThis.fetch,
   context: AdapterOperationContext,
   allowMediaHost: (hostname: string) => boolean,
+  declaredMimeType: string | undefined,
 ): Promise<{ readonly bytes: Uint8Array; readonly mimeType: string }> {
   const duration = remainingBudget(context);
 
@@ -765,19 +973,19 @@ async function readMedia(
         throw new SocialError({
           code: "media_error",
           operation: "bluesky.uploadBlob",
-          message: "Image exceeds the 10 MiB limit.",
+          message: "Image exceeds the 2,000,000-byte limit.",
         });
 
       return {
         bytes: await readBinary(source.blob.stream(), MAX_IMAGE_BYTES, controller.signal),
-        mimeType: source.blob.type || "application/octet-stream",
+        mimeType: imageMimeType(declaredMimeType ?? (source.blob.type || undefined)),
       };
     }
 
     if (source.kind === "stream")
       return {
         bytes: await readBinary(source.open(), MAX_IMAGE_BYTES, controller.signal),
-        mimeType: "application/octet-stream",
+        mimeType: imageMimeType(declaredMimeType),
       };
 
     if (source.kind === "https-url") {
@@ -816,7 +1024,9 @@ async function readMedia(
 
       return {
         bytes: await readBinary(response.body, MAX_IMAGE_BYTES, controller.signal),
-        mimeType: response.headers.get("content-type")?.split(";")[0] || "application/octet-stream",
+        mimeType: imageMimeType(
+          declaredMimeType ?? response.headers.get("content-type")?.split(";")[0]?.trim(),
+        ),
       };
     }
 
@@ -848,18 +1058,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
   const allowMediaHost = options.allowMediaHost ?? (() => false);
 
-  const http = createHttp({
-    fetch: options.session
-      ? (input, init) => {
-          const url = new URL(input instanceof Request ? input.url : String(input));
-
-          // OAuthSession resolves a relative XRPC path against its verified token
-          // audience. Never override that audience with caller-provided service URLs.
-          return options.session!.fetchHandler(url.pathname + url.search, init);
-        }
-      : fetcher,
-    ...definedFields({ timeoutMs: options.timeoutMs }),
-  });
+  const http = createHttp({ fetch: fetcher, ...definedFields({ timeoutMs: options.timeoutMs }) });
 
   const auth = options.auth;
 
@@ -900,20 +1099,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         platform: "bluesky",
         availability: "unsupported-by-platform",
         notes:
-          "Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose.",
+          "Bluesky has no signed webhook delivery. Read the connected account inbox with notifications.list and markSeen. The firehose and Jetstream are network indexing streams; filtering by the connected DID watches its authored records, not inbound mentions or replies.",
       },
       {
         operation: "accounts.read",
         platform: "bluesky",
         availability: "available",
-        requiredScopes: ["repo"],
+        notes:
+          "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant.",
       },
       {
         operation: "posts.publish",
         platform: "bluesky",
         availability: "available",
         formats: ["text", "image", "video"],
-        requiredScopes: ["repo"],
+        notes:
+          "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant.",
       },
       {
         operation: "posts.schedule",
@@ -946,7 +1147,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         operation,
         platform: "bluesky" as const,
         availability: "available" as const,
-        requiredScopes: ["repo"],
+        notes:
+          "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant.",
       })),
       {
         operation: "posts.list",
@@ -958,7 +1160,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         operation: "comments.read",
         platform: "bluesky",
         availability: "available",
-        formats: ["text"],
       },
       {
         operation: "analytics.read",
@@ -972,14 +1173,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         platform: "bluesky",
         availability: "available",
         formats: ["text"],
-        requiredScopes: ["repo"],
+        notes:
+          "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant.",
       },
       {
         operation: "posts.publish.video",
         platform: "bluesky",
         availability: "available",
         formats: ["video"],
-        requiredScopes: ["repo"],
         notes:
           "One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls.",
       },
@@ -987,7 +1188,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         operation: "comments.moderate",
         platform: "bluesky",
         availability: "available",
-        requiredScopes: ["repo"],
         notes:
           "Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies.",
       },
@@ -996,7 +1196,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         platform: "bluesky",
         availability: "available",
         formats: ["video"],
-        requiredScopes: ["repo"],
         notes:
           "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference.",
       },
@@ -1005,7 +1204,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         platform: "bluesky",
         availability: "available",
         formats: ["video"],
-        requiredScopes: ["repo"],
         notes:
           "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job.",
       },
@@ -1049,9 +1247,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       ].map((operation) => ({
         operation,
         platform: "bluesky" as const,
-        availability: operation.startsWith("chat.")
-          ? ("available" as const)
-          : ("available" as const),
+        availability: "available" as const,
+        notes: operation.startsWith("chat.")
+          ? "Native chat calls proxy through did:web:api.bsky.chat#bsky_chat. OAuth needs atproto transition:generic transition:chat.bsky in requested and metadata scopes, or appropriate rpc:chat.bsky... permissions; transition:generic alone excludes chat. Inspect returned grants. Application authorization is required."
+          : "App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant.",
       })),
     ],
   };
@@ -1065,6 +1264,38 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       readonly maxAttempts?: number;
     } = {},
   ): Promise<JsonValue> {
+    // Keep a transport protocol error local to this request so concurrent calls
+    // cannot overwrite its original response evidence.
+    let sessionError: SocialError | undefined;
+    const session = options.session;
+
+    const requestHttp =
+      session === undefined
+        ? http
+        : createHttp({
+            ...definedFields({ timeoutMs: options.timeoutMs }),
+            fetch: async (input, init) => {
+              const url = new URL(input instanceof Request ? input.url : String(input));
+
+              try {
+                return await session.fetchHandler(url.pathname + url.search, init);
+              } catch (error) {
+                if (error instanceof SocialError) {
+                  sessionError = error;
+                  // The HTTP wrapper must not interpret a protocol rejection as a
+                  // retryable network error or discard its response evidence.
+                  throw new HttpError(
+                    "Bluesky session transport rejected the request.",
+                    "invalid-response",
+                    false,
+                  );
+                }
+
+                throw error;
+              }
+            },
+          });
+
     try {
       const headers = new Headers(init.headers);
 
@@ -1074,7 +1305,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       if (method.startsWith("chat.bsky.") && !headers.has("atproto-proxy"))
         headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
 
-      return await http({
+      return await requestHttp({
         url: endpoint(service, method),
         timeoutMs: remainingBudget(context),
         method: init.body === undefined ? "GET" : "POST",
@@ -1087,6 +1318,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           (init.body === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1),
       });
     } catch (error) {
+      if (sessionError !== undefined) throw sessionError;
       throw operationError(`bluesky.${method}`, error, init.body !== undefined);
     }
   }
@@ -1094,24 +1326,35 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   async function verifiedSession(
     context: AdapterOperationContext,
   ): Promise<{ readonly did: string; readonly handle?: string }> {
-    const session = object(
-      await xrpc(
-        options.session
-          ? `app.bsky.actor.getProfile?actor=${encodeURIComponent(auth.did)}`
-          : "com.atproto.server.getSession",
-        context,
-      ),
-    );
+    if (options.session !== undefined) {
+      const status = object(await xrpc("com.atproto.server.checkAccountStatus", context));
 
+      if (!isBoolean(status["activated"]) || !isBoolean(status["validDid"]))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "bluesky.accounts.get",
+          message: "Bluesky returned an invalid authenticated account status.",
+        });
+
+      if (!status["activated"] || !status["validDid"])
+        throw new SocialError({
+          code: "ineligible_account",
+          operation: "bluesky.accounts.get",
+          message: "Bluesky account is inactive or its DID is not valid for this PDS.",
+        });
+
+      return { did: auth.did, ...definedFields({ handle: options.session.handle ?? auth.handle }) };
+    }
+
+    const session = object(await xrpc("com.atproto.server.getSession", context));
     const did = string(session["did"]);
 
-    if (did !== auth.did) {
+    if (did !== auth.did)
       throw new SocialError({
         code: "unauthorized",
         operation: "bluesky.accounts.get",
         message: "The configured credential belongs to a different DID.",
       });
-    }
 
     return { did, ...definedFields({ handle: optionalString(session["handle"]) }) };
   }
@@ -1251,7 +1494,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   const nativeContext = (context: AdapterOperationContext | undefined, operation: string) =>
     context ?? {
       correlationId: operation,
-      retryBudget: { maxAttempts: 2, maxElapsedMs: 30_000 },
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
       backendInstance: backend,
     };
 
@@ -1308,7 +1551,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getPost(input) {
       const context = input.context ?? {
         correlationId: "bluesky-native",
-        retryBudget: { maxAttempts: 2, maxElapsedMs: 30_000 },
+        retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
         backendInstance: backend,
       };
 
@@ -1332,7 +1575,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async getPostThread(input) {
       const context = input.context ?? {
         correlationId: "bluesky-native",
-        retryBudget: { maxAttempts: 2, maxElapsedMs: 30_000 },
+        retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
         backendInstance: backend,
       };
 
@@ -1544,12 +1787,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.quote");
       assertNativeAccount(input.account, context, "bluesky.quote");
 
-      if (!input.text.trim() || graphemeCount(input.text) > 300)
-        throw new SocialError({
-          code: "invalid_input",
-          operation: "bluesky.quote",
-          message: "Quote text must be 1-300 characters.",
-        });
+      validatePostText(input.text, "bluesky.quote");
+      const facets = linkFacets(input.text);
 
       const result = object(
         await xrpc("com.atproto.repo.createRecord", context, {
@@ -1559,6 +1798,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             record: {
               $type: "app.bsky.feed.post",
               text: input.text,
+              ...definedFields({
+                facets: facets.length ? facets : undefined,
+              }),
               createdAt: new Date().toISOString(),
               embed: { $type: "app.bsky.embed.record", record: input.post },
             },
@@ -1922,12 +2164,18 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const record = object(existing["value"]);
 
-      const next = {
-        ...record,
-        name: input.name,
-        purpose: input.purpose,
-        ...definedFields({ description: input.description }),
-      };
+      const next = { ...record };
+
+      next["name"] = input.name;
+      next["purpose"] = input.purpose;
+
+      // Omission preserves the description; an empty string explicitly clears it.
+      if (input.description !== undefined && input.description !== record["description"]) {
+        delete next["descriptionFacets"];
+
+        if (input.description === "") delete next["description"];
+        else next["description"] = input.description;
+      }
 
       await xrpc("com.atproto.repo.putRecord", context, {
         body: JSON.stringify({
@@ -1935,6 +2183,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           collection: "app.bsky.graph.list",
           rkey: recordKey(input.listUri, "app.bsky.graph.list"),
           record: next,
+          swapRecord: string(existing["cid"]),
         }),
       });
     },
@@ -2659,47 +2908,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
           const post = object(entry["post"]);
 
-          const safePost = {
-            ...publicFields(post, [
-              "uri",
-              "cid",
-              "likeCount",
-              "repostCount",
-              "replyCount",
-              "quoteCount",
-              "indexedAt",
-              "labels",
-            ]),
-            ...definedFields({
-              author:
-                post["author"] === undefined
-                  ? undefined
-                  : publicFields(object(post["author"]), [
-                      "did",
-                      "handle",
-                      "displayName",
-                      "avatar",
-                    ]),
-              record:
-                post["record"] === undefined
-                  ? undefined
-                  : publicFields(object(post["record"]), [
-                      "text",
-                      "facets",
-                      "createdAt",
-                      "reply",
-                      "embed",
-                    ]),
-            }),
-          };
-
           return {
-            post: safePost,
+            post: projectPublic(post, publicFeedPost),
             ...definedFields({
               reason:
                 entry["reason"] === undefined
                   ? undefined
-                  : publicFields(object(entry["reason"]), ["$type", "by", "indexedAt"]),
+                  : projectPublic(entry["reason"], {
+                      strings: ["$type", "indexedAt"],
+                      objects: { by: publicAuthor },
+                    }),
             }),
           };
         });
@@ -2713,6 +2931,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         const issues = [];
 
         const text = target.content.text ?? "";
+
+        if (target.content.link !== undefined)
+          issues.push({
+            code: "link.unsupported",
+            message: "Bluesky external link cards are not supported. Put the URL in text instead.",
+            severity: "error" as const,
+          });
 
         try {
           richTextOptions(text, target);
@@ -2763,6 +2988,44 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             severity: "error" as const,
           });
 
+        for (const image of media.filter((item) => item.kind === "image")) {
+          try {
+            const mimeType =
+              image.mimeType ??
+              (image.source.kind === "blob" ? image.source.blob.type || undefined : undefined);
+
+            if (mimeType !== undefined || image.source.kind !== "https-url")
+              imageMimeType(mimeType);
+          } catch (error) {
+            issues.push({
+              code: "media.mime_type",
+              message: error instanceof Error ? error.message : "Invalid image MIME type.",
+              severity: "error" as const,
+            });
+          }
+
+          if (image.source.kind === "blob" && image.source.blob.size > MAX_IMAGE_BYTES)
+            issues.push({
+              code: "media.too_large",
+              message: "Image exceeds the 2,000,000-byte limit.",
+              severity: "error" as const,
+            });
+        }
+
+        for (const item of media) {
+          if (
+            (item.width === undefined) !== (item.height === undefined) ||
+            [item.width, item.height].some(
+              (value) => value !== undefined && (!Number.isSafeInteger(value) || value < 1),
+            )
+          )
+            issues.push({
+              code: "media.aspect_ratio",
+              message: "Media width and height must be supplied together as positive integers.",
+              severity: "error" as const,
+            });
+        }
+
         for (const video of videos) {
           const ref = video.source.kind === "media-ref" ? video.source.ref : undefined;
 
@@ -2782,18 +3045,6 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             issues.push({
               code: "media.video_owner",
               message: "Video reference belongs to another account or backend, or is malformed.",
-              severity: "error" as const,
-            });
-
-          if (
-            (video.width === undefined) !== (video.height === undefined) ||
-            [video.width, video.height].some(
-              (value) => value !== undefined && (!Number.isSafeInteger(value) || value < 1),
-            )
-          )
-            issues.push({
-              code: "media.aspect_ratio",
-              message: "Video width and height must be supplied together as positive integers.",
               severity: "error" as const,
             });
         }
@@ -2820,6 +3071,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           const content = target.content;
 
           const text = content.text ?? "";
+          validatePostText(text);
+          const issues = adapter.posts?.prepareTarget?.(target) ?? [];
+
+          if (issues.some((issue) => issue.severity === "error"))
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "bluesky.publish",
+              message: "Bluesky content failed validation.",
+              issues,
+            });
 
           const createdAt = new Date().toISOString();
 
@@ -2921,7 +3182,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             const blobs: JsonObject[] = [];
 
             for (const media of content.media) {
-              const source = await readMedia(media.source, fetcher, context, allowMediaHost);
+              const source = await readMedia(
+                media.source,
+                fetcher,
+                context,
+                allowMediaHost,
+                media.mimeType,
+              );
 
               const blob = object(
                 await xrpc("com.atproto.repo.uploadBlob", context, {
@@ -2940,6 +3207,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               images: blobs.map((blob, index) => ({
                 image: blob,
                 alt: content.media?.[index]?.altText ?? "",
+                ...definedFields({
+                  aspectRatio:
+                    content.media?.[index]?.width === undefined
+                      ? undefined
+                      : {
+                          width: content.media[index]!.width!,
+                          height: content.media[index]!.height!,
+                        },
+                }),
               })),
             };
           }

@@ -72,12 +72,12 @@ test("Bluesky rejects oversized Blob before reading it and bounds uncooperative 
     }),
   });
 
-  const first = await social.posts.publish({
-    targets: [{ account }],
-    content: { media: [{ kind: "image", source: { kind: "blob", blob, fingerprint: "large" } }] },
-  });
-
-  assert.notEqual(first.outcomes[0]?.state, "published");
+  await assert.rejects(
+    social.posts.publish({
+      targets: [{ account }],
+      content: { media: [{ kind: "image", source: { kind: "blob", blob, fingerprint: "large" } }] },
+    }),
+  );
   assert.equal(reads, 0);
   const started = performance.now();
 

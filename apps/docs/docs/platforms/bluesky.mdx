@@ -34,17 +34,39 @@ The direct Bluesky adapter accepts an access JWT or a DPoP-bound OAuth session, 
   </Step>
 </Steps>
 
-```ts
-import { ConnectionManager, blueskyOAuth } from "@opencoredev/social-sdk/server";
+The following server-side example uses an explicit in-memory connection store for one
+process. Use a durable `ConnectionStore` in production. `encryptedSessions`, `pinnedFetch`,
+and `assertPublicEgress` below are application services, not SDK exports. The egress policy
+must resolve every destination, reject private/reserved addresses, and pin the approved
+address in the transport. OAuth fails closed when either the policy hook or transport is
+missing. Apply the same pair to connection, refresh, and resource requests.
 
+```ts
+import {
+  ConnectionManager,
+  MemoryConnectionStore,
+  blueskyOAuth,
+  blueskyOAuthClientMetadata,
+} from "@opencoredev/social-sdk/server";
+import { encryptedSessions, pinnedFetch, assertPublicEgress } from "./application-services.js";
+
+const clientId = "https://app.example.com/oauth/client-metadata.json";
+const redirectUri = "https://app.example.com/oauth/bluesky/callback";
+const scope = "atproto repo:app.bsky.feed.post?action=create blob:image/*";
+const secureRequests = { fetch: pinnedFetch, assertEgressAllowed: assertPublicEgress };
+const metadata = blueskyOAuthClientMetadata({ clientId, redirectUris: [redirectUri], scope });
+// Serve metadata at clientId. This example is a public client.
+const store = new MemoryConnectionStore();
+const manager = new ConnectionManager({ store });
 const provider = blueskyOAuth({
-  clientId: "https://app.example.com/oauth/client-metadata.json",
-  clientKey: { kid: "key-1", privateJwk: signingKey }, // omit for a public client
-  redirectUri: "https://app.example.com/oauth/bluesky/callback",
-  scope: "atproto transition:generic",
+  clientId,
+  redirectUri,
+  scope,
+  ...secureRequests,
   sessionSink: {
     async save({ account, session, attempt }) {
-      // Encrypt and store the session for attempt.tenantId and account.ref.accountId.
+      // This write must be atomic: rejection leaves no readable session behind.
+      await encryptedSessions.save(attempt.tenantId, account.ref.accountId, session);
     },
   },
 });
@@ -54,40 +76,82 @@ const started = await manager.begin({
   tenantId,
   principalId,
   platforms: ["bluesky"],
-  redirectUri: "https://app.example.com/oauth/bluesky/callback",
-  allowedRedirectUris: ["https://app.example.com/oauth/bluesky/callback"],
+  redirectUri,
+  allowedRedirectUris: [redirectUri],
   provider,
   loginHint: "alice.bsky.social",
 });
+// Save started.attempt.id in the authenticated browser session, then redirect
+// the browser to started.authorizationUrl.
 ```
 
-Then build the adapter from the stored session:
+In the callback handler, recover the attempt ID from the authenticated application
+session. Keep the same tenant and principal and validate the callback before selecting
+an account. The provider saves the verified OAuth session during discovery.
 
 ```ts
-import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+const callback = new URL(callbackUrl);
+const discovered = await manager.discover({
+  attemptId,
+  tenantId,
+  principalId,
+  callbackUrl,
+  returnedState: callback.searchParams.get("state") ?? "",
+  allowedRedirectUris: [redirectUri],
+  provider,
+});
+const selected = discovered[0];
+if (!selected) throw new Error("No Bluesky account was discovered");
+const grants = await manager.select({
+  attemptId,
+  tenantId,
+  principalId,
+  selectedAccountIds: [selected.ref.accountId],
+});
+const grant = grants[0];
+if (!grant) throw new Error("No connection grant was saved");
+const account = grant.account;
+```
+
+Reuse that saved account reference when constructing the client. `encryptedSessions.load`
+returns decoded JSON (`JsonValue`) for the session parser. Load credentials only
+after checking the tenant's grant. Inspect `session.scopes`: servers can return a partial
+grant, so a successful sign-in does not prove every requested operation was authorized.
+
+```ts
+import { createSocial } from "@opencoredev/social-sdk";
 import { bluesky } from "@opencoredev/social-sdk/bluesky";
 import { blueskyOAuthTransport, parseBlueskyOAuthSession } from "@opencoredev/social-sdk/server";
 
-const session = parseBlueskyOAuthSession(await loadDecryptedSession(accountId));
-const transport = blueskyOAuthTransport(session);
-
-const social = createSocial({
-  backend: bluesky({
-    auth: { service: transport.service, did: transport.did },
-    session: transport,
-  }),
+const session = parseBlueskyOAuthSession(await encryptedSessions.load(tenantId, account.accountId));
+const transport = blueskyOAuthTransport(session, secureRequests);
+const adapter = bluesky({
+  backend: "direct",
+  auth: { service: transport.service, did: transport.did },
+  session: transport,
 });
-
-const account = connectedAccountRef({
-  backend: "default",
-  platform: "bluesky",
-  accountId: session.did,
-});
+const social = createSocial({ backends: { direct: adapter } });
 ```
 
-The transport sends each request to the session's PDS with `Authorization: DPoP` and a fresh proof bound to the access token. When the PDS asks for a new DPoP nonce, it sends the request once more with that nonce. It does not refresh tokens. Call `refreshBlueskyOAuthSession(session, { clientId, clientKey })` before `expiresAt`. Refresh re-resolves the account's DID and fails if its PDS now names a different authorization server. Refresh tokens rotate, so save the result with a compare-and-set write. A reused or expired refresh token returns `reconnect_required`.
+The transport sends a fresh access-token-bound DPoP proof to the session's PDS. It
+replays an explicit 400/401 nonce challenge at most once when the body is replayable.
+It does not refresh tokens. Call `refreshBlueskyOAuthSession(session, { clientId,
+...secureRequests })` before `expiresAt`; confidential clients also supply `clientKey`.
+Refresh re-resolves the DID and rejects a changed authorization server. Store rotating
+refresh tokens with compare-and-set. Reused or expired refresh tokens require reconnecting.
 
-An access JWT from an app password still works:
+`transition:generic` is a broad transitional grant, not a repository permission named
+`repo`. It explicitly excludes `chat.bsky`. Prefer granular repository, blob, and RPC
+permissions or a provider-supported permission set (`include:<permission-set-nsid>`)
+from the [permission specification](https://atproto.com/specs/permission). For example,
+chat reads use `rpc:chat.bsky.convo.listConvos?aud=did:web:api.bsky.chat%23bsky_chat`;
+request the other chat methods separately, or use the transitional
+`atproto transition:generic transition:chat.bsky` grant. The chat scope requires
+`transition:generic` to function. Include every requested scope in client metadata's `scope` as well as the
+connection request, and inspect the returned scopes. The minimal posting example above
+does not authorize chat, deletion, video service authentication, or every native helper.
+
+As a separate credential-ready alternative, an access JWT from an app password still works:
 
 ```ts
 const social = createSocial({
@@ -107,7 +171,7 @@ The adapter sends relative XRPC paths to `session.fetchHandler`, so a session fr
 
 ### Publish a text post
 
-The adapter validates grapheme length and creates rich-text URL facets automatically.
+The adapter enforces 300 graphemes and 3,000 UTF-8 bytes and creates rich-text URL facets automatically. Explicit `content.link` cards are rejected until an external-embed mapping is supported; put URLs in text to get link facets.
 
 ```ts
 const result = await social.posts.publish({
@@ -118,17 +182,25 @@ const result = await social.posts.publish({
 
 ### Publish with images
 
-The adapter enforces a 10 MiB image limit and a four-image maximum. HTTPS remote image hosts must pass the configured `allowMediaHost` policy. A stream is bounded while read, but the adapter needs a replayable source for retries.
+Each image must be at most 2,000,000 bytes, with at most four images per post.
+Supply an `image/*` MIME type through `mimeType` or the Blob's type. Width and height
+are optional, but must be supplied together as positive integers. Streams need an
+explicit MIME type and are bounded while read. Remote HTTPS images are denied by
+default; configure `allowMediaHost: host => host === "cdn.example.com"` on the adapter
+before using that exact host. The example uses a local Blob instead.
 
 ```ts
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+
+const bytes = new Uint8Array(await readFile("./screenshot.png"));
+const blob = new Blob([bytes], { type: "image/png" });
+const fingerprint = createHash("sha256").update(bytes).digest("hex");
 const result = await social.posts.publish({
   targets: [{ account }],
   content: {
-    text: "Screenshots attached",
-    media: [
-      { kind: "image", source: { kind: "https-url", url: "https://cdn.example.com/a.png" } },
-      { kind: "image", source: { kind: "https-url", url: "https://cdn.example.com/b.png" } },
-    ],
+    text: "Screenshot attached",
+    media: [{ kind: "image", source: { kind: "blob", blob, fingerprint } }],
   },
 });
 ```
@@ -143,9 +215,10 @@ const options = {
   languages: ["en-US"],
   mentions: [{ byteStart: 5, byteEnd: 19, did: "did:plc:alice" }],
 };
+const result = await social.posts.publish({ targets: [{ account, options }], content });
 ```
 
-The emoji occupies four UTF-8 bytes, so the mention begins at byte five after the space. The DID must come from a trusted identity lookup; plain `@handle` text alone is not resolved into a mention. Preparation rejects split character boundaries, overlapping mention/link spans, and malformed language tags. The managed adapters reject these options because they have no verified mapping for them.
+The emoji occupies four UTF-8 bytes, so the mention begins at byte five after the space. The DID must come from a trusted identity lookup; plain `@handle` text alone is not resolved into a mention. Supply at most 100 mention spans. Each span must start with `@` and fit within the UTF-8 text. Preparation rejects split character boundaries, overlapping mention/link spans, and malformed language tags. The managed adapters reject these options because they have no verified mapping for them.
 
 ### Like a post
 
@@ -172,7 +245,7 @@ It creates an `app.bsky.feed.like` record in the acting account's repository and
 
 ### Read threads natively
 
-Bluesky replies preserve the native AT URI and CID through the adapter's native post metadata. Native reads and thread reads are available through `social.native('default', { acknowledgeUnsafe: true })`; this path bypasses normalized middleware and must be wrapped by your tenant policy.
+Bluesky replies preserve the native AT URI and CID through the adapter's native post metadata. Native reads and thread reads are available through `social.native('direct', { acknowledgeUnsafe: true })`; this path bypasses normalized middleware and must be wrapped by your tenant policy.
 
 ### Search posts natively
 
@@ -180,7 +253,7 @@ Bluesky replies preserve the native AT URI and CID through the adapter's native 
 `sort` (`latest` or `top`), `since`, `until`, `mentions`, `author`, `lang`, `domain`, `url`, and
 `tags`. Pages contain provider post objects, an optional cursor, and an optional `hitsTotal`.
 Bluesky documents the cursor as best effort; it may not traverse every hit. The endpoint accepts
-1–100 results per request (default 25), and time bounds use ISO dates or datetimes with an
+1–100 results per request. The SDK sends 50 by default; the lexicon default when omitted on the wire is 25, and time bounds use ISO dates or datetimes with an
 inclusive `since` and exclusive `until`.
 
 The normalized search facade supports the provider's `recent` horizon. Bluesky does not define an
@@ -202,42 +275,123 @@ await social.graph.mute(profile.ref);
 
 ### Search actors, likes, lists, and reports
 
-Use `native.searchActors` or `native.searchActorsTypeahead` for actor discovery. Likes use
+Use `native.searchActors` (SDK default 50) or `native.searchActorsTypeahead` (SDK default 8) for actor discovery. Likes use
 `app.bsky.feed.getLikes` and `getActorLikes` for reads and repository records for writes. List
-creation and item changes use `app.bsky.graph.list` and `listitem` records; list views and list
-mutes use `app.bsky.graph.muteActorList` and `unmuteActorList`. List blocks are
+creation and item changes use `app.bsky.graph.list` and `listitem` records. Read lists with
+`native.getList` and `native.getLists`. `native.muteList` and `native.unmuteList` call
+`app.bsky.graph.muteActorList` and `unmuteActorList`; `native.blockList` and
+`native.unblockList` manage list blocks. List blocks are
 `app.bsky.graph.listblock` records that the adapter creates and removes with repository procedures.
 Moderation reports call `com.atproto.moderation.createReport` and require an authenticated
 moderation service.
 
 ### Receive events
 
-Bluesky has no webhooks, so `webhooks.verify` is `unsupported-by-platform` and the adapter has no `webhooks` member. Subscribe to the relay firehose (`com.atproto.sync.subscribeRepos`) or Jetstream over WebSocket instead. See [Consuming the firehose](https://bsky.network/docs/consuming-the-firehose).
+Bluesky has no signed webhooks, so `webhooks.verify` is `unsupported-by-platform` and
+the adapter has no `webhooks` member. For the connected account's mention/reply inbox,
+use `social.notifications.list(account)` and `social.notifications.markSeen(account)`.
+
+The relay firehose (`com.atproto.sync.subscribeRepos`) and Jetstream serve network
+indexing. Filtering a stream by the connected DID watches that account's authored
+records, not mentions or replies written by others. Recipient matching requires reading
+other authors' post records and inspecting their mentions and reply references. See
+[Consuming the firehose](https://bsky.network/docs/consuming-the-firehose).
 
 ## Native operations
 
-The typed native module covers reposts and quote posts, deletion, graph relationships,
-likes, actor search, lists, moderation reports, notification reads and seen state, profile
-reads/updates, feed discovery, search, and `chat.bsky` conversation/message operations. Video upload
-is not supported yet. Chat responses remain provider-controlled moderation states; persist native
-references and reconcile explicitly. Bluesky chat consent and moderation requirements still apply.
+The typed native module covers reposts, quote posts, deletion, graph relationships,
+likes, actor search, lists, moderation reports, notifications, profiles, feeds, search,
+chat, and video processing helpers. Native calls require application authorization.
 
-`deleteComment({ account, commentId, context })` takes a reply's `at://` URI and calls
-[`com.atproto.repo.deleteRecord`](https://docs.bsky.app/docs/api/com-atproto-repo-delete-record)
-for the `app.bsky.feed.post` record. It only deletes records in the authenticated account's
-repository. A URI from another DID raises `unauthorized` before any request is sent.
+### Upload and publish video
+
+`media.upload` accepts one non-empty MP4 Blob of at most 300,000,000 bytes and returns
+a processing-job reference. The application polls outside the SDK. Check
+`native.getVideoUploadLimits` explicitly if you need quota information; uploads do not
+perform automatic quota or email preflight. The service can require verified email and
+available daily allowance. The official Bluesky app currently limits clips to ten minutes;
+that app limit alone does not establish a protocol-wide duration constraint. The SDK
+validates bytes, not duration.
+
+```ts
+import { setTimeout as delay } from "node:timers/promises";
+
+const native = social.native("direct", { acknowledgeUnsafe: true });
+if (!native) throw new Error("Bluesky native adapter is unavailable");
+const limits = await native.getVideoUploadLimits({ account });
+if (!limits.canUpload) throw new Error("Video upload is unavailable for this account");
+const mp4 = new Blob([new Uint8Array(await readFile("./clip.mp4"))], { type: "video/mp4" });
+const fingerprint = createHash("sha256")
+  .update(new Uint8Array(await mp4.arrayBuffer()))
+  .digest("hex");
+const ref = await social.media.upload(
+  { kind: "video", mimeType: "video/mp4", source: { kind: "blob", blob: mp4, fingerprint } },
+  account,
+);
+// This bounded polling loop belongs to the application, outside the SDK.
+let job = await native.getVideoJobStatus({ account, jobId: ref.mediaId });
+for (let attempt = 1; !job.blob && attempt < 12; attempt++) {
+  if (job.state === "JOB_STATE_FAILED") throw new Error("Video processing failed");
+  await delay(5_000);
+  job = await native.getVideoJobStatus({ account, jobId: ref.mediaId });
+}
+if (!job.blob) throw new Error("Video is not ready; defer publication and check later");
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: {
+    text: "Watch this",
+    media: [{ kind: "video", source: { kind: "media-ref", ref }, width: 1920, height: 1080 }],
+  },
+});
+```
+
+Publish checks the job once more and creates the record only if the processed MP4 blob
+is ready. It never waits for processing or polls. Handle failed jobs explicitly before
+publishing.
+
+### Delete a reply
+
+`native.deletePost({ account, post: { uri, cid }, context })` deletes a reply's native
+`app.bsky.feed.post` record through
+[`com.atproto.repo.deleteRecord`](https://github.com/bluesky-social/atproto/blob/main/lexicons/com/atproto/repo/deleteRecord.json).
+Alternatively use `social.posts.removeFromPlatform` with the normalized post reference.
+Deletion is restricted to the configured repository; another DID's URI is rejected
+before any request is sent.
+
+### Chat
+
+Use `native.listConversations`, `native.listMessages`, and `native.sendMessage`.
+There is no normalized `social.messages` facade. The adapter sends the
+`atproto-proxy: did:web:api.bsky.chat#bsky_chat` header through the PDS. OAuth needs
+separate chat permissions as described above; `transition:generic` excludes chat.
+Authorize the acting account in the application before every native call. Chat consent
+and provider moderation still apply; retain native references and reconcile outcomes.
+
+### Update the stored profile
+
+`native.updateProfile` replaces the entire `app.bsky.actor.profile/self` repository
+record. A partial display-name object can erase avatar, banner, and other fields.
+Fetch the stored record with authenticated `com.atproto.repo.getRecord`, preserve its
+fields and `$type`, merge your edits, then pass the complete record as `profile`.
+The public `native.getProfile` response is an AppView, not that record; its CDN image
+URLs are not upload blobs. The current profile helper has no compare-and-swap option,
+so concurrent updates require application coordination.
+
+`native.updateList` does use the fetched CID as `swapRecord`. Omitting `description`
+preserves it; an empty string clears it. Changed descriptions clear stale
+`descriptionFacets`.
 
 ## Limits and requirements
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.
 - Published posts cannot be edited, so `posts.update` is declared `unsupported-by-platform`.
 - The built-in OAuth transport does not refresh tokens on its own. Refresh with `refreshBlueskyOAuthSession`, or let the official client's session handle it if you use that client.
-- If a token exchange or refresh returns a usable token but the response then fails validation (missing `DPoP-Nonce`, wrong `token_type`, missing `atproto` scope, bad `sub`) or identity verification fails, the helper tries once to revoke the new tokens at the authorization server's `revocation_endpoint`, when the server advertises one. It revokes the refresh token, or the access token if no refresh token was issued. This is a single best-effort request with no retry. A failed revocation is ignored, and the original error is thrown. The helper does not revoke tokens in any other case, such as when an account disconnects.
+- If a token exchange or refresh returns a usable token but the response then fails validation (missing `DPoP-Nonce`, wrong `token_type`, missing `atproto` scope, bad `sub`) or identity verification fails, the helper tries once to revoke the new tokens at the authorization server's `revocation_endpoint`, when the server advertises one. It revokes the refresh token, or the access token if no refresh token was issued. This is a single best-effort request with no retry. A failed revocation is ignored, and the original error is thrown. If atomic session persistence rejects, the helper also attempts one revocation of the unsaved grant and rethrows the original storage failure, even if revocation fails. Disconnecting an account does not invoke this helper.
 - Handle, DID, PDS, and authorization server URLs come from documents other parties control, so every request passes an egress check first. Only HTTPS is allowed. `localhost` names, URLs with credentials, and IP-literal hosts in loopback, private, link-local, carrier-grade NAT, multicast, documentation, and other reserved IPv4 and IPv6 ranges are rejected with `unauthorized`, including IPv4-mapped IPv6 addresses. `blueskyOAuthTransport` applies the same check to the stored `pdsUrl`.
-- The egress check does not resolve DNS, so a public hostname that resolves to a private address still passes. On servers that can reach internal networks, pass `assertEgressAllowed` to `blueskyOAuth`, `refreshBlueskyOAuthSession`, and `blueskyOAuthTransport`, and inject a `fetch` that pins resolved addresses. The hook runs before every request and redirect hop; throwing from it rejects the request.
+- The built-in literal check cannot resolve DNS. Every OAuth helper therefore requires both `assertEgressAllowed` and an injected address-pinned `fetch`. The hook runs before every request and redirect hop; it must reject private resolutions. A custom fetch alone or a policy hook paired with ordinary fetch is not sufficient DNS-rebinding protection.
 - Handle resolution through `https://<handle>/.well-known/atproto-did` follows up to three HTTP redirects, as the handle specification allows. Each hop is followed manually and checked again. OAuth metadata requests do not follow redirects.
-- Pushed authorization, token, and refresh responses must carry a `DPoP-Nonce` header, as the AT Protocol OAuth specification requires; a response without one fails with `upstream_failure`. PDS responses without a nonce are returned as they are, because the PDS has already processed the request and rejecting it would hide the outcome of a write.
+- Pushed authorization, token, and refresh responses must carry a `DPoP-Nonce` header, as the AT Protocol OAuth specification requires; a response without one fails with `upstream_failure`. A PDS response without a nonce also fails. The transport sets `health` to `protocol-error` and blocks further use. A write produces `ambiguous_outcome` with `reconcile-first`; the original `Response` is available as the error's non-serialized `cause`. Inspect it privately for reconciliation, never log its body or headers, and do not resubmit blindly.
 - `blueskyOAuthClientMetadata` publishes only EC P-256 public keys. It rejects any key with private members (`d`, `p`, `q`, `dp`, `dq`, `qi`, `oth`, `k`), any other key type or curve, and any `alg` other than `ES256` or `use` other than `sig`. Unknown members are dropped from the published key.
 - Public clients get sessions of about two weeks and must reconnect after that. Confidential clients can refresh for longer, as set by the authorization server.
-- App-password policy and application account membership remain application responsibilities.
+- OAuth account connectivity uses authenticated `com.atproto.server.checkAccountStatus`; public profile display does not establish credential validity. A 403 is `missing_permission`, while a 401 requires reconnecting. App-password policy and application account membership remain application responsibilities.
 - These are fixture-tested protocol operations, including the OAuth flow against mocked servers. No live account verification is recorded in this repository.

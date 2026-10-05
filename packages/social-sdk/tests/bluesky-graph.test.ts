@@ -215,6 +215,7 @@ it("creates, reads, changes, and deletes Bluesky lists", async () => {
 
     if (url.pathname.endsWith("getRecord"))
       return response({
+        cid: "old-list-cid",
         value: { $type: "app.bsky.graph.list", name: "Old", purpose: "curatelist" },
       });
 

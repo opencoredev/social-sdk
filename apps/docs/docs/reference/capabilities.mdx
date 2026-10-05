@@ -349,49 +349,49 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | postiz | facebook | posts.deleteBackendRecord | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
 | postiz | facebook | analytics.read | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
 | postiz | facebook | media.upload | available | None declared | See adapter setup | Contract implementation; live account verification and provider/platform eligibility are separate. |
-| bluesky | bluesky | webhooks.verify | unsupported-by-platform | None declared | See adapter setup | Bluesky has no signed webhook delivery. Events arrive over WebSocket streams you subscribe to: the relay firehose (com.atproto.sync.subscribeRepos) or Jetstream. See https://bsky.network/docs/consuming-the-firehose. |
-| bluesky | bluesky | accounts.read | available | None declared | repo | None declared |
-| bluesky | bluesky | posts.publish | available | text, image, video | repo | None declared |
+| bluesky | bluesky | webhooks.verify | unsupported-by-platform | None declared | See adapter setup | Bluesky has no signed webhook delivery. Read the connected account inbox with notifications.list and markSeen. The firehose and Jetstream are network indexing streams; filtering by the connected DID watches its authored records, not inbound mentions or replies. |
+| bluesky | bluesky | accounts.read | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | posts.publish | available | text, image, video | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
 | bluesky | bluesky | posts.schedule | unsupported-by-platform | None declared | See adapter setup | AT Protocol records are visible once written. The post createdAt field is a client-declared timestamp and does not delay publication. |
 | bluesky | bluesky | posts.read | available | text, image | See adapter setup | None declared |
-| bluesky | bluesky | graph.read | available | None declared | repo | None declared |
-| bluesky | bluesky | graph.follow | available | None declared | repo | None declared |
-| bluesky | bluesky | graph.unfollow | available | None declared | repo | None declared |
-| bluesky | bluesky | graph.block | available | None declared | repo | None declared |
-| bluesky | bluesky | graph.unblock | available | None declared | repo | None declared |
-| bluesky | bluesky | graph.mute | available | None declared | repo | None declared |
-| bluesky | bluesky | graph.unmute | available | None declared | repo | None declared |
-| bluesky | bluesky | likes.read | available | None declared | repo | None declared |
-| bluesky | bluesky | likes.write | available | None declared | repo | None declared |
-| bluesky | bluesky | lists.read | available | None declared | repo | None declared |
-| bluesky | bluesky | lists.write | available | None declared | repo | None declared |
-| bluesky | bluesky | profiles.search | available | None declared | repo | None declared |
-| bluesky | bluesky | moderation.report | available | None declared | repo | None declared |
+| bluesky | bluesky | graph.read | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | graph.follow | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | graph.unfollow | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | graph.block | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | graph.unblock | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | graph.mute | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | graph.unmute | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | likes.read | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | likes.write | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | lists.read | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | lists.write | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | profiles.search | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | moderation.report | available | None declared | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
 | bluesky | bluesky | posts.list | available | text, image | See adapter setup | None declared |
-| bluesky | bluesky | comments.read | available | text | See adapter setup | None declared |
+| bluesky | bluesky | comments.read | available | None declared | See adapter setup | None declared |
 | bluesky | bluesky | analytics.read | available | text, image | See adapter setup | None declared |
 | bluesky | bluesky | analytics.account.read | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | comments.write | available | text | repo | None declared |
-| bluesky | bluesky | posts.publish.video | available | video | repo | One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls. |
-| bluesky | bluesky | comments.moderate | available | None declared | repo | Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies. |
-| bluesky | bluesky | media.upload | available | video | repo | Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference. |
-| bluesky | bluesky | media.video | available | video | repo | native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job. |
+| bluesky | bluesky | comments.write | available | text | See adapter setup | App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:&lt;collection&gt;?action=... or rpc:&lt;method&gt; permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant. |
+| bluesky | bluesky | posts.publish.video | available | video | See adapter setup | One MP4 per post from a media.upload reference. Publishing reads the video job once and creates the post only when the processed blob is ready; it never waits or polls. |
+| bluesky | bluesky | comments.moderate | available | None declared | See adapter setup | Native hideReply adds or removes a reply URI in the root post's threadgate hiddenReplies list. Only the root post's author can hide replies. |
+| bluesky | bluesky | media.upload | available | video | See adapter setup | Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference. |
+| bluesky | bluesky | media.video | available | video | See adapter setup | native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job. |
 | bluesky | bluesky | media.status | available | video | See adapter setup | native.getVideoJobStatus reads app.bsky.video.getJobStatus once per call. |
 | bluesky | bluesky | media.limits.read | available | video | See adapter setup | native.getVideoUploadLimits reads the daily video allowance. Uploads do not check it automatically. |
 | bluesky | bluesky | posts.update | unsupported-by-platform | None declared | See adapter setup | Bluesky treats posts as immutable. A putRecord rewrite succeeds on the PDS, but the Bluesky AppView ignores post updates and the new CID breaks existing strong references from replies, quotes, likes, and reposts. |
-| bluesky | bluesky | posts.repost | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | posts.quote | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | posts.delete | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | notifications.read | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | notifications.seen | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | profile.read | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | profiles.read | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | profile.update | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | feeds.read | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | search.posts | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | chat.read | available | None declared | See adapter setup | None declared |
-| bluesky | bluesky | chat.write | available | None declared | See adapter setup | None declared |
+| bluesky | bluesky | posts.repost | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | posts.quote | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | posts.delete | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | posts.removeFromPlatform | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | notifications.read | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | notifications.seen | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | profile.read | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | profiles.read | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | profile.update | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | feeds.read | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | search.posts | available | None declared | See adapter setup | App passwords or operation-specific OAuth permissions are required for authenticated calls; inspect the returned grant. |
+| bluesky | bluesky | chat.read | available | None declared | See adapter setup | Native chat calls proxy through did:web:api.bsky.chat#bsky_chat. OAuth needs atproto transition:generic transition:chat.bsky in requested and metadata scopes, or appropriate rpc:chat.bsky... permissions; transition:generic alone excludes chat. Inspect returned grants. Application authorization is required. |
+| bluesky | bluesky | chat.write | available | None declared | See adapter setup | Native chat calls proxy through did:web:api.bsky.chat#bsky_chat. OAuth needs atproto transition:generic transition:chat.bsky in requested and metadata scopes, or appropriate rpc:chat.bsky... permissions; transition:generic alone excludes chat. Inspect returned grants. Application authorization is required. |
 | x | x | webhooks.verify | available | None declared | See adapter setup | Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge. |
 | x | x | posts.publish | available | text, image, video | tweet.read, tweet.write, users.read, media.write | User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to 512 MiB / one GIF up to 15 MiB via 1 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. |
 | x | x | accounts.read | available | None declared | See adapter setup | None declared |

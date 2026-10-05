@@ -30,6 +30,8 @@ import { egressBlockReason } from "../src/server/egress.js";
 import { isJsonValue } from "../src/transport/json.js";
 import { isJsonObject, isString, type JsonField } from "../src/transport/validation.js";
 
+const offlineEgress = { assertEgressAllowed: () => {} };
+
 const DID = "did:plc:abcdefghijklmnopqrstuvwx";
 
 const OTHER_DID = "did:plc:zyxwvutsrqponmlkjihgfedc";
@@ -412,6 +414,7 @@ describe("Bluesky AT Protocol OAuth", () => {
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
       redirectUri: REDIRECT,
+      ...offlineEgress,
       fetch: mock.fetch,
       resolveTxt,
       plcDirectoryUrl: PLC,
@@ -483,7 +486,14 @@ describe("Bluesky AT Protocol OAuth", () => {
 
   it("treats an entryway server URL as the issuer and sends no login hint", async () => {
     const mock = world({ entryway: true });
-    const provider = blueskyOAuth({ clientId: CLIENT_ID, fetch: mock.fetch, plcDirectoryUrl: PLC });
+
+    const provider = blueskyOAuth({
+      clientId: CLIENT_ID,
+      ...offlineEgress,
+      fetch: mock.fetch,
+      plcDirectoryUrl: PLC,
+    });
+
     const started = await provider.start(startInput(ISSUER));
     const par = mock.requests.find((request) => request.url.pathname === "/oauth/par");
     assert.equal(par?.form.has("login_hint"), false);
@@ -492,20 +502,32 @@ describe("Bluesky AT Protocol OAuth", () => {
     // Without a hint the default server is used.
     const fallback = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: mock.fetch,
       defaultServer: ISSUER,
     });
 
     await fallback.start(startInput());
     assert.equal(
-      await codeFor(blueskyOAuth({ clientId: CLIENT_ID, fetch: mock.fetch }).start(startInput())),
+      await codeFor(
+        blueskyOAuth({ clientId: CLIENT_ID, ...offlineEgress, fetch: mock.fetch }).start(
+          startInput(),
+        ),
+      ),
       "invalid_input",
     );
   });
 
   it("starts from a DID and rejects a token for a different account", async () => {
     const mock = world({ tokenSub: OTHER_DID });
-    const provider = blueskyOAuth({ clientId: CLIENT_ID, fetch: mock.fetch, plcDirectoryUrl: PLC });
+
+    const provider = blueskyOAuth({
+      clientId: CLIENT_ID,
+      ...offlineEgress,
+      fetch: mock.fetch,
+      plcDirectoryUrl: PLC,
+    });
+
     const started = await provider.start(startInput(DID));
 
     const par = mock.requests.find(
@@ -527,12 +549,20 @@ describe("Bluesky AT Protocol OAuth", () => {
   it("rejects a token whose DID is served by a different authorization server", async () => {
     // Server-hint flow: no expected DID, so only the issuer check catches the mix-up.
     const mock = world({ tokenSub: OTHER_DID });
-    const provider = blueskyOAuth({ clientId: CLIENT_ID, fetch: mock.fetch, plcDirectoryUrl: PLC });
+
+    const provider = blueskyOAuth({
+      clientId: CLIENT_ID,
+      ...offlineEgress,
+      fetch: mock.fetch,
+      plcDirectoryUrl: PLC,
+    });
+
     const started = await provider.start(startInput(PDS));
     const saved: unknown[] = [];
 
     const guarded = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: mock.fetch,
       plcDirectoryUrl: PLC,
       sessionSink: { save: async (input) => void saved.push(input) },
@@ -554,6 +584,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: mock.fetch,
       plcDirectoryUrl: PLC,
       resolveTxt,
@@ -599,6 +630,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const provider = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: mock.fetch,
         plcDirectoryUrl: PLC,
       });
@@ -623,18 +655,24 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     assert.equal(
       await codeFor(
-        blueskyOAuth({ clientId: CLIENT_ID, fetch: noPar.fetch, plcDirectoryUrl: PLC }).start(
-          startInput(DID),
-        ),
+        blueskyOAuth({
+          clientId: CLIENT_ID,
+          ...offlineEgress,
+          fetch: noPar.fetch,
+          plcDirectoryUrl: PLC,
+        }).start(startInput(DID)),
       ),
       "upstream_failure",
     );
     const wrongIssuer = world({ asMetadata: asMetadata({ issuer: "https://elsewhere.test" }) });
     assert.equal(
       await codeFor(
-        blueskyOAuth({ clientId: CLIENT_ID, fetch: wrongIssuer.fetch, plcDirectoryUrl: PLC }).start(
-          startInput(DID),
-        ),
+        blueskyOAuth({
+          clientId: CLIENT_ID,
+          ...offlineEgress,
+          fetch: wrongIssuer.fetch,
+          plcDirectoryUrl: PLC,
+        }).start(startInput(DID)),
       ),
       "unauthorized",
     );
@@ -643,6 +681,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     const conflicting = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: mock.fetch,
       plcDirectoryUrl: PLC,
       resolveTxt: async () => [[`did=${DID}`], [`did=${OTHER_DID}`]],
@@ -653,6 +692,7 @@ describe("Bluesky AT Protocol OAuth", () => {
     // The DID document for OTHER_DID claims other.pds.test, not alice.pds.test.
     const unconfirmed = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: mock.fetch,
       plcDirectoryUrl: PLC,
       resolveTxt: async () => [[`did=${OTHER_DID}`]],
@@ -660,7 +700,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     assert.equal(await codeFor(unconfirmed.start(startInput(HANDLE))), "unauthorized");
 
-    const provider = blueskyOAuth({ clientId: CLIENT_ID, fetch: mock.fetch });
+    const provider = blueskyOAuth({ clientId: CLIENT_ID, ...offlineEgress, fetch: mock.fetch });
 
     for (const hint of ["alice.local", "did:key:z6Mk", "not a handle", "https://pds.test/path"])
       assert.equal(await codeFor(provider.start(startInput(hint))), "invalid_input");
@@ -673,6 +713,7 @@ describe("Bluesky AT Protocol OAuth", () => {
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
       clientKey: key,
+      ...offlineEgress,
       fetch: mock.fetch,
       plcDirectoryUrl: PLC,
     });
@@ -727,6 +768,7 @@ describe("Bluesky AT Protocol OAuth", () => {
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
       redirectUri: REDIRECT,
+      ...offlineEgress,
       fetch: mock.fetch,
       resolveTxt,
       plcDirectoryUrl: PLC,
@@ -773,6 +815,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: mock.fetch,
       plcDirectoryUrl: PLC,
       sessionSink: { save: async ({ session }) => void saved.push(session) },
@@ -786,7 +829,7 @@ describe("Bluesky AT Protocol OAuth", () => {
     const session = saved[0];
     assert.ok(session);
 
-    const transport = blueskyOAuthTransport(session, { fetch: mock.fetch });
+    const transport = blueskyOAuthTransport(session, { ...offlineEgress, fetch: mock.fetch });
 
     const adapter = bluesky({
       backend: "direct",
@@ -852,6 +895,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: mock.fetch,
       plcDirectoryUrl: PLC,
       sessionSink: { save: async ({ session }) => void saved.push(session) },
@@ -865,7 +909,13 @@ describe("Bluesky AT Protocol OAuth", () => {
     const session = saved[0];
     assert.ok(session);
 
-    const options = { clientId: CLIENT_ID, fetch: mock.fetch, plcDirectoryUrl: PLC };
+    const options = {
+      clientId: CLIENT_ID,
+      ...offlineEgress,
+      fetch: mock.fetch,
+      plcDirectoryUrl: PLC,
+    };
+
     const next = await refreshBlueskyOAuthSession(session, options);
     assert.equal(next.accessToken, "at-2");
     assert.equal(next.refreshToken, "rt-3");
@@ -901,7 +951,9 @@ describe("Bluesky AT Protocol OAuth", () => {
     // The account moved to a PDS whose issuer differs from the session issuer.
     const moved = world({ pdsIssuer: "https://new-auth.test" });
     assert.equal(
-      await codeFor(refreshBlueskyOAuthSession(next, { ...options, fetch: moved.fetch })),
+      await codeFor(
+        refreshBlueskyOAuthSession(next, { ...options, ...offlineEgress, fetch: moved.fetch }),
+      ),
       "unauthorized",
     );
   });
@@ -994,6 +1046,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     const provider = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: async (input, init) => {
         const url = new URL(String(input));
 
@@ -1029,6 +1082,7 @@ describe("Bluesky AT Protocol OAuth", () => {
     // A fourth hop is refused.
     const tooMany = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: async () =>
         new Response(null, { status: 302, headers: { location: "https://hop.test/again" } }),
       resolveTxt: async () => [],
@@ -1041,6 +1095,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
     const noMetadataRedirect = blueskyOAuth({
       clientId: CLIENT_ID,
+      ...offlineEgress,
       fetch: async (input) => {
         followed.push(String(input));
 
@@ -1106,6 +1161,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
         const provider = blueskyOAuth({
           clientId: CLIENT_ID,
+          ...offlineEgress,
           fetch: async (input) => {
             requested.push(String(input));
 
@@ -1131,6 +1187,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
         const provider = blueskyOAuth({
           clientId: CLIENT_ID,
+          ...offlineEgress,
           fetch: async (input) => {
             const url = new URL(String(input));
             requested.push(url.origin);
@@ -1146,6 +1203,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const privatePlc = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: world().fetch,
         plcDirectoryUrl: "https://192.168.0.10",
       });
@@ -1162,6 +1220,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const parProvider = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: parMock.fetch,
         plcDirectoryUrl: PLC,
       });
@@ -1172,6 +1231,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const tokenProvider = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: tokenMock.fetch,
         plcDirectoryUrl: PLC,
       });
@@ -1198,6 +1258,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const provider = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: async (input, init) => {
           const url = new URL(String(input));
 
@@ -1222,6 +1283,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const blocked = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: mock.fetch,
         plcDirectoryUrl: PLC,
         assertEgressAllowed: (url) => {
@@ -1248,6 +1310,7 @@ describe("Bluesky AT Protocol OAuth", () => {
       let called = false;
 
       const transport = blueskyOAuthTransport(session, {
+        ...offlineEgress,
         fetch: async () => {
           called = true;
 
@@ -1265,7 +1328,14 @@ describe("Bluesky AT Protocol OAuth", () => {
 
   it("rejects a successful PAR response without a DPoP-Nonce header", async () => {
     const mock = world({ omitNonce: "par" });
-    const provider = blueskyOAuth({ clientId: CLIENT_ID, fetch: mock.fetch, plcDirectoryUrl: PLC });
+
+    const provider = blueskyOAuth({
+      clientId: CLIENT_ID,
+      ...offlineEgress,
+      fetch: mock.fetch,
+      plcDirectoryUrl: PLC,
+    });
+
     assert.equal(await codeFor(provider.start(startInput(DID))), "upstream_failure");
   });
 
@@ -1360,6 +1430,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const provider = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: mock.fetch,
         plcDirectoryUrl: PLC,
         ...definedFields({ clientKey }),
@@ -1473,6 +1544,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
       const provider = blueskyOAuth({
         clientId: CLIENT_ID,
+        ...offlineEgress,
         fetch: mock.fetch,
         plcDirectoryUrl: PLC,
       });
@@ -1492,6 +1564,7 @@ describe("Bluesky AT Protocol OAuth", () => {
 
         const provider = blueskyOAuth({
           clientId: CLIENT_ID,
+          ...offlineEgress,
           fetch: mock.fetch,
           plcDirectoryUrl: PLC,
           sessionSink: { save: async ({ session }) => void saved.push(session) },
@@ -1505,6 +1578,7 @@ describe("Bluesky AT Protocol OAuth", () => {
         const code = await codeFor(
           refreshBlueskyOAuthSession(session, {
             clientId: CLIENT_ID,
+            ...offlineEgress,
             fetch: mock.fetch,
             plcDirectoryUrl: PLC,
           }),
@@ -1524,4 +1598,385 @@ describe("Bluesky AT Protocol OAuth", () => {
         assert.deepEqual(revokes[0]?.dpop?.header["jwk"], refresh?.dpop?.header["jwk"]);
       });
   });
+});
+
+it("fails closed without a paired egress policy and pinned transport", async () => {
+  const mock = world();
+
+  for (const options of [{}, { fetch: mock.fetch }, offlineEgress]) {
+    const provider = blueskyOAuth({ clientId: CLIENT_ID, ...options });
+    assert.equal(await codeFor(provider.start(startInput(DID))), "invalid_config");
+  }
+
+  assert.equal(mock.requests.length, 0);
+});
+
+it("rejects explicit HTTPS default ports without rejecting valid normalization", () => {
+  for (const clientId of [
+    "https://app.test:443/client.json",
+    "https://app.test:0443/client.json",
+  ]) {
+    assert.throws(
+      () => blueskyOAuthClientMetadata({ clientId, redirectUris: [REDIRECT], scope: "atproto" }),
+      /port/,
+    );
+  }
+
+  assert.throws(
+    () =>
+      blueskyOAuthClientMetadata({
+        clientId: CLIENT_ID,
+        scope: "atproto",
+        redirectUris: ["https://app.test:443/callback"],
+      }),
+    /default port/,
+  );
+  assert.equal(
+    blueskyOAuthClientMetadata({
+      clientId: "https://APP.test/client.json",
+      scope: "atproto",
+      redirectUris: ["https://app.test:8443/callback"],
+    }).redirect_uris[0],
+    "https://app.test:8443/callback",
+  );
+});
+
+it("revokes an unsaved session once and preserves the original sink failure", async () => {
+  for (const revocation of ["ok", "network-error"] as const) {
+    const mock = world({ revocation });
+    const failure = new Error("atomic storage rejected");
+
+    const provider = blueskyOAuth({
+      clientId: CLIENT_ID,
+      fetch: mock.fetch,
+      ...offlineEgress,
+      plcDirectoryUrl: PLC,
+      sessionSink: {
+        save: async () => {
+          throw failure;
+        },
+      },
+    });
+
+    const started = await provider.start(startInput(DID));
+    await assert.rejects(
+      provider.complete({
+        callbackUrl: `${REDIRECT}?iss=${encodeURIComponent(ISSUER)}&state=state-1&code=code-1`,
+        attempt: attemptFor(started.providerState),
+      }),
+      (error) => error === failure,
+    );
+    const revokes = mock.requests.filter((request) => request.url.pathname === "/oauth/revoke");
+    assert.equal(revokes.length, 1);
+    assert.equal(revokes[0]?.form.get("token_type_hint"), "refresh_token");
+  }
+});
+
+async function auditSession(): Promise<BlueskyOAuthSession> {
+  const mock = world();
+  let saved: BlueskyOAuthSession | undefined;
+
+  const provider = blueskyOAuth({
+    clientId: CLIENT_ID,
+    fetch: mock.fetch,
+    ...offlineEgress,
+    plcDirectoryUrl: PLC,
+    sessionSink: {
+      save: async ({ session }) => {
+        saved = session;
+      },
+    },
+  });
+
+  const started = await provider.start(startInput(DID));
+  await provider.complete({
+    callbackUrl: `${REDIRECT}?iss=${encodeURIComponent(ISSUER)}&state=state-1&code=code-1`,
+    attempt: attemptFor(started.providerState),
+  });
+  assert.ok(saved);
+
+  return saved;
+}
+
+it("replays an explicit 400 nonce challenge once with a fresh proof", async () => {
+  const session = await auditSession();
+  const proofs: Jwt[] = [];
+
+  const transport = blueskyOAuthTransport(session, {
+    ...offlineEgress,
+    fetch: async (_input, init) => {
+      assert.equal(init?.redirect, "manual");
+      proofs.push(await verifyJwt(new Headers(init?.headers).get("DPoP") ?? ""));
+
+      return proofs.length === 1
+        ? json({ error: "use_dpop_nonce" }, 400, { "DPoP-Nonce": "nonce-1" })
+        : json({ uri: "at://record", cid: "cid" }, 200, { "DPoP-Nonce": "nonce-1" });
+    },
+  });
+
+  const response = await transport.fetchHandler("/xrpc/com.atproto.repo.createRecord", {
+    method: "POST",
+    body: "{}",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(proofs.length, 2);
+  assert.equal(proofs[1]?.payload["nonce"], "nonce-1");
+  assert.notEqual(proofs[0]?.payload["jti"], proofs[1]?.payload["jti"]);
+  assert.equal(transport.health, "healthy");
+});
+
+it("rejects missing resource nonces and preserves response evidence without replaying writes", async () => {
+  const session = await auditSession();
+
+  for (const method of ["GET", "POST"]) {
+    let calls = 0;
+
+    const transport = blueskyOAuthTransport(session, {
+      ...offlineEgress,
+      fetch: async () => {
+        calls++;
+
+        return json({ uri: "at://record", cid: "cid" });
+      },
+    });
+
+    await assert.rejects(transport.fetchHandler("/xrpc/test", { method }), (asyncError) => {
+      assert.ok(asyncError instanceof SocialError);
+      assert.equal(asyncError.code, method === "POST" ? "ambiguous_outcome" : "upstream_failure");
+      assert.ok(asyncError.cause instanceof Response);
+      assert.equal(asyncError.cause.status, 200);
+      assert.doesNotMatch(JSON.stringify(asyncError), /at-1|rt-2|at:\/\/record/);
+
+      return true;
+    });
+    assert.equal(transport.health, "protocol-error");
+    await assert.rejects(transport.fetchHandler("/xrpc/test"), /nonce protocol failure/);
+    assert.equal(calls, 1);
+  }
+});
+
+it("keeps nonce protocol evidence through the adapter HTTP wrapper", async () => {
+  const session = await auditSession();
+  let calls = 0;
+
+  const transport = blueskyOAuthTransport(session, {
+    ...offlineEgress,
+    fetch: async () => {
+      calls++;
+
+      return json({ uri: "at://record", cid: "cid" });
+    },
+  });
+
+  const adapter = bluesky({
+    backend: "direct",
+    auth: { service: transport.service, did: transport.did },
+    session: transport,
+  });
+
+  assert.ok(adapter.native);
+  await assert.rejects(
+    adapter.native.quotePost({
+      account: connectedAccountRef({
+        backend: "direct",
+        platform: "bluesky",
+        accountId: session.did,
+      }),
+      post: { uri: "at://target", cid: "cid" },
+      text: "quote",
+    }),
+    (error) =>
+      error instanceof SocialError &&
+      error.code === "ambiguous_outcome" &&
+      error.cause instanceof Response &&
+      error.upstreamStatus === 200,
+  );
+  assert.equal(calls, 1);
+});
+
+it("bounds nonce-challenge inspection and returns non-challenge evidence unchanged", async () => {
+  const session = await auditSession();
+  let calls = 0;
+
+  const transport = blueskyOAuthTransport(session, {
+    ...offlineEgress,
+    fetch: async () => {
+      calls++;
+
+      return new Response("x".repeat(2 * 1024 * 1024), {
+        status: 400,
+        headers: { "DPoP-Nonce": "nonce-1" },
+      });
+    },
+  });
+
+  const response = await transport.fetchHandler("/xrpc/test", { method: "POST", body: "{}" });
+  assert.equal(response.status, 400);
+  assert.equal((await response.text()).length, 2 * 1024 * 1024);
+  assert.equal(calls, 1);
+});
+
+it("applies rejecting resolution policy to refresh and resource transport", async () => {
+  const session = await auditSession();
+  let calls = 0;
+
+  const options = {
+    clientId: CLIENT_ID,
+    fetch: async () => {
+      calls++;
+
+      return json({});
+    },
+    assertEgressAllowed: () => {
+      throw new Error("private resolution");
+    },
+  };
+
+  await assert.rejects(
+    refreshBlueskyOAuthSession(session, options),
+    (error) => error instanceof SocialError && error.code === "unauthorized",
+  );
+  await assert.rejects(
+    blueskyOAuthTransport(session, options).fetchHandler("/xrpc/test"),
+    (error) => error instanceof SocialError && error.code === "unauthorized",
+  );
+  assert.equal(calls, 0);
+});
+
+it("rejects ambiguous URL spellings for client IDs and redirects", () => {
+  const spellings = [
+    " https://app.test:443/path",
+    "https://app.test:443\\path",
+    "https://app.test:4\t43/path",
+    "https://app.test:4\n43/path",
+    "https:///app.test:443/path",
+    "https://app.test:443/path\r",
+    " https://app.test/path",
+    "https://app.\ttest/path",
+    "https://app.test\\path",
+  ];
+
+  for (const value of spellings) {
+    assert.throws(
+      () =>
+        blueskyOAuthClientMetadata({
+          clientId: value,
+          redirectUris: [REDIRECT],
+          scope: "atproto",
+        }),
+      { code: "invalid_config" },
+      `client ID: ${JSON.stringify(value)}`,
+    );
+    assert.throws(
+      () =>
+        blueskyOAuthClientMetadata({
+          clientId: CLIENT_ID,
+          redirectUris: [value],
+          scope: "atproto",
+        }),
+      { code: "invalid_config" },
+      `redirect: ${JSON.stringify(value)}`,
+    );
+  }
+
+  assert.equal(
+    blueskyOAuthClientMetadata({
+      clientId: "https://APP.test/client.json",
+      redirectUris: ["https://APP.test:8443/callback"],
+      scope: "atproto",
+    }).redirect_uris[0],
+    "https://APP.test:8443/callback",
+  );
+});
+
+it("returns stalled nonce responses on inspection timeout or caller abort without replay", async () => {
+  const session = await auditSession();
+
+  for (const abort of [false, true]) {
+    let calls = 0;
+    const controller = new AbortController();
+
+    const original = new Response(
+      new ReadableStream<Uint8Array>({
+        start(stream) {
+          stream.enqueue(new TextEncoder().encode('{"error":'));
+        },
+      }),
+      { status: 400, headers: { "DPoP-Nonce": "nonce-1" } },
+    );
+
+    const transport = blueskyOAuthTransport(session, {
+      ...offlineEgress,
+      timeoutMs: abort ? 10_000 : 20,
+      fetch: async () => {
+        calls++;
+
+        if (abort) setTimeout(() => controller.abort(), 20);
+
+        return original;
+      },
+    });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const response = await Promise.race([
+        transport.fetchHandler("/xrpc/test", {
+          method: "POST",
+          body: "{}",
+          signal: controller.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("inspection did not settle")), 500);
+        }),
+      ]);
+
+      assert.equal(response, original);
+      assert.equal(response.bodyUsed, false);
+      assert.equal(calls, 1);
+      assert.equal(transport.health, "healthy");
+    } finally {
+      clearTimeout(timer);
+      void original.body?.cancel();
+    }
+  }
+});
+
+it("preserves the verified OAuth handle for authenticated account reads", async () => {
+  const session = { ...(await auditSession()), handle: HANDLE };
+  const paths: string[] = [];
+
+  const transport = blueskyOAuthTransport(session, {
+    ...offlineEgress,
+    fetch: async (input) => {
+      paths.push(new URL(String(input)).pathname);
+
+      return json({ activated: true, validDid: true }, 200, { "DPoP-Nonce": "nonce-1" });
+    },
+  });
+
+  const adapter = bluesky({
+    auth: { service: transport.service, did: transport.did },
+    session: transport,
+  });
+
+  assert.ok(adapter.accounts);
+  const account = connectedAccountRef({ backend: "default", platform: "bluesky", accountId: DID });
+
+  const context = {
+    backendInstance: "default",
+    correlationId: "handle",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+
+  const result = await adapter.accounts.get(account, context);
+  const page = await adapter.accounts.list({}, context);
+  assert.equal(result.handle, HANDLE);
+  assert.equal(result.displayName, HANDLE);
+  assert.equal(page.items[0]?.handle, HANDLE);
+  assert.deepEqual(paths, [
+    "/xrpc/com.atproto.server.checkAccountStatus",
+    "/xrpc/com.atproto.server.checkAccountStatus",
+  ]);
 });
