@@ -131,7 +131,7 @@ const result = await social.posts.publish({
 
 ### Upload an image, then publish it
 
-Upload through `social.media.upload`, store the account-bound media reference, and use that reference in a publish request. The adapter checks the upstream owner and rejects a returned status other than `AVAILABLE` before creating the post. A successful image read without a status currently passes this check. A still-processing image needs an explicit later check through the native image-status helper; the adapter does not poll in the background.
+Upload through `social.media.upload`, store the account-bound media reference, and use that reference in a publish request. Initialization and byte transfer share the operation deadline; an expired byte transfer returns `timeout` and is not retried automatically. The adapter checks the upstream owner and rejects a returned status other than `AVAILABLE` before creating the post. A successful image read without a status currently passes this check. A still-processing image needs an explicit later check through the native image-status helper; the adapter does not poll in the background.
 
 ```ts
 const mediaRef = await social.media.upload(
@@ -298,7 +298,7 @@ or uniquely identified. Do not automatically resubmit an uncertain create.
 
 ### Read comments and reply
 
-Replies require the complete composite `commentUrn` returned by comment reads, with an activity, share, or ugcPost root and the comment identifier. The numeric `id` alone is not a reply reference. A readable post with an empty comment collection returns `items: []`, including LinkedIn's documented collection 404.
+Replies require the complete composite `commentUrn` returned by comment reads, with an activity, share, or ugcPost root and the comment identifier. The numeric `id` alone is not a reply reference. A readable post with an empty comment collection returns `items: []`. After a comments-collection 404, the SDK re-checks the parent post before returning an empty page. A post deleted between the first read and the comments request returns `not_found`; other re-check failures propagate.
 
 ```ts
 // postRef is the platform-post reference returned by a publish outcome or post read.

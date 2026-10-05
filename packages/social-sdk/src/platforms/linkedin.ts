@@ -617,18 +617,37 @@ export function linkedin(
         message: "LinkedIn returned an invalid image identifier.",
       });
 
-    await upload({
-      url: string(initialized["uploadUrl"]),
-      source: {
-        mimeType: media.mimeType!,
-        ...definedFields({ size }),
-        open: source.kind === "blob" ? () => source.blob.stream() : source.open,
-      },
-      allowHost: (host) => host === "www.linkedin.com",
-      maxBytes,
-      timeoutMs: remainingBudget(context),
-      ...definedFields({ fetch: options.fetch, signal: context.signal }),
-    });
+    try {
+      await upload({
+        url: string(initialized["uploadUrl"]),
+        source: {
+          mimeType: media.mimeType!,
+          ...definedFields({ size }),
+          open: source.kind === "blob" ? () => source.blob.stream() : source.open,
+        },
+        allowHost: (host) => host === "www.linkedin.com",
+        maxBytes,
+        timeoutMs: remainingBudget(context),
+        ...definedFields({ fetch: options.fetch, signal: context.signal }),
+      });
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+
+      throw new SocialError({
+        code:
+          error.kind === "timeout"
+            ? "timeout"
+            : error.kind === "cancelled"
+              ? "cancelled"
+              : error.kind === "invalid-input"
+                ? "invalid_input"
+                : "media_error",
+        operation: "media.upload",
+        message: `LinkedIn image upload did not complete: ${error.message}`,
+        upstreamStatus: error.status,
+        retryDisposition: { kind: "never" },
+      });
+    }
 
     return {
       kind: "media",
@@ -2023,13 +2042,17 @@ export function linkedin(
             ),
           );
         } catch (error) {
-          // LinkedIn documents 404 for an empty collection; the post was verified above.
+          // A collection 404 can also follow post deletion; verify it is still readable.
           if (
             error instanceof SocialError &&
             error.code === "not_found" &&
             error.upstreamStatus === 404
-          )
+          ) {
+            await readPost(ref, context);
+
             return { items: [] };
+          }
+
           throw error;
         }
 
