@@ -494,7 +494,7 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | youtube | youtube | subscriptions.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly | None declared |
 | youtube | youtube | subscriptions.write | available | None declared | https://www.googleapis.com/auth/youtube | None declared |
 | youtube | youtube | search.keyword | available | None declared | See adapter setup | None declared |
-| youtube | youtube | search.posts | available | None declared | https://www.googleapis.com/auth/youtube.readonly | Uses search.list with type=video. Each request costs 100 quota units. |
+| youtube | youtube | search.posts | available | None declared | https://www.googleapis.com/auth/youtube.readonly | Uses search.list with type=video. Each page request costs 1 unit in a separate search quota bucket with a default limit of 100 calls per day. |
 | youtube | youtube | comments.moderate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared |
 | youtube | youtube | comments.delete | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | comments.delete costs 50 quota units. Delete a thread through its top-level comment ID. Google does not document which comments a channel may delete; insufficient permissions return 403 forbidden. |
 | youtube | youtube | analytics.youtube.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly | None declared |

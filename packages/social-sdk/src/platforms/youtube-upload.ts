@@ -186,7 +186,7 @@ async function uploadRequest(
         code:
           response.status === 401
             ? "reconnect_required"
-            : reason === "quotaExceeded"
+            : reason === "quotaExceeded" || reason === "uploadLimitExceeded"
               ? "rate_limited"
               : response.status >= 500
                 ? "ambiguous_outcome"
@@ -194,6 +194,8 @@ async function uploadRequest(
         operation: "youtube.upload",
         message: `YouTube upload request failed with HTTP ${response.status}.`,
         upstreamStatus: response.status,
+        upstreamCode:
+          reason === "quotaExceeded" || reason === "uploadLimitExceeded" ? reason : undefined,
         retryDisposition:
           response.status >= 500
             ? { kind: "reconcile-first" }

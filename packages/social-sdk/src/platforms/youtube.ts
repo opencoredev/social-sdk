@@ -25,7 +25,7 @@ import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { definedFields } from "../core/fields.js";
 import { verifyYouTubeWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
-import { createHttp, HttpError } from "../transport/http.js";
+import { abortable, createHttp, HttpError, retryDelay } from "../transport/http.js";
 import {
   array,
   isBoolean,
@@ -135,9 +135,9 @@ export interface YouTubeNative {
   /**
    * Deletes one comment with `comments.delete`. For a top-level comment, pass the thread's
    * `snippet.topLevelComment.id`; `commentThreads` has no delete method. Google documents a
-   * 403 `forbidden` for insufficient permissions and does not list which comments a channel
-   * may delete. Use `commentsModeration` with `setModerationStatus: "rejected"` to remove
-   * another user's comment from your video.
+   * 403 `forbidden` for insufficient permissions. Only the original author may delete a comment.
+   * Use `commentsModeration` with `setModerationStatus: "rejected"` to remove another user's
+   * comment from your video.
    */
   readonly deleteComment: (input: {
     readonly account: ConnectedAccountRef;
@@ -184,6 +184,38 @@ export interface YouTubeNative {
 /** Drop empty strings so optional query parameters are omitted rather than sent blank. */
 function nonEmpty(value: string | undefined): string | undefined {
   return value || undefined;
+}
+
+function writeResource(
+  body: JsonObject | undefined,
+  id: string | undefined,
+  operation: string,
+): JsonObject {
+  if (!body || (id !== undefined && body["id"] !== undefined && body["id"] !== id))
+    throw new SocialError({
+      code: "invalid_input",
+      operation,
+      message: "A write body is required and its ID must match the selected resource.",
+    });
+
+  return id === undefined ? body : { ...body, id };
+}
+
+function writeParts(
+  body: JsonObject | undefined,
+  allowed: readonly string[],
+  operation: string,
+): string {
+  const parts = Object.keys(body ?? {}).filter((key) => key !== "id");
+
+  if (parts.length === 0 || parts.some((key) => !allowed.includes(key)))
+    throw new SocialError({
+      code: "invalid_input",
+      operation,
+      message: "Supply supported writable resource parts.",
+    });
+
+  return parts.join(",");
 }
 
 export function youtube(
@@ -342,17 +374,38 @@ export function youtube(
   };
 
   const accountInfo = async (context: AdapterOperationContext): Promise<AccountRecord> => {
-    const result = object(
-      await request("/youtube/v3/channels", context, undefined, {
-        mine: "true",
-        part: "snippet",
-        maxResults: "50",
-      }),
-    );
+    let channel: JsonObject | undefined;
+    let pageToken: string | undefined;
+    const seen = new Set<string>();
 
-    const channel = array(result["items"])
-      .map(object)
-      .find((item) => item["id"] === options.auth.channelId);
+    do {
+      const result = object(
+        await request("/youtube/v3/channels", context, undefined, {
+          mine: "true",
+          part: "snippet",
+          maxResults: "50",
+          ...definedFields({ pageToken }),
+        }),
+      );
+
+      channel = array(result["items"])
+        .map(object)
+        .find((item) => item["id"] === options.auth.channelId);
+
+      if (channel) break;
+
+      pageToken = optionalString(result["nextPageToken"]);
+
+      if (pageToken) {
+        if (seen.has(pageToken) || seen.size >= 99)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "accounts.read",
+            message: "YouTube channel pagination did not terminate.",
+          });
+        seen.add(pageToken);
+      }
+    } while (channel === undefined && pageToken);
 
     if (!channel)
       throw new SocialError({
@@ -591,7 +644,8 @@ export function youtube(
           platform: "youtube",
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube.readonly"],
-          notes: "Uses search.list with type=video. Each request costs 100 quota units.",
+          notes:
+            "Uses search.list with type=video. Each page request costs 1 unit in a separate search quota bucket with a default limit of 100 calls per day.",
         },
         {
           operation: "comments.moderate",
@@ -774,9 +828,13 @@ export function youtube(
 
         if (
           target.content.text !== undefined &&
-          new TextEncoder().encode(target.content.text).byteLength > 5000
+          (new TextEncoder().encode(target.content.text).byteLength > 5000 ||
+            /[<>]/u.test(target.content.text))
         )
-          fail("youtube.description", "Description must be at most 5000 UTF-8 bytes.");
+          fail(
+            "youtube.description",
+            "Description must be at most 5000 UTF-8 bytes and contain no angle brackets.",
+          );
 
         if (
           target.schedule &&
@@ -1015,6 +1073,8 @@ export function youtube(
             operation: "posts.removeFromPlatform",
             message: "postId is required.",
           });
+
+        await get(ref, context);
 
         await request("/youtube/v3/videos", context, undefined, { id: ref.postId }, "DELETE");
       },
@@ -1287,16 +1347,38 @@ export function youtube(
       ): Promise<CommentRef> {
         authorize(ref, context);
 
-        const parentResult = object(
-          await request("/youtube/v3/comments", context, undefined, {
-            id: ref.commentId,
-            part: "snippet",
-          }),
-        );
+        let cursor: string | undefined;
+        let parentSnippet: JsonObject | undefined;
+        const seen = new Set<string>();
 
-        const parent = array(parentResult["items"]).map(object)[0];
+        do {
+          const page = object(
+            await request("/youtube/v3/commentThreads", context, undefined, {
+              videoId: ref.postId,
+              part: "snippet",
+              maxResults: "100",
+              ...definedFields({ pageToken: cursor }),
+            }),
+          );
 
-        const parentSnippet = parent === undefined ? undefined : object(parent["snippet"]);
+          parentSnippet = array(page["items"])
+            .map((value) => object(object(value)["snippet"]))
+            .find((snippet) => object(snippet["topLevelComment"] ?? {})["id"] === ref.commentId);
+
+          if (parentSnippet) break;
+
+          cursor = nonEmpty(optionalString(page["nextPageToken"]));
+
+          if (cursor) {
+            if (seen.has(cursor))
+              throw new SocialError({
+                code: "upstream_failure",
+                operation: "comments.write",
+                message: "YouTube comment pagination did not terminate.",
+              });
+            seen.add(cursor);
+          }
+        } while (parentSnippet === undefined && cursor !== undefined);
 
         if (parentSnippet === undefined || parentSnippet["videoId"] !== ref.postId)
           throw new SocialError({
@@ -1331,7 +1413,7 @@ export function youtube(
           });
 
         const uploadOptions = {
-          timeoutMs: remainingBudget(context),
+          timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
           accessToken: options.auth.accessToken,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
         };
@@ -1351,6 +1433,7 @@ export function youtube(
           });
 
         return queryYouTubeUpload(session, {
+          timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
           accessToken: options.auth.accessToken,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
         });
@@ -1384,33 +1467,112 @@ export function youtube(
 
           url.searchParams.set("tfmt", "vtt");
 
-          const response = await (options.fetch ?? globalThis.fetch)(url, {
-            headers: { Authorization: `Bearer ${options.auth.accessToken}` },
-            redirect: "error",
-            ...definedFields({ signal: context.signal }),
-          });
+          const controller = new AbortController();
+          const abort = () => controller.abort(context.signal?.reason);
+          const timeoutMs = remainingBudget(context);
+          const timer = setTimeout(() => controller.abort(), timeoutMs);
+          context.signal?.addEventListener("abort", abort, { once: true });
 
-          if (!response.ok)
+          if (context.signal?.aborted) abort();
+
+          try {
+            controller.signal.throwIfAborted();
+
+            const response = await abortable(
+              (options.fetch ?? globalThis.fetch)(url, {
+                headers: { Authorization: `Bearer ${options.auth.accessToken}` },
+                redirect: "error",
+                signal: controller.signal,
+              }).then((response) => {
+                if (controller.signal.aborted) {
+                  void response.body?.cancel().catch(() => undefined);
+                  controller.signal.throwIfAborted();
+                }
+
+                return response;
+              }),
+              controller.signal,
+            );
+
+            if (!response.ok) {
+              void response.body?.cancel().catch(() => undefined);
+              const delayMs = retryDelay(response.headers.get("retry-after"), Date.now());
+              throw new SocialError({
+                code:
+                  response.status === 401
+                    ? "reconnect_required"
+                    : response.status === 403
+                      ? "missing_permission"
+                      : response.status === 429
+                        ? "rate_limited"
+                        : "upstream_failure",
+                operation: "captions.download",
+                message: `YouTube returned HTTP ${response.status}.`,
+                upstreamStatus: response.status,
+                retryDisposition:
+                  response.status === 401
+                    ? { kind: "after-reconnect" }
+                    : response.status === 429 && delayMs !== undefined
+                      ? { kind: "after-delay", delayMs }
+                      : { kind: "never" },
+              });
+            }
+
+            if (!response.body)
+              return new Blob([], { type: response.headers.get("content-type") ?? "" });
+
+            const reader = response.body.getReader();
+            const chunks: Uint8Array<ArrayBuffer>[] = [];
+
+            try {
+              for (;;) {
+                const chunk = await abortable(reader.read(), controller.signal);
+
+                if (chunk.done) break;
+                chunks.push(new Uint8Array(chunk.value));
+              }
+
+              return new Blob(chunks, { type: response.headers.get("content-type") ?? "" });
+            } catch (error) {
+              void reader.cancel().catch(() => undefined);
+              throw error;
+            } finally {
+              reader.releaseLock();
+            }
+          } catch (error) {
+            if (error instanceof SocialError) throw error;
             throw new SocialError({
-              code: "upstream_failure",
+              code: context.signal?.aborted
+                ? "cancelled"
+                : controller.signal.aborted
+                  ? "timeout"
+                  : "upstream_failure",
               operation: "captions.download",
-              message: `YouTube returned HTTP ${response.status}.`,
-              upstreamStatus: response.status,
+              message: "Caption download did not complete.",
               retryDisposition: { kind: "never" },
             });
-
-          return response.blob();
+          } finally {
+            clearTimeout(timer);
+            context.signal?.removeEventListener("abort", abort);
+          }
         }
 
         if (action === "insert" || action === "update") {
-          if (!body || (action === "insert" && !caption))
+          if (action === "insert" && (!body || !caption))
             throw new SocialError({
               code: "invalid_input",
               operation: `captions.${action}`,
               message: "Caption metadata and media are required for insert.",
             });
 
-          const snippet = object(body["snippet"] ?? {});
+          const snippet = object(body?.["snippet"] ?? {});
+
+          if (action === "update" && !caption && !isBoolean(snippet["isDraft"]))
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "captions.update",
+              message: "Replacement media or an explicit isDraft change is required.",
+            });
 
           if (action === "insert" && (!videoId || (snippet["videoId"] ?? videoId) !== videoId))
             throw new SocialError({
@@ -1421,8 +1583,18 @@ export function youtube(
 
           const metadata: JsonObject =
             action === "update"
-              ? { ...body, id: captionId ?? body["id"] ?? null }
+              ? {
+                  id: captionId ?? body?.["id"] ?? null,
+                  ...definedFields({
+                    snippet:
+                      snippet["isDraft"] === undefined
+                        ? undefined
+                        : { isDraft: snippet["isDraft"] },
+                  }),
+                }
               : { ...body, snippet: { ...snippet, videoId: videoId ?? null } };
+
+          const part = action === "update" && snippet["isDraft"] === undefined ? "id" : "snippet";
 
           if (action === "update" && !isString(metadata["id"]))
             throw new SocialError({
@@ -1436,7 +1608,7 @@ export function youtube(
               "/youtube/v3/captions",
               context,
               JSON.stringify(metadata),
-              { part: "snippet" },
+              { part },
               "PUT",
               "application/json",
             );
@@ -1465,7 +1637,7 @@ export function youtube(
             "/upload/youtube/v3/captions",
             context,
             encoded,
-            { uploadType: "multipart", part: "snippet" },
+            { uploadType: "multipart", part },
             action === "update" ? "PUT" : "POST",
             `multipart/related; boundary=${boundary}`,
           );
@@ -1544,17 +1716,29 @@ export function youtube(
           await request(
             "/youtube/v3/playlists",
             context,
-            body,
+            action === "list"
+              ? undefined
+              : writeResource(body, action === "update" ? playlistId : undefined, "playlists"),
             {
-              part: "snippet,status,contentDetails",
-              ...definedFields({
-                id: nonEmpty(playlistId),
-                channelId: nonEmpty(channelId),
-                // Listing with no playlist or channel filter defaults to the caller's playlists.
-                mine: (action === "list" && !playlistId && !channelId) || mine ? "true" : undefined,
-                pageToken: nonEmpty(pageToken),
-                maxResults: maxResults ? String(maxResults) : undefined,
-              }),
+              part:
+                action === "list"
+                  ? "snippet,status,contentDetails"
+                  : writeParts(body, ["snippet", "status"], "playlists"),
+              ...definedFields(
+                action === "list"
+                  ? {
+                      id: nonEmpty(playlistId),
+                      channelId: nonEmpty(channelId),
+                      // Listing with no playlist or channel filter defaults to the caller's playlists.
+                      mine:
+                        (action === "list" && !playlistId && !channelId) || mine
+                          ? "true"
+                          : undefined,
+                      pageToken: nonEmpty(pageToken),
+                      maxResults: maxResults ? String(maxResults) : undefined,
+                    }
+                  : {},
+              ),
             },
             method,
           ),
@@ -1562,6 +1746,13 @@ export function youtube(
       },
       async playlistItems({ action, playlistId, playlistItemId, body, pageToken, context }) {
         nativeAuthorize(context);
+
+        if (action === "update" && !playlistItemId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "playlistItems.update",
+            message: "playlistItemId is required.",
+          });
 
         const method =
           action === "list"
@@ -1595,14 +1786,27 @@ export function youtube(
           await request(
             "/youtube/v3/playlistItems",
             context,
-            body,
+            action === "list"
+              ? undefined
+              : writeResource(
+                  body,
+                  action === "update" ? playlistItemId : undefined,
+                  "playlistItems",
+                ),
             {
-              part: "snippet,contentDetails",
-              ...definedFields({
-                playlistId: nonEmpty(playlistId),
-                id: nonEmpty(playlistItemId),
-                pageToken: nonEmpty(pageToken),
-              }),
+              part:
+                action === "list"
+                  ? "snippet,contentDetails"
+                  : writeParts(body, ["snippet", "contentDetails"], "playlistItems"),
+              ...definedFields(
+                action === "list"
+                  ? {
+                      playlistId: nonEmpty(playlistId),
+                      id: nonEmpty(playlistItemId),
+                      pageToken: nonEmpty(pageToken),
+                    }
+                  : {},
+              ),
             },
             method,
           ),
@@ -1630,13 +1834,75 @@ export function youtube(
           context,
         );
 
-        const merged = {
-          ...existing,
-          ...body,
-          id: videoId,
-          snippet: { ...object(existing["snippet"]), ...object(body["snippet"] ?? {}) },
-          status: { ...object(existing["status"] ?? {}), ...object(body["status"] ?? {}) },
+        if (
+          Object.keys(body).some((key) => !["id", "snippet", "status"].includes(key)) ||
+          (body["id"] !== undefined && body["id"] !== videoId)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "videos.update",
+            message: "Only snippet and status patches with the selected ID are supported.",
+          });
+
+        const writablePart = (part: string, keys: readonly string[]): JsonObject => {
+          const patch = object(body[part] ?? {});
+
+          if (Object.keys(patch).some((key) => !keys.includes(key)))
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "videos.update",
+              message: `Unsupported ${part} field.`,
+            });
+
+          const retained = { ...publicFields(existing[part], keys) };
+          const tags = object(existing[part])["tags"];
+
+          if (part === "snippet" && Array.isArray(tags) && tags.every(isString))
+            retained["tags"] = tags;
+
+          return Object.fromEntries(
+            Object.entries({ ...retained, ...patch }).filter(([, value]) => value !== null),
+          );
         };
+
+        const snippet = writablePart("snippet", [
+          "title",
+          "description",
+          "tags",
+          "categoryId",
+          "defaultLanguage",
+          "defaultAudioLanguage",
+        ]);
+
+        const status = writablePart("status", [
+          "privacyStatus",
+          "license",
+          "embeddable",
+          "publicStatsViewable",
+          "publishAt",
+          "selfDeclaredMadeForKids",
+          "containsSyntheticMedia",
+        ]);
+
+        if (
+          !isString(snippet["title"]) ||
+          !snippet["title"] ||
+          !isString(snippet["categoryId"]) ||
+          !snippet["categoryId"]
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "videos.update",
+            message: "title and categoryId must be retained or supplied.",
+          });
+
+        const nextStatus = Object.fromEntries(
+          Object.entries(status).filter(
+            ([key]) => key !== "publishAt" || status["privacyStatus"] === "private",
+          ),
+        );
+
+        const merged = { id: videoId, snippet, status: nextStatus };
 
         return object(
           await request("/youtube/v3/videos", context, merged, { part: "snippet,status" }, "PUT"),
@@ -1745,6 +2011,17 @@ export function youtube(
             message: "videoId is required.",
           });
 
+        await get(
+          {
+            kind: "platform-post",
+            version: 1,
+            backend: context.backendInstance,
+            platform: "youtube",
+            accountId: options.auth.channelId,
+            postId: videoId,
+          },
+          context,
+        );
         await request("/youtube/v3/videos", context, undefined, { id: videoId }, "DELETE");
       },
       async rateVideo({ videoId, rating, context }) {
@@ -1779,9 +2056,17 @@ export function youtube(
             message: "subscriptionId is required.",
           });
 
-        const insertBody = channelId
-          ? { snippet: { resourceId: { kind: "youtube#channel", channelId } } }
-          : undefined;
+        if (action === "insert" && !channelId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "subscriptions.insert",
+            message: "channelId is required.",
+          });
+
+        const insertBody =
+          action === "insert" && channelId
+            ? { snippet: { resourceId: { kind: "youtube#channel", channelId } } }
+            : undefined;
 
         if (action === "delete") {
           await request(
@@ -1801,14 +2086,18 @@ export function youtube(
             context,
             insertBody,
             {
-              part: "snippet,contentDetails",
+              part: action === "insert" ? "snippet" : "snippet,contentDetails",
               // Filter by subscription, else by channel, else list the caller's own subscriptions.
-              ...definedFields({
-                id: nonEmpty(subscriptionId),
-                channelId: subscriptionId ? undefined : nonEmpty(channelId),
-                mine: subscriptionId || channelId || action !== "list" ? undefined : "true",
-                pageToken: nonEmpty(pageToken),
-              }),
+              ...definedFields(
+                action === "list"
+                  ? {
+                      id: nonEmpty(subscriptionId),
+                      channelId: subscriptionId ? undefined : nonEmpty(channelId),
+                      mine: subscriptionId || channelId ? undefined : "true",
+                      pageToken: nonEmpty(pageToken),
+                    }
+                  : {},
+              ),
             },
             method,
           ),
@@ -1935,7 +2224,7 @@ export function youtube(
         if (action === "list")
           return object(
             await request("/youtube/v3/liveBroadcasts", context, undefined, {
-              part: "snippet,status",
+              part: "snippet,status,contentDetails",
               ...(id ? { id } : { mine: "true" }),
             }),
           );
@@ -1964,7 +2253,12 @@ export function youtube(
             "/youtube/v3/liveBroadcasts",
             context,
             body,
-            { part: "snippet,status" },
+            {
+              part:
+                body?.["contentDetails"] === undefined
+                  ? "snippet,status"
+                  : "snippet,status,contentDetails",
+            },
             "POST",
           ),
         );

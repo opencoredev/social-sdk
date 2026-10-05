@@ -7,58 +7,112 @@ The direct YouTube adapter accepts an existing OAuth access token and channel ID
 
 ## Setup
 
-<Steps>
-  <Step title="Configure Google OAuth">
-    Request `https://www.googleapis.com/auth/youtube.upload` when the connected workflow uploads
-    videos. Add `https://www.googleapis.com/auth/youtube.force-ssl` for captions and playlist
-    mutations, `https://www.googleapis.com/auth/youtube` to cancel a scheduled video, and
-    `https://www.googleapis.com/auth/yt-analytics.readonly` for Analytics API reports. Refresh with
-    `refreshOAuthToken("youtube", ...)` and persist any rotated refresh token.
-  </Step>
-  <Step title="Store credentials server-side">
-    Set `YOUTUBE_ACCESS_TOKEN` and `YOUTUBE_CHANNEL_ID` in server configuration. Upload bytes and
-    resumable session URIs are secrets too.
-  </Step>
-  <Step title="Configure the adapter">
-    Construct the backend and select the channel through a connected-account reference.
-  </Step>
-</Steps>
+1. Create a Google Cloud project, enable **YouTube Data API v3**, and enable **YouTube Analytics API** if you need reports. Configure the OAuth consent screen, audience, test users, and the scopes below.
+2. Create a web application OAuth client. Register the exact HTTPS redirect URI used by your server callback. Keep its client secret on the server. YouTube does not support service-account authorization for ordinary channels.
+3. Follow [Connect accounts](/authentication) with `youtubeOAuth` and `ConnectionManager`. Include `https://www.googleapis.com/auth/youtube.readonly` for channel discovery and the scopes needed by your operations. Present the discovered channels for selection and store the selected channel's token through an encrypted `credentialSink`.
+4. Use the discovered account's `accountId` as `channelId`, and its stored `token.accessToken` as `accessToken`. Refresh with `refreshOAuthToken("youtube", ...)` and persist any replacement refresh token. The direct adapter does not refresh tokens itself.
+
+External OAuth apps in **Testing** receive refresh tokens that expire after seven days when requesting YouTube scopes. Reconnect after expiry. OAuth consent verification and the YouTube API compliance audit are separate approvals.
+
+### Scopes by operation
+
+These are operation-specific choices, not a request to grant every scope. Use the full URLs in your `youtubeOAuth({ scopes: [...] })` configuration.
+
+| Operation                                                                     | Scope                                                                                            |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Channel discovery and private Data API reads                                  | `https://www.googleapis.com/auth/youtube.readonly`                                               |
+| Video upload                                                                  | `https://www.googleapis.com/auth/youtube.upload`                                                 |
+| Video update, delete, schedule cancellation; channel updates; live broadcasts | `https://www.googleapis.com/auth/youtube`                                                        |
+| Playlist and subscription writes                                              | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl` |
+| Comment writes, moderation, caption writes/downloads, ratings                 | `https://www.googleapis.com/auth/youtube.force-ssl`                                              |
+| Analytics reports                                                             | `https://www.googleapis.com/auth/yt-analytics.readonly`                                          |
+| Monetary Analytics metrics                                                    | `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`                                 |
+
+`youtube.readonly` cannot authorize mutations. Account/post statistics use the Data API read scope; Analytics reports use the separate Analytics scope. Public reads may have different upstream authorization requirements, but this adapter always uses its configured OAuth token.
+
+For a connection that discovers channels and uploads videos, configure the provider with these scopes and your encrypted credential store:
 
 ```ts
-import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
-import { youtube } from "@opencoredev/social-sdk/youtube";
+import { youtubeOAuth, type OAuthCredentialSink } from "@opencoredev/social-sdk/server";
 
-const social = createSocial({
-  backend: youtube({
-    auth: {
-      accessToken: process.env.YOUTUBE_ACCESS_TOKEN!,
-      channelId: process.env.YOUTUBE_CHANNEL_ID!,
-    },
-  }),
+function createYouTubeConnectionProvider(credentialSink: OAuthCredentialSink) {
+  return youtubeOAuth({
+    clientId: requiredEnv("GOOGLE_CLIENT_ID"),
+    clientSecret: requiredEnv("GOOGLE_CLIENT_SECRET"),
+    redirectUri: requiredEnv("GOOGLE_REDIRECT_URI"),
+    scopes: [
+      "openid",
+      "https://www.googleapis.com/auth/youtube.readonly",
+      "https://www.googleapis.com/auth/youtube.upload",
+    ],
+    credentialSink,
+  });
+}
+```
+
+Supply this provider to the connection flow in the linked guide. Add write or Analytics scopes only for operations your application offers. The adapter configuration below loads the selected channel and token from server configuration.
+
+```ts
+import { readFile, writeFile } from "node:fs/promises";
+import {
+  createSocial,
+  connectedAccountRef,
+  type AdapterOperationContext,
+  type MediaAttachment,
+} from "@opencoredev/social-sdk";
+import { youtube, type YouTubeNative } from "@opencoredev/social-sdk/youtube";
+
+type UploadSession = Parameters<YouTubeNative["queryUpload"]>[0];
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Configure ${name} on the server.`);
+  return value;
+}
+
+const channelId = requiredEnv("YOUTUBE_CHANNEL_ID");
+// Use an application-owned private directory. Never expose this file to clients.
+const sessionPath = requiredEnv("YOUTUBE_UPLOAD_SESSION_PATH");
+const backend = youtube({
+  auth: { accessToken: requiredEnv("YOUTUBE_ACCESS_TOKEN"), channelId },
+  saveUploadSession: async (session) => {
+    await writeFile(sessionPath, JSON.stringify(session), { mode: 0o600 });
+  },
 });
-
+const social = createSocial({ backend });
 const account = connectedAccountRef({
   backend: "default",
   platform: "youtube",
-  accountId: process.env.YOUTUBE_CHANNEL_ID!,
+  accountId: channelId,
 });
+
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (!native) throw new Error("YouTube native operations are unavailable.");
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: crypto.randomUUID(),
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+};
 ```
+
+Native access bypasses client middleware. Enforce tenant access in your server before calling it. Give each new operation a fresh context; requests sharing one context consume its elapsed budget.
 
 ## Examples
 
 ### Upload a video
 
-Preparation requires exactly one video, an actual `video/*` MIME type, a title from 1–100 characters, explicit `visibility`, and an explicit `madeForKids` value.
+Preparation requires exactly one video as a Blob or replayable stream, an actual `video/*` MIME type, explicit `visibility`, and explicit `madeForKids`. A stream needs its exact positive `byteSize` and an `open()` function that returns the same bytes each time. Remote URLs are rejected. Titles must contain 1 to 100 characters with no `<` or `>`; descriptions must contain no `<` or `>` and fit within 5000 UTF-8 bytes, not just 5000 characters.
 
 ```ts
-const media = {
-  kind: "video" as const,
-  source: { kind: "blob" as const, blob, fingerprint: contentHash },
+const blob = new Blob([await readFile("./video.mp4")], { type: "video/mp4" });
+const media: MediaAttachment = {
+  kind: "video",
+  source: { kind: "blob", blob, fingerprint: "video-file-v1" },
   mimeType: "video/mp4",
   byteSize: blob.size,
 };
 
-const result = await social.posts.publish({
+const uploadResult = await social.posts.publish({
   targets: [
     {
       account,
@@ -71,10 +125,10 @@ const result = await social.posts.publish({
 
 ### Schedule a video
 
-Pass `schedule` to upload now and let YouTube publish later. The adapter uploads the video as private with `status.publishAt` set to the scheduled time, and YouTube makes it public at that time. The time must be in the future.
+Pass `schedule` to upload now and let YouTube publish later. The adapter uploads the video as private with `status.publishAt` set to the scheduled time, and YouTube makes it public at that time. The time must be in the future. Scheduled release overrides `visibility`: even an `unlisted` request starts private and is released public.
 
 ```ts
-const result = await social.posts.publish({
+const scheduledResult = await social.posts.publish({
   targets: [
     {
       account,
@@ -82,7 +136,7 @@ const result = await social.posts.publish({
     },
   ],
   content: { text: "Description", media: [media] },
-  schedule: { at: "2026-10-01T15:00:00Z" },
+  schedule: { at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() },
 });
 ```
 
@@ -93,9 +147,9 @@ While the video waits for its publish time, the outcome is `scheduled` and carri
 `posts.cancelScheduled(job)` stops YouTube from publishing the video at the scheduled time. It does not delete the video. The adapter reads the video, checks that it belongs to the configured channel, is still `private`, and has a `publishAt` in the future, then calls `videos.update` with `part=status`. The result is `{ state: "cancelled", backendRecord: "retained" }`: the video stays uploaded and private with no scheduled time.
 
 ```ts
-const outcome = result.outcomes[0];
-if (outcome?.state === "scheduled") {
-  await social.posts.cancelScheduled(outcome.job);
+const scheduledOutcome = scheduledResult.outcomes[0];
+if (scheduledOutcome?.state === "scheduled") {
+  await social.posts.cancelScheduled(scheduledOutcome.job);
 }
 ```
 
@@ -108,31 +162,97 @@ Cancellation needs the `https://www.googleapis.com/auth/youtube` scope; `youtube
 YouTube separates upload completion from processing. A private video with a future `publishAt` maps to `scheduled`. Otherwise `uploaded` maps to `processing`, `processed` maps to `published`, and `failed`/`rejected` maps to a confirmed media failure. The returned watch URL is produced only with a verified video ID.
 
 ```ts
-const outcome = result.outcomes[0];
-if (outcome?.state === "processing" && outcome.delivery) {
-  const delivery = await social.posts.getDelivery(outcome.delivery);
+const processingOutcome = uploadResult.outcomes[0];
+if (processingOutcome?.state === "processing" && processingOutcome.delivery) {
+  const delivery = await social.posts.getDelivery(processingOutcome.delivery);
   console.log(delivery.state);
 }
 ```
 
 ### Resume an interrupted upload
 
-Resumable upload sessions can be persisted with `saveUploadSession`. A non-complete upload is `unknown` and must be resumed or reconciled explicitly; the adapter does not resume in the background.
+The setup's `saveUploadSession` callback persists the session before video bytes are sent. Store each upload separately in production and protect the secret `url` with encryption and server-only access. The session must retain its `size`, `mimeType`, and `channelId`. Never log or return it to a browser. A non-complete upload is `unknown`; the adapter does not resume in the background.
+
+Load and validate the saved session after a restart, then query it or resume with the same replayable video asset:
+
+```ts
+async function loadSession(): Promise<UploadSession> {
+  const value: unknown = JSON.parse(await readFile(sessionPath, "utf8"));
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("url" in value) ||
+    typeof value.url !== "string" ||
+    !("size" in value) ||
+    typeof value.size !== "number" ||
+    !Number.isSafeInteger(value.size) ||
+    value.size <= 0 ||
+    !("mimeType" in value) ||
+    typeof value.mimeType !== "string" ||
+    !("channelId" in value) ||
+    typeof value.channelId !== "string"
+  )
+    throw new Error("Invalid stored upload session.");
+  return { url: value.url, size: value.size, mimeType: value.mimeType, channelId: value.channelId };
+}
+
+const session = await loadSession();
+const uploadStatus = await native.queryUpload(session, { ...context });
+if (uploadStatus.state === "incomplete") {
+  await native.resumeUpload(session, media, { ...context });
+}
+```
+
+`resumeUpload` probes the server's confirmed offset before sending remaining bytes. Publish, resume, and query each get one deadline of at least 15 minutes, or the longer remaining caller budget. A resume probe and its chunks share that deadline. Pass `signal` to cancel earlier. For an expired session (typically HTTP 404/410), confirm the old video's state before starting a new upload; an expired URI cannot be resumed. Recreating a session can create another video.
 
 ### Receive push notifications
 
 YouTube sends new and updated videos through the PubSubHubbub hub. Subscribe with a `hub.secret` and pass the same value as `webhookSecret`; the hub then signs each delivery with `X-Hub-Signature`, and `adapter.webhooks.verify` checks it. Without a secret the hub sends unsigned notifications, so read the video through the API before acting on one. Answer the hub's GET verification with `answerYouTubeWebhookChallenge`, listing the topics you subscribed to. The decoded event lists the videos in `data.videos` with type `unknown`. See [Process webhooks](/events).
+
+POST form fields to `https://pubsubhubbub.appspot.com/subscribe`: `hub.mode=subscribe`, `hub.topic=https://www.youtube.com/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID`, `hub.callback=YOUR_HTTPS_CALLBACK`, `hub.verify=async`, `hub.lease_seconds=86400`, and `hub.secret=YOUR_SERVER_SECRET`. Use the same channel topic when answering the callback challenge:
+
+```ts
+import { answerYouTubeWebhookChallenge } from "@opencoredev/social-sdk/server";
+
+function answerHubVerification(callbackUrl: string) {
+  return answerYouTubeWebhookChallenge({
+    query: new URL(callbackUrl).searchParams,
+    topics: [
+      `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`,
+    ],
+  });
+}
+```
+
+Return the helper's status, headers, and challenge body from your GET handler. Renew the subscription before the granted lease expires; the SDK does not renew it. Uploads and title/description changes share Atom entries, so fetch the current video instead of inferring which field changed.
 
 ## Native operations
 
 Provider-shaped operations are available on `social.native`:
 
 ```ts
-const native = social.native("default", { acknowledgeUnsafe: true });
+const thumbnail: MediaAttachment = {
+  kind: "image",
+  mimeType: "image/jpeg",
+  source: {
+    kind: "blob",
+    blob: new Blob([await readFile("./thumbnail.jpg")]),
+    fingerprint: "thumbnail-v1",
+  },
+};
+const caption: MediaAttachment = {
+  kind: "document",
+  filename: "captions.vtt",
+  mimeType: "text/vtt",
+  source: {
+    kind: "blob",
+    blob: new Blob([await readFile("./captions.vtt")]),
+    fingerprint: "caption-v1",
+  },
+};
 await native.playlists({ action: "list", mine: true, context });
 await native.playlistItems({
   action: "insert",
-  playlistId: "PL...",
   body: { snippet: { playlistId: "PL...", resourceId: { kind: "youtube#video", videoId: "v1" } } },
   context,
 });
@@ -182,18 +302,86 @@ await native.updateProfile({
 
 YouTube deletes any mutable property that a write leaves out, so the adapter reads the current part with `channels.list` and merges your fields into it before the write. A `null` field removes that property or localization. Set `brandingSettings.channel.defaultLanguage` before you add localizations. YouTube [rejects a changed channel title](https://developers.google.com/youtube/v3/docs/channels/update#errors) with `channelTitleUpdateForbidden`, and the API has no write for the channel avatar or handle. The adapter resends the current banner URL unchanged and drops deprecated branding fields. Changing the banner takes a [`channelBanners.insert`](https://developers.google.com/youtube/v3/docs/channelBanners/insert) upload followed by a `channels.update` that sets `brandingSettings.image.bannerExternalUrl`, which `updateProfile` does not support. The call needs `https://www.googleapis.com/auth/youtube` and costs 51 quota units: 1 for the read and 50 for the write.
 
-`updateVideo` fetches the current `snippet` and `status` first, then sends the complete resource required by `videos.update`. Caption downloads use `action: "download"`; insert and update require explicit metadata and media. Held-for-review threads use `native.heldComments`. `deleteComment` calls [`comments.delete`](https://developers.google.com/youtube/v3/docs/comments/delete) with `youtube.force-ssl` and costs 50 quota units. Pass a top-level comment ID; comment threads have no delete method. Google does not document which comments a channel may delete, and a 403 raises `missing_permission`. To remove another user's comment from your video, use `commentsModeration` with `moderationStatus: "rejected"`. The normalized `social.search.posts(account, { query })` maps to public `search.list` results with `type=video`; YouTube accepts only the `recent` scope and limits pages to 50 items. Use `native.search` for provider filters such as `channelId`, `order`, and date bounds.
+`updateVideo` reads the authorized video and merges only writable `snippet` and `status` fields. It retains the required title and category ID. Set an optional field to `null` to clear it; `status.publishAt` is omitted when privacy becomes public or unlisted. Unsupported parts and fields are rejected locally.
+
+Thumbnails must be Blob inputs. [`thumbnails.set`](https://developers.google.com/youtube/v3/docs/thumbnails/set) accepts `image/jpeg`, `image/png`, and `application/octet-stream`, up to 50 MB. Custom thumbnails require channel eligibility; an upstream 403 raises `missing_permission`. The example uses an existing JPEG file.
+
+Caption insertion needs metadata (`language`, `name`, and the selected video's ID) and a caption Blob. Updates can change only `snippet.isDraft` without media, or replace bytes without a snippet (`part=id`). Supply `isDraft` explicitly to change draft status; a draft track is not visible to viewers. Download with `action: "download"` and a `captionId`; downloads are bounded by the caller's remaining elapsed budget and honor cancellation.
+
+Held-for-review threads use `native.heldComments`. [`comments.delete`](https://developers.google.com/youtube/v3/docs/comments/delete) is restricted to the comment's original author. Pass the top-level comment ID, not a reply-thread container. A forbidden deletion raises `missing_permission`. To remove another user's comment from your video, use `commentsModeration` with `moderationStatus: "rejected"`. Rejected moderation is irreversible through the API. Comment replies verify the parent thread's video before inserting a reply.
+
+### Update playlists safely
+
+Playlist writes replace each selected part. Resend the complete mutable fields for that part, including description and privacy when writing them. The adapter injects the selected ID and rejects a conflicting body ID. It only selects parts present in your body.
+
+```ts
+await native.playlists({
+  action: "update",
+  playlistId: "PL...",
+  body: {
+    snippet: { title: "Releases", description: "Release videos" },
+    status: { privacyStatus: "private" },
+  },
+  context,
+});
+await native.playlistItems({
+  action: "update",
+  playlistItemId: "playlist-item-id",
+  body: {
+    snippet: {
+      playlistId: "PL...",
+      position: 0,
+      resourceId: { kind: "youtube#video", videoId: "v1" },
+    },
+  },
+  context,
+});
+```
+
+Moving an item requires a playlist with manual ordering and the **playlist-item ID** returned by `playlistItems.list`; a video ID identifies the video and a playlist ID identifies its container. A snippet-only move leaves `contentDetails.note` untouched. If you write `contentDetails`, resend any note or other writable fields you want to keep.
+
+### Search and Analytics
+
+Normalized `social.search.posts(account, { query, startTime, endTime })` maps the ISO date bounds to `publishedAfter` and `publishedBefore`, with `type=video`. Only the `recent` scope is accepted and pages contain at most 50 items. Use `native.search` for `channelId`, `order`, or a different result type.
+
+```ts
+const report = await social.analytics.getReport(account, {
+  from: "2026-01-01",
+  to: "2026-01-31",
+  metrics: ["views", "estimatedMinutesWatched"],
+  dimensions: ["day"],
+});
+const filteredReport = await native.analytics({
+  query: {
+    ids: "channel==MINE",
+    startDate: "2026-01-01",
+    endDate: "2026-01-31",
+    metrics: "views,estimatedMinutesWatched",
+    dimensions: "day",
+    filters: "video==v1",
+    sort: "day",
+  },
+  context,
+});
+```
+
+Reports need `https://www.googleapis.com/auth/yt-analytics.readonly`; monetary metrics need `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`. Analytics has separate quota from the Data API and may lag current activity. Provider metric/dimension/filter combinations must be valid for the selected report.
+
+### Live broadcasts
+
+`native.liveBroadcasts` supports a limited list (configured channel or selected ID), insertion, and transition to `testing`, `live`, or `complete`. Reads include `contentDetails`, and inserts select caller-supplied `contentDetails`. The channel must have live streaming enabled. Stream creation, stream binding, live chat, and expanded list filters remain outside this surface. A broadcast generally needs a separately created and bound stream before transition.
 
 ## Limits and requirements
 
 :::warning
-Unverified Google projects may be restricted to private uploads. The adapter does not turn a private upload into public visibility.
+Uploads from unaudited API projects created after July 28, 2020 are restricted to private visibility. A [YouTube API compliance audit](https://developers.google.com/youtube/v3/docs/videos/insert) is required to lift that restriction. OAuth consent-screen verification does not replace this audit.
 :::
 
 - Quota, channel eligibility, scopes, and API audit status remain upstream conditions.
-- Data API quota costs are method-specific: list/search/get operations generally cost 1 unit; playlist and video mutations cost 50, so schedule cancellation costs 51 including its read; `thumbnails.set` costs approximately 50; captions list/delete cost 50, insert 400, update 450, and download 200; subscriptions mutations cost 50; comment moderation mutations cost 50. `search.list` is also subject to Google's documented 100-calls-per-day Search Queries limit.
-- Playlist and video management generally uses `youtube` or `youtube.readonly`; ratings and captions use `youtube.force-ssl`; uploads use `youtube.upload`. Google OAuth verification, channel ownership, and project quota remain approval or account conditions.
-- Video uploads get at least 15 minutes, even when `retryBudget.maxElapsedMs` is shorter, because the default 30-second budget cannot fit a real upload. Pass a longer budget for very large files, and pass `signal` to cancel an upload early.
+- Google's [current quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost) gives `videos.insert` and `search.list` separate buckets of 100 calls per day, at 1 unit per call. Other list/get calls generally cost 1 unit from the Data API quota.
+- Video update/delete and playlist writes cost 50 units; schedule cancellation costs 51 including its ownership read. `thumbnails.set` costs 50; captions list/delete cost 50, insert 400, update 450, and download 200; subscription and comment mutations cost 50. Additional adapter reads consume their own units.
+- Channel upload caps are separate from project quota. `uploadLimitExceeded` and `quotaExceeded` raise `rate_limited` during upload with a sanitized upstream reason. Neither is retried automatically; resolve the cap or quota before starting another write.
+- Upload, resume, and status probes get at least 15 minutes per invocation. Pass a longer budget for large files and a `signal` to cancel early.
 - Current evidence is contract coverage, not a live channel verification.
 
 See YouTube's [videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert) documentation for current audit and quota rules, [videos.update](https://developers.google.com/youtube/v3/docs/videos/update) and the [videos resource](https://developers.google.com/youtube/v3/docs/videos#status.publishAt) for `status.publishAt` rules, and [channels.update](https://developers.google.com/youtube/v3/docs/channels/update) for the channel fields you can write.

@@ -3419,7 +3419,7 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube.readonly"
           ],
-          "notes": "Uses search.list with type=video. Each request costs 100 quota units."
+          "notes": "Uses search.list with type=video. Each page request costs 1 unit in a separate search quota bucket with a default limit of 100 calls per day."
         },
         {
           "operation": "comments.moderate",
