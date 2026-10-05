@@ -15,17 +15,23 @@ Social SDK runs in Next.js server code: route handlers, server actions, and serv
 
 Keep one module that constructs the client and mark it server-only so a client import fails at build time.
 
+An `idempotencyKey` only stops a retried request from posting twice when the client has an `idempotencyStore`. Give it a durable store that every server instance shares. The [Neon guide](/integrations/neon#durable-stores) includes a Postgres implementation.
+
 ```ts lib/social.ts
 import "server-only";
 import { createSocial } from "@opencoredev/social-sdk";
 import { x } from "@opencoredev/social-sdk/x";
+import { idempotencyStore } from "./stores"; // your durable IdempotencyStore
 
 export const social = createSocial({
   backend: x({
     auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
   }),
+  idempotencyStore,
 });
 ```
+
+This client holds one X account's token, so it can only publish as `X_USER_ID`. The adapter rejects a reference to any other account. To publish for several accounts, load each account's credentials from your encrypted credential store and build a client for that account. See [authentication](/authentication).
 
 ## Publish from a route handler
 
@@ -33,20 +39,35 @@ export const social = createSocial({
 import { connectedAccountRef } from "@opencoredev/social-sdk";
 import { social } from "@/lib/social";
 
+function parseBody(body: unknown): { text: string; draftId: string } | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  if (!("text" in body) || !("draftId" in body)) return undefined;
+  const { text, draftId } = body;
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  if (typeof draftId !== "string" || draftId.length === 0) return undefined;
+  return { text, draftId };
+}
+
 export async function POST(request: Request) {
-  const session = await requireSession(request); // your auth
-  const { text } = await request.json();
+  const tenant = await requireTenant(request); // your auth
+  const input = parseBody(await request.json().catch(() => null));
+  if (!input) return new Response("Expected text and draftId", { status: 400 });
 
   const account = connectedAccountRef({
     backend: "default",
     platform: "x",
-    accountId: await resolveAuthorizedAccount(session), // your tenant check
+    accountId: await resolveAuthorizedAccount(tenant), // your tenant check
   });
 
-  const result = await social.posts.publish({
-    targets: [{ account }],
-    content: { text },
-  });
+  const result = await social.posts.publish(
+    {
+      targets: [{ account }],
+      content: { text: input.text },
+      idempotencyKey: input.draftId,
+    },
+    // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+    { authorization: { tenantId: tenant.id } },
+  );
 
   return Response.json({
     status: result.status,
@@ -66,45 +87,159 @@ import { connectedAccountRef } from "@opencoredev/social-sdk";
 import { social } from "@/lib/social";
 
 export async function publishPost(formData: FormData) {
-  const session = await requireSession();
+  const text = formData.get("text");
+  const draftId = formData.get("draftId");
+  if (typeof text !== "string" || text.length === 0) throw new Error("Text is required");
+  if (typeof draftId !== "string" || draftId.length === 0) throw new Error("Draft ID is required");
+
+  const tenant = await requireTenant();
   const account = connectedAccountRef({
     backend: "default",
     platform: "x",
-    accountId: await resolveAuthorizedAccount(session),
+    accountId: await resolveAuthorizedAccount(tenant),
   });
 
-  return social.posts.publish({
-    targets: [{ account }],
-    content: { text: String(formData.get("text")) },
-    idempotencyKey: String(formData.get("draftId")),
-  });
+  const result = await social.posts.publish(
+    { targets: [{ account }], content: { text }, idempotencyKey: draftId },
+    { authorization: { tenantId: tenant.id } },
+  );
+
+  // Return only what the browser needs; delivery references stay on the server.
+  return { status: result.status, states: result.outcomes.map((o) => o.state) };
 }
 ```
 
-Pass an idempotency key derived from your own draft identity so a double-submitted form cannot publish twice.
+Derive the idempotency key from your own draft identity. With the durable store above, a double-submitted form returns the first result instead of posting twice. If a retry returns `unknown`, the first attempt may have posted. Stop there and check the account before you publish again, even under a new draft ID. See [idempotency](/concepts/idempotency).
 
 ## Mount the example handler
 
-The repository ships a complete Request/Response handler with account selection, publishing, reconciliation, and webhook intake. Mount it under a catch-all route:
+The repository's [`apps/example`](https://github.com/opencoredev/social-sdk/tree/main/apps/example) app has a complete Request/Response handler with account selection, publishing, reconciliation, and webhook intake. It is a private workspace package. It is not part of `@opencoredev/social-sdk` and is not published to npm, so there is no subpath to import it from. Copy it into your project instead.
+
+This mount exposes the example’s API routes. It does not serve the example UI: the route adapter maps requests under `/api/social` to `/api`, while the standalone UI uses `/` and `/example.js`. The copy below therefore needs no `public` directory or compiled `ui-client.js`. To run the standalone UI, follow the example app’s README with the full repository checkout.
+
+The handler opens a local PGlite database on its first request and applies the Drizzle migrations from `apps/example/drizzle`, so copy that directory along with `src`. From your project root, with a checkout of the repository at `../social-sdk`:
+
+```bash
+mkdir social-example
+cp -R ../social-sdk/apps/example/src social-example/src
+cp -R ../social-sdk/apps/example/drizzle social-example/drizzle
+```
+
+That gives this layout:
+
+```text
+app/
+  api/social/[...path]/route.ts
+social-example/
+  src/       # app.ts, db/, frameworks/, ...
+  drizzle/   # 0000_init.sql and meta/_journal.json
+next.config.ts
+```
+
+Install the copy's dependencies, which come from `apps/example/package.json`:
+
+```package-install
+@electric-sql/pglite @neondatabase/serverless drizzle-orm
+```
+
+Next.js bundles route handlers, and the copy is written for Node's own module loader, so it needs three changes before it builds and runs.
+
+First, its relative imports end in `.js`, and Next.js does not map those to the `.ts` files. Remove the suffix:
+
+```bash
+perl -pi -e 's/(from "\.{1,2}\/[^"]*)\.js"/$1"/' $(find social-example/src -name '*.ts')
+```
+
+Second, `social-example/src/db/client.ts` locates the migrations with `new URL("../../drizzle", import.meta.url)`. The bundler tries to resolve that directory as an asset and the build fails. Replace the `node:url` import and the two path constants with paths from the project root, which is the working directory of `next dev`, `next build`, and `next start`:
+
+```ts social-example/src/db/client.ts
+import { join } from "node:path";
+
+const migrationsFolder = join(process.cwd(), "social-example", "drizzle");
+
+export const defaultPgliteDir = join(process.cwd(), ".data", "pglite");
+```
+
+Third, keep PGlite out of the bundle so it can load its WebAssembly files. Without this, every API request fails with HTTP 500:
+
+```ts next.config.ts
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@electric-sql/pglite"],
+};
+
+export default nextConfig;
+```
+
+Then mount the route and import from your copy:
 
 ```ts app/api/social/[...path]/route.ts
-import { createNextRoute } from "@opencoredev/social-sdk-example/frameworks/next-route";
+import { createNextRoute } from "@/social-example/src/frameworks/next-route";
 
 export const { GET, POST } = createNextRoute();
 ```
 
-See [framework recipes](/getting-started/framework-recipes) for the handler's behavior and configuration.
+The example answers only requests for `localhost:3030` and `127.0.0.1:3030` and returns HTTP 421 for any other host, so start Next.js on that port with `next dev -p 3030`. To use another host or port, pass `allowedHosts` and `allowedOrigins`:
+
+```ts app/api/social/[...path]/route.ts
+import { createExampleHandler } from "@/social-example/src/app";
+import { createNextRoute } from "@/social-example/src/frameworks/next-route";
+
+export const { GET, POST } = createNextRoute(
+  createExampleHandler({
+    allowedHosts: ["localhost:3000"],
+    allowedOrigins: ["http://localhost:3000"],
+  }),
+);
+```
+
+`GET /api/social/accounts` then lists two mock accounts, and `POST /api/social/publish` publishes to them. The example starts with a local mock backend and a demo session. Replace the session with your own authentication before it touches real accounts. See [framework recipes](/getting-started/framework-recipes) for the handler's behavior.
+
+The example's `POST /api/connect/callback` takes a JSON body with `attemptId`, `callbackUrl`, and `returnedState`. It is not the URL a provider redirects to. Providers redirect the browser with a `GET` to the redirect URI you registered, so add your own `GET` route at that URI. In it, authenticate the session, take the tenant and principal from the session, and pass the full callback URL and returned `state` to `ConnectionManager.discover`, then `select` the accounts the user picks. OAuth redirects carry no webhook signature, so keep this route separate from webhook verification. [Authentication](/authentication) describes `begin`, `discover`, and `select`.
 
 ## Webhooks
 
-Verify provider events against the raw request bytes before parsing. Next.js route handlers give you the untouched body through `request.arrayBuffer()` and the headers as a `Headers` object:
+This route receives [Zernio](/backends/zernio) webhooks, so it only applies when you publish through the Zernio managed backend. The direct X client above sends its own webhooks: verify those with `verifyXWebhook` and answer the CRC check with `answerXWebhookChallenge`, as the [events guide](/events#verify-direct-platform-webhooks) shows.
+
+Verify events against the raw request bytes before parsing. The route reads the body before anything is authenticated, so cap it while reading. `request.arrayBuffer()` would buffer the whole body first, and a `Content-Length` check alone misses chunked requests. The cap matches the verifier's 1 MiB default:
+
+```ts lib/read-limited.ts
+/** Reads at most `limit` bytes of the body, or returns undefined when it is larger. */
+export async function readLimited(request: Request, limit: number) {
+  if (Number(request.headers.get("content-length") ?? 0) > limit) return undefined;
+  if (request.body === null) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+```
 
 ```ts app/api/events/route.ts
 import { SocialError } from "@opencoredev/social-sdk";
 import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
+import { readLimited } from "@/lib/read-limited";
 
 export async function POST(request: Request) {
-  const body = new Uint8Array(await request.arrayBuffer());
+  const body = await readLimited(request, 1024 * 1024);
+  if (!body) return new Response("payload too large", { status: 413 });
 
   try {
     await verifyZernioWebhook({

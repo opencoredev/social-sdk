@@ -11,18 +11,55 @@ Convex applications call Social SDK from actions running in the Node runtime, an
 @opencoredev/social-sdk
 ```
 
-## Publish from a Node action
+## Select Node 22 or 24
 
-The SDK requires the Node runtime, so put publishing in a file with the `"use node"` directive. Store credentials in Convex environment variables, never in tables or client code.
+Convex runs Node actions on Node.js 20 by default, which is below the SDK's Node 22.12 minimum. Set `node.nodeVersion` in `convex.json` to `"22"` or `"24"`. The setting needs the `convex` package 1.27.0 or later:
+
+```json convex.json
+{
+  "$schema": "./node_modules/convex/schemas/convex.schema.json",
+  "node": { "nodeVersion": "24" }
+}
+```
+
+Run `npx convex dev` or `npx convex deploy` to apply it. For a few minutes after the change, some actions may still run on the old version. Self-hosted Convex backends ignore this setting and use the Node version in the backend's `.nvmrc`, so check that file instead. These details come from Convex's [project configuration](https://docs.convex.dev/production/project-configuration) and [runtimes](https://docs.convex.dev/functions/runtimes) documentation as of October 5, 2026.
+
+## Create the client in one module
+
+The SDK requires the Node runtime, so every file that imports it starts with the `"use node"` directive. Store credentials in Convex environment variables, never in tables or client code.
+
+Actions can run more than once, so an `idempotencyKey` must be backed by a durable `idempotencyStore`. Without one, a retried action publishes again. Implement the [`IdempotencyStore`](/concepts/idempotency) contract with Convex functions: `claim` must be a single mutation that inserts the claim or returns the existing one, so two actions can't both get a new claim, and `saveOutcome` patches one target's outcome into it. The [Neon guide](/integrations/neon#durable-stores) shows the same contract in Postgres.
+
+```ts convex/socialClient.ts
+"use node";
+
+import type { ActionCtx } from "./_generated/server";
+import { createSocial } from "@opencoredev/social-sdk";
+import { x } from "@opencoredev/social-sdk/x";
+import { convexIdempotencyStore } from "./idempotency"; // your IdempotencyStore on Convex mutations
+
+export function createSocialClient(ctx: ActionCtx) {
+  return createSocial({
+    backend: x({
+      auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
+    }),
+    idempotencyStore: convexIdempotencyStore(ctx),
+  });
+}
+```
+
+This client holds one X account's token, so it can only publish as `X_USER_ID`. The adapter rejects a reference to any other account. Your `accounts` table can list many accounts, but with this client the authorized row's `accountId` must equal `X_USER_ID`. To publish for several accounts, load each account's credentials from encrypted storage and build a client for that account. See [authentication](/authentication).
+
+## Publish from a Node action
 
 ```ts convex/social.ts
 "use node";
 
-import { action } from "./_generated/server";
-import { api } from "./_generated/api";
 import { v } from "convex/values";
-import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
-import { x } from "@opencoredev/social-sdk/x";
+import { connectedAccountRef } from "@opencoredev/social-sdk";
+import { action } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import { createSocialClient } from "./socialClient";
 
 export const publish = action({
   args: { draftId: v.id("drafts"), text: v.string() },
@@ -35,29 +72,30 @@ export const publish = action({
       subject: identity.subject,
     });
     if (!account) throw new Error("No authorized account");
+    if (account.accountId !== process.env.X_USER_ID) throw new Error("No credentials for account");
 
-    const social = createSocial({
-      backend: x({
-        auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
-      }),
-    });
-
-    const result = await social.posts.publish({
-      targets: [
-        {
-          account: connectedAccountRef({
-            backend: "default",
-            platform: "x",
-            accountId: account.accountId,
-          }),
-        },
-      ],
-      content: { text: args.text },
-      idempotencyKey: args.draftId,
-    });
+    const social = createSocialClient(ctx);
+    const result = await social.posts.publish(
+      {
+        targets: [
+          {
+            account: connectedAccountRef({
+              backend: "default",
+              platform: "x",
+              accountId: account.accountId,
+            }),
+          },
+        ],
+        content: { text: args.text },
+        idempotencyKey: args.draftId,
+      },
+      // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+      { authorization: { tenantId: account.tenantId } },
+    );
 
     // Persist every outcome; a mutation records it durably.
-    await ctx.runMutation(api.deliveries.record, {
+    await ctx.runMutation(internal.deliveries.record, {
+      tenantId: account.tenantId,
       draftId: args.draftId,
       outcomes: result.outcomes.map((o) => ({
         state: o.state,
@@ -70,34 +108,77 @@ export const publish = action({
 });
 ```
 
-Using the Convex draft ID as the idempotency key means a retried action cannot double-publish.
+With the durable store, a retried action with the same draft ID returns the first result instead of posting again. If that result is `unknown`, the first attempt may have posted. Stop there and check the account before you publish again, even under a new draft ID.
 
 ## Reconcile processing outcomes
 
-Store the delivery reference, then reconcile from a later action instead of polling in the background:
+The X adapter has no delivery-status read. An X publish settles during the call and never returns `processing`, and `posts.getDelivery` throws a `SocialError` with code `unsupported_capability` for an X reference. Treat an X `unknown` as the end of automation: mark the draft for review and check the account's posts before anything publishes again.
+
+Reconciliation applies when you publish through a backend that implements `posts.status`, such as Threads, Instagram, TikTok, YouTube, or a managed backend; the [capability matrix](/reference/capabilities) lists them. Build `createSocialClient` for that backend, store the outcome's `delivery` reference as above, and reconcile from a later action instead of polling in the background:
 
 ```ts convex/reconcile.ts
 "use node";
 
-export const reconcile = action({
+import { v } from "convex/values";
+import { internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { createSocialClient } from "./socialClient"; // built for a backend with posts.status
+
+export const reconcile = internalAction({
   args: { deliveryId: v.id("deliveries") },
   handler: async (ctx, args) => {
-    const saved = await ctx.runQuery(api.deliveries.get, { id: args.deliveryId });
-    const outcome = await social.posts.getDelivery(saved.ref);
-    await ctx.runMutation(api.deliveries.update, { id: args.deliveryId, state: outcome.state });
+    const saved = await ctx.runQuery(internal.deliveries.get, { id: args.deliveryId });
+    if (!saved?.delivery) return; // no reference to read; leave the row for review
+
+    const social = createSocialClient(ctx);
+    const outcome = await social.posts.getDelivery(saved.delivery, {
+      authorization: { tenantId: saved.tenantId },
+    });
+    await ctx.runMutation(internal.deliveries.update, {
+      id: args.deliveryId,
+      state: outcome.state,
+    });
   },
 });
 ```
 
-Convex [scheduled functions](https://docs.convex.dev/scheduling/scheduled-functions) or crons can trigger reconciliation at the cadence you choose. The schedule belongs to your application; the SDK never polls on its own.
+Convex [scheduled functions](https://docs.convex.dev/scheduling/scheduled-functions) or crons can trigger reconciliation at the cadence you choose. The schedule belongs to your application; the SDK never polls on its own. Adapters that keep a local workflow, such as Threads and Instagram, also need a durable `workflowStore` shared by every action, because the default in-memory store disappears when the action ends.
 
 ## Webhooks through an HTTP action
 
-Convex HTTP actions expose the raw request, which webhook verification requires:
+Convex HTTP actions expose the raw request, which webhook verification requires. The action reads the body before anything is authenticated, so cap it while reading. `request.arrayBuffer()` would buffer the whole body first, and a `Content-Length` check alone misses chunked requests. `readBody` stops at the verifier's 1 MiB default and the action answers a larger body with 413:
 
 ```ts convex/http.ts
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
+
+/** Reads at most `maxBytes` of the body, or returns undefined when it is larger. */
+async function readBody(request: Request, maxBytes = 1024 * 1024): Promise<Uint8Array | undefined> {
+  if (Number(request.headers.get("content-length")) > maxBytes) return undefined;
+  if (request.body === null) return new Uint8Array();
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
 
 const http = httpRouter();
 
@@ -105,7 +186,8 @@ http.route({
   path: "/events",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const body = new Uint8Array(await request.arrayBuffer());
+    const body = await readBody(request);
+    if (body === undefined) return new Response("payload too large", { status: 413 });
     // Verify against raw bytes, decode, then accept into an "inbox" table.
     // Quarantine events whose accounts resolve to no authorized tenant.
     return new Response("accepted", { status: 202 });
@@ -121,4 +203,4 @@ Model the durable inbox from the [events guide](/events) as a Convex table, with
 
 - Only `"use node"` actions can run the SDK; queries and mutations cannot make network calls.
 - Keep platform tokens in Convex environment variables and pass account selection through your own authorization queries.
-- Publishing state machines survive action retries because outcomes and idempotency keys live in tables.
+- Action retries are safe only because the idempotency claims and outcomes live in Convex tables. A retry that finds a claim without a saved outcome returns `unknown`, which needs review, not another publish.

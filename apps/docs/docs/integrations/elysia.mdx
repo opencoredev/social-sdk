@@ -68,27 +68,40 @@ export const app = new Elysia().post(
 );
 ```
 
-Elysia rejects a body that fails the schema with a 422 before your handler runs. See [idempotency](/concepts/idempotency) for how keys, fingerprints, and `unknown` outcomes fit together.
+Elysia rejects a body that fails the schema with a 422 before your handler runs. See [idempotency](/concepts/idempotency) for how keys, fingerprints, and `unknown` outcomes fit together. If a retry returns `unknown`, the first attempt may have posted, so check the account before you publish again, even under a new draft ID.
+
+This client holds one Bluesky session, so it can only publish as `BLUESKY_DID`. The adapter rejects a reference to any other account. To publish for several accounts, load each account's credentials from your encrypted credential store and build a client for that account. See [authentication](/authentication).
 
 ## Webhooks from the raw request
 
-Elysia parses JSON bodies by default, and a `Request` body can only be read once. Set `parse: "none"` on the webhook route so verification reads the exact bytes the provider signed. Pass `request.headers` as is, because verifiers read signatures with `headers.get()`. Built-in verifiers throw a `SocialError` with code `unauthorized` for a missing or invalid signature, so map that error to a 401.
+Bluesky sends no webhooks. Its events arrive over WebSocket streams, as the [events guide](/events#verify-direct-platform-webhooks) explains, so the Bluesky client above has nothing to verify. The route below is a separate one for the [Zernio](/backends/zernio) managed backend, which signs each delivery with `X-Zernio-Signature`. It uses the standalone `verifyZernioWebhook` with your endpoint secret and needs no client.
 
-The route reads the body before anything is authenticated, so it stops at 1 MiB, the built-in verifiers' default limit. A `Content-Length` check alone is not enough, because chunked requests omit it:
+Elysia parses JSON bodies by default, and a `Request` body can only be read once. Set `parse: "none"` on the webhook route so verification reads the exact bytes the provider signed. Pass `request.headers` as is, because verifiers read signatures with `headers.get()`. The verifier resolves on success and throws a `SocialError` with code `unauthorized` for a missing or invalid signature or an oversized body, so map that error to a 401.
+
+The route reads the body before anything is authenticated, so it stops at 1 MiB, the verifier's default limit. A `Content-Length` check alone is not enough, because chunked requests omit it:
 
 ```ts
 import { SocialError } from "@opencoredev/social-sdk";
+import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
 const MAX_WEBHOOK_BYTES = 1024 * 1024;
 
-async function readLimited(request: Request, limit: number): Promise<Uint8Array | null> {
-  if (Number(request.headers.get("content-length") ?? 0) > limit) return null;
+/** Reads at most `limit` bytes of the body, or returns undefined when it is larger. */
+async function readLimited(request: Request, limit: number) {
+  if (Number(request.headers.get("content-length") ?? 0) > limit) return undefined;
+  if (request.body === null) return new Uint8Array();
+  const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of request.body ?? []) {
-    size += chunk.byteLength;
-    if (size > limit) return null;
-    chunks.push(chunk);
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
   }
   const body = new Uint8Array(size);
   let offset = 0;
@@ -100,20 +113,22 @@ async function readLimited(request: Request, limit: number): Promise<Uint8Array 
 }
 
 app.post(
-  "/events",
+  "/zernio/events",
   async ({ request, status }) => {
     const body = await readLimited(request, MAX_WEBHOOK_BYTES);
     if (!body) return status(413, "payload too large");
-    let verification;
     try {
-      verification = await adapter.webhooks?.verify({ headers: request.headers, body }, context);
+      await verifyZernioWebhook({
+        secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+        headers: request.headers,
+        body,
+      });
     } catch (error) {
       if (error instanceof SocialError && error.code === "unauthorized") {
         return status(401, "unauthorized");
       }
       throw error;
     }
-    if (!verification?.valid) return status(401, "unauthorized");
     // decode, resolve tenants, accept into your durable inbox
     return status(202, "accepted");
   },
@@ -125,17 +140,49 @@ See the [events guide](/events) for the decode, quarantine, and worker steps.
 
 ## Mount the example handler
 
-Elysia's `mount` forwards the untouched request to any fetch handler and strips the mount prefix from the path. The repository's example Hono adapter already accepts prefix-free paths, so it works here unchanged. Import it from the example app in the Social SDK repository:
+Elysia's `mount` forwards the untouched request to any fetch handler and strips the mount prefix from the path. The example's Hono adapter already accepts prefix-free paths, so it works here unchanged.
+
+The adapter lives in the repository's [`apps/example`](https://github.com/opencoredev/social-sdk/tree/main/apps/example) app. It is a private workspace package. It is not part of `@opencoredev/social-sdk` and is not published to npm, so there is no subpath to import it from. Copy it into your project instead.
+
+The handler opens a local PGlite database on its first request and applies the Drizzle migrations from `apps/example/drizzle`. The database module finds them at `../../drizzle` relative to `src/db/client.ts`, so copy both directories and keep them side by side. From your project root, with a checkout of the repository at `../social-sdk`:
+
+```bash
+mkdir -p src/social-example
+cp -R ../social-sdk/apps/example/src src/social-example/src
+cp -R ../social-sdk/apps/example/drizzle src/social-example/drizzle
+```
+
+That gives this layout. Without `drizzle/`, every API request fails with HTTP 500 because the migrations cannot be found.
+
+```text
+src/
+  app.ts
+  social-example/
+    src/       # app.ts, db/, frameworks/, ...
+    drizzle/   # 0000_init.sql and meta/_journal.json
+```
+
+Install the copy's dependencies, which come from `apps/example/package.json`:
+
+```package-install
+@electric-sql/pglite @neondatabase/serverless drizzle-orm
+```
+
+Then mount it:
 
 ```ts
 import { Elysia } from "elysia";
-import { createExampleHandler } from "../../apps/example/src/app.js";
-import { createHonoFetch } from "../../apps/example/src/frameworks/hono.js";
+import { createExampleHandler } from "./social-example/src/app.js";
+import { createHonoFetch } from "./social-example/src/frameworks/hono.js";
 
 const app = new Elysia().mount("/social", createHonoFetch(createExampleHandler()));
 ```
 
-Requests to `/social/accounts` and `/social/publish` reach the example API. [Framework recipes](/getting-started/framework-recipes) documents what the example handler provides.
+If you compile with `tsc` instead of running TypeScript directly, copy `drizzle/` next to the compiled `social-example/src` as well, so the relative path still resolves.
+
+Requests to `/social/accounts` and `/social/publish` reach the example API. With the server below on port 3030, the first lists two mock accounts and the second publishes to them. The example starts with a local mock backend and a demo session. Replace the session with your own authentication before it touches real accounts. It also answers only requests for `localhost:3030` and `127.0.0.1:3030`. On another host or port, pass `allowedHosts` and `allowedOrigins` to `createExampleHandler`, or it returns HTTP 421. [Framework recipes](/getting-started/framework-recipes) documents what the handler provides.
+
+The example's `POST /api/connect/callback` takes a JSON body with `attemptId`, `callbackUrl`, and `returnedState`. It is not the URL a provider redirects to. Providers redirect the browser with a `GET` to the redirect URI you registered, so add your own `GET` route at that URI. In it, authenticate the session, take the tenant and principal from the session, and pass the full callback URL and returned `state` to `ConnectionManager.discover`, then `select` the accounts the user picks. OAuth redirects carry no webhook signature, so keep this route separate from webhook verification. [Authentication](/authentication) describes `begin`, `discover`, and `select`.
 
 ## Run on Bun or Node
 

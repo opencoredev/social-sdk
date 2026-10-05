@@ -13,10 +13,13 @@ Hono's fetch-native design fits Social SDK directly: routes receive a standard `
 
 ## Publish from a route
 
+An `idempotencyKey` only stops a retried request from posting twice when the client has an `idempotencyStore`. Give it a durable store that every process shares. The [Neon guide](/integrations/neon#durable-stores) includes a Postgres implementation.
+
 ```ts src/app.ts
 import { Hono } from "hono";
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
 import { bluesky } from "@opencoredev/social-sdk/bluesky";
+import { idempotencyStore } from "./stores.js"; // your durable IdempotencyStore
 
 const social = createSocial({
   backend: bluesky({
@@ -26,27 +29,42 @@ const social = createSocial({
       accessJwt: process.env.BLUESKY_ACCESS_JWT!,
     },
   }),
+  idempotencyStore,
 });
+
+function parseBody(body: unknown): { text: string; draftId: string } | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  if (!("text" in body) || !("draftId" in body)) return undefined;
+  const { text, draftId } = body;
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  if (typeof draftId !== "string" || draftId.length === 0) return undefined;
+  return { text, draftId };
+}
 
 const app = new Hono();
 
 app.post("/publish", async (c) => {
   const tenant = await requireTenant(c); // your auth middleware
-  const { text, draftId } = await c.req.json();
+  const input = parseBody(await c.req.json().catch(() => null));
+  if (!input) return c.text("Expected text and draftId", 400);
 
-  const result = await social.posts.publish({
-    targets: [
-      {
-        account: connectedAccountRef({
-          backend: "default",
-          platform: "bluesky",
-          accountId: await resolveAuthorizedAccount(tenant),
-        }),
-      },
-    ],
-    content: { text },
-    idempotencyKey: draftId,
-  });
+  const result = await social.posts.publish(
+    {
+      targets: [
+        {
+          account: connectedAccountRef({
+            backend: "default",
+            platform: "bluesky",
+            accountId: await resolveAuthorizedAccount(tenant),
+          }),
+        },
+      ],
+      content: { text: input.text },
+      idempotencyKey: input.draftId,
+    },
+    // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+    { authorization: { tenantId: tenant.id } },
+  );
 
   return c.json({
     status: result.status,
@@ -57,52 +75,93 @@ app.post("/publish", async (c) => {
 export default app;
 ```
 
+This client holds one Bluesky session, so it can only publish as `BLUESKY_DID`. The adapter rejects a reference to any other account. To publish for several accounts, load each account's credentials from your encrypted credential store and build a client for that account. See [authentication](/authentication).
+
+If a retry returns `unknown`, the first attempt may have posted. Stop there and check the account before you publish again, even under a new draft ID. See [idempotency](/concepts/idempotency).
+
 ## Webhooks from the raw request
 
-Hono exposes the untouched request as `c.req.raw`. Read its bytes before any JSON parsing and pass its `Headers` object as is:
+This route receives [Zernio](/backends/zernio) webhooks, so it only applies when you publish through the Zernio managed backend. Bluesky itself sends no webhooks; its events arrive over WebSocket streams, as the [events guide](/events#verify-direct-platform-webhooks) explains.
+
+Hono exposes the untouched request as `c.req.raw`. Read its bytes before any JSON parsing and pass its `Headers` object as is. The route reads the body before anything is authenticated, so put Hono's `bodyLimit` middleware in front of it. It rejects a larger `Content-Length` up front and stops a chunked body once it passes the limit, so the handler never buffers more than the verifier's 1 MiB default:
 
 ```ts
+import { bodyLimit } from "hono/body-limit";
 import { SocialError } from "@opencoredev/social-sdk";
 import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
-app.post("/events", async (c) => {
-  const body = new Uint8Array(await c.req.raw.arrayBuffer());
+app.post(
+  "/events",
+  bodyLimit({ maxSize: 1024 * 1024, onError: (c) => c.text("payload too large", 413) }),
+  async (c) => {
+    const body = new Uint8Array(await c.req.raw.arrayBuffer());
 
-  try {
-    await verifyZernioWebhook({
-      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
-      headers: c.req.raw.headers,
-      body,
-    });
-  } catch (error) {
-    if (error instanceof SocialError && error.code === "unauthorized") {
-      return c.text("unauthorized", 401);
+    try {
+      await verifyZernioWebhook({
+        secret: process.env.ZERNIO_WEBHOOK_SECRET!,
+        headers: c.req.raw.headers,
+        body,
+      });
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized") {
+        return c.text("unauthorized", 401);
+      }
+      throw error;
     }
-    throw error;
-  }
 
-  // decode, resolve tenants, accept into your durable inbox
-  return c.text("accepted", 202);
-});
+    // decode, resolve tenants, accept into your durable inbox
+    return c.text("accepted", 202);
+  },
+);
 ```
 
 See the [events guide](/events) for the decode, quarantine, and worker steps.
 
 ## Mount the example handler
 
-The repository's example handler speaks Request/Response, so it drops into Hono with one adapter line:
+The repository's [`apps/example`](https://github.com/opencoredev/social-sdk/tree/main/apps/example) app has a Request/Response handler with account selection, publishing, reconciliation, and webhook intake. It is a private workspace package. It is not part of `@opencoredev/social-sdk` and is not published to npm, so there is no subpath to import it from. Copy it into your project instead.
+
+The handler opens a local PGlite database on its first request and applies the Drizzle migrations from `apps/example/drizzle`. The database module finds them at `../../drizzle` relative to `src/db/client.ts`, so copy both directories and keep them side by side. From your project root, with a checkout of the repository at `../social-sdk`:
+
+```bash
+mkdir -p src/social-example
+cp -R ../social-sdk/apps/example/src src/social-example/src
+cp -R ../social-sdk/apps/example/drizzle src/social-example/drizzle
+```
+
+That gives this layout. Without `drizzle/`, every API request fails with HTTP 500 because the migrations cannot be found.
+
+```text
+src/
+  app.ts
+  social-example/
+    src/       # app.ts, db/, frameworks/, ...
+    drizzle/   # 0000_init.sql and meta/_journal.json
+```
+
+Install the copy's dependencies, which come from `apps/example/package.json`:
+
+```package-install
+@electric-sql/pglite @neondatabase/serverless drizzle-orm
+```
+
+Then mount it:
 
 ```ts
 import { Hono } from "hono";
-import { createExampleHandler } from "@opencoredev/social-sdk-example/app";
-import { createHonoFetch } from "@opencoredev/social-sdk-example/frameworks/hono";
+import { createExampleHandler } from "./social-example/src/app.js";
+import { createHonoFetch } from "./social-example/src/frameworks/hono.js";
 
 const example = createHonoFetch(createExampleHandler());
 const app = new Hono();
 app.all("/social/*", (c) => example(c.req.raw));
 ```
 
-[Framework recipes](/getting-started/framework-recipes) documents what the example handler provides.
+If you compile with `tsc` instead of running TypeScript directly, copy `drizzle/` next to the compiled `social-example/src` as well, so the relative path still resolves.
+
+With the server below on port 3030, `GET /social/accounts` lists two mock accounts and `POST /social/publish` publishes to them. The example starts with a local mock backend and a demo session. Replace the session with your own authentication before it touches real accounts. It also answers only requests for `localhost:3030` and `127.0.0.1:3030`. On another host or port, pass `allowedHosts` and `allowedOrigins` to `createExampleHandler`, or it returns HTTP 421. [Framework recipes](/getting-started/framework-recipes) documents what the handler provides.
+
+The example's `POST /api/connect/callback` takes a JSON body with `attemptId`, `callbackUrl`, and `returnedState`. It is not the URL a provider redirects to. Providers redirect the browser with a `GET` to the redirect URI you registered, so add your own `GET` route at that URI. In it, authenticate the session, take the tenant and principal from the session, and pass the full callback URL and returned `state` to `ConnectionManager.discover`, then `select` the accounts the user picks. OAuth redirects carry no webhook signature, so keep this route separate from webhook verification. [Authentication](/authentication) describes `begin`, `discover`, and `select`.
 
 ## Run on Node or Bun
 

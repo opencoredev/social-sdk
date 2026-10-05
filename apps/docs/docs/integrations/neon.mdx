@@ -42,7 +42,7 @@ export default defineConfig({
 });
 ```
 
-`env` values are read when `neon deploy` evaluates the file, so load them from a local file that stays out of version control:
+`env` values are read when `neon deploy` evaluates the file, so load them from a local file that stays out of version control. Add `ZERNIO_WEBHOOK_SECRET` the same way if you use the webhook route below:
 
 ```bash
 neon deploy --env .env.production
@@ -93,14 +93,16 @@ create table threads_workflows (
 );
 ```
 
-Tokens do not belong in these tables. The function connects as the database owner, so every query must filter by the tenant you verified.
+`tenants` is the table your application already uses for tenant identity, keyed by the same ID your authentication resolves. Create it before these tables if you don't have one.
+
+Tokens do not belong in these tables. The function connects as the database owner, so every query must filter by the tenant you verified. Connection attempts and stored OAuth credentials hold secrets too, such as PKCE verifiers, provider state, and refresh tokens. If you store them in Postgres, keep them in separate tables scoped to the tenant and principal, encrypt the credentials, and use compare-and-set revisions when you refresh them, as [authentication](/authentication#store-contract-and-recovery) describes.
 
 ## Durable stores
 
 Neon runs several isolates in parallel and can evict any of them, so nothing the SDK needs later can live in memory. Two stores need Postgres:
 
 - The client's `idempotencyStore` stops a retried request from posting twice. `MemoryIdempotencyStore` only covers one isolate.
-- The Threads adapter's `workflowStore` holds each post between the publish call and the Threads API writes. The default `MemoryThreadsWorkflowStore` loses the post when the isolate goes away.
+- The Threads adapter's `workflowStore` keeps each post's progress through the Threads API calls, so a later call can continue it. The default `MemoryThreadsWorkflowStore` loses the post when the isolate goes away.
 
 ```ts src/stores.ts
 import type { Pool } from "pg";
@@ -186,7 +188,7 @@ Keep the lease longer than the retry budget you pass to `resumePublication` belo
 
 ## Publish from the function
 
-Threads publishing takes two steps. `posts.publish` records the post in the workflow store and returns `processing`; the adapter's native `resumePublication` makes the Threads API calls. The route runs both, so a post normally goes out during the request.
+`posts.publish` stores a Threads workflow, claims it, and makes the Threads API calls before it returns. The outcome is `published` when Threads finishes, `processing` when media is still being processed or another isolate holds the workflow's claim, and `unknown` when a write may or may not have reached Threads. For `processing`, the route calls the adapter's native `resumePublication` once more, so most posts finish during the request.
 
 ```ts src/index.ts
 import { Hono } from "hono";
@@ -202,11 +204,19 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
 // Without an error listener, an idle connection dropped at scale to zero crashes the isolate.
 attachDatabasePool(pool);
 
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not set`);
+  return value;
+}
+
+const threadsUserId = requiredEnv("THREADS_USER_ID");
+
 const social = createSocial({
   backend: threads({
     auth: {
-      userId: process.env.THREADS_USER_ID!,
-      accessToken: process.env.THREADS_ACCESS_TOKEN!,
+      userId: threadsUserId,
+      accessToken: requiredEnv("THREADS_ACCESS_TOKEN"),
     },
     workflowStore: postgresThreadsWorkflowStore(pool),
   }),
@@ -236,9 +246,10 @@ async function advance(deliveryId: string, ref: DeliveryRef) {
 
 function parsePublishBody(body: unknown) {
   if (typeof body !== "object" || body === null) return undefined;
-  const { draftId, text } = body as Record<string, unknown>;
+  if (!("draftId" in body) || !("text" in body)) return undefined;
+  const { draftId, text } = body;
   if (typeof draftId !== "string" || !/^[\w-]{1,100}$/.test(draftId)) return undefined;
-  // Threads caps a post at 500 characters.
+  // A local check in UTF-16 code units, the same count the adapter uses. Threads counts on its side.
   if (typeof text !== "string" || text.length === 0 || text.length > 500) return undefined;
   return { draftId, text };
 }
@@ -251,9 +262,10 @@ app.post("/publish", bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
   if (!input) return c.text("Expected a draftId and 1 to 500 characters of text", 400);
   const { draftId, text } = input;
 
+  // This client only holds credentials for THREADS_USER_ID, so only that account can publish.
   const { rows } = await pool.query(
-    "select account_id, backend from connected_accounts where tenant_id = $1 and platform = 'threads'",
-    [tenant.id],
+    "select account_id, backend from connected_accounts where tenant_id = $1 and platform = 'threads' and account_id = $2",
+    [tenant.id, threadsUserId],
   );
   const acct = rows[0];
   if (!acct) return c.text("No authorized Threads account", 403);
@@ -333,7 +345,7 @@ app.post("/reconcile", async (c) => {
 });
 ```
 
-The workflow store's claim stops two isolates from resuming the same post at once, so an overlapping or redelivered run does no harm. A workflow whose publish outcome is `unknown` is never replayed: `resumePublication` reports `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes. Pick whatever cadence suits you; the SDK never polls on its own.
+The workflow store's claim stops two isolates from resuming the same post at once, so an overlapping or redelivered run does no harm. `resumePublication` and `posts.getDelivery` both continue a workflow that is still `processing`, from the stage it reached. A workflow whose state is `unknown` is never replayed: both report `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes. Pick whatever cadence suits you; the SDK never polls on its own.
 
 To test the route locally, run `neon dev` and replay the trigger call:
 
@@ -346,38 +358,44 @@ curl -X POST http://localhost:8787/reconcile \
 
 ## Webhooks
 
-Hono exposes the untouched request as `c.req.raw`. Read its bytes before any JSON parsing and pass its `Headers` object as is:
+This route receives [Zernio](/backends/zernio) webhooks, so it only applies when you publish through the Zernio managed backend. Threads sends its own webhooks to a direct integration: verify those with `verifyMetaWebhook` and answer the subscription check with `answerMetaWebhookChallenge`, as the [events guide](/events#verify-direct-platform-webhooks) shows. The body handling below is the same for both.
+
+Hono exposes the untouched request as `c.req.raw`. Read its bytes before any JSON parsing and pass its `Headers` object as is. The route reads the body before anything is authenticated, so `bodyLimit` caps it at the verifier's 1 MiB default, including chunked requests without a `Content-Length`:
 
 ```ts
 import { SocialError } from "@opencoredev/social-sdk";
 import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
-app.post("/events", async (c) => {
-  const body = new Uint8Array(await c.req.raw.arrayBuffer());
+app.post(
+  "/events",
+  bodyLimit({ maxSize: 1024 * 1024, onError: (c) => c.text("payload too large", 413) }),
+  async (c) => {
+    const body = new Uint8Array(await c.req.raw.arrayBuffer());
 
-  try {
-    await verifyZernioWebhook({
-      secret: process.env.ZERNIO_WEBHOOK_SECRET!,
-      headers: c.req.raw.headers,
-      body,
-    });
-  } catch (error) {
-    if (error instanceof SocialError && error.code === "unauthorized") {
-      return c.text("unauthorized", 401);
+    try {
+      await verifyZernioWebhook({
+        secret: requiredEnv("ZERNIO_WEBHOOK_SECRET"),
+        headers: c.req.raw.headers,
+        body,
+      });
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized") {
+        return c.text("unauthorized", 401);
+      }
+      throw error;
     }
-    throw error;
-  }
 
-  // decode, resolve tenants, insert into events_inbox with ON CONFLICT DO NOTHING
-  return c.text("accepted", 202);
-});
+    // decode, resolve tenants, insert into events_inbox with ON CONFLICT DO NOTHING
+    return c.text("accepted", 202);
+  },
+);
 ```
 
 Keep the inbox in an `events_inbox` table with a unique dedupe key, following the [events guide](/events). Process pending rows from a second scheduled trigger instead of `waitUntil`: Neon documents `waitUntil` for short post-response work, and an evicted isolate drops anything still in memory.
 
 ## Notes
 
-- When Neon evicts an isolate, it sends `SIGINT` and stops the process five seconds later. If that happens before `posts.publish` saves anything, the caller retries with the same draft ID and the idempotency store keeps the retry from posting twice. If it happens after, the workflow is already in Postgres and the next reconcile run picks it up.
+- When Neon evicts an isolate, it sends `SIGINT` and stops the process five seconds later. If that happens before `posts.publish` claims the draft ID, nothing was sent, and the caller can retry. If it happens during `posts.publish`, the claim exists without an outcome, so a retry with the same draft ID returns `unknown` without calling Threads; review that draft before publishing again. If it happens after the `deliveries` row is saved as `processing`, the next reconcile run resumes it.
 - Each branch gets its own function URL and a copy of the parent's data, including `connected_accounts` and `threads_workflows`. Deploy preview branches with test credentials so a preview can't post to production accounts.
 - Neon enforces a per-account limit on concurrent invocations and answers extra requests with `429` and a `Retry-After` header before your handler runs. No publish happened in that case, so the caller can retry.
 - Functions are available only in some Neon regions. Check the [Neon Functions overview](https://neon.com/docs/compute/functions/overview) before creating the project.

@@ -93,7 +93,7 @@ surreal sql --endpoint "$SURREAL_URL" --user root --pass "$SURREAL_ROOT_PASS" \
   --namespace app --database social < schema.surql
 ```
 
-A `SCHEMAFULL` table rejects any field it doesn't define, including keys nested inside an `object` field. The SDK's delivery references, outcomes, and workflows are JSON whose keys can change between SDK versions, so those fields are `FLEXIBLE`. Tokens do not belong in these tables.
+A `SCHEMAFULL` table rejects any field it doesn't define, including keys nested inside an `object` field. The SDK's delivery references, outcomes, and workflows are JSON whose keys can change between SDK versions, so those fields are `FLEXIBLE`. Tokens do not belong in these tables. Connection attempts and stored OAuth credentials hold secrets too, such as PKCE verifiers, provider state, and refresh tokens. If you store them in SurrealDB, keep them in separate tables scoped to the tenant and principal, encrypt the credentials, and use compare-and-set revisions when you refresh them, as [authentication](/authentication#store-contract-and-recovery) describes.
 
 Each delivery record will get an array ID, `delivery:[tenant, draftId]`. The ID is unique per tenant and draft, so the delivery table needs no separate unique index.
 
@@ -102,7 +102,7 @@ Each delivery record will get an array ID, `delivery:[tenant, draftId]`. The ID 
 Nothing the SDK needs later can live in process memory, because a restart or a second server instance would lose it. Two stores need SurrealDB:
 
 - The client's `idempotencyStore` stops a retried request from posting twice. `MemoryIdempotencyStore` only covers one process.
-- The Threads adapter's `workflowStore` holds each post between the publish call and the Threads API writes. The default `MemoryThreadsWorkflowStore` loses the post when the process exits.
+- The Threads adapter's `workflowStore` keeps each post's progress through the Threads API calls, so a later call can continue it. The default `MemoryThreadsWorkflowStore` loses the post when the process exits.
 
 ```ts src/stores.ts
 import { RecordId, Surreal, surql } from "surrealdb";
@@ -208,7 +208,7 @@ In SurrealDB 3, `UPDATE` on a missing record returns an empty result instead of 
 
 ## Publish
 
-Threads publishing takes two steps. `posts.publish` records the post in the workflow store and returns `processing`; the adapter's native `resumePublication` makes the Threads API calls. `publishDraft` runs both, so a post normally goes out before it returns. Call it from your route handler after you have verified the tenant.
+`posts.publish` stores a Threads workflow, claims it, and makes the Threads API calls before it returns. The outcome is `published` when Threads finishes, `processing` when media is still being processed or another process holds the workflow's claim, and `unknown` when a write may or may not have reached Threads. For `processing`, `publishDraft` calls the adapter's native `resumePublication` once more, so most posts finish before it returns. Call it from your route handler after you have verified the tenant.
 
 ```ts src/social.ts
 import { RecordId, surql } from "surrealdb";
@@ -217,10 +217,12 @@ import { threads } from "@opencoredev/social-sdk/threads";
 import { db } from "./db";
 import { surrealIdempotencyStore, surrealThreadsWorkflowStore } from "./stores";
 
+const threadsUserId = process.env.THREADS_USER_ID!;
+
 export const social = createSocial({
   backend: threads({
     auth: {
-      userId: process.env.THREADS_USER_ID!,
+      userId: threadsUserId,
       accessToken: process.env.THREADS_ACCESS_TOKEN!,
     },
     workflowStore: surrealThreadsWorkflowStore(db),
@@ -260,8 +262,10 @@ export async function advance(delivery: RecordId<"delivery">, ref: DeliveryRef) 
 export async function publishDraft(tenantId: string, draftId: string, text: string) {
   const [accounts] = await db
     .query<[{ id: RecordId<"connected_account">; account_id: string; backend: string }[]]>(
+      // This client only holds credentials for THREADS_USER_ID, so only that account can publish.
       surql`SELECT id, account_id, backend FROM connected_account
-        WHERE tenant = ${tenantId} AND platform = "threads" LIMIT 1`,
+        WHERE tenant = ${tenantId} AND platform = "threads" AND account_id = ${threadsUserId}
+        LIMIT 1`,
     )
     .collect();
   const acct = accounts[0];
@@ -311,6 +315,8 @@ export async function publishDraft(tenantId: string, draftId: string, text: stri
 }
 ```
 
+This client holds one Threads account's token, so it can only publish as `THREADS_USER_ID`, and the query only accepts that account. To publish for several accounts, load each account's credentials from encrypted storage and build a client for that account.
+
 Validate `draftId` and `text` before calling `publishDraft`. Threads caps a post at 500 characters. A second call with the same draft ID and text returns the saved result without posting again; the same draft ID with different text is rejected as an idempotency conflict.
 
 ## Reconcile
@@ -319,11 +325,12 @@ A delivery can still be `processing` when `publishDraft` returns: Threads may no
 
 ```ts
 export async function reconcile() {
-  // account.id is NONE once the tenant deletes the connected account, so those rows are skipped.
+  // Skip deliveries whose connected account was deleted or now belongs to another tenant.
   const [rows] = await db
     .query<[DeliveryRow[]]>(
       surql`SELECT id, state, delivery_ref FROM delivery
-        WHERE state = "processing" AND account.id != NONE LIMIT 20`,
+        WHERE state = "processing" AND record::exists(account) AND account.tenant = tenant
+        LIMIT 20`,
     )
     .collect();
 
@@ -333,7 +340,7 @@ export async function reconcile() {
 }
 ```
 
-Run it every few minutes from a scheduler such as [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), [Restate](/integrations/restate), or a cron job. The workflow store's claim stops two processes from resuming the same post at once, so an overlapping run does no harm. A workflow whose publish outcome is `unknown` is never replayed: `resumePublication` reports `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes.
+Run it every few minutes from a scheduler such as [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), [Restate](/integrations/restate), or a cron job. `record::exists(account)` checks that the linked `connected_account` record still exists, and `account.tenant = tenant` checks that it still belongs to the delivery's tenant. The workflow store's claim stops two processes from resuming the same post at once, so an overlapping run does no harm. `resumePublication` and `posts.getDelivery` both continue a workflow that is still `processing`, from the stage it reached. A workflow whose state is `unknown` is never replayed: both report `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes.
 
 ## Webhooks
 

@@ -17,10 +17,10 @@ The examples also use `pg`, and they need a running Restate server. Follow the [
 
 ## Durable stores still matter
 
-The Restate journal records a step's result only after the step returns. If the service crashes during `ctx.run`, Restate runs that step again, and the SDK sees a fresh call. Two SDK stores make that repeat harmless, so both must be durable and shared by every service instance:
+The Restate journal records a step's result only after the step returns. If the service crashes during `ctx.run`, Restate runs that step again, and the SDK sees a fresh call. Two SDK stores keep that repeat from posting twice, so both must be durable and shared by every service instance:
 
-- The client's `idempotencyStore` turns a repeated `posts.publish` into a read of the first result.
-- The Threads adapter's `workflowStore` holds each post between `posts.publish` and the Threads API writes, and its claim lease stops two instances from resuming the same post.
+- The client's `idempotencyStore` claims the draft before any Threads call and turns a repeated `posts.publish` into a read of the first result, or `unknown` if the first attempt never saved one.
+- The Threads adapter's `workflowStore` keeps each post's progress through the Threads API calls so a later call can continue it, and its claim lease stops two instances from resuming the same post.
 
 The [Neon guide](/integrations/neon#durable-stores) has Postgres implementations of both stores, with their schema. They work with any Postgres database. Keep them in `src/stores.ts`.
 
@@ -44,10 +44,12 @@ import { postgresIdempotencyStore, postgresThreadsWorkflowStore } from "./stores
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
 
+const threadsUserId = process.env.THREADS_USER_ID!;
+
 const social = createSocial({
   backend: threads({
     auth: {
-      userId: process.env.THREADS_USER_ID!,
+      userId: threadsUserId,
       accessToken: process.env.THREADS_ACCESS_TOKEN!,
     },
     workflowStore: postgresThreadsWorkflowStore(pool),
@@ -58,7 +60,7 @@ const social = createSocial({
 // Native calls skip the client's tenant checks, so the API authorizes the account first.
 const native = social.native("default", { acknowledgeUnsafe: true })!;
 
-export interface PublishRequest {
+export interface DraftRequest {
   readonly tenantId: string;
   readonly draftId: string;
   readonly accountId: string;
@@ -66,7 +68,7 @@ export interface PublishRequest {
 }
 
 type DraftState = {
-  request: PublishRequest;
+  request: DraftRequest;
   outcome: DeliveryOutcome;
   cancelled: boolean;
   reconcileRuns: number;
@@ -122,9 +124,12 @@ async function resume(ctx: DraftContext, ref: DeliveryRef): Promise<DeliveryOutc
 export const draft = restate.object({
   name: "Draft",
   handlers: {
-    publish: async (ctx: DraftContext, request: PublishRequest) => {
+    publish: async (ctx: DraftContext, request: DraftRequest) => {
       if (ctx.key !== `${request.tenantId}:${request.draftId}`)
         throw new restate.TerminalError("Object key does not match the request");
+      // This service only holds credentials for THREADS_USER_ID.
+      if (request.accountId !== threadsUserId)
+        throw new restate.TerminalError("No credentials for this account");
       const previous = await ctx.get("request");
       if (previous && (previous.accountId !== request.accountId || previous.text !== request.text))
         throw new restate.TerminalError("Draft was already submitted with different content");
@@ -203,11 +208,13 @@ restate deployments register http://localhost:9080
 
 ### How the handlers behave
 
-`publish` records the post and resumes it right away, so most posts go out during the first invocation. Threads publishing takes two steps: `posts.publish` stores a workflow and returns `processing`, and the adapter's native `resumePublication` makes the Threads API calls.
+`posts.publish` stores a Threads workflow, claims it, and makes the Threads API calls before it returns. The outcome is `published` when Threads finishes, `processing` when media is still being processed or another instance holds the workflow's claim, and `unknown` when a write may or may not have reached Threads. For `processing`, `publish` calls `resume` right away, which runs the adapter's native `resumePublication`, so most posts go out during the first invocation.
+
+This service holds one Threads account's token, so it can only publish as `THREADS_USER_ID`, and `publish` rejects any other account ID. To publish for several accounts, load each account's credentials from encrypted storage and build a client for that account.
 
 When media is still processing, or the resume step fails all five attempts, `resume` sends a delayed `reconcile` message to the same draft instead of sleeping. The draft doesn't block other calls while it waits, and a running invocation never keeps an old deployment alive. After 30 runs, about an hour, the draft stops rescheduling and stays `processing` for you to review.
 
-`unknown` is final here. The Threads workflow reports `unknown` when a write may or may not have reached Threads, and `resumePublication` won't replay it. Leave those drafts for review, as the [idempotency guide](/concepts/idempotency) describes.
+`unknown` is final here, and it stops automation for the draft. The Threads workflow reports `unknown` when a write may or may not have reached Threads, and `resumePublication` won't replay it. Leave those drafts for review, as the [idempotency guide](/concepts/idempotency) describes. Don't publish the same content under a new draft ID until someone has checked the Threads account and confirmed the post isn't there.
 
 A draft accepts one request. Publishing the same draft ID again with a different account or text fails with a `TerminalError` instead of returning the first outcome, so an edited draft is never reported as published when it wasn't.
 
@@ -222,11 +229,11 @@ Your web app authenticates the user, checks that the tenant owns the account, an
 ```ts src/api/publish.ts
 import { createHash } from "node:crypto";
 import * as clients from "@restatedev/restate-sdk-clients";
-import type { DraftObject, PublishRequest } from "../draft";
+import type { DraftObject, DraftRequest } from "../draft";
 
 const restate = clients.connect({ url: process.env.RESTATE_INGRESS_URL! });
 
-export async function queuePublish(request: PublishRequest, publishAt?: Date) {
+export async function queuePublish(request: DraftRequest, publishAt?: Date) {
   const key = `${request.tenantId}:${request.draftId}`;
   // Same request, same key. An edited draft gets a new key and reaches the handler's check.
   const digest = createHash("sha256")
@@ -268,9 +275,14 @@ Restate state is durable, but it isn't a query layer for your product. If you li
 
 ## Retries
 
-Restate retries a failed `ctx.run` step with the policy you pass. `stepRetry` allows five attempts, then throws a `TerminalError` that ends the invocation. Without a policy, Restate retries the whole invocation with backoff and pauses it after 70 attempts.
+Restate retries a failed `ctx.run` step with the policy you pass. `stepRetry` allows five attempts, then the step throws a `TerminalError`. The two steps handle that error differently:
 
-A retry can't double-post. A retried `publish` step hits the idempotency store. If the first attempt saved its outcome, the retry gets that outcome back. If the crash came after the claim but before the outcome was saved, the retry gets `unknown` with no delivery reference. For Threads, that outcome means no Threads request was made, because `posts.publish` only writes the workflow row. The crash may leave a workflow row behind, but no delivery reference points at it and nothing resumes it, so publishing again under a new draft ID can't post twice.
+- The `publish` step doesn't catch it, so the `publish` invocation ends with that error and no `outcome` in state. Sending `publish` again for the same draft runs the step again, and the idempotency store answers it as described below.
+- `resume` catches it. The draft keeps its stored `processing` outcome, and `resume` sends the delayed `reconcile` message as it does for media that is still processing, until the 30-run limit.
+
+Without a policy, Restate retries the whole invocation with backoff and pauses it after 70 attempts.
+
+A retried `publish` step hits the idempotency store. If the first attempt saved its outcome, the retry gets that outcome back. If the first attempt crashed after the claim but before the outcome was saved, the retry gets `unknown` with no delivery reference and makes no Threads call. That `unknown` does not prove nothing was posted. `posts.publish` makes the Threads API calls itself, so the crash, or a lost response, may have come after a write reached Threads. The draft stores the `unknown` outcome as final and stops. Treat that draft as unresolved: check the Threads account before you publish the same content under a new draft ID, or you may post it twice.
 
 A retried `resume` step hits the workflow store, which knows how far the post got and reports `unknown` rather than replay a write it can't confirm.
 

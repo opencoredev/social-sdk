@@ -13,9 +13,12 @@ TanStack Start runs its server functions and server routes on Node, so Social SD
 
 ## Create the client in server code
 
+An `idempotencyKey` only stops a retried call from posting twice when the client has an `idempotencyStore`. Give it a durable store that every server instance shares. The [Neon guide](/integrations/neon#durable-stores) includes a Postgres implementation.
+
 ```ts src/server/social.ts
 import { createSocial } from "@opencoredev/social-sdk";
 import { bluesky } from "@opencoredev/social-sdk/bluesky";
+import { idempotencyStore } from "./stores"; // your durable IdempotencyStore
 
 export const social = createSocial({
   backend: bluesky({
@@ -25,8 +28,11 @@ export const social = createSocial({
       accessJwt: process.env.BLUESKY_ACCESS_JWT!,
     },
   }),
+  idempotencyStore,
 });
 ```
+
+This client holds one Bluesky session, so it can only publish as `BLUESKY_DID`. The adapter rejects a reference to any other account. To publish for several accounts, load each account's credentials from your encrypted credential store and build a client for that account. See [authentication](/authentication).
 
 ## Publish from a server function
 
@@ -40,22 +46,26 @@ import { social } from "../server/social";
 export const publishPost = createServerFn({ method: "POST" })
   .validator((data: { text: string; draftId: string }) => data)
   .handler(async ({ data }) => {
-    const session = await requireSession(); // your auth
-    const accountId = await resolveAuthorizedAccount(session); // your tenant check
+    const tenant = await requireTenant(); // your auth
+    const accountId = await resolveAuthorizedAccount(tenant); // your tenant check
 
-    const result = await social.posts.publish({
-      targets: [
-        {
-          account: connectedAccountRef({
-            backend: "default",
-            platform: "bluesky",
-            accountId,
-          }),
-        },
-      ],
-      content: { text: data.text },
-      idempotencyKey: data.draftId,
-    });
+    const result = await social.posts.publish(
+      {
+        targets: [
+          {
+            account: connectedAccountRef({
+              backend: "default",
+              platform: "bluesky",
+              accountId,
+            }),
+          },
+        ],
+        content: { text: data.text },
+        idempotencyKey: data.draftId,
+      },
+      // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+      { authorization: { tenantId: tenant.id } },
+    );
 
     return {
       status: result.status,
@@ -66,20 +76,26 @@ export const publishPost = createServerFn({ method: "POST" })
 
 Resolve the account from your own tenant data inside the handler. Client-supplied account IDs must never select the publishing account.
 
+If a retry returns `unknown`, the first attempt may have posted. Stop there and check the account before you publish again, even under a new draft ID. See [idempotency](/concepts/idempotency).
+
 ## Webhooks through a server route
 
-Server route handlers receive a web-standard `Request`, so verification reads the raw bytes and headers directly:
+This route receives [Zernio](/backends/zernio) webhooks, so it only applies when you publish through the Zernio managed backend. Bluesky itself sends no webhooks; its events arrive over WebSocket streams, as the [events guide](/events#verify-direct-platform-webhooks) explains.
+
+Server route handlers receive a web-standard `Request`, so verification reads the raw bytes and headers directly. The route reads the body before anything is authenticated, so cap it while reading: `request.arrayBuffer()` buffers the whole body first, and a `Content-Length` check alone misses chunked requests. Use the `readLimited` helper from the [Next.js guide](/integrations/nextjs#webhooks), which stops at the verifier's 1 MiB default:
 
 ```ts src/routes/api/events.ts
 import { createFileRoute } from "@tanstack/react-router";
 import { SocialError } from "@opencoredev/social-sdk";
 import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
+import { readLimited } from "../../server/read-limited";
 
 export const Route = createFileRoute("/api/events")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const body = new Uint8Array(await request.arrayBuffer());
+        const body = await readLimited(request, 1024 * 1024);
+        if (!body) return new Response("payload too large", { status: 413 });
 
         try {
           await verifyZernioWebhook({

@@ -3,7 +3,7 @@ title: Inngest
 description: Drive event-based social publishing flows with durable Inngest steps, retries, and Social SDK idempotency keys.
 ---
 
-Inngest gives Social SDK applications durable, event-driven execution: a publish request becomes an event, each SDK call becomes a step with its own retry state, and reconciliation becomes a follow-up step instead of a background poller the SDK refuses to own.
+Inngest gives Social SDK applications durable, event-driven execution: a publish request becomes an event, each SDK call becomes a step with its own retry state, and status checks become follow-up steps instead of a background poller the SDK refuses to own.
 
 ## Install
 
@@ -11,64 +11,120 @@ Inngest gives Social SDK applications durable, event-driven execution: a publish
 @opencoredev/social-sdk
 ```
 
+## Create the client and stores
+
+The samples use the Inngest TypeScript SDK v4, where `createFunction` takes a configuration object with `triggers` and a handler. Version 3 took the trigger as a separate middle argument.
+
+```ts src/inngest/client.ts
+import { Inngest } from "inngest";
+
+export const inngest = new Inngest({ id: "social-publishing" });
+```
+
+An Inngest function can run its steps on different processes, minutes apart. Everything the SDK needs between steps must live in durable storage that every process shares:
+
+- The client's `idempotencyStore` claims each publish before any platform call. A step that crashes and runs again finds that claim instead of posting twice.
+- The Instagram adapter's `workflowStore` holds each post's container progress between the publish step and later status reads. The default in-memory store loses it when the process exits.
+
+The [Neon guide](/integrations/neon#durable-stores) has Postgres implementations of the idempotency store and the Threads workflow store. An `InstagramWorkflowStore` has the same five methods (`create`, `get`, `update`, `claim`, `release`), so the same table design works with `InstagramWorkflow` records.
+
+```ts src/social.ts
+import { createSocial } from "@opencoredev/social-sdk";
+import { instagram } from "@opencoredev/social-sdk/instagram";
+import { idempotencyStore, instagramWorkflowStore } from "./stores"; // your durable stores
+
+export const instagramAccountId = process.env.INSTAGRAM_ACCOUNT_ID!;
+
+export const social = createSocial({
+  backend: instagram({
+    auth: { accessToken: process.env.INSTAGRAM_ACCESS_TOKEN!, accountId: instagramAccountId },
+    workflowStore: instagramWorkflowStore,
+  }),
+  idempotencyStore,
+});
+```
+
+This client holds one Instagram account's token, so it can only publish as `INSTAGRAM_ACCOUNT_ID`. The adapter rejects a reference to any other account, so the function checks the draft's account against it before publishing. To publish for several accounts, load each account's credentials from encrypted storage and build a client for that account.
+
 ## Publish as a durable function
 
-Each `step.run` result is memoized, so a replayed function does not repeat a completed publish. The draft ID doubles as the SDK idempotency key for defense in depth.
+Each `step.run` result is memoized, so a replayed function does not repeat a completed step. Inngest stores step results as JSON, so the publish step returns only the state and delivery reference.
 
 ```ts src/inngest/publish.ts
+import { NonRetriableError } from "inngest";
+import { connectedAccountRef } from "@opencoredev/social-sdk";
 import { inngest } from "./client";
-import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
-import { instagram } from "@opencoredev/social-sdk/instagram";
+import { instagramAccountId, social } from "../social";
 
-const social = createSocial({
-  backend: instagram({
-    auth: {
-      accessToken: process.env.INSTAGRAM_ACCESS_TOKEN!,
-      accountId: process.env.INSTAGRAM_ACCOUNT_ID!,
-    },
-  }),
-});
+const maxStatusChecks = 15;
 
 export const publishPost = inngest.createFunction(
-  { id: "publish-post", retries: 3 },
-  { event: "post/publish.requested" },
+  { id: "publish-post", retries: 3, triggers: { event: "post/publish.requested" } },
   async ({ event, step }) => {
-    const draft = await step.run("load-draft", () => loadDraft(event.data.draftId));
+    const draftId: string = event.data.draftId;
+    const draft = await step.run("load-draft", () => loadDraft(draftId)); // your storage
+    if (draft.accountId !== instagramAccountId)
+      throw new NonRetriableError("No credentials for this draft's account");
+    const authorization = { tenantId: draft.tenantId };
 
-    const result = await step.run("publish", () =>
-      social.posts.publish({
-        targets: [
-          {
-            account: connectedAccountRef({
-              backend: "default",
-              platform: "instagram",
-              accountId: draft.accountId,
-            }),
+    const published = await step.run("publish", async () => {
+      const result = await social.posts.publish(
+        {
+          targets: [
+            {
+              account: connectedAccountRef({
+                backend: "default",
+                platform: "instagram",
+                accountId: draft.accountId,
+              }),
+            },
+          ],
+          content: {
+            text: draft.caption,
+            media: [
+              {
+                kind: "image",
+                mimeType: "image/jpeg",
+                source: { kind: "https-url", url: draft.imageUrl },
+              },
+            ],
           },
-        ],
-        content: {
-          text: draft.caption,
-          media: [{ kind: "image", source: { kind: "https-url", url: draft.imageUrl } }],
+          idempotencyKey: draftId,
         },
-        idempotencyKey: event.data.draftId,
-      }),
+        { authorization },
+      );
+      const outcome = result.outcomes[0];
+      return { state: outcome?.state ?? "unknown", delivery: outcome?.delivery ?? null };
+    });
+
+    await step.run("save-outcome", () =>
+      saveDeliveryState(draftId, published.state, published.delivery),
     );
 
-    await step.run("save-outcomes", () => saveOutcomes(event.data.draftId, result.outcomes));
-
-    // Instagram containers can return processing; reconcile after a pause.
-    const pending = result.outcomes.find((o) => o.state === "processing");
-    if (pending?.delivery) {
-      await step.sleep("wait-for-processing", "2m");
-      const outcome = await step.run("reconcile", () => social.posts.getDelivery(pending.delivery));
-      await step.run("save-final", () => saveDeliveryState(event.data.draftId, outcome.state));
-      return { state: outcome.state };
+    // Instagram containers can stay processing for a while. Check a bounded number of times.
+    let state = published.state;
+    const delivery = published.delivery;
+    for (let check = 0; state === "processing" && delivery && check < maxStatusChecks; check++) {
+      await step.sleep(`wait-${check}`, "2m");
+      state = await step.run(
+        `status-${check}`,
+        async () => (await social.posts.getDelivery(delivery, { authorization })).state,
+      );
+      await step.run(`save-status-${check}`, () => saveDeliveryState(draftId, state, delivery));
     }
 
-    return { state: result.outcomes[0]?.state };
+    // unknown, or still processing after the last check: stop automation and flag for review.
+    if (state === "unknown" || state === "processing")
+      await step.run("flag-for-review", () => flagForReview(draftId));
+
+    return { state };
   },
 );
 ```
+
+Your `saveDeliveryState` implementation must persist the state and delivery reference together, scoped to the draft’s verified tenant. Preserve an existing reference if a retry supplies `null`. A worker can then continue a `processing` delivery after these checks end.
+
+Instagram image publishing accepts JPEG only, so the media item sets `mimeType: "image/jpeg"`. Without it, the adapter rejects the post before any request.
 
 Send the event from your API when a user hits publish:
 
@@ -89,11 +145,15 @@ await inngest.send({
 ```
 
 :::warning
-Retries re-run a failed step. If the publish step failed with an `unknown` outcome, the saved delivery reference must be reconciled before any retry publishes again; that is why outcomes are persisted in their own step. Blind retries of uncertain public writes can double-post.
+A returned `unknown` and a crashed step are different cases. When `posts.publish` returns an `unknown` outcome, it did not throw, so Inngest records a successful step and never retries it. The function has to stop there, as `flag-for-review` does, and someone has to check the account before anything publishes again.
+
+When the publish step throws or its process dies, Inngest runs the step again. The SDK claimed the idempotency key in the durable store before it called Instagram, so the new attempt finds that claim. If the first attempt saved its outcome, the retry returns it. If the process died before saving, the retry returns `unknown` without calling Instagram, and the function stops for review. A later step can't recover a result that was lost inside the publish step; only the claim made before dispatch covers that case.
 :::
+
+Inngest's own `idempotency` option drops duplicate events for 24 hours, keyed by an expression such as `event.data.draftId`. That stops a double-sent event from starting a second run. It is separate from the SDK's claim, which protects the platform write itself.
 
 ## Notes
 
 - Inngest functions run in your own Node service, a tested SDK runtime; the serve handler mounts next to your other routes.
-- Step memoization plus SDK idempotency keys keep at-least-once execution from becoming duplicate posts.
+- Step memoization plus a durable SDK idempotency store keep at-least-once execution from becoming duplicate posts. An `unknown` outcome still needs review.
 - Provider webhooks still follow the [events guide](/events); an accepted inbox row can emit an Inngest event to fan out processing.

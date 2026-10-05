@@ -13,9 +13,12 @@ Express applications construct one Social SDK client at startup and call it from
 
 ## Create the client once
 
+An `idempotencyKey` only stops a retried request from posting twice when the client has an `idempotencyStore`. Give it a durable store that every process shares. The Threads adapter also needs a durable `workflowStore`, because it keeps each post's progress there between calls. The [Neon guide](/integrations/neon#durable-stores) includes Postgres implementations of both.
+
 ```ts src/social.ts
 import { createSocial } from "@opencoredev/social-sdk";
 import { threads } from "@opencoredev/social-sdk/threads";
+import { idempotencyStore, threadsWorkflowStore } from "./stores.js"; // your durable stores
 
 export const social = createSocial({
   backend: threads({
@@ -23,9 +26,13 @@ export const social = createSocial({
       userId: process.env.THREADS_USER_ID!,
       accessToken: process.env.THREADS_ACCESS_TOKEN!,
     },
+    workflowStore: threadsWorkflowStore,
   }),
+  idempotencyStore,
 });
 ```
+
+This client holds one Threads account's token, so it can only publish as `THREADS_USER_ID`. The adapter rejects a reference to any other account. To publish for several accounts, load each account's credentials from your encrypted credential store and build a client for that account. See [authentication](/authentication).
 
 ## Publish from a route
 
@@ -36,23 +43,41 @@ import { social } from "../social.js";
 
 export const publishRouter = Router();
 
+function parseBody(body: unknown): { text: string; draftId: string } | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  if (!("text" in body) || !("draftId" in body)) return undefined;
+  const { text, draftId } = body;
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  if (typeof draftId !== "string" || draftId.length === 0) return undefined;
+  return { text, draftId };
+}
+
 publishRouter.post("/publish", json(), async (req, res) => {
   const tenant = await requireTenant(req); // your auth middleware result
+  const input = parseBody(req.body);
+  if (!input) {
+    res.status(400).send("Expected text and draftId");
+    return;
+  }
   const accountId = await resolveAuthorizedAccount(tenant); // your lookup
 
-  const result = await social.posts.publish({
-    targets: [
-      {
-        account: connectedAccountRef({
-          backend: "default",
-          platform: "threads",
-          accountId,
-        }),
-      },
-    ],
-    content: { text: req.body.text },
-    idempotencyKey: req.body.draftId,
-  });
+  const result = await social.posts.publish(
+    {
+      targets: [
+        {
+          account: connectedAccountRef({
+            backend: "default",
+            platform: "threads",
+            accountId,
+          }),
+        },
+      ],
+      content: { text: input.text },
+      idempotencyKey: input.draftId,
+    },
+    // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+    { authorization: { tenantId: tenant.id } },
+  );
 
   res.status(200).json({
     status: result.status,
@@ -63,27 +88,50 @@ publishRouter.post("/publish", json(), async (req, res) => {
 
 Never take the account ID from the request body. Resolve it from your own tenant data so one tenant cannot publish through another's account.
 
-## Reconcile uncertain outcomes
+If a retry returns `unknown`, the first attempt may have posted. Stop there and check the account before you publish again, even under a new draft ID. See [idempotency](/concepts/idempotency).
+
+## Reconcile processing outcomes
+
+Save each outcome's `delivery` reference with the publication, then read it again later. For Threads, `getDelivery` continues a workflow that is still `processing`. It never replays a workflow whose state is `unknown`; it reports `unknown` again, and that draft needs review.
 
 ```ts
 publishRouter.post("/reconcile", json(), async (req, res) => {
-  const saved = await loadDelivery(req.body.deliveryId); // your storage
-  const outcome = await social.posts.getDelivery(saved.ref);
-  await saveDeliveryState(req.body.deliveryId, outcome.state);
+  const tenant = await requireTenant(req);
+  const saved = await loadDelivery(tenant.id, req.body.deliveryId); // your storage, scoped to the tenant
+  if (!saved?.delivery) {
+    res.status(404).send("No delivery reference");
+    return;
+  }
+  const outcome = await social.posts.getDelivery(saved.delivery, {
+    authorization: { tenantId: tenant.id },
+  });
+  await saveDeliveryState(saved.id, outcome.state);
   res.json({ state: outcome.state });
 });
 ```
 
 ## Webhooks need the raw body
 
-`express.json()` consumes and reparses the body, which breaks signature verification. Use `express.raw()` on the events route only. It leaves `req.body` as a `Buffer`, which is a `Uint8Array`. The verifier expects a web `Headers` object, so convert Node's header record:
+This route receives [Zernio](/backends/zernio) webhooks, so it only applies when you publish through the Zernio managed backend. Threads sends its own webhooks to a direct integration: verify those with `verifyMetaWebhook` and answer the subscription check with `answerMetaWebhookChallenge`, as the [events guide](/events#verify-direct-platform-webhooks) shows. The raw-body setup below is the same for both.
+
+`express.json()` consumes and reparses the body, which breaks signature verification. Use `express.raw()` on the events route only. Its `limit` rejects a larger body before it is buffered, and `1mb` matches the verifier's default. It leaves `req.body` as a `Buffer`, which is a `Uint8Array`. The verifier expects a web `Headers` object, so copy Node's header record into one, keeping repeated headers:
 
 ```ts src/routes/events.ts
+import type { IncomingHttpHeaders } from "node:http";
 import { Router, raw } from "express";
 import { SocialError } from "@opencoredev/social-sdk";
 import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
 export const eventsRouter = Router();
+
+function toHeaders(source: IncomingHttpHeaders): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(source)) {
+    if (typeof value === "string") headers.set(name, value);
+    else if (Array.isArray(value)) for (const entry of value) headers.append(name, entry);
+  }
+  return headers;
+}
 
 eventsRouter.post("/events", raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
   const body: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
@@ -91,7 +139,7 @@ eventsRouter.post("/events", raw({ type: "application/json", limit: "1mb" }), as
   try {
     await verifyZernioWebhook({
       secret: process.env.ZERNIO_WEBHOOK_SECRET!,
-      headers: new Headers(req.headers as Record<string, string>),
+      headers: toHeaders(req.headers),
       body,
     });
   } catch (error) {

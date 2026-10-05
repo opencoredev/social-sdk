@@ -13,97 +13,171 @@ In NestJS, Social SDK becomes an injectable provider: one client instance constr
 
 ## Provide the client
 
+Import `ConfigModule.forRoot()` once in your root module. It loads `.env` and makes `ConfigService` available, so the modules below only import `ConfigModule`.
+
+An `idempotencyKey` only stops a retried request from posting twice when the client has an `idempotencyStore`. Give it a durable store that every process shares. The [Neon guide](/integrations/neon#durable-stores) includes a Postgres implementation.
+
 ```ts src/social/social.module.ts
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { createSocial } from "@opencoredev/social-sdk";
 import { x } from "@opencoredev/social-sdk/x";
+import { idempotencyStore } from "../stores"; // your durable IdempotencyStore
 
 export const SOCIAL = Symbol("SOCIAL");
 
+export function createSocialClient(config: ConfigService) {
+  return createSocial({
+    backend: x({
+      auth: {
+        userId: config.getOrThrow<string>("X_USER_ID"),
+        accessToken: config.getOrThrow<string>("X_ACCESS_TOKEN"),
+      },
+    }),
+    idempotencyStore,
+  });
+}
+
+export type Social = ReturnType<typeof createSocialClient>;
+
 @Module({
   imports: [ConfigModule],
-  providers: [
-    {
-      provide: SOCIAL,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) =>
-        createSocial({
-          backend: x({
-            auth: {
-              userId: config.getOrThrow("X_USER_ID"),
-              accessToken: config.getOrThrow("X_ACCESS_TOKEN"),
-            },
-          }),
-        }),
-    },
-  ],
+  providers: [{ provide: SOCIAL, inject: [ConfigService], useFactory: createSocialClient }],
   exports: [SOCIAL],
 })
 export class SocialModule {}
 ```
 
+This client holds one X account's token, so it can only publish as `X_USER_ID`. The adapter rejects a reference to any other account. To publish for several accounts, load each account's credentials from your encrypted credential store and build a client for that account. See [authentication](/authentication).
+
 ## Publish from a service
+
+The service needs two things your application owns: the tenant's authorized account and a place to save outcomes. Declare them as an abstract class, which Nest can use as an injection token, and bind your implementation in the module.
+
+```ts src/publishing/publishing.repository.ts
+import type { DeliveryOutcome } from "@opencoredev/social-sdk";
+
+export abstract class PublishingRepository {
+  /** Returns the account ID this tenant may publish through, or throws. */
+  abstract resolveAuthorizedAccount(tenantId: string): Promise<string>;
+  abstract saveOutcomes(
+    tenantId: string,
+    draftId: string,
+    outcomes: readonly DeliveryOutcome[],
+  ): Promise<void>;
+}
+```
 
 ```ts src/publishing/publishing.service.ts
 import { Inject, Injectable } from "@nestjs/common";
 import { connectedAccountRef } from "@opencoredev/social-sdk";
-import { SOCIAL } from "../social/social.module";
+import { SOCIAL, type Social } from "../social/social.module";
+import { PublishingRepository } from "./publishing.repository";
 
 @Injectable()
 export class PublishingService {
-  constructor(@Inject(SOCIAL) private readonly social: ReturnType<typeof createSocial>) {}
+  constructor(
+    @Inject(SOCIAL) private readonly social: Social,
+    private readonly repository: PublishingRepository,
+  ) {}
 
   async publish(tenantId: string, draftId: string, text: string) {
-    const accountId = await this.resolveAuthorizedAccount(tenantId); // your lookup
+    const accountId = await this.repository.resolveAuthorizedAccount(tenantId);
 
-    const result = await this.social.posts.publish({
-      targets: [
-        {
-          account: connectedAccountRef({
-            backend: "default",
-            platform: "x",
-            accountId,
-          }),
-        },
-      ],
-      content: { text },
-      idempotencyKey: draftId,
-    });
+    const result = await this.social.posts.publish(
+      {
+        targets: [
+          {
+            account: connectedAccountRef({
+              backend: "default",
+              platform: "x",
+              accountId,
+            }),
+          },
+        ],
+        content: { text },
+        idempotencyKey: draftId,
+      },
+      // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+      { authorization: { tenantId } },
+    );
 
-    await this.saveOutcomes(tenantId, draftId, result.outcomes); // your storage
+    await this.repository.saveOutcomes(tenantId, draftId, result.outcomes);
     return result;
   }
 }
 ```
 
-Guards and your tenant lookup own authorization. The SDK checks capabilities and account-to-backend binding, not your application's user model.
+```ts src/publishing/publishing.module.ts
+import { Module } from "@nestjs/common";
+import { SocialModule } from "../social/social.module";
+import { PublishingRepository } from "./publishing.repository";
+import { PublishingService } from "./publishing.service";
+import { PostgresPublishingRepository } from "./postgres-publishing.repository"; // your implementation
+
+@Module({
+  imports: [SocialModule],
+  providers: [
+    PublishingService,
+    { provide: PublishingRepository, useClass: PostgresPublishingRepository },
+  ],
+  exports: [PublishingService],
+})
+export class PublishingModule {}
+```
+
+Guards and your tenant lookup own authorization. The SDK checks capabilities and account-to-backend binding, not your application's user model. If a retry returns `unknown`, the first attempt may have posted. Stop there and check the account before you publish again, even under a new draft ID. See [idempotency](/concepts/idempotency).
 
 ## Webhooks with a raw body
 
-Enable Nest's raw-body support and read `req.rawBody` in the events controller. `req.rawBody` is a `Buffer`, which the verifier accepts as a `Uint8Array`. Convert Node's header record to a web `Headers` object:
+This controller receives [Zernio](/backends/zernio) webhooks, so it only applies when you publish through the Zernio managed backend. The direct X client above sends its own webhooks: verify those with `verifyXWebhook` and answer the CRC check with `answerXWebhookChallenge`, as the [events guide](/events#verify-direct-platform-webhooks) shows. The raw-body setup below is the same for both.
+
+Enable Nest's raw-body support and set the JSON parser's limit to 1 MiB, the verifier's default, so a larger body is rejected before it is buffered. `useBodyParser` exists on the Express platform's `NestExpressApplication` type:
 
 ```ts src/main.ts
-const app = await NestFactory.create(AppModule, { rawBody: true });
+import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
+import { AppModule } from "./app.module";
+
+const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+app.useBodyParser("json", { limit: "1mb" });
+await app.listen(3000);
 ```
 
+Read `req.rawBody` in the events controller. It is a `Buffer`, which the verifier accepts as a `Uint8Array`. The verifier expects a web `Headers` object, so copy Node's header record into one, keeping repeated headers:
+
 ```ts src/events/events.controller.ts
+import type { IncomingHttpHeaders } from "node:http";
 import { Controller, HttpCode, Post, Req, UnauthorizedException } from "@nestjs/common";
 import type { RawBodyRequest } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import type { Request } from "express";
 import { SocialError } from "@opencoredev/social-sdk";
 import { verifyZernioWebhook } from "@opencoredev/social-sdk/server";
 
+function toHeaders(source: IncomingHttpHeaders): Headers {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(source)) {
+    if (typeof value === "string") headers.set(name, value);
+    else if (Array.isArray(value)) for (const entry of value) headers.append(name, entry);
+  }
+  return headers;
+}
+
 @Controller("events")
 export class EventsController {
+  constructor(private readonly config: ConfigService) {}
+
   @Post()
   @HttpCode(202)
   async receive(@Req() req: RawBodyRequest<Request>) {
+    if (!req.rawBody) throw new UnauthorizedException(); // not a JSON body Nest kept raw
+
     try {
       await verifyZernioWebhook({
-        secret: process.env.ZERNIO_WEBHOOK_SECRET!,
-        headers: new Headers(req.headers as Record<string, string>),
-        body: req.rawBody ?? new Uint8Array(),
+        secret: this.config.getOrThrow<string>("ZERNIO_WEBHOOK_SECRET"),
+        headers: toHeaders(req.headers),
+        body: req.rawBody,
       });
     } catch (error) {
       if (error instanceof SocialError && error.code === "unauthorized") {
@@ -118,7 +192,7 @@ export class EventsController {
 }
 ```
 
-Nest fills `req.rawBody` only for bodies its built-in JSON and URL-encoded parsers handle, so providers must send `Content-Type: application/json`.
+Register the controller in a module that imports `ConfigModule`. Nest fills `req.rawBody` only for bodies its built-in JSON and URL-encoded parsers handle, so providers must send `Content-Type: application/json`. The verifier checks the exact bytes in `req.rawBody`, so nothing may rewrite the body before the controller runs.
 
 The [events guide](/events) covers decoding, tenant quarantine, and the durable inbox worker.
 

@@ -1,9 +1,9 @@
 ---
 title: Supabase
-description: Store Social SDK connections, delivery outcomes, and webhook events in Supabase Postgres with row-level security.
+description: Store Social SDK connections, delivery outcomes, idempotency claims, and webhook events in Supabase Postgres from a Node or Bun server.
 ---
 
-Supabase pairs with Social SDK as the durable store: Postgres holds connected accounts, publication records, delivery references, and the webhook inbox, protected by row-level security, while your Node or Bun server runs the SDK itself.
+Supabase pairs with Social SDK as the durable store: Postgres holds connected accounts, publication records, delivery references, the idempotency claims, and the webhook inbox, while your Node or Bun server runs the SDK itself.
 
 ## Install
 
@@ -16,6 +16,15 @@ Supabase pairs with Social SDK as the durable store: Postgres holds connected ac
 Run the SDK in your server (a Node service, a Next.js backend, or a Bun process) using the service-role Supabase client for storage. Supabase Edge Functions run on Deno, which is not one of the SDK's tested runtimes (Node 22.12+, Node 24, Bun); keep SDK calls out of edge functions and call your server instead.
 
 ## Schema
+
+These tables reference a `tenants` table that your application already owns, keyed by the same tenant ID your authentication resolves. Create it first if you don't have one:
+
+```sql
+create table tenants (
+  id uuid primary key default gen_random_uuid(),
+  name text not null
+);
+```
 
 ```sql
 create table connected_accounts (
@@ -33,7 +42,7 @@ create table deliveries (
   tenant_id uuid not null references tenants (id),
   idempotency_key text not null,
   state text not null,
-  delivery_ref jsonb,
+  outcome jsonb not null,
   created_at timestamptz not null default now(),
   unique (tenant_id, idempotency_key)
 );
@@ -42,63 +51,117 @@ alter table connected_accounts enable row level security;
 alter table deliveries enable row level security;
 ```
 
-Row-level security keeps each tenant's accounts and outcomes isolated even if a query is written badly. Tokens do not belong in these tables; keep them in your server's secret store.
+Row-level security with no policies blocks the `anon` and `authenticated` roles, so a leaked anon key can't read these tables. It does not protect the server code below. The `service_role` key bypasses row-level security entirely, so every service-role query must filter by the tenant you verified, as the examples do. A badly filtered service-role query returns other tenants' rows. If you want the database to enforce tenant isolation, query with a user-scoped client and write policies for it.
+
+`idempotency_claims` holds the client's idempotency store. Without a durable store, an `idempotencyKey` does not stop a retried request from posting twice. Use the table and `IdempotencyStore` implementation from the [Neon guide](/integrations/neon#durable-stores); they run on Supabase Postgres unchanged through a direct `pg` connection.
+
+After creating `idempotency_claims` from that guide, protect it from Supabase API roles too:
+
+```sql
+alter table idempotency_claims enable row level security;
+```
+
+With no policies, `anon` and `authenticated` cannot read, insert, update, or delete claims, even if they have table grants. The server's privileged `pg` connection can still use the store. Keep claim access server-only: saved outcomes contain account and post references, and deleting a claim defeats retry protection.
+
+Tokens do not belong in these tables. Keep platform tokens in your server's secret store. Connection attempts and stored OAuth credentials hold secrets too, such as PKCE verifiers, provider state, and refresh tokens. Keep them in separate tables scoped to the tenant and principal, encrypt the credentials, and use compare-and-set revisions when you refresh them, as [authentication](/authentication#store-contract-and-recovery) describes.
 
 ## Publish with tenant authorization from Postgres
 
+The LinkedIn adapter types its `author` as a person or organization URN, so check the environment value before you pass it:
+
 ```ts
 import { createClient } from "@supabase/supabase-js";
+import { Pool } from "pg";
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
-import { linkedin } from "@opencoredev/social-sdk/linkedin";
+import { linkedin, type LinkedInOptions } from "@opencoredev/social-sdk/linkedin";
+import { postgresIdempotencyStore } from "./stores"; // from the Neon guide
+
+type LinkedInAuthor = LinkedInOptions["auth"]["author"];
+
+function isLinkedInAuthor(value: string): value is LinkedInAuthor {
+  return /^urn:li:(person|organization):[A-Za-z0-9_-]+$/.test(value);
+}
+
+const author = process.env.LINKEDIN_AUTHOR ?? "";
+if (!isLinkedInAuthor(author))
+  throw new Error("LINKEDIN_AUTHOR must be a person or organization URN");
 
 const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+const pool = new Pool({ connectionString: process.env.SUPABASE_DB_URL });
+
 const social = createSocial({
   backend: linkedin({
-    auth: { accessToken: process.env.LINKEDIN_ACCESS_TOKEN!, author: process.env.LINKEDIN_AUTHOR! },
+    auth: { accessToken: process.env.LINKEDIN_ACCESS_TOKEN!, author },
     apiVersion: "202609",
   }),
+  idempotencyStore: postgresIdempotencyStore(pool),
 });
 
 export async function publishForTenant(tenantId: string, draftId: string, text: string) {
-  // The tenant's own row is the authorization: no row, no publish.
-  const { data: acct } = await supabase
+  // The service role bypasses row-level security, so the tenant filter is the authorization.
+  const { data: acct, error: accountError } = await supabase
     .from("connected_accounts")
     .select("platform, account_id, backend")
     .eq("tenant_id", tenantId)
     .eq("platform", "linkedin")
-    .single();
+    .eq("account_id", author)
+    .maybeSingle();
+  if (accountError) throw accountError;
   if (!acct) throw new Error("Tenant has no authorized LinkedIn account");
 
-  const result = await social.posts.publish({
-    targets: [
-      {
-        account: connectedAccountRef({
-          backend: acct.backend,
-          platform: "linkedin",
-          accountId: acct.account_id,
-        }),
-      },
-    ],
-    content: { text },
-    idempotencyKey: draftId,
-  });
+  const result = await social.posts.publish(
+    {
+      targets: [
+        {
+          account: connectedAccountRef({
+            backend: acct.backend,
+            platform: "linkedin",
+            accountId: acct.account_id,
+          }),
+        },
+      ],
+      content: { text },
+      idempotencyKey: draftId,
+    },
+    // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+    { authorization: { tenantId } },
+  );
 
-  await supabase.from("deliveries").upsert({
-    tenant_id: tenantId,
-    idempotency_key: draftId,
-    state: result.outcomes[0]?.state ?? "unknown",
-    delivery_ref: result.outcomes[0]?.delivery ?? null,
-  });
+  const outcome = result.outcomes[0];
+  if (!outcome) throw new Error("Publish returned no outcome");
+
+  try {
+    // Preserve terminal outcomes and known delivery references on uncertain retries.
+    await pool.query(
+      `insert into deliveries (tenant_id, idempotency_key, state, outcome)
+       values ($1, $2, $3, $4)
+       on conflict (tenant_id, idempotency_key) do update set
+         state = excluded.state,
+         outcome = excluded.outcome
+       where deliveries.state not in ('published', 'failed')
+         and (excluded.state <> 'unknown'
+           or excluded.outcome->>'delivery' is not null
+           or deliveries.outcome->>'delivery' is null)`,
+      [tenantId, draftId, outcome.state, outcome],
+    );
+  } catch {
+    // The post may already be public; return its result even if storage is unavailable.
+    console.error("Saving the delivery failed", { tenantId, draftId });
+  }
 
   return result;
 }
 ```
 
-The unique constraint on the tenant and idempotency key gives you a durable record per publication attempt, and the saved delivery reference is what later reconciliation reads.
+This client holds one LinkedIn token, so it can only publish as `LINKEDIN_AUTHOR`; the adapter rejects any other account ID. The query above only accepts that account. To publish for several accounts, load each account's credentials from encrypted storage and build a client for that account.
+
+The unique constraint on the tenant and idempotency key keeps one row per publication attempt. The conditional conflict update preserves a published or failed row and prevents an unknown result without a delivery reference from replacing an outcome that has one. State and the complete outcome change together. A failed write is logged and the result still returned, because the post may already be live. The idempotency store normally returns its saved outcome on a retry. If its outcome write failed, the retry returns `unknown` without posting again; the conditional update preserves any completed outcome already saved in `deliveries`. If that outcome is `unknown`, the first attempt may have posted. Stop there and check the account before you publish again, even under a new draft ID.
 
 ## Reconcile from a worker
 
-Run reconciliation from pg_cron plus a server endpoint, or any scheduler you own. Read rows whose state is `processing` or `unknown`, call `social.posts.getDelivery` with the saved reference, and update the row. The SDK does not poll in the background.
+The LinkedIn adapter has no delivery-status read. A LinkedIn publish settles during the call and never returns `processing`, and `posts.getDelivery` throws a `SocialError` with code `unsupported_capability` for a LinkedIn reference. A LinkedIn `unknown` needs review: check the author's posts before anything publishes again.
+
+For backends that implement `posts.status`, such as Threads, Instagram, TikTok, YouTube, or a managed backend (see the [capability matrix](/reference/capabilities)), run reconciliation from pg_cron plus a server endpoint, or any scheduler you own. Read the tenant's rows whose state is `processing`, call `social.posts.getDelivery` with the saved delivery reference and the row's tenant, and update the row. The SDK does not poll in the background.
 
 ## Webhook inbox
 

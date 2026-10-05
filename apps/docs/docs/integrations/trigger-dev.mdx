@@ -11,23 +11,44 @@ Social SDK deliberately owns no scheduler: nothing in the SDK fires later, polls
 @opencoredev/social-sdk
 ```
 
+## Share the client and stores
+
+Task runs can land on different machines, minutes apart, so everything the SDK needs between runs must live in durable storage that every run shares:
+
+- The client's `idempotencyStore` claims each publish before any platform call. A retried run finds that claim instead of posting twice.
+- The Threads adapter's `workflowStore` holds each post between `posts.publish` and the later status reads. The default in-memory store loses it when the run's process exits.
+
+The [Neon guide](/integrations/neon#durable-stores) has Postgres implementations of both, with their schema. Construct the client once in a module both tasks import:
+
+```ts trigger/social.ts
+import { Pool } from "pg";
+import { createSocial } from "@opencoredev/social-sdk";
+import { threads } from "@opencoredev/social-sdk/threads";
+import { postgresIdempotencyStore, postgresThreadsWorkflowStore } from "../src/stores";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
+
+export const threadsUserId = process.env.THREADS_USER_ID!;
+
+export const social = createSocial({
+  backend: threads({
+    auth: { userId: threadsUserId, accessToken: process.env.THREADS_ACCESS_TOKEN! },
+    workflowStore: postgresThreadsWorkflowStore(pool),
+  }),
+  idempotencyStore: postgresIdempotencyStore(pool),
+});
+```
+
+This client holds one Threads account's token, so it can only publish as `THREADS_USER_ID`. The adapter rejects a reference to any other account, so the task checks the draft's account against it. To publish for several accounts, load each account's credentials from encrypted storage and build a client for that account.
+
 ## Scheduled publish as a task
 
-Store the draft and its target account in your database, then let the task publish at the scheduled moment. The draft ID doubles as the idempotency key, so a retried task run cannot double-post.
+Store the draft and its target account in your database, then let the task publish at the scheduled moment. The draft ID is the idempotency key. With the durable store, a retried run returns the first result instead of posting again.
 
 ```ts trigger/publish-scheduled.ts
-import { task } from "@trigger.dev/sdk/v3";
-import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
-import { threads } from "@opencoredev/social-sdk/threads";
-
-const social = createSocial({
-  backend: threads({
-    auth: {
-      userId: process.env.THREADS_USER_ID!,
-      accessToken: process.env.THREADS_ACCESS_TOKEN!,
-    },
-  }),
-});
+import { AbortTaskRunError, task } from "@trigger.dev/sdk";
+import { connectedAccountRef } from "@opencoredev/social-sdk";
+import { social, threadsUserId } from "./social";
 
 export const publishScheduled = task({
   id: "publish-scheduled-post",
@@ -35,22 +56,29 @@ export const publishScheduled = task({
   run: async (payload: { draftId: string }) => {
     const draft = await loadDraft(payload.draftId); // your storage
     if (draft.status !== "scheduled") return { skipped: true };
+    if (draft.accountId !== threadsUserId)
+      throw new AbortTaskRunError("No credentials for this draft's account");
 
-    const result = await social.posts.publish({
-      targets: [
-        {
-          account: connectedAccountRef({
-            backend: "default",
-            platform: "threads",
-            accountId: draft.accountId,
-          }),
-        },
-      ],
-      content: { text: draft.text },
-      idempotencyKey: payload.draftId,
-    });
+    const result = await social.posts.publish(
+      {
+        targets: [
+          {
+            account: connectedAccountRef({
+              backend: "default",
+              platform: "threads",
+              accountId: draft.accountId,
+            }),
+          },
+        ],
+        content: { text: draft.text },
+        idempotencyKey: payload.draftId,
+      },
+      // Scopes the idempotency key to this tenant, so tenants can't collide on a draft ID.
+      { authorization: { tenantId: draft.tenantId } },
+    );
 
-    await saveOutcomes(payload.draftId, result.outcomes); // your storage
+    // Your storage saves complete outcomes and marks any unknown outcome for review.
+    await saveOutcomes(payload.draftId, result.outcomes);
     return { status: result.status };
   },
 });
@@ -62,34 +90,39 @@ Trigger it with a delay when the user schedules:
 await publishScheduled.trigger({ draftId }, { delay: draft.publishAt });
 ```
 
+For Threads, `posts.publish` stores the workflow and then makes the Threads API calls before it returns. The outcome is `published` when Threads finishes, `processing` when media is still being processed or another run holds the workflow, and `unknown` when a write may or may not have reached Threads.
+
 :::warning
-Configure retries with the SDK's outcome model in mind. A task that failed with an `unknown` outcome must reconcile before publishing again; blind retries of uncertain public writes can double-post. Persist outcomes inside the task before it completes.
+A run that returns an `unknown` outcome did not throw, so Trigger.dev does not retry it. Treat it as the end of automation: flag the draft and check the account before anything publishes again, even under a new draft ID. A run that throws or crashes is retried, and the retry finds the claim the first attempt made before dispatch. If that attempt saved its outcome, the retry returns it; if it died first, the retry returns `unknown` without calling Threads. Save outcomes inside the task before it completes. Your `saveOutcomes` implementation must atomically save the complete outcomes and move a draft with any `unknown` outcome to a review state that prevents automatic publishing.
 :::
 
 ## Reconciliation as a scheduled task
 
-Platforms like Threads, Instagram, TikTok, and YouTube return processing states. Reconcile them on a schedule instead of polling inline:
+Threads, Instagram, TikTok, and YouTube can return `processing`. Reconcile those deliveries on a schedule instead of polling inline:
 
 ```ts trigger/reconcile.ts
-import { schedules } from "@trigger.dev/sdk/v3";
+import { schedules } from "@trigger.dev/sdk";
+import { social } from "./social";
 
 export const reconcileDeliveries = schedules.task({
   id: "reconcile-deliveries",
   cron: "*/5 * * * *",
   run: async () => {
-    const pending = await loadPendingDeliveries(100); // state processing/unknown
+    const pending = await loadProcessingDeliveries(100); // state processing only
     for (const row of pending) {
-      const outcome = await social.posts.getDelivery(row.ref);
+      const outcome = await social.posts.getDelivery(row.delivery, {
+        authorization: { tenantId: row.tenantId },
+      });
       await saveDeliveryState(row.id, outcome.state);
     }
   },
 });
 ```
 
-Each `getDelivery` call is an explicit read; nothing in the SDK re-fires the publish.
+`getDelivery` is not a pure read for Threads. When a workflow is still `processing`, it claims the workflow and continues the remaining Threads calls. It never replays a workflow whose state is `unknown`; it reports `unknown` again. Leave `unknown` rows out of this query and review them instead.
 
 ## Notes
 
-- Trigger.dev tasks run on Node, a tested SDK runtime; keep the SDK client at module scope so warm task runs reuse it.
+- Trigger.dev tasks run on Node, a tested SDK runtime; keep the SDK client at module scope so warm task runs reuse it. The samples import from `@trigger.dev/sdk`; the older `@trigger.dev/sdk/v3` path still works but is deprecated.
 - Keep platform tokens in Trigger.dev environment variables, scoped per deployment environment.
-- Task retries plus SDK idempotency keys are the supported pattern for at-least-once schedulers publishing at-most-once content.
+- Task retries plus a durable SDK idempotency store are the supported pattern for at-least-once schedulers publishing at-most-once content. Trigger.dev's own `idempotencyKey` trigger option stops a duplicate trigger from starting a second run; it is separate from the SDK's claim, which protects the platform write.
