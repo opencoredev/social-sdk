@@ -5,7 +5,6 @@ import { linkedin } from "../src/platforms/linkedin.js";
 import type { LinkedInTimeInterval } from "../src/platforms/linkedin.js";
 import type { CommentRef, PlatformPostRef } from "../src/core/types.js";
 import { SocialError } from "../src/core/errors.js";
-import { HttpError } from "../src/transport/http.js";
 
 const context = {
   backendInstance: "default",
@@ -78,7 +77,7 @@ it("LinkedIn treats collection 404 as empty only after successful post preflight
 
     if (status === 200) {
       assert.deepEqual(await adapter.comments!.list(post, {}, context), { items: [] });
-      assert.equal(calls, 2);
+      assert.equal(calls, 3);
     } else {
       await assert.rejects(
         adapter.comments!.list(post, {}, context),
@@ -88,6 +87,27 @@ it("LinkedIn treats collection 404 as empty only after successful post preflight
       );
       assert.equal(calls, 1);
     }
+  }
+});
+
+it("LinkedIn rechecks the post after a collection 404 and propagates recheck failures", async () => {
+  for (const status of [404, 403, 500]) {
+    const calls: string[] = [];
+    const adapter = adapterWith(async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (calls.length === 1) return Response.json({ id: post.postId, author });
+      return new Response(null, { status: url.includes("/comments?") ? 404 : status });
+    });
+    const social = createSocial({ backend: adapter });
+
+    await assert.rejects(social.comments.list(post), {
+      code: status === 404 ? "not_found" : status === 403 ? "missing_permission" : "upstream_failure",
+      upstreamStatus: status,
+    });
+    assert.equal(calls.length, 3);
+    assert.ok(calls[1]?.includes("/comments?"));
+    assert.equal(calls[2], calls[0]);
   }
 });
 
@@ -224,8 +244,37 @@ it("LinkedIn image size validation happens before initialization and respects th
       account,
       { ...context, retryBudget: { maxAttempts: 1, maxElapsedMs: 30 } },
     ),
-    (error) => error instanceof HttpError && error.kind === "timeout",
+    { code: "timeout", operation: "media.upload" },
   );
+});
+
+it("LinkedIn public image uploads report timeout after initialization", async () => {
+  const calls: string[] = [];
+  const social = createSocial({
+    backend: adapterWith(async (input) => {
+      calls.push(String(input));
+      if (String(input).includes("initializeUpload"))
+        return Response.json({
+          value: { image: "urn:li:image:fixture", uploadUrl: "https://www.linkedin.com/upload" },
+        });
+      // The upload transport must enforce the deadline even when fetch ignores its signal.
+      return new Promise<Response>(() => {});
+    }),
+  });
+
+  await assert.rejects(
+    social.media.upload(
+      {
+        kind: "image",
+        mimeType: "image/png",
+        source: { kind: "blob", blob: new Blob(["x"]), fingerprint: "fixture" },
+      },
+      account,
+      { retryBudget: { maxAttempts: 1, maxElapsedMs: 30 } },
+    ),
+    { code: "timeout", operation: "media.upload", retryDisposition: { kind: "never" } },
+  );
+  assert.equal(calls.length, 2);
 });
 
 it("LinkedIn single-image preparation applies the inclusive 4086-character alt-text limit", () => {
