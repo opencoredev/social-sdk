@@ -68,6 +68,13 @@ export const publishPost = inngest.createFunction(
     const authorization = { tenantId: draft.tenantId };
 
     const published = await step.run("publish", async () => {
+      const account = connectedAccountRef({
+        backend: "default",
+        platform: "instagram",
+        accountId: draft.accountId,
+      });
+      if (!(await hasActiveAccountGrant(draft.tenantId, account)))
+        throw new NonRetriableError("Account grant revoked");
       const result = await social.posts.publish(
         {
           targets: [
@@ -106,10 +113,11 @@ export const publishPost = inngest.createFunction(
     const delivery = published.delivery;
     for (let check = 0; state === "processing" && delivery && check < maxStatusChecks; check++) {
       await step.sleep(`wait-${check}`, "2m");
-      state = await step.run(
-        `status-${check}`,
-        async () => (await social.posts.getDelivery(delivery, { authorization })).state,
-      );
+      state = await step.run(`status-${check}`, async () => {
+        if (!(await hasActiveAccountGrant(draft.tenantId, delivery)))
+          throw new NonRetriableError("Account grant revoked");
+        return (await social.posts.getDelivery(delivery, { authorization })).state;
+      });
       await step.run(`save-status-${check}`, () => saveDeliveryState(draftId, state, delivery));
     }
 
@@ -121,6 +129,8 @@ export const publishPost = inngest.createFunction(
   },
 );
 ```
+
+`hasActiveAccountGrant` is your server-owned lookup of an active grant matching the tenant and the reference's exact `backend`, `platform`, and `accountId`. Keep it inside the publish and status callbacks so each new attempt checks current access. A separate memoized authorization step could reuse a grant that has since been revoked. This client has no `AuthorizationPolicy`, so `tenantId` alone does not enforce the grant.
 
 Your `saveDeliveryState` implementation must persist the state and delivery reference together, scoped to the draft’s verified tenant. Preserve an existing reference if a retry supplies `null`. A worker can then continue a `processing` delivery after these checks end.
 

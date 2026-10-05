@@ -235,11 +235,21 @@ const native = social.native("default", { acknowledgeUnsafe: true })!;
 
 interface DeliveryRow {
   id: RecordId<"delivery">;
+  tenant: string;
   state: string;
   delivery_ref?: DeliveryRef;
 }
 
-export async function advance(delivery: RecordId<"delivery">, ref: DeliveryRef) {
+export async function advance(tenantId: string, delivery: RecordId<"delivery">, ref: DeliveryRef) {
+  const [grants] = await db
+    .query<[{ id: RecordId<"connected_account"> }[]]>(
+      surql`SELECT id FROM connected_account
+        WHERE tenant = ${tenantId} AND backend = ${ref.backend}
+          AND platform = ${ref.platform} AND account_id = ${ref.accountId}
+        LIMIT 1`,
+    )
+    .collect();
+  if (!grants[0]) throw new Error("Account grant revoked");
   const account = connectedAccountRef({
     backend: ref.backend,
     platform: "threads",
@@ -308,7 +318,7 @@ export async function publishDraft(tenantId: string, draftId: string, text: stri
 
   const state =
     row.state === "processing" && row.delivery_ref
-      ? (await advance(row.id, row.delivery_ref)).state
+      ? (await advance(tenantId, row.id, row.delivery_ref)).state
       : row.state;
 
   return { status: result.status, state };
@@ -328,19 +338,22 @@ export async function reconcile() {
   // Skip deliveries whose connected account was deleted or now belongs to another tenant.
   const [rows] = await db
     .query<[DeliveryRow[]]>(
-      surql`SELECT id, state, delivery_ref FROM delivery
+      surql`SELECT id, tenant, state, delivery_ref FROM delivery
         WHERE state = "processing" AND record::exists(account) AND account.tenant = tenant
+          AND account.backend = delivery_ref.backend
+          AND account.platform = delivery_ref.platform
+          AND account.account_id = delivery_ref.accountId
         LIMIT 20`,
     )
     .collect();
 
-  for (const row of rows) if (row.delivery_ref) await advance(row.id, row.delivery_ref);
+  for (const row of rows) if (row.delivery_ref) await advance(row.tenant, row.id, row.delivery_ref);
 
   return rows.length;
 }
 ```
 
-Run it every few minutes from a scheduler such as [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), [Restate](/integrations/restate), or a cron job. `record::exists(account)` checks that the linked `connected_account` record still exists, and `account.tenant = tenant` checks that it still belongs to the delivery's tenant. The workflow store's claim stops two processes from resuming the same post at once, so an overlapping run does no harm. `resumePublication` and `posts.getDelivery` both continue a workflow that is still `processing`, from the stage it reached. A workflow whose state is `unknown` is never replayed: both report `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes.
+Run it every few minutes from a scheduler such as [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), [Restate](/integrations/restate), or a cron job. `record::exists(account)` checks that the linked `connected_account` record still exists, and `account.tenant = tenant` checks that it still belongs to the delivery's tenant. A `connected_account` record represents an active grant here; delete it when access is revoked. The query also matches the reference's backend, platform, and account ID. `advance` repeats the full grant check before every native continuation, including the one after publishing. Native calls bypass any SDK `AuthorizationPolicy`. The workflow store's claim stops two processes from resuming the same post at once, so an overlapping run does no harm. `resumePublication` and `posts.getDelivery` both continue a workflow that is still `processing`, from the stage it reached. A workflow whose state is `unknown` is never replayed: both report `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes.
 
 ## Webhooks
 

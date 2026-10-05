@@ -84,6 +84,8 @@ const stepRetry = { maxRetryAttempts: 5, initialRetryInterval: { seconds: 2 } };
 const maxReconcileRuns = 30;
 
 async function resume(ctx: DraftContext, ref: DeliveryRef): Promise<DeliveryOutcome["state"]> {
+  const request = await ctx.get("request");
+  if (!request) throw new restate.TerminalError("Missing draft request");
   const account = connectedAccountRef({
     backend: ref.backend,
     platform: "threads",
@@ -93,14 +95,18 @@ async function resume(ctx: DraftContext, ref: DeliveryRef): Promise<DeliveryOutc
   try {
     const outcome = await ctx.run(
       "resume",
-      () =>
-        native.resumePublication(account, ref.deliveryId, {
+      async () => {
+        if (!(await hasActiveAccountGrant(request.tenantId, ref))) return null;
+        return native.resumePublication(account, ref.deliveryId, {
           backendInstance: ref.backend,
           correlationId: ctx.key,
           retryBudget: resumeBudget,
-        }),
+        });
+      },
       stepRetry,
     );
+    // Stop rescheduling after revocation; retain the saved outcome for review.
+    if (!outcome) return state;
     ctx.set("outcome", outcome);
     state = outcome.state;
   } catch (error) {
@@ -142,8 +148,15 @@ export const draft = restate.object({
       ctx.set("request", request);
       const result = await ctx.run(
         "publish",
-        () =>
-          social.posts.publish(
+        async () => {
+          const account = connectedAccountRef({
+            backend: "default",
+            platform: "threads",
+            accountId: request.accountId,
+          });
+          if (!(await hasActiveAccountGrant(request.tenantId, account)))
+            throw new restate.TerminalError("Account grant revoked");
+          return social.posts.publish(
             {
               targets: [
                 {
@@ -159,7 +172,8 @@ export const draft = restate.object({
             },
             // Scopes the idempotency key to this tenant.
             { authorization: { tenantId: request.tenantId } },
-          ),
+          );
+        },
         stepRetry,
       );
 
@@ -190,6 +204,8 @@ export const draft = restate.object({
   },
 });
 ```
+
+`hasActiveAccountGrant` is your server-owned lookup of an active grant matching the tenant and the reference's exact `backend`, `platform`, and `accountId`. Check it inside each publishing or resume callback, including retries and delayed reconciliation. Do not journal the grant check as a separate step: a later write could reuse a revoked grant. Revocation stops reconciliation without changing the saved outcome; send that draft to your review queue. Passing `tenantId` alone does not enforce a grant, and native calls bypass any SDK `AuthorizationPolicy`.
 
 Serve the object from a Node or Bun process:
 

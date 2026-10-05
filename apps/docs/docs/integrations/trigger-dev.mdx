@@ -59,6 +59,14 @@ export const publishScheduled = task({
     if (draft.accountId !== threadsUserId)
       throw new AbortTaskRunError("No credentials for this draft's account");
 
+    const account = connectedAccountRef({
+      backend: "default",
+      platform: "threads",
+      accountId: draft.accountId,
+    });
+    if (!(await hasActiveAccountGrant(draft.tenantId, account)))
+      throw new AbortTaskRunError("Account grant revoked");
+
     const result = await social.posts.publish(
       {
         targets: [
@@ -110,6 +118,7 @@ export const reconcileDeliveries = schedules.task({
   run: async () => {
     const pending = await loadProcessingDeliveries(100); // state processing only
     for (const row of pending) {
+      if (!(await hasActiveAccountGrant(row.tenantId, row.delivery))) continue;
       const outcome = await social.posts.getDelivery(row.delivery, {
         authorization: { tenantId: row.tenantId },
       });
@@ -118,6 +127,8 @@ export const reconcileDeliveries = schedules.task({
   },
 });
 ```
+
+`hasActiveAccountGrant` is your server-owned lookup of an active grant for the tenant and the reference's exact `backend`, `platform`, and `accountId`. Run it inside each task attempt before publishing or reconciling. This client has no `AuthorizationPolicy`; `tenantId` scopes idempotency but does not enforce a grant.
 
 `getDelivery` is not a pure read for Threads. When a workflow is still `processing`, it claims the workflow and continues the remaining Threads calls. It never replays a workflow whose state is `unknown`; it reports `unknown` again. Leave `unknown` rows out of this query and review them instead.
 

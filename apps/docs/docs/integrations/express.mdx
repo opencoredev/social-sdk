@@ -102,6 +102,10 @@ publishRouter.post("/reconcile", json(), async (req, res) => {
     res.status(404).send("No delivery reference");
     return;
   }
+  if (!(await hasActiveAccountGrant(tenant.id, saved.delivery))) {
+    res.status(403).send("Account grant revoked");
+    return;
+  }
   const outcome = await social.posts.getDelivery(saved.delivery, {
     authorization: { tenantId: tenant.id },
   });
@@ -109,6 +113,8 @@ publishRouter.post("/reconcile", json(), async (req, res) => {
   res.json({ state: outcome.state });
 });
 ```
+
+`hasActiveAccountGrant` is your server-owned lookup. It returns `true` only for an active grant matching the tenant and the delivery reference's exact `backend`, `platform`, and `accountId`. Check it on every reconciliation request. Owning the saved delivery does not prove current account access, and this client has no `AuthorizationPolicy`, so passing `tenantId` alone does not enforce a grant. See [tenant authorization](/concepts/tenant-authorization).
 
 ## Webhooks need the raw body
 

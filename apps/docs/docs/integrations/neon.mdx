@@ -226,7 +226,13 @@ const social = createSocial({
 // Native calls skip the client's tenant checks, so callers authorize the account first.
 const native = social.native("default", { acknowledgeUnsafe: true })!;
 
-async function advance(deliveryId: string, ref: DeliveryRef) {
+async function advance(tenantId: string, deliveryId: string, ref: DeliveryRef) {
+  const { rows: grants } = await pool.query(
+    `select 1 from connected_accounts
+     where tenant_id = $1 and backend = $2 and platform = $3 and account_id = $4`,
+    [tenantId, ref.backend, ref.platform, ref.accountId],
+  );
+  if (!grants[0]) throw new Error("Account grant revoked");
   const account = connectedAccountRef({
     backend: ref.backend,
     platform: "threads",
@@ -309,7 +315,7 @@ app.post("/publish", bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
 
   const state =
     row.state === "processing" && row.delivery_ref
-      ? (await advance(row.id, row.delivery_ref)).state
+      ? (await advance(tenant.id, row.id, row.delivery_ref)).state
       : row.state;
 
   return c.json({ status: result.status, state });
@@ -330,20 +336,23 @@ app.post("/reconcile", async (c) => {
 
   // The join skips deliveries whose account the tenant has since disconnected.
   const { rows } = await pool.query(
-    `select d.id, d.delivery_ref from deliveries d
+    `select d.id, d.tenant_id, d.delivery_ref from deliveries d
      join connected_accounts a
        on a.tenant_id = d.tenant_id
-      and a.platform = 'threads'
+      and a.backend = d.delivery_ref->>'backend'
+      and a.platform = d.delivery_ref->>'platform'
       and a.account_id = d.delivery_ref->>'accountId'
      where d.state = 'processing'
      limit 20`,
   );
 
-  for (const row of rows) await advance(row.id, row.delivery_ref);
+  for (const row of rows) await advance(row.tenant_id, row.id, row.delivery_ref);
 
   return c.json({ resumed: rows.length });
 });
 ```
+
+Here, a `connected_accounts` row represents an active grant; delete it when access is revoked. `advance` rechecks the tenant and the reference's exact backend, platform, and account ID before every native continuation, including the one after publishing. Native calls bypass any SDK `AuthorizationPolicy`.
 
 The workflow store's claim stops two isolates from resuming the same post at once, so an overlapping or redelivered run does no harm. `resumePublication` and `posts.getDelivery` both continue a workflow that is still `processing`, from the stage it reached. A workflow whose state is `unknown` is never replayed: both report `unknown` again. Leave those rows for review, as the [idempotency guide](/concepts/idempotency) describes. Pick whatever cadence suits you; the SDK never polls on its own.
 
