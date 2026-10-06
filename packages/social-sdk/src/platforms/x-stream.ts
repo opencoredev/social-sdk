@@ -4,6 +4,7 @@ import type { AdapterOperationContext, JsonObject, JsonValue } from "../core/typ
 import { remainingBudget } from "../transport/budget.js";
 import { abortable, retryDelay } from "../transport/http.js";
 import { parseJson } from "../transport/json.js";
+import { fetchWithoutRedirects } from "../transport/redirect.js";
 import { isJsonObject, isString } from "../transport/validation.js";
 import type { XMediaField, XTweetExpansion, XTweetField, XUserField } from "./x.js";
 
@@ -418,11 +419,10 @@ export async function* readFilteredStream(
     let response: Response;
 
     try {
-      const pending = (config.fetch ?? globalThis.fetch)(url, {
+      const pending = fetchWithoutRedirects(config.fetch ?? globalThis.fetch, url, {
         method: "GET",
         headers: { Authorization: `Bearer ${config.bearerToken}` },
         signal: controller.signal,
-        redirect: "error",
       });
 
       void pending.then(

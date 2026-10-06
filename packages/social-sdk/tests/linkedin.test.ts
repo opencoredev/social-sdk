@@ -33,7 +33,7 @@ it("LinkedIn uses explicit version and header-only native IDs without losing int
         const headers = new Headers(init?.headers);
         assert.equal(headers.get("Linkedin-Version"), "202609");
         assert.equal(headers.get("X-Restli-Protocol-Version"), "2.0.0");
-        assert.equal(init?.redirect, "error");
+        assert.equal(init?.redirect, "manual");
         const body = JSON.parse(String(init?.body));
         assert.equal(body.author, auth.author);
         assert.equal(body.visibility, "PUBLIC");

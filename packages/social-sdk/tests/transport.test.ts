@@ -207,7 +207,7 @@ describe("HTTP transport", () => {
         headers: { Authorization: "Bearer private" },
       }),
     );
-    assert.equal(init?.redirect, "error");
+    assert.equal(init?.redirect, "manual");
   });
 
   it("bounds JSON response bodies even without content-length", async () => {

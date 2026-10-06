@@ -38,7 +38,7 @@ it("uploads incrementally with bounded demand, no auth, no redirect, and no repl
     },
     fetch: async (_url, init) => {
       assert.equal(new Headers(init?.headers).get("authorization"), null);
-      assert.equal(init?.redirect, "error");
+      assert.equal(init?.redirect, "manual");
       assert.ok(init?.body instanceof ReadableStream);
       const reader = init.body.getReader();
 

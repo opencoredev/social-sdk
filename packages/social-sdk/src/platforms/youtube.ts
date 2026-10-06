@@ -26,6 +26,7 @@ import { definedFields } from "../core/fields.js";
 import { verifyYouTubeWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { abortable, createHttp, HttpError, retryDelay } from "../transport/http.js";
+import { fetchWithoutRedirects } from "../transport/redirect.js";
 import {
   array,
   isBoolean,
@@ -1479,9 +1480,8 @@ export function youtube(
             controller.signal.throwIfAborted();
 
             const response = await abortable(
-              (options.fetch ?? globalThis.fetch)(url, {
+              fetchWithoutRedirects(options.fetch ?? globalThis.fetch, url, {
                 headers: { Authorization: `Bearer ${options.auth.accessToken}` },
-                redirect: "error",
                 signal: controller.signal,
               }).then((response) => {
                 if (controller.signal.aborted) {

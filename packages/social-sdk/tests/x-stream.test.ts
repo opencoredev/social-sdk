@@ -112,7 +112,7 @@ it("X filtered stream yields posts across chunk boundaries and skips keep-alives
   assert.equal(request?.url.searchParams.get("expansions"), "author_id");
   assert.equal(request?.url.searchParams.get("user.fields"), "username");
   assert.equal(request?.url.searchParams.has("backfill_minutes"), false);
-  assert.equal(request?.init?.redirect, "error");
+  assert.equal(request?.init?.redirect, "manual");
   assert.equal(new Headers(request?.init?.headers).get("authorization"), "Bearer app-token");
 
   assert.equal(events.length, 4);
