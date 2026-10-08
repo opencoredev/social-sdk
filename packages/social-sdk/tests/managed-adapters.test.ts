@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { zernio } from "../src/cloud/zernio.js";
-import type { AdapterOperationContext, JsonValue, PublishRequest } from "../src/core/types.js";
+import type {
+  AdapterOperationContext,
+  JsonValue,
+  PublishRequest,
+  TikTokPublishOptions,
+} from "../src/core/types.js";
 import { array, object } from "../src/transport/validation.js";
 
 const context: AdapterOperationContext = {
@@ -684,11 +689,13 @@ it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", as
 
 it("Zernio rejects TikTok photo-only options on video posts and enforces photo limits", () => {
   const social = createSocial({ backend: zernio({ apiKey: "test" }) });
+
   const account = connectedAccountRef({
     backend: "default",
     platform: "tiktok",
     accountId: "tt1",
   });
+
   const baseOptions = {
     privacy: "PUBLIC_TO_EVERYONE" as const,
     consentGiven: true,
@@ -700,17 +707,20 @@ it("Zernio rejects TikTok photo-only options on video posts and enforces photo l
     aiGenerated: false,
     draft: false,
   };
+
   const video = {
     kind: "video" as const,
     mimeType: "video/mp4",
     source: { kind: "https-url" as const, url: "https://media.example.test/video.mp4" },
   };
+
   const photo = {
     kind: "image" as const,
     mimeType: "image/jpeg",
     source: { kind: "https-url" as const, url: "https://media.example.test/photo.jpg" },
   };
-  const request = (options: Record<string, unknown>, media: typeof video | typeof photo) => ({
+
+  const request = (options: Partial<TikTokPublishOptions>, media: typeof video | typeof photo) => ({
     targets: [{ account, options: { ...baseOptions, ...options } }],
     content: { text: "caption", media: [media] },
   });
