@@ -733,6 +733,21 @@ it("Zernio rejects TikTok photo-only options on video posts and enforces photo l
   ])
     assert.equal(social.posts.prepare(request(options, video)).ok, false);
 
+  for (const [options, issueCode] of [
+    [{ title: "photo title" }, "tiktok.title"],
+    [{ description: "photo description" }, "tiktok.description"],
+    [{ mediaType: "photo" as const }, "tiktok.media_type"],
+    [{ autoAddMusic: true }, "tiktok.auto_add_music"],
+  ] as const) {
+    const preparation = social.posts.prepare({
+      targets: [{ account, options: { ...baseOptions, ...options } }],
+      content: { text: "caption", media: [] },
+    });
+
+    assert.equal(preparation.ok, false);
+    assert.ok(preparation.issues.some((issue) => issue.code === issueCode));
+  }
+
   assert.equal(social.posts.prepare(request({ title: "t".repeat(90) }, photo)).ok, true);
   assert.equal(social.posts.prepare(request({ title: "t".repeat(91) }, photo)).ok, false);
   assert.equal(social.posts.prepare(request({ description: "d".repeat(4000) }, photo)).ok, true);

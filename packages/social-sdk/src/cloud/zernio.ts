@@ -416,11 +416,17 @@ export function zernio(options: ManagedOptions) {
           native["replySettings"] = string(config["replySettings"]);
 
         if (target.account.platform === "tiktok") {
+          const video = media.length === 1 && media[0]?.["type"] === "video";
+          const photo = media.length > 0 && media.every((item) => item["type"] === "image");
           native["privacyLevel"] = string(config["privacy"]);
           native["contentPreviewConfirmed"] = true;
           native["expressConsentGiven"] = true;
-          native["autoAddMusic"] =
-            isBoolean(config["autoAddMusic"]) ? config["autoAddMusic"] : false;
+
+          if (video) native["autoAddMusic"] = false;
+          else if (photo)
+            native["autoAddMusic"] = isBoolean(config["autoAddMusic"])
+              ? config["autoAddMusic"]
+              : false;
           native["allowDuet"] = !config["disableDuet"];
           native["allowStitch"] = !config["disableStitch"];
 
@@ -445,18 +451,18 @@ export function zernio(options: ManagedOptions) {
 
           if (isBoolean(brandedContent)) native["brandPartnerPromote"] = brandedContent;
 
-          if (isString(description)) native["description"] = description;
+          if (photo && isString(description)) native["description"] = description;
 
-          if (mediaType === "photo") native["mediaType"] = "photo";
+          if (photo && mediaType === "photo") native["mediaType"] = "photo";
         }
 
-        const tiktokTitle =
+        const tiktokPhoto =
           target.account.platform === "tiktok" &&
           media.length > 0 &&
-          media.every((item) => item["type"] === "image") &&
-          isString(config["title"])
-            ? string(config["title"])
-            : undefined;
+          media.every((item) => item["type"] === "image");
+
+        const tiktokTitle =
+          tiktokPhoto && isString(config["title"]) ? string(config["title"]) : undefined;
 
         try {
           const response = await request("/v1/posts", context, {
