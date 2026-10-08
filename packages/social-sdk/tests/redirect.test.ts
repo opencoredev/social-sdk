@@ -57,6 +57,29 @@ describe("fetchWithoutRedirects", () => {
     );
   });
 
+  it("rejects an opted-in 308 with a Location header and releases the body", async () => {
+    let cancelled = false;
+
+    await assert.rejects(
+      fetchWithoutRedirects(
+        async () =>
+          new Response(
+            new ReadableStream({
+              cancel() {
+                cancelled = true;
+              },
+            }),
+            { status: 308, headers: { location: "https://elsewhere.example.test/" } },
+          ),
+        url,
+        {},
+        [308],
+      ),
+      TypeError,
+    );
+    assert.equal(cancelled, true);
+  });
+
   it("returns other 3xx statuses and explicitly allowed provider statuses", async () => {
     for (const status of [300, 304]) {
       const response = await fetchWithoutRedirects(
