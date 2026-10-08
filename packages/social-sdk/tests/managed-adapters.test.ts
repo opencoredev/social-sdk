@@ -728,7 +728,7 @@ it("Zernio rejects TikTok photo-only options on video posts and enforces photo l
   for (const options of [
     { title: "photo title" },
     { description: "photo description" },
-    { mediaType: "photo" },
+    { mediaType: "photo" as const },
     { autoAddMusic: true },
   ])
     assert.equal(social.posts.prepare(request(options, video)).ok, false);
