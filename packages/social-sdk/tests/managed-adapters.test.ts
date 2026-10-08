@@ -646,7 +646,7 @@ it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", as
           title: "Photo title under ninety",
           description: "Full caption body for the photo post.",
           mediaType: "photo" as const,
-          autoAddMusic: false,
+          autoAddMusic: true,
           photoCoverIndex: 0,
         },
       },
@@ -676,8 +676,55 @@ it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", as
   const native = object(object(array(body["platforms"])[0])["platformSpecificData"]);
   assert.equal(native["mediaType"], "photo");
   assert.equal(native["description"], "Full caption body for the photo post.");
-  assert.equal(native["autoAddMusic"], false);
+  assert.equal(native["autoAddMusic"], true);
   assert.equal(native["photoCoverIndex"], 0);
   assert.equal(native["isBrandOrganicPost"], true);
   assert.equal(native["allowComment"], true);
+});
+
+it("Zernio rejects TikTok photo-only options on video posts and enforces photo limits", () => {
+  const social = createSocial({ backend: zernio({ apiKey: "test" }) });
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "tiktok",
+    accountId: "tt1",
+  });
+  const baseOptions = {
+    privacy: "PUBLIC_TO_EVERYONE" as const,
+    consentGiven: true,
+    disableComments: false,
+    disableDuet: false,
+    disableStitch: false,
+    brandedContent: false,
+    ownBrand: true,
+    aiGenerated: false,
+    draft: false,
+  };
+  const video = {
+    kind: "video" as const,
+    mimeType: "video/mp4",
+    source: { kind: "https-url" as const, url: "https://media.example.test/video.mp4" },
+  };
+  const photo = {
+    kind: "image" as const,
+    mimeType: "image/jpeg",
+    source: { kind: "https-url" as const, url: "https://media.example.test/photo.jpg" },
+  };
+  const request = (options: Record<string, unknown>, media: typeof video | typeof photo) => ({
+    targets: [{ account, options: { ...baseOptions, ...options } }],
+    content: { text: "caption", media: [media] },
+  });
+
+  for (const options of [
+    { title: "photo title" },
+    { description: "photo description" },
+    { mediaType: "photo" },
+    { autoAddMusic: true },
+  ])
+    assert.equal(social.posts.prepare(request(options, video)).ok, false);
+
+  assert.equal(social.posts.prepare(request({ title: "t".repeat(90) }, photo)).ok, true);
+  assert.equal(social.posts.prepare(request({ title: "t".repeat(91) }, photo)).ok, false);
+  assert.equal(social.posts.prepare(request({ description: "d".repeat(4000) }, photo)).ok, true);
+  assert.equal(social.posts.prepare(request({ description: "d".repeat(4001) }, photo)).ok, false);
 });
