@@ -57,6 +57,8 @@ Zernio post creation sends the derived target retry key as `Idempotency-Key`, in
 
 ## Publish a video
 
+For TikTok photo posts, Zernio maps `options.title` to the post title (up to 90 UTF-16 code units), `options.description` to the long-form caption (up to 4,000), and sends `mediaType: "photo"`. Set `autoAddMusic: true` to request automatic music; these options are photo-only and are rejected for TikTok video posts. Video posts continue to send `autoAddMusic: false` by default.
+
 Pass the file as a `Blob` with its MIME type and filename; the adapter uploads it to Zernio before it creates the post. Each target takes its platform's options, and images also accept `altText`.
 
 ```ts
