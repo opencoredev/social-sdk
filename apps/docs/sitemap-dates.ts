@@ -12,9 +12,16 @@ export type PageSource = { files: string[]; ranges: LineRange[] };
 // The info pages share pages.ts: each one depends on its own copy block and
 // the shared parts (imports, the repo link, the rendering helpers), not on the
 // other pages' copy.
+// renderShell and siteMeta, which the blog index also uses.
+const shellHelpers: LineRange = {
+  file: "_info/pages.ts",
+  from: "^export type Shell",
+  to: "^export function renderInfoPage",
+};
+
 const infoShared: LineRange[] = [
   { file: "_info/pages.ts", from: "^import shell", to: "^const repo" },
-  { file: "_info/pages.ts", from: "^export type Shell", to: "^export function renderInfoPage" },
+  shellHelpers,
   { file: "_info/pages.ts", from: "^export function renderInfoPage", to: "^}" },
 ];
 
@@ -37,7 +44,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   // Only used while the blog is empty; with posts, the blog sitemap dates it.
   [
     "/blog",
-    { files: ["blog/index.astro", "_blog/render.ts", "_info/info.html"], ranges: infoShared },
+    { files: ["blog/index.astro", "_blog/render.ts", "_info/info.html"], ranges: [shellHelpers] },
   ],
 ]);
 

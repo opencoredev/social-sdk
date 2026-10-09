@@ -70,3 +70,10 @@ test("dates info pages by every shared part of pages.ts", () => {
   for (const shared of ["^import shell", "^export type Shell", "^export function renderInfoPage"])
     assert.ok(froms.includes(shared), shared);
 });
+
+test("dates the empty blog index by the shell helpers only", () => {
+  assert.deepEqual(
+    pageSources.get("/blog")?.ranges.map((range) => range.from),
+    ["^export type Shell"],
+  );
+});
