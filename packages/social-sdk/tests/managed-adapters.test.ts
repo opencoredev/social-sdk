@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { zernio } from "../src/cloud/zernio.js";
-import type { AdapterOperationContext, JsonValue, PublishRequest } from "../src/core/types.js";
+import type {
+  AdapterOperationContext,
+  JsonValue,
+  PublishRequest,
+  TikTokPublishOptions,
+} from "../src/core/types.js";
 import { array, object } from "../src/transport/validation.js";
 
 const context: AdapterOperationContext = {
@@ -571,6 +576,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
       assert.equal(native["allowStitch"], true);
       assert.equal(native["isBrandOrganicPost"], true);
       assert.equal(native["videoMadeWithAi"], true);
+      assert.equal(native["autoAddMusic"], false);
     } else {
       const native = object(object(object(payload)["platform_configurations"])["tiktok"]);
 
@@ -601,3 +607,149 @@ for (const provider of ["zernio", "post-for-me"] as const) {
     assert.equal(social.posts.prepare(unmapped).ok, false);
   });
 }
+
+it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", async () => {
+  let payload: JsonValue | undefined;
+
+  const social = createSocial({
+    backend: zernio({
+      apiKey: "test",
+      fetch: async (_input, init) => {
+        payload = JSON.parse(String(init?.body));
+
+        return Response.json({
+          post: {
+            _id: "p-photo",
+            status: "pending",
+            platforms: [{ accountId: "tt1", platform: "tiktok", status: "pending" }],
+          },
+        });
+      },
+    }),
+  });
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "tiktok",
+    accountId: "tt1",
+  });
+
+  const request = {
+    targets: [
+      {
+        account,
+        options: {
+          privacy: "PUBLIC_TO_EVERYONE" as const,
+          consentGiven: true,
+          disableComments: false,
+          disableDuet: false,
+          disableStitch: false,
+          brandedContent: false,
+          ownBrand: true,
+          aiGenerated: false,
+          draft: false,
+          title: "Photo title under ninety",
+          description: "Full caption body for the photo post.",
+          mediaType: "photo" as const,
+          autoAddMusic: true,
+          photoCoverIndex: 0,
+        },
+      },
+    ],
+    content: {
+      text: "ignored when title option is set",
+      media: [
+        {
+          kind: "image" as const,
+          mimeType: "image/jpeg",
+          source: { kind: "https-url" as const, url: "https://media.example.test/1.jpg" },
+        },
+        {
+          kind: "image" as const,
+          mimeType: "image/jpeg",
+          source: { kind: "https-url" as const, url: "https://media.example.test/2.jpg" },
+        },
+      ],
+    },
+  };
+
+  assert.equal(social.posts.prepare(request).ok, true);
+  await social.posts.publish(request);
+
+  const body = object(payload);
+  assert.equal(body["content"], "Photo title under ninety");
+  const native = object(object(array(body["platforms"])[0])["platformSpecificData"]);
+  assert.equal(native["mediaType"], "photo");
+  assert.equal(native["description"], "Full caption body for the photo post.");
+  assert.equal(native["autoAddMusic"], true);
+  assert.equal(native["photoCoverIndex"], 0);
+  assert.equal(native["isBrandOrganicPost"], true);
+  assert.equal(native["allowComment"], true);
+});
+
+it("Zernio rejects TikTok photo-only options on video posts and enforces photo limits", () => {
+  const social = createSocial({ backend: zernio({ apiKey: "test" }) });
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "tiktok",
+    accountId: "tt1",
+  });
+
+  const baseOptions = {
+    privacy: "PUBLIC_TO_EVERYONE" as const,
+    consentGiven: true,
+    disableComments: false,
+    disableDuet: false,
+    disableStitch: false,
+    brandedContent: false,
+    ownBrand: true,
+    aiGenerated: false,
+    draft: false,
+  };
+
+  const video = {
+    kind: "video" as const,
+    mimeType: "video/mp4",
+    source: { kind: "https-url" as const, url: "https://media.example.test/video.mp4" },
+  };
+
+  const photo = {
+    kind: "image" as const,
+    mimeType: "image/jpeg",
+    source: { kind: "https-url" as const, url: "https://media.example.test/photo.jpg" },
+  };
+
+  const request = (options: Partial<TikTokPublishOptions>, media: typeof video | typeof photo) => ({
+    targets: [{ account, options: { ...baseOptions, ...options } }],
+    content: { text: "caption", media: [media] },
+  });
+
+  for (const options of [
+    { title: "photo title" },
+    { description: "photo description" },
+    { mediaType: "photo" as const },
+    { autoAddMusic: true },
+  ])
+    assert.equal(social.posts.prepare(request(options, video)).ok, false);
+
+  for (const [options, issueCode] of [
+    [{ title: "photo title" }, "tiktok.title"],
+    [{ description: "photo description" }, "tiktok.description"],
+    [{ mediaType: "photo" as const }, "tiktok.media_type"],
+    [{ autoAddMusic: true }, "tiktok.auto_add_music"],
+  ] as const) {
+    const preparation = social.posts.prepare({
+      targets: [{ account, options: { ...baseOptions, ...options } }],
+      content: { text: "caption", media: [] },
+    });
+
+    assert.equal(preparation.ok, false);
+    assert.ok(preparation.issues.some((issue) => issue.code === issueCode));
+  }
+
+  assert.equal(social.posts.prepare(request({ title: "t".repeat(90) }, photo)).ok, true);
+  assert.equal(social.posts.prepare(request({ title: "t".repeat(91) }, photo)).ok, false);
+  assert.equal(social.posts.prepare(request({ description: "d".repeat(4000) }, photo)).ok, true);
+  assert.equal(social.posts.prepare(request({ description: "d".repeat(4001) }, photo)).ok, false);
+});

@@ -254,7 +254,9 @@ export function managedOptionIssues(
       "ownBrand",
       "aiGenerated",
       "draft",
-      ...(provider === "zernio" ? ["photoCoverIndex"] : []),
+      ...(provider === "zernio"
+        ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
+        : []),
     ],
   };
 
@@ -313,6 +315,7 @@ export function managedOptionIssues(
     if (config["brandedContent"] === true && config["privacy"] === "SELF_ONLY")
       fail("tiktok.branded_privacy", "TikTok branded content cannot use private visibility.");
     const media = target.content.media ?? [];
+    const video = media.length === 1 && media[0]?.kind === "video";
 
     if (
       media.some((item) => item.kind === "video") &&
@@ -331,6 +334,50 @@ export function managedOptionIssues(
         media.some((item) => item.kind !== "image"))
     )
       fail("tiktok.cover", "Choose an existing photo index for the cover.");
+
+    if (video) {
+      if (config["title"] !== undefined)
+        fail("tiktok.title", "Video captions use content.text; title is a photo-only option.");
+
+      if (config["description"] !== undefined)
+        fail("tiktok.description", "Description is a photo-only option.");
+
+      if (config["mediaType"] !== undefined)
+        fail("tiktok.media_type", "mediaType is a photo-only option.");
+
+      if (config["autoAddMusic"] !== undefined)
+        fail("tiktok.auto_add_music", "autoAddMusic is a photo-only option.");
+    } else if (media.length === 0) {
+      if (config["title"] !== undefined)
+        fail("tiktok.title", "Photo titles require at least one image.");
+
+      if (config["description"] !== undefined)
+        fail("tiktok.description", "Photo descriptions require at least one image.");
+
+      if (config["mediaType"] !== undefined)
+        fail("tiktok.media_type", "mediaType requires at least one image.");
+
+      if (config["autoAddMusic"] !== undefined)
+        fail("tiktok.auto_add_music", "autoAddMusic requires at least one image.");
+    } else {
+      if (
+        config["title"] !== undefined &&
+        (!isString(config["title"]) || String(config["title"]).length > 90)
+      )
+        fail("tiktok.title", "Photo titles are limited to 90 characters.");
+
+      if (
+        config["description"] !== undefined &&
+        (!isString(config["description"]) || String(config["description"]).length > 4000)
+      )
+        fail("tiktok.description", "Photo descriptions are limited to 4000 characters.");
+
+      if (config["mediaType"] !== undefined && config["mediaType"] !== "photo")
+        fail("tiktok.media_type", 'mediaType must be "photo" when set.');
+
+      if (config["autoAddMusic"] !== undefined && !isBoolean(config["autoAddMusic"]))
+        fail("tiktok.auto_add_music", "autoAddMusic must be a boolean.");
+    }
   }
 
   return issues;

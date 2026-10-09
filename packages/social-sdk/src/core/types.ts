@@ -206,7 +206,14 @@ export interface TikTokPublishOptions {
   readonly aiGenerated: boolean;
   readonly draft: boolean;
   readonly photoCoverIndex?: number;
+  /** Photo-post title (≤90). Zernio maps this onto `content` when set. */
   readonly title?: string;
+  /** Photo-post caption/description (≤4000). Zernio `platformSpecificData.description`. */
+  readonly description?: string;
+  /** Zernio-only: `"photo"` for image carousels. */
+  readonly mediaType?: "photo";
+  /** Photo-only. Defaults to false when unset. Brand-organic/branded posts attach no auto music. */
+  readonly autoAddMusic?: boolean;
   readonly consentGiven: boolean;
   readonly creatorInfo?: JsonObject;
 }
