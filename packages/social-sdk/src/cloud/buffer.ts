@@ -107,8 +107,6 @@ const nativePlatforms = new Map<string, Platform>([
   ["facebook", "facebook"],
 ]);
 
-const youtubePrivacy = new Set(["public", "unlisted", "private"]);
-
 const postSelection = `
   id
   text
@@ -311,7 +309,10 @@ export async function exchangeBufferCode(
     });
 
   if (!options.code.trim() || !options.codeVerifier.trim())
-    reject(operation, "Pass the authorization code and the PKCE verifier from the start of the flow.");
+    reject(
+      operation,
+      "Pass the authorization code and the PKCE verifier from the start of the flow.",
+    );
 
   const body = new URLSearchParams({
     client_id: options.clientId,
@@ -330,7 +331,9 @@ export async function exchangeBufferCode(
  * Exchange a Buffer refresh token for a new token pair. The refresh token you send is
  * invalidated; store the replacement and discard the old one.
  */
-export async function refreshBufferToken(options: BufferRefreshOptions): Promise<BufferAccessToken> {
+export async function refreshBufferToken(
+  options: BufferRefreshOptions,
+): Promise<BufferAccessToken> {
   const operation = "buffer.refreshToken";
 
   if (!options.clientId.trim())
@@ -340,8 +343,7 @@ export async function refreshBufferToken(options: BufferRefreshOptions): Promise
       message: "Configure the Buffer OAuth client ID.",
     });
 
-  if (!options.refreshToken.trim())
-    reject(operation, "Pass the current Buffer refresh token.");
+  if (!options.refreshToken.trim()) reject(operation, "Pass the current Buffer refresh token.");
 
   const body = new URLSearchParams({
     client_id: options.clientId,
@@ -422,6 +424,7 @@ function graphqlFailure(
 ): SocialError {
   const first = errors[0];
   const upstreamCode = first === undefined ? undefined : graphqlCode(first);
+
   const message =
     first !== undefined && isJsonObject(first)
       ? (optionalString(first["message"]) ?? "Buffer returned a GraphQL error.")
@@ -549,13 +552,15 @@ export function buffer(options: BufferOptions) {
 
     const data = await graphql(
       "accounts.read",
-      `query AccountOrganizations {
-        account {
-          organizations {
-            id
+      `
+        query AccountOrganizations {
+          account {
+            organizations {
+              id
+            }
           }
         }
-      }`,
+      `,
       {},
       context,
       "query",
@@ -596,15 +601,17 @@ export function buffer(options: BufferOptions) {
     for (const org of orgs) {
       const data = await graphql(
         "accounts.read",
-        `query Channels($input: ChannelsInput!) {
-          channels(input: $input) {
-            id
-            name
-            displayName
-            service
-            organizationId
+        `
+          query Channels($input: ChannelsInput!) {
+            channels(input: $input) {
+              id
+              name
+              displayName
+              service
+              organizationId
+            }
           }
-        }`,
+        `,
         { input: { organizationId: org } },
         context,
         "query",
@@ -630,6 +637,7 @@ export function buffer(options: BufferOptions) {
     operation: string,
   ): Promise<{ account: AccountRecord; organizationId: string }> => {
     accountMatches(ref, context);
+
     const found = (await channels(context)).find(
       (item) =>
         item.account.ref.accountId === ref.accountId && item.account.ref.platform === ref.platform,
@@ -673,7 +681,9 @@ export function buffer(options: BufferOptions) {
     operation: string,
   ): Promise<JsonObject> => {
     accountMatches(ref, context);
+
     const postId = bufferId(id, operation, "post");
+
     const data = await graphql(
       operation,
       `query Post($input: PostInput!) {
@@ -685,6 +695,7 @@ export function buffer(options: BufferOptions) {
       context,
       "query",
     );
+
     const row = postRow(data["post"], operation);
 
     if (row["channelId"] !== ref.accountId)
@@ -724,6 +735,7 @@ export function buffer(options: BufferOptions) {
   ): DeliveryOutcome => {
     const id = string(row["id"]);
     const status = optionalString(row["status"]) ?? "unknown";
+
     const delivery: DeliveryRef = {
       kind: "delivery",
       version: 1,
@@ -732,6 +744,7 @@ export function buffer(options: BufferOptions) {
       accountId: target.accountId,
       deliveryId: id,
     };
+
     const base = {
       targetIndex,
       account: target,
@@ -777,6 +790,7 @@ export function buffer(options: BufferOptions) {
           ...definedFields({ url }),
         };
       }
+
       case "error":
         return {
           ...base,
@@ -838,16 +852,23 @@ export function buffer(options: BufferOptions) {
   ): Promise<void> => {
     const data = await graphql(
       operation,
-      `mutation DeletePost($input: DeletePostInput!) {
-        deletePost(input: $input) {
-          ... on DeletePostSuccess { id }
-          ... on MutationError { message }
+      `
+        mutation DeletePost($input: DeletePostInput!) {
+          deletePost(input: $input) {
+            ... on DeletePostSuccess {
+              id
+            }
+            ... on MutationError {
+              message
+            }
+          }
         }
-      }`,
+      `,
       { input: { id } },
       context,
       "mutation",
     );
+
     const result = object(data["deletePost"]);
 
     if (result["id"] === id) return;
@@ -873,20 +894,16 @@ export function buffer(options: BufferOptions) {
 
   const adapter = defineAdapter({
     id: "buffer",
-    capabilities: capabilityManifest(
-      "buffer",
-      "GraphQL api.buffer.com, docs read 2026-10-09",
-      [
-        "accounts.read",
-        "posts.publish",
-        "posts.read",
-        "posts.list",
-        "posts.status",
-        "posts.cancelScheduled",
-        "posts.deleteBackendRecord",
-        "analytics.read",
-      ],
-    ),
+    capabilities: capabilityManifest("buffer", "GraphQL api.buffer.com, docs read 2026-10-09", [
+      "accounts.read",
+      "posts.publish",
+      "posts.read",
+      "posts.list",
+      "posts.status",
+      "posts.cancelScheduled",
+      "posts.deleteBackendRecord",
+      "analytics.read",
+    ]),
     accounts: {
       async list(input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         const offset = input.cursor === undefined ? 0 : Number(input.cursor);
@@ -961,66 +978,77 @@ export function buffer(options: BufferOptions) {
         const assets: JsonObject[] = [];
 
         for (const item of target.content.media ?? []) {
-          if (item.kind === "document" || item.source.kind !== "https-url")
+          const source = item.source;
+
+          if (source.kind !== "https-url" || item.kind === "document")
             reject(
               "posts.publish",
               "Buffer accepts public HTTPS image and video URLs only through this adapter.",
             );
-
-          const url = httpsUrl(item.source.url).href;
-          const altText = item.altText;
-
-          assets.push(
-            item.kind === "video"
-              ? { video: { url } }
-              : {
-                  image: {
-                    url,
-                    ...definedFields({
-                      metadata: altText ? { altText } : undefined,
-                    }),
+          else
+            assets.push(
+              item.kind === "video"
+                ? { video: { url: httpsUrl(source.url).href } }
+                : {
+                    image: {
+                      url: httpsUrl(source.url).href,
+                      ...definedFields({
+                        metadata: item.altText ? { altText: item.altText } : undefined,
+                      }),
+                    },
                   },
-                },
-          );
+            );
         }
 
         const config = optionsObject(target);
-        const metadata: JsonObject = {};
+        const metadataEntries: [string, JsonValue][] = [];
 
         if (target.account.platform === "youtube") {
+          const title = config["title"];
           const visibility = optionalString(config["visibility"]);
 
-          if (!isString(config["title"]) || !config["title"] || !visibility || !youtubePrivacy.has(visibility))
-            reject(
+          if (!isString(title) || title.length === 0)
+            return reject("posts.publish", "Select a YouTube title explicitly.");
+
+          if (visibility !== "public" && visibility !== "unlisted" && visibility !== "private")
+            return reject(
               "posts.publish",
-              "Select a YouTube title and public, unlisted, or private visibility.",
+              "Select public, unlisted, or private YouTube visibility.",
             );
 
-          metadata["youtube"] = {
-            title: config["title"],
-            privacy: visibility,
-            ...definedFields({
-              madeForKids: isBoolean(config["madeForKids"]) ? config["madeForKids"] : undefined,
-            }),
-          };
+          metadataEntries.push([
+            "youtube",
+            {
+              title,
+              privacy: visibility,
+              ...definedFields({
+                madeForKids: isBoolean(config["madeForKids"]) ? config["madeForKids"] : undefined,
+              }),
+            },
+          ]);
         }
 
         if (target.account.platform === "instagram" && config["shareToFeed"] !== undefined) {
           if (!isBoolean(config["shareToFeed"]))
             reject("posts.publish", "Instagram shareToFeed must be a boolean.");
 
-          metadata["instagram"] = {
-            shouldShareToFeed: config["shareToFeed"],
-            type: "post",
-          };
+          metadataEntries.push([
+            "instagram",
+            {
+              shouldShareToFeed: config["shareToFeed"],
+              type: "post",
+            },
+          ]);
         }
 
         if (target.account.platform === "tiktok" && config["aiGenerated"] !== undefined) {
           if (!isBoolean(config["aiGenerated"]))
             reject("posts.publish", "TikTok aiGenerated must be a boolean.");
 
-          metadata["tiktok"] = { isAiGenerated: config["aiGenerated"] };
+          metadataEntries.push(["tiktok", { isAiGenerated: config["aiGenerated"] }]);
         }
+
+        const metadata = Object.fromEntries(metadataEntries);
 
         const input: JsonObject = {
           text: target.content.text ?? "",
@@ -1031,7 +1059,7 @@ export function buffer(options: BufferOptions) {
           assets,
           ...definedFields({
             dueAt: scheduled ? new Date(string(at)).toISOString() : undefined,
-            metadata: Object.keys(metadata).length ? metadata : undefined,
+            metadata: metadataEntries.length ? metadata : undefined,
           }),
         };
 
@@ -1053,6 +1081,7 @@ export function buffer(options: BufferOptions) {
           context,
           "mutation",
         );
+
         const result = object(data["createPost"]);
 
         if (isJsonObject(result["post"]))
@@ -1117,8 +1146,10 @@ export function buffer(options: BufferOptions) {
           context,
           "query",
         );
+
         const connection = object(data["posts"]);
         const pageInfo = connection["pageInfo"] ? object(connection["pageInfo"]) : {};
+
         const items = array(connection["edges"]).flatMap((edge) => {
           const row = object(edge);
           const node = row["node"];
@@ -1144,7 +1175,17 @@ export function buffer(options: BufferOptions) {
         return publicPost(await readPost(ref.postId, ref, context, "posts.read"));
       },
       async getDelivery(ref: DeliveryRef, context: AdapterOperationContext) {
-        return outcome(await readPost(ref.deliveryId, ref, context, "posts.status"), ref, 0);
+        return outcome(
+          await readPost(ref.deliveryId, ref, context, "posts.status"),
+          {
+            kind: "connected-account",
+            version: 1,
+            backend: ref.backend,
+            platform: ref.platform,
+            accountId: ref.accountId,
+          },
+          0,
+        );
       },
       async cancelScheduled(
         ref: ScheduledJobRef,

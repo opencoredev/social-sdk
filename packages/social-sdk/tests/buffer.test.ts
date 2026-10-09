@@ -9,6 +9,7 @@ import {
   refreshBufferToken,
 } from "../src/cloud/buffer.js";
 import { SocialError } from "../src/core/errors.js";
+import { isJsonValue } from "../src/transport/json.js";
 import { object, string } from "../src/transport/validation.js";
 import type { AdapterOperationContext, JsonObject, JsonValue } from "../src/core/types.js";
 
@@ -22,7 +23,11 @@ const clock = () => new Date("2026-10-09T12:00:00.000Z");
 
 const future = "2026-10-10T15:00:00.000Z";
 
-const x = connectedAccountRef({ backend: "default", platform: "x", accountId: "channel_x_example" });
+const x = connectedAccountRef({
+  backend: "default",
+  platform: "x",
+  accountId: "channel_x_example",
+});
 
 const youtube = connectedAccountRef({
   backend: "default",
@@ -30,8 +35,14 @@ const youtube = connectedAccountRef({
   accountId: "channel_yt_example",
 });
 
-function graphql(init?: RequestInit): { query: string; variables: JsonObject } {
-  return object(JSON.parse(String(init?.body)));
+function graphql(init?: RequestInit) {
+  const parsed: unknown = JSON.parse(String(init?.body));
+
+  if (!isJsonValue(parsed)) throw new Error("GraphQL fixture body must be JSON.");
+
+  const body = object(parsed);
+
+  return { query: string(body["query"]), variables: object(body["variables"] ?? {}) };
 }
 
 function envelope(data: JsonValue, errors?: readonly JsonObject[]): Response {
@@ -144,7 +155,10 @@ it("Buffer uses a configured organization and rejects an empty key", async () =>
     },
   });
 
-  assert.equal((await adapter.accounts.list({}, context)).items[0]?.ref.accountId, "channel_x_example");
+  assert.equal(
+    (await adapter.accounts.list({}, context)).items[0]?.ref.accountId,
+    "channel_x_example",
+  );
 
   assert.throws(
     () => buffer({ apiKey: "   ", fetch: async () => envelope({}) }),
@@ -262,6 +276,7 @@ it("Buffer prepares public HTTPS media and rejects uploads, documents, and unmap
 
 it("Buffer publishes now or on a custom schedule and maps documented metadata", async () => {
   const seen: JsonObject[] = [];
+
   const adapter = buffer({
     apiKey: "fixture-key",
     organizationId: "org_example",
@@ -269,12 +284,18 @@ it("Buffer publishes now or on a custom schedule and maps documented metadata", 
     fetch: async (_input, init) => {
       const { query, variables } = graphql(init);
 
-      if (query.includes("query Channels")) return envelope({ channels: [channel({}), channel({
-        id: "channel_yt_example",
-        name: "studio",
-        displayName: "Studio",
-        service: "youtube",
-      })] });
+      if (query.includes("query Channels"))
+        return envelope({
+          channels: [
+            channel({}),
+            channel({
+              id: "channel_yt_example",
+              name: "studio",
+              displayName: "Studio",
+              service: "youtube",
+            }),
+          ],
+        });
 
       if (query.includes("createPost")) {
         seen.push(object(variables["input"]));
@@ -300,6 +321,7 @@ it("Buffer publishes now or on a custom schedule and maps documented metadata", 
       return envelope(null, [{ message: "unexpected", extensions: { code: "UNEXPECTED" } }]);
     },
   });
+
   const social = createSocial({ backend: adapter, clock });
 
   const nowResult = await social.posts.publish(
@@ -346,31 +368,28 @@ it("Buffer publishes now or on a custom schedule and maps documented metadata", 
 });
 
 it("Buffer maps GraphQL and HTTP failures without echoing secrets", async () => {
-  const social = createSocial({
-    backend: buffer({
-      apiKey: "secret-key",
-      organizationId: "org_example",
-      clock,
-      fetch: async (_input, init) => {
-        const { query } = graphql(init);
-
-        if (query.includes("query Channels")) return envelope({ channels: [channel({})] });
-
-        if (query.includes("createPost"))
-          return envelope({ createPost: { message: "Text is required" } });
-
-        return envelope(null, [{ message: "Not authorized", extensions: { code: "UNAUTHORIZED" } }]);
-      },
-    }),
+  const failing = buffer({
+    apiKey: "secret-key",
+    organizationId: "org_example",
     clock,
+    fetch: async (_input, init) => {
+      const { query } = graphql(init);
+
+      if (query.includes("createPost"))
+        return envelope({ createPost: { message: "Text is required" } });
+
+      return envelope(null, [{ message: "Not authorized", extensions: { code: "UNAUTHORIZED" } }]);
+    },
   });
 
+  const social = createSocial({ backend: failing, clock });
+  const prepared = social.posts.prepare({ targets: [{ account: x }], content: { text: "hi" } });
+  const target = prepared.targets[0];
+
+  assert.ok(target);
+
   await assert.rejects(
-    () =>
-      social.posts.publish(
-        { targets: [{ account: x }], content: { text: "hi" } },
-        { authorization: { tenantId: "tenant-from-session" } },
-      ),
+    () => failing.posts.publishTarget(target, context),
     (error) =>
       error instanceof SocialError &&
       error.code === "invalid_input" &&
@@ -420,21 +439,23 @@ it("Buffer reads, lists, cancels, and deletes posts from mocked GraphQL fixtures
 
       if (query.includes("query Channels")) return envelope({ channels: [channel({})] });
 
-      if (query.includes("query Post"))
-        return envelope({
-          post: post({
-            id: string(object(variables["input"])["id"]),
-            status:
-              string(object(variables["input"])["id"]) === "post_failed_example" ? "error" : "scheduled",
-          }),
-        });
-
-      if (query.includes("query Posts"))
+      if (query.includes("query Posts("))
         return envelope({
           posts: {
             edges: [{ cursor: "cursor_example", node: post({}) }],
             pageInfo: { hasNextPage: false, endCursor: "cursor_example" },
           },
+        });
+
+      if (query.includes("query Post("))
+        return envelope({
+          post: post({
+            id: string(object(variables["input"])["id"]),
+            status:
+              string(object(variables["input"])["id"]) === "post_failed_example"
+                ? "error"
+                : "scheduled",
+          }),
         });
 
       if (query.includes("deletePost"))

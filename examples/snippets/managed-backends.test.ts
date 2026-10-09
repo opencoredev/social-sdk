@@ -384,6 +384,7 @@ test("Postiz polling returns unscheduled drafts after one read", async () => {
 
 test("Buffer snippets construct a client and poll a sent GraphQL post", async () => {
   const social = bufferSnippets.createBufferSocial("fixture-key", "org_example");
+
   const sent = {
     id: "post_example",
     text: "hello",
@@ -402,16 +403,9 @@ test("Buffer snippets construct a client and poll a sent GraphQL post", async ()
       apiKey: "fixture-key",
       organizationId: "org_example",
       fetch: async (_input, init) => {
-        const parsed: unknown = JSON.parse(String(init?.body));
-        const query =
-          typeof parsed === "object" &&
-          parsed !== null &&
-          "query" in parsed &&
-          typeof parsed.query === "string"
-            ? parsed.query
-            : "";
+        const body = String(init?.body);
 
-        if (query.includes("query Channels"))
+        if (body.includes("query Channels"))
           return Response.json({
             data: {
               channels: [
