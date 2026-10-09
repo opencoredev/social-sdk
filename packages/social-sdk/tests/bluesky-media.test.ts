@@ -26,7 +26,7 @@ test("Bluesky caps remote image consumption before buffering the whole response"
         }
 
         assert.equal(new Headers(init?.headers).has("authorization"), false);
-        assert.equal(init?.redirect, "error");
+        assert.equal(init?.redirect, "manual");
 
         return new Response(
           new ReadableStream({

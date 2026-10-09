@@ -27,6 +27,7 @@ import { SocialError } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
 import { abortable, createHttp, HttpError } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
+import { fetchWithoutRedirects } from "../transport/redirect.js";
 import {
   array,
   isBoolean,
@@ -998,7 +999,7 @@ async function readMedia(
           message: "Remote image host is outside the configured egress policy.",
         });
 
-      const pending = fetcher(url, { redirect: "error", signal: controller.signal });
+      const pending = fetchWithoutRedirects(fetcher, url, { signal: controller.signal });
       void pending.then(
         (response) => {
           if (controller.signal.aborted) void response.body?.cancel().catch(() => undefined);

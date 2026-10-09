@@ -20,7 +20,7 @@ it("X image publishing uses OAuth2 v2 media upload and preserves reply settings"
     backend: x({
       auth,
       fetch: async (input, init) => {
-        assert.equal(init?.redirect, "error");
+        assert.equal(init?.redirect, "manual");
         const url = new URL(String(input));
         methods.push(url.pathname);
         assert.equal(new Headers(init?.headers).get("authorization"), "Bearer test");

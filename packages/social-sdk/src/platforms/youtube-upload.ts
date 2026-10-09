@@ -2,6 +2,7 @@ import { SocialError } from "../core/errors.js";
 import type { JsonObject, MediaAttachment } from "../core/types.js";
 import { readJson } from "../transport/http.js";
 import { isJsonValue } from "../transport/json.js";
+import { fetchWithoutRedirects } from "../transport/redirect.js";
 import { array, object, optionalString, string } from "../transport/validation.js";
 
 export interface YouTubeUploadSession {
@@ -145,12 +146,17 @@ async function uploadRequest(
 
   try {
     const response = await bounded(
-      (options.fetch ?? globalThis.fetch)(url, {
-        ...init,
-        headers: { Authorization: `Bearer ${options.accessToken}`, ...init.headers },
-        signal: controller.signal,
-        redirect: "error",
-      }),
+      // YouTube answers `308 Resume Incomplete` without a Location header; it is not a redirect.
+      fetchWithoutRedirects(
+        options.fetch ?? globalThis.fetch,
+        url,
+        {
+          ...init,
+          headers: { Authorization: `Bearer ${options.accessToken}`, ...init.headers },
+          signal: controller.signal,
+        },
+        [308],
+      ),
       remaining(options),
       "YouTube upload request exceeded its total deadline.",
       options.signal,

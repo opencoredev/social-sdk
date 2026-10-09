@@ -7,6 +7,7 @@ import {
   type Platform,
 } from "../core/types.js";
 import { isJsonValue } from "../transport/json.js";
+import { fetchWithoutRedirects } from "../transport/redirect.js";
 import { isFiniteNumber, isJsonObject, isString, type JsonField } from "../transport/validation.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
 import { readBounded, validateCallback } from "./oauth-internal.js";
@@ -378,7 +379,7 @@ async function request(
     });
 
     const response = await Promise.race([
-      fetcher(url, { ...init, redirect: "error", signal: controller.signal }),
+      fetchWithoutRedirects(fetcher, url, { ...init, signal: controller.signal }),
       aborted,
     ]);
 

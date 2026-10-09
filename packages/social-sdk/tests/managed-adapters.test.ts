@@ -308,7 +308,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
 
       if (url.hostname === "storage.example.test") {
         assert.equal(new Headers(init?.headers).get("authorization"), null);
-        assert.equal(init?.redirect, "error");
+        assert.equal(init?.redirect, "manual");
         assert.ok(init?.body instanceof Blob);
         assert.equal(init.body.size, 100);
 

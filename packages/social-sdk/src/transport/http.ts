@@ -1,4 +1,5 @@
 import { parseJson, type JsonValue } from "./json.js";
+import { fetchWithoutRedirects } from "./redirect.js";
 
 /** Portable, bounded HTTP transport. Construction performs no I/O. */
 export interface HttpOptions {
@@ -276,16 +277,17 @@ export function createHttp(options: HttpOptions = {}) {
         try {
           dispatched = true;
 
-          const requestInit: RequestInit = {
-            method,
-            signal: controller.signal,
-            redirect: "error",
-          };
+          const requestInit: RequestInit = { method, signal: controller.signal };
 
           if (input.headers) requestInit.headers = input.headers;
 
           if (input.body !== undefined) requestInit.body = input.body;
-          const pendingResponse = (options.fetch ?? globalThis.fetch)(input.url, requestInit);
+
+          const pendingResponse = fetchWithoutRedirects(
+            options.fetch ?? globalThis.fetch,
+            input.url,
+            requestInit,
+          );
 
           void pendingResponse.then(
             (response) => {

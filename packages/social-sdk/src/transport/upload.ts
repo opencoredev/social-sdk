@@ -1,4 +1,5 @@
 import { abortable, HttpError, retryDelay } from "./http.js";
+import { fetchWithoutRedirects } from "./redirect.js";
 
 export interface UploadSource {
   mimeType: string;
@@ -215,14 +216,13 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
       method: "PUT",
       headers,
       body: requestBody,
-      redirect: "error",
       signal: controller.signal,
     };
 
     if (source.body === undefined) init.duplex = "half";
 
     dispatched = true;
-    const pending = (options.fetch ?? globalThis.fetch)(url, init);
+    const pending = fetchWithoutRedirects(options.fetch ?? globalThis.fetch, url, init);
     void pending.then(
       (response) => {
         if (controller.signal.aborted) void response.body?.cancel().catch(() => undefined);

@@ -309,7 +309,7 @@ it("YouTube creates a resumable session, preserves explicit metadata, streams vi
         const url = new URL(String(input));
         calls.push(init?.method ?? "GET");
         assert.equal(url.hostname, "www.googleapis.com");
-        assert.equal(init?.redirect, "error");
+        assert.equal(init?.redirect, "manual");
 
         if (init?.method === "POST") {
           const body = JSON.parse(String(init.body));
