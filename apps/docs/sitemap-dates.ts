@@ -10,19 +10,20 @@ export type LineRange = { file: string; from: string; to: string };
 export type PageSource = { files: string[]; ranges: LineRange[] };
 
 // The info pages share pages.ts: each one depends on its own copy block and
-// the shared rendering helpers, not on the other pages' copy.
-const infoHelpers: LineRange = {
-  file: "_info/pages.ts",
-  from: "^export type Shell",
-  to: "^export function renderInfoPage",
-};
+// the shared parts (imports, the repo link, the rendering helpers), not on the
+// other pages' copy.
+const infoShared: LineRange[] = [
+  { file: "_info/pages.ts", from: "^import shell", to: "^const repo" },
+  { file: "_info/pages.ts", from: "^export type Shell", to: "^export function renderInfoPage" },
+  { file: "_info/pages.ts", from: "^export function renderInfoPage", to: "^}" },
+];
 
 function infoPage(name: string): PageSource {
   return {
     files: [`${name}.astro`, "_info/info.html"],
     ranges: [
       { file: "_info/pages.ts", from: `^export const ${name}: InfoPage`, to: "^};" },
-      infoHelpers,
+      ...infoShared,
     ],
   };
 }
@@ -36,7 +37,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   // Only used while the blog is empty; with posts, the blog sitemap dates it.
   [
     "/blog",
-    { files: ["blog/index.astro", "_blog/render.ts", "_info/info.html"], ranges: [infoHelpers] },
+    { files: ["blog/index.astro", "_blog/render.ts", "_info/info.html"], ranges: infoShared },
   ],
 ]);
 

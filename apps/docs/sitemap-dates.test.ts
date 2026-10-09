@@ -63,3 +63,10 @@ test("dates each info page by its own copy, not the other pages'", () => {
   assert.ok(!ranges("/about")?.some((from) => from.includes("privacy")));
   assert.ok(!pageSources.get("/about")?.files.includes("_info/pages.ts"));
 });
+
+test("dates info pages by every shared part of pages.ts", () => {
+  const froms = pageSources.get("/contact")?.ranges.map((range) => range.from) ?? [];
+
+  for (const shared of ["^import shell", "^export type Shell", "^export function renderInfoPage"])
+    assert.ok(froms.includes(shared), shared);
+});
