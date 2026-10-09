@@ -9,12 +9,12 @@
 
 Social SDK is an open-source TypeScript toolkit for solo founders and small teams adding social features to their apps. Publish, read, and access analytics or comments where available across X, Threads, Bluesky, YouTube, TikTok, Instagram, and LinkedIn through a typed interface.
 
-Choose direct platform access or a managed backend: Zernio, Post for Me, PostFast, or Postiz.
+Choose direct platform access or a managed backend: Zernio, Post for Me, PostFast, Postiz, or Buffer.
 
 [Start with the quickstart](https://social-sdk.dev/docs/getting-started/mock-quickstart) · [Install from npm](https://social-sdk.dev/docs/getting-started/installation)
 
 - Direct adapters for Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube
-- Optional managed backends for Zernio, Post for Me, PostFast, and Postiz
+- Optional managed backends for Zernio, Post for Me, PostFast, Postiz, and Buffer
 - Typed capability manifests and platform-native operations behind explicit subpath imports
 - Independent per-destination outcomes for complete, processing, uncertain, and failed work
 - A deterministic mock backend for local development and contract tests
@@ -66,7 +66,7 @@ The same client shape works with a direct platform adapter or a managed backend.
 
 ## Platforms and backends
 
-Direct platform adapters cover Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube. Hosted execution routes are available through the [Zernio](https://social-sdk.dev/docs/backends/zernio), [Post for Me](https://social-sdk.dev/docs/backends/post-for-me), [PostFast](https://social-sdk.dev/docs/backends/postfast), and [Postiz](https://social-sdk.dev/docs/backends/postiz) adapters. Managed services are optional; a direct integration does not require a Social SDK account.
+Direct platform adapters cover Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube. Hosted execution routes are available through the [Zernio](https://social-sdk.dev/docs/backends/zernio), [Post for Me](https://social-sdk.dev/docs/backends/post-for-me), [PostFast](https://social-sdk.dev/docs/backends/postfast), [Postiz](https://social-sdk.dev/docs/backends/postiz), and [Buffer](https://social-sdk.dev/docs/backends/buffer) adapters. Managed services are optional; a direct integration does not require a Social SDK account.
 
 Read the [platform capability matrix](https://social-sdk.dev/docs/reference/capabilities) before choosing an adapter. It describes the normalized operations implemented by each integration and does not replace provider permissions, account eligibility, or live verification.
 

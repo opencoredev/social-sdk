@@ -9,7 +9,9 @@ import {
 import { postForMe } from "@opencoredev/social-sdk/cloud/post-for-me";
 import { postfast } from "@opencoredev/social-sdk/cloud/postfast";
 import { postiz } from "@opencoredev/social-sdk/cloud/postiz";
+import { buffer } from "@opencoredev/social-sdk/cloud/buffer";
 import type { EventInbox, SocialEvent } from "@opencoredev/social-sdk/server";
+import * as bufferSnippets from "./backend-buffer.js";
 import { cancelAndDelete, postForMeWebhookRoute } from "./backend-post-for-me.js";
 import { deleteFailedRecord, readPostMetrics, waitForDelivery } from "./backend-postfast.js";
 import * as postizSnippets from "./backend-postiz.js";
@@ -378,4 +380,78 @@ test("Postiz polling returns unscheduled drafts after one read", async () => {
 
   assert.equal(outcome.state, "accepted");
   assert.equal(reads, 1);
+});
+
+test("Buffer snippets construct a client and poll a sent GraphQL post", async () => {
+  const social = bufferSnippets.createBufferSocial("fixture-key", "org_example");
+  const sent = {
+    id: "post_example",
+    text: "hello",
+    channelId: "channel_x_example",
+    channelService: "twitter",
+    dueAt: "2026-10-09T15:00:00.000Z",
+    sentAt: "2026-10-09T15:00:00.000Z",
+    status: "sent",
+    shareMode: "shareNow",
+    externalLink: "https://example.com/p/1",
+    metrics: [{ type: "reactions", value: 2, unit: "count" }],
+  };
+
+  const polled = createSocial({
+    backend: buffer({
+      apiKey: "fixture-key",
+      organizationId: "org_example",
+      fetch: async (_input, init) => {
+        const parsed: unknown = JSON.parse(String(init?.body));
+        const query =
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "query" in parsed &&
+          typeof parsed.query === "string"
+            ? parsed.query
+            : "";
+
+        if (query.includes("query Channels"))
+          return Response.json({
+            data: {
+              channels: [
+                {
+                  id: "channel_x_example",
+                  name: "demo",
+                  displayName: "Demo",
+                  service: "twitter",
+                  organizationId: "org_example",
+                },
+              ],
+            },
+          });
+
+        return Response.json({ data: { post: sent } });
+      },
+    }),
+  });
+
+  const outcome = await bufferSnippets.waitForDelivery(
+    polled,
+    {
+      kind: "delivery",
+      version: 1,
+      backend: "default",
+      platform: "x",
+      accountId: "channel_x_example",
+      deliveryId: "post_example",
+    },
+    "tenant-a",
+    { intervalMs: 0, maxChecks: 2 },
+  );
+
+  assert.equal(outcome.state, "published");
+  assert.deepEqual(
+    (await bufferSnippets.readPostMetrics(polled, outcome, "tenant-a")).map((metric) => [
+      metric.name,
+      metric.value,
+    ]),
+    [["reactions", 2]],
+  );
+  assert.ok(social);
 });

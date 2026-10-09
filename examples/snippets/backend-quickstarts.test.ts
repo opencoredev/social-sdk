@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { backendQuickstarts } from "./backend-quickstarts.js";
 
-test("backend quickstarts construct all five clients without environment secrets or network probes", () => {
+test("backend quickstarts construct all six clients without environment secrets or network probes", () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
@@ -17,6 +17,7 @@ test("backend quickstarts construct all five clients without environment secrets
       postForMeApiKey: "fixture",
       postfastApiKey: "fixture",
       postizApiKey: "fixture",
+      bufferApiKey: "fixture",
     });
 
     assert.deepEqual(Object.keys(clients), [
@@ -25,6 +26,7 @@ test("backend quickstarts construct all five clients without environment secrets
       "managedPostForMe",
       "managedPostFast",
       "managedPostiz",
+      "managedBuffer",
     ]);
     assert.equal(calls, 0);
   } finally {

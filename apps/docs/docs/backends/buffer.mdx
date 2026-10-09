@@ -1,0 +1,166 @@
+---
+title: Buffer
+description: Configure the Buffer managed backend with an API key or OAuth access token, GraphQL publishing and scheduling, public media URLs, and post status.
+---
+
+[Buffer](https://buffer.com) is an optional managed backend. Buffer holds the social channels connected to a Buffer organization and publishes or queues posts through its GraphQL API at `https://api.buffer.com`. Create a personal API key under Settings → API, or let other people approve your Buffer OAuth app. The key or access token stays on the server and is sent as `Authorization: Bearer`.
+
+```ts
+import {
+  createSocial,
+  connectedAccountRef,
+  type ConnectedAccountRef,
+  type DeliveryOutcome,
+  type Platform,
+} from "@opencoredev/social-sdk";
+import { buffer } from "@opencoredev/social-sdk/cloud/buffer";
+
+// Get tenantId from your authenticated server session and enforce account grants.
+const authorization = { tenantId: "tenant-from-session" };
+const social = createSocial({
+  backend: buffer({
+    apiKey: process.env.BUFFER_API_KEY!,
+  }),
+});
+const accounts = await social.accounts.list({ backend: "default", authorization });
+
+function selectAccount<P extends Platform>(platform: P): ConnectedAccountRef<P> {
+  const match = accounts.items.find((item) => item.ref.platform === platform);
+  if (!match) throw new Error(`Connect a ${platform} channel first.`);
+  return connectedAccountRef({
+    backend: match.ref.backend,
+    platform,
+    accountId: match.ref.accountId,
+  });
+}
+
+const account = selectAccount("x");
+const youtubeAccount = selectAccount("youtube");
+const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
+```
+
+A Buffer API key acts for the Buffer account that created it and can read every organization on that account. Pass `organizationId` when you want the adapter to query only one organization. Connected channels are Buffer records; your application must map them to tenants before any write.
+
+The adapter lists channels, publishes now or at `schedule.at`, reads posts and delivery status, cancels a future scheduled post, deletes draft, approval, or failed Buffer records, and reads post metrics after a post is sent. It does not upload files, verify webhooks, comment, message, or remove a post from the destination network. See [capabilities](/reference/capabilities). Related server helpers are in `examples/snippets/backend-buffer.ts`.
+
+## Publish now or schedule
+
+Omit `schedule` to send `mode: shareNow`. Set a future `schedule.at` to send `mode: customScheduled` with that UTC timestamp. Both paths use `schedulingType: automatic`. Buffer's `addToQueue` slot picker is not mapped.
+
+```ts
+const result = await social.posts.publish(
+  {
+    targets: [{ account }],
+    content: { text: "Office hours start at 10:00." },
+    schedule: { at, timeZone: "Europe/Berlin" },
+  },
+  { authorization },
+);
+```
+
+`timeZone` is application metadata only; Buffer's `dueAt` is UTC. Store `result.outcomes[0]?.delivery` and read it later with `getDelivery`. Buffer statuses map as `scheduled` → `scheduled`, `sending` → `processing`, `draft` or `needs_approval` → `accepted`, `sent` → `published`, and `error` → `failed`. A `published` outcome uses the Buffer post ID. Buffer's public schema does not return the destination network's post ID.
+
+## Media is a public HTTPS URL
+
+Buffer has no upload mutation. Host the file yourself and pass a stable public HTTPS URL. Buffer fetches the file when the post publishes, which can be hours or days later, so expiring or signed URLs fail after create. This adapter maps image and video assets. It does not map Buffer document assets, because those require a title and thumbnail the SDK does not collect.
+
+```ts
+const scheduled = await social.posts.publish(
+  {
+    targets: [
+      {
+        account: youtubeAccount,
+        options: { title: "Release walkthrough", visibility: "unlisted", madeForKids: false },
+      },
+    ],
+    content: {
+      text: "A two-minute tour of the new release.",
+      media: [
+        {
+          kind: "video",
+          mimeType: "video/mp4",
+          source: { kind: "https-url", url: "https://cdn.example/release-walkthrough.mp4" },
+        },
+      ],
+    },
+  },
+  { authorization },
+);
+```
+
+YouTube `visibility` is sent as Buffer `metadata.youtube.privacy`. Instagram `shareToFeed` is sent as `metadata.instagram.shouldShareToFeed` with `type: post`; stories and reels are not mapped. TikTok's Buffer metadata documents only `isAiGenerated`, so other TikTok options are rejected. X reply settings have no Buffer Twitter field.
+
+## Cancel or delete a Buffer record
+
+`posts.cancelScheduled` deletes a still-future `scheduled` post. `posts.deleteBackendRecord` deletes a `draft`, `needs_approval`, or `error` record. A sent or in-flight post is rejected. Buffer's `deletePost` removes the Buffer record; it is not advertised as native network removal.
+
+## Connect other Buffer accounts with OAuth
+
+A personal API key is enough for your own automations. For an app that other people sign in to, register an OAuth client under Settings → API. Buffer requires the authorization-code flow with PKCE for every client. Confidential clients also send `client_secret`. Request `offline_access` if you need a refresh token. Refresh tokens are single-use: store the replacement and discard the old one.
+
+```ts
+import {
+  bufferAuthorizationUrl,
+  createBufferPkce,
+  exchangeBufferCode,
+  refreshBufferToken,
+} from "@opencoredev/social-sdk/cloud/buffer";
+
+interface OAuthSession {
+  bufferState?: string | undefined;
+  bufferVerifier?: string | undefined;
+}
+
+export function startOAuth(session: OAuthSession): Response {
+  const pkce = createBufferPkce();
+  const state = crypto.randomUUID();
+  session.bufferState = state;
+  session.bufferVerifier = pkce.codeVerifier;
+
+  return Response.redirect(
+    bufferAuthorizationUrl({
+      clientId: process.env.BUFFER_CLIENT_ID!,
+      redirectUri: "https://app.example/buffer/callback",
+      state,
+      codeChallenge: pkce.codeChallenge,
+    }),
+  );
+}
+
+export async function finishOAuth(session: OAuthSession, url: URL) {
+  if (url.searchParams.get("state") !== session.bufferState) throw new Error("Invalid state.");
+  const code = url.searchParams.get("code");
+  const verifier = session.bufferVerifier;
+  if (!code || !verifier) throw new Error("Missing authorization code or PKCE verifier.");
+
+  const tokens = await exchangeBufferCode({
+    clientId: process.env.BUFFER_CLIENT_ID!,
+    clientSecret: process.env.BUFFER_CLIENT_SECRET,
+    code,
+    redirectUri: "https://app.example/buffer/callback",
+    codeVerifier: verifier,
+  });
+
+  return buffer({ apiKey: tokens.accessToken });
+}
+
+export async function refresh(tokens: { refreshToken: string }) {
+  return refreshBufferToken({
+    clientId: process.env.BUFFER_CLIENT_ID!,
+    clientSecret: process.env.BUFFER_CLIENT_SECRET,
+    refreshToken: tokens.refreshToken,
+  });
+}
+```
+
+Default scopes are `posts:read`, `posts:write`, `account:read`, and `offline_access`. Ideas, snippets, and account writes are not used by this adapter.
+
+## Errors, rate limits, and metrics
+
+GraphQL usually returns HTTP 200. Non-recoverable failures arrive in `errors` with codes such as `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `UNEXPECTED`, and `RATE_LIMIT_EXCEEDED`. Recoverable create/delete failures arrive as `MutationError.message` on HTTP 200 and become `invalid_input`. HTTP 429 includes `Retry-After`. Limits are per API key or app client and depend on the Buffer plan; the documented windows are 15 minutes, 24 hours, and 30 days. Query complexity, depth, alias, directive, and token limits also apply.
+
+`analytics.getPostMetrics` reads `Post.metrics` after status `sent`. Buffer documents that field for personal API keys and automations. OAuth app clients may not receive metrics. Values refresh about once a day. The adapter keeps only metrics whose unit is `count`, `percentage`, `milliseconds`, or `seconds`.
+
+Buffer documents additional services (Pinterest, Mastodon, Google Business Profile, Start Page, Substack, and WhatsApp) and ideas, tags, and templates. Those are outside this adapter's selected platform coverage. Live publication, plan eligibility, and channel reconnects remain Buffer-side constraints.
+
+Run the setup on your server with your own assets and connected channels. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; listing channels is not a tenant grant.

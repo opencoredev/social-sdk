@@ -236,26 +236,29 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
 /** Every accepted normalized option has an intentional provider mapping. */
 export function managedOptionIssues(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me" | "postfast" | "postiz",
+  provider: "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer",
 ): PreparationIssue[] {
   const config = optionsObject(target);
 
   const keys: Partial<Record<Platform, readonly string[]>> = {
     youtube: ["title", "visibility", "madeForKids"],
     instagram: ["shareToFeed"],
-    x: ["replySettings"],
-    tiktok: [
-      "privacy",
-      "consentGiven",
-      "disableComments",
-      "disableDuet",
-      "disableStitch",
-      "brandedContent",
-      "ownBrand",
-      "aiGenerated",
-      "draft",
-      ...(provider === "zernio" ? ["photoCoverIndex"] : []),
-    ],
+    x: provider === "buffer" ? [] : ["replySettings"],
+    tiktok:
+      provider === "buffer"
+        ? ["aiGenerated"]
+        : [
+            "privacy",
+            "consentGiven",
+            "disableComments",
+            "disableDuet",
+            "disableStitch",
+            "brandedContent",
+            "ownBrand",
+            "aiGenerated",
+            "draft",
+            ...(provider === "zernio" ? ["photoCoverIndex"] : []),
+          ],
   };
 
   const issues: PreparationIssue[] = [];

@@ -5,7 +5,7 @@ description: Common questions about Social SDK hosting, pricing, runtimes, sched
 
 ## Is there a hosted Social SDK service?
 
-No. Social SDK is a library. It provides no hosted service, database, queue, credential proxy, scheduler worker, or billing layer. Direct integrations call platforms with your credentials. Optional managed backends call Zernio, Post for Me, PostFast, or Postiz with your own provider account; Postiz can be Postiz Cloud or an instance you host yourself.
+No. Social SDK is a library. It provides no hosted service, database, queue, credential proxy, scheduler worker, or billing layer. Direct integrations call platforms with your credentials. Optional managed backends call Zernio, Post for Me, PostFast, Postiz, or Buffer with your own provider account; Postiz can be Postiz Cloud or an instance you host yourself.
 
 ## What does it cost?
 
@@ -13,7 +13,7 @@ The package is open source under the MIT license. Anything else is billed or gra
 
 - The X API bills developer accounts by usage. See [X API pricing](https://docs.x.com/x-api/getting-started/pricing).
 - Meta (Threads, Instagram), Google (YouTube), TikTok, and LinkedIn publish no per-call fees for the APIs these adapters use. They gate access through app review, product approval, and quotas instead.
-- Zernio, Post for Me, PostFast, and Postiz Cloud bill under their own plans. A self-hosted Postiz instance has no Postiz bill.
+- Zernio, Post for Me, PostFast, Postiz Cloud, and Buffer bill under their own plans. A self-hosted Postiz instance has no Postiz bill.
 
 Check each provider's current terms; these were checked on 2026-10-05. The SDK never pools keys or resells provider usage.
 
@@ -27,7 +27,7 @@ No. The SDK is server-only because credentials and connected-account references 
 
 ## Can it schedule posts?
 
-Only where the route stores the post and publishes it later. Among direct adapters, only YouTube does; the others reject `schedule` during preparation because their platform APIs have no publish-time field. The managed backends (Zernio, Post for Me, PostFast, and Postiz) schedule on the provider side. See [native scheduling](/publishing#native-scheduling-on-direct-adapters).
+Only where the route stores the post and publishes it later. Among direct adapters, only YouTube does; the others reject `schedule` during preparation because their platform APIs have no publish-time field. The managed backends (Zernio, Post for Me, PostFast, Postiz, and Buffer) schedule on the provider side. See [native scheduling](/publishing#native-scheduling-on-direct-adapters).
 
 The SDK never runs background jobs itself. To publish later on other routes, run the publish from a job runner such as [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), or [Restate](/integrations/restate).
 
