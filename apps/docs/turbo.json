@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "env": ["REVNU_CONTENT_API_KEY", "REVNU_CONTENT_API_URL", "VERCEL_ENV"],
+      "cache": false
+    }
+  }
+}

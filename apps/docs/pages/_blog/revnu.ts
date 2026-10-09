@@ -126,18 +126,24 @@ function optionalText(value: Field, at: string): string | null {
   return value === undefined || value === null ? null : text(value, at);
 }
 
-function optionalList(value: Field, at: string): readonly Json[] {
-  if (value === undefined || value === null) return [];
-
+function list(value: Field, at: string): readonly Json[] {
   if (!isList(value)) throw new DecodeError(`${at} is not an array`);
 
   return value;
 }
 
+function optionalList(value: Field, at: string): readonly Json[] {
+  return value === undefined || value === null ? [] : list(value, at);
+}
+
 function time(value: Field, at: string): Date {
   if (!isNumber(value)) throw new DecodeError(`${at} is not an epoch-millisecond number`);
 
-  return new Date(value);
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) throw new DecodeError(`${at} is out of the valid date range`);
+
+  return date;
 }
 
 function optionalTime(value: Field, at: string): Date | null {
@@ -172,7 +178,8 @@ function decodePage(value: Json): Page {
   const raw = record(value, "list response");
 
   return {
-    posts: optionalList(raw.posts, "list response.posts").map((post, index) =>
+    // A missing list must fail the build: read as empty, it would remove every post.
+    posts: list(raw.posts, "list response.posts").map((post, index) =>
       decodeSummary(post, `posts[${index}]`),
     ),
     cursor: optionalText(raw.cursor, "list response.cursor"),
@@ -270,6 +277,12 @@ function settings(): Settings {
   if (!key) return { kind: "missing" };
   // REVNU_CONTENT_API_URL exists so the build can be tested against a local stub.
   const base = process.env.REVNU_CONTENT_API_URL?.trim() || DEFAULT_BASE;
+  const url = URL.parse(base);
+  const loopback = url?.hostname === "localhost" || url?.hostname === "127.0.0.1";
+
+  // The key goes to this URL, so it must be HTTPS unless the stub runs on this machine.
+  if (url === null || (url.protocol !== "https:" && !loopback))
+    throw new Error("[blog] REVNU_CONTENT_API_URL must be an https:// URL or a loopback address.");
 
   return { kind: "configured", key, base: base.replace(/\/+$/, "") };
 }
@@ -295,7 +308,15 @@ async function request(config: Configured, path: string): Promise<Fetched> {
 
     if (response.status === 429 && waits < MAX_RATE_LIMIT_WAITS) {
       const header = response.headers.get("retry-after");
-      const seconds = header === null ? Number.NaN : Number(header);
+
+      // Retry-After is either delay seconds or an HTTP date.
+      const seconds =
+        header === null
+          ? Number.NaN
+          : /^\d+$/.test(header.trim())
+            ? Number(header)
+            : Math.max(0, Math.ceil((Date.parse(header) - Date.now()) / 1000));
+
       const delay = Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 60) : 5;
       console.warn(`[blog] Revnu rate limited ${path}; waiting ${delay}s.`);
       await new Promise((resolve) => setTimeout(resolve, delay * 1000));
@@ -338,7 +359,7 @@ async function listAll(config: Configured): Promise<Summary[]> {
       // (another host, or a trailing slash this site redirects) needs fixing in Revnu.
       if (post.canonicalUrl !== `${BLOG_ORIGIN}${post.canonicalPath}`)
         console.warn(
-          `[blog] Revnu canonicalUrl for ${post.canonicalPath} is ${post.canonicalUrl}, not ${BLOG_ORIGIN}${post.canonicalPath}.`,
+          `[blog] Revnu canonicalUrl for ${post.canonicalPath} is not ${BLOG_ORIGIN}${post.canonicalPath}; fix the blog URL in Revnu.`,
         );
       posts.push(post);
     }

@@ -220,11 +220,41 @@ function postMeta(post: Post): string {
     .join("\n    ");
 }
 
-/** Revnu links between posts are root-relative; the blog lives under /blog. */
-export function rewriteLinks(html: string): string {
-  return html
-    .replace(/href="\/(?!\/)/g, `href="${BLOG_PATH}/`)
-    .replaceAll(`href="${BLOG_PATH}/"`, `href="${BLOG_PATH}"`);
+/**
+ * Revnu links between posts are root-relative, but the blog lives under /blog.
+ * Only links to a published post (or the blog root) move; other site links such
+ * as /docs stay as written.
+ */
+export function rewriteLinks({
+  html,
+  published,
+}: {
+  html: string;
+  published: ReadonlySet<string>;
+}): string {
+  return html.replace(/href="(\/(?!\/)[^"#?]*)([^"]*)"/g, (link, path: string, rest: string) => {
+    if (path === "/") return `href="${BLOG_PATH}${rest}"`;
+
+    return published.has(path) ? `href="${BLOG_PATH}${path}${rest}"` : link;
+  });
+}
+
+/** When a post last changed: its update time, or its publish time if never updated. */
+function changedAt(post: Summary): Date {
+  return post.updatedAt ?? post.publishedAt;
+}
+
+/** The latest change among `posts`, or null for none. */
+function latestChange(posts: readonly Summary[]): Date | null {
+  return posts.reduce<Date | null>(
+    (latest, post) => (latest === null || changedAt(post) > latest ? changedAt(post) : latest),
+    null,
+  );
+}
+
+/** The absolute URL a post is served at. Feeds and the sitemap list this address. */
+function servedUrl(post: Summary): string {
+  return `${SITE}${postPath(post)}`;
 }
 
 export function renderPost({
@@ -235,7 +265,7 @@ export function renderPost({
   /** Paths of every post on the site, so related links never point at a removed post. */
   published: ReadonlySet<string>;
 }): string {
-  const html = rewriteLinks(post.html);
+  const html = rewriteLinks({ html: post.html, published });
 
   const updated =
     post.updatedAt && post.updatedAt.getTime() !== post.publishedAt.getTime()
@@ -256,15 +286,16 @@ export function renderPost({
         </aside>`
       : "";
 
-  // FAQPage JSON-LD needs the answers visible on the page; skip them if the body has them.
-  const [firstFaq] = post.faqItems;
+  // FAQPage JSON-LD needs every answer visible. Show each entry the body lacks.
+  const inBody = (value: string) => html.includes(value) || html.includes(escapeHtml(value));
+  const faqItems = post.faqItems.filter((item) => !inBody(item.question) || !inBody(item.answer));
 
   const faq =
-    firstFaq && !html.includes(escapeHtml(firstFaq.question)) && !html.includes(firstFaq.question)
+    faqItems.length > 0
       ? `
         <section class="faq">
           <h2>Frequently asked questions</h2>
-          <dl>${post.faqItems
+          <dl>${faqItems
             .map(
               (item) => `<dt>${escapeHtml(item.question)}</dt><dd>${escapeHtml(item.answer)}</dd>`,
             )
@@ -272,14 +303,14 @@ export function renderPost({
         </section>`
       : "";
 
-  const [firstCitation] = post.citations;
+  const citations = post.citations.filter((url) => !inBody(url));
 
   const sources =
-    firstCitation && !html.includes(escapeHtml(firstCitation))
+    citations.length > 0
       ? `
         <section>
           <h2>Sources</h2>
-          <ul>${post.citations
+          <ul>${citations
             .map((url) => `<li><a href="${escapeHtml(url)}">${escapeHtml(url)}</a></li>`)
             .join("")}</ul>
         </section>`
@@ -341,18 +372,15 @@ export function renderRss(posts: readonly Summary[]): string {
       (post) => `
     <item>
       <title>${xml(post.title)}</title>
-      <link>${xml(post.canonicalUrl)}</link>
-      <guid isPermaLink="true">${xml(post.canonicalUrl)}</guid>
+      <link>${xml(servedUrl(post))}</link>
+      <guid isPermaLink="true">${xml(servedUrl(post))}</guid>
       <pubDate>${post.publishedAt.toUTCString()}</pubDate>${post.description ? `\n      <description>${xml(post.description)}</description>` : ""}
     </item>`,
     )
     .join("");
 
-  const [newest] = posts;
-
-  const built = newest
-    ? `\n    <lastBuildDate>${(newest.updatedAt ?? newest.publishedAt).toUTCString()}</lastBuildDate>`
-    : "";
+  const latest = latestChange(posts);
+  const built = latest ? `\n    <lastBuildDate>${latest.toUTCString()}</lastBuildDate>` : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
@@ -372,21 +400,17 @@ export function renderRss(posts: readonly Summary[]): string {
  * into the site's sitemap.xml (scripts/prune-docs-output.ts).
  */
 export function renderSitemap(posts: readonly Summary[]): string {
-  const stamp = (date: Date) => date.toISOString();
-  const newest = posts[0];
+  const lastmod = (date: Date | null) => (date ? `<lastmod>${date.toISOString()}</lastmod>` : "");
 
-  const indexLastmod = newest
-    ? `<lastmod>${stamp(newest.updatedAt ?? newest.publishedAt)}</lastmod>`
-    : "";
+  // Each index page changes when any post it lists changes.
+  const indexes = Array.from({ length: pageCount(posts) }, (_, index) => {
+    const listed = posts.slice(index * POSTS_PER_PAGE, (index + 1) * POSTS_PER_PAGE);
 
-  const indexes = Array.from(
-    { length: pageCount(posts) },
-    (_, index) => `  <url><loc>${SITE}${indexPath(index + 1)}</loc>${indexLastmod}</url>`,
-  );
+    return `  <url><loc>${SITE}${indexPath(index + 1)}</loc>${lastmod(latestChange(listed))}</url>`;
+  });
 
   const entries = posts.map(
-    (post) =>
-      `  <url><loc>${xml(post.canonicalUrl)}</loc><lastmod>${stamp(post.updatedAt ?? post.publishedAt)}</lastmod></url>`,
+    (post) => `  <url><loc>${xml(servedUrl(post))}</loc>${lastmod(changedAt(post))}</url>`,
   );
 
   return `<?xml version="1.0" encoding="UTF-8"?>

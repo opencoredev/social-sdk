@@ -59,11 +59,24 @@ const sitemap = texts.get(sitemapPath);
 if (blogSitemap === undefined || sitemap === undefined)
   throw new Error("Both sitemap.xml and blog/sitemap.xml must exist to merge the blog sitemap.");
 
-const blogUrls = blogSitemap.match(/^ {2}<url>.*<\/url>$/gm) ?? [];
+// Every <url> entry, whatever its whitespace. A count that differs from the
+// number of <url> tags means the format changed, so stop rather than drop entries.
+function urlEntries(xml: string, name: string): string[] {
+  const entries = (xml.match(/<url>[\s\S]*?<\/url>/g) ?? []).map((entry) => `  ${entry.trim()}`);
 
-const siteUrls = (sitemap.match(/^ {2}<url>.*<\/url>$/gm) ?? []).filter(
+  if (entries.length !== (xml.match(/<url>/g) ?? []).length)
+    throw new Error(`Couldn't read every <url> entry in ${name}.`);
+
+  return entries;
+}
+
+const blogUrls = urlEntries(blogSitemap, "blog/sitemap.xml");
+
+const siteUrls = urlEntries(sitemap, "sitemap.xml").filter(
   (entry) => !/<loc>https:\/\/social-sdk\.dev\/blog(?:[/<])/.test(entry),
 );
+
+if (siteUrls.length === 0) throw new Error("sitemap.xml has no non-blog entries to keep.");
 
 if (!sitemap.includes("</urlset>")) throw new Error("sitemap.xml has no closing </urlset>.");
 

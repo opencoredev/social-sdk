@@ -4,7 +4,15 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 
-import { renderPost, renderRss, renderSitemap, rewriteLinks } from "./render";
+import {
+  pageCount,
+  renderIndex,
+  renderPost,
+  renderRss,
+  renderSitemap,
+  rewriteLinks,
+} from "./render";
+import type { Summary } from "./revnu";
 
 const KEY = "rvc_test";
 
@@ -160,9 +168,49 @@ test("loads every page of posts, waits out a 429, and drops posts that 404", asy
   assert.ok(!sitemap.includes("/blog/post-1<"));
 });
 
-test("rewrites root-relative links into the blog and leaves others alone", () => {
+test("rewrites links to published posts only", () => {
+  const published = new Set(["/x", "/guides/y"]);
+
   assert.equal(
-    rewriteLinks('<a href="/x">x</a><a href="//cdn/y">y</a><a href="/">home</a>'),
-    '<a href="/blog/x">x</a><a href="//cdn/y">y</a><a href="/blog">home</a>',
+    rewriteLinks({
+      html: '<a href="/x">x</a><a href="/guides/y#setup">y</a><a href="/docs">docs</a><a href="//cdn/z">z</a><a href="/">home</a>',
+      published,
+    }),
+    '<a href="/blog/x">x</a><a href="/blog/guides/y#setup">y</a><a href="/docs">docs</a><a href="//cdn/z">z</a><a href="/blog">home</a>',
   );
+});
+
+function fakePosts(count: number): Summary[] {
+  return Array.from({ length: count }, (_, index) => ({
+    slug: `p${count - index}`,
+    title: `P${count - index}`,
+    description: "",
+    canonicalPath: `/p${count - index}`,
+    canonicalUrl: `https://social-sdk.dev/blog/p${count - index}`,
+    publishedAt: new Date(1_760_000_000_000 + (count - index) * day),
+    updatedAt: null,
+  }));
+}
+
+test("paginates the index at ten posts", () => {
+  assert.ok(renderIndex({ posts: [], page: 1 }).includes("No posts yet."));
+  assert.equal(pageCount([]), 1);
+
+  const ten = fakePosts(10);
+
+  assert.equal(pageCount(ten), 1);
+  assert.ok(!renderIndex({ posts: ten, page: 1 }).includes("Older posts"));
+
+  const eleven = fakePosts(11);
+  const first = renderIndex({ posts: eleven, page: 1 });
+  const second = renderIndex({ posts: eleven, page: 2 });
+
+  assert.equal(pageCount(eleven), 2);
+  assert.equal(first.match(/<li>\s*<h2>/g)?.length, 10);
+  assert.ok(first.includes('<a href="/blog/page/2" rel="next">Older posts</a>'));
+  assert.ok(first.includes('<link rel="canonical" href="https://social-sdk.dev/blog" />'));
+  assert.equal(second.match(/<li>\s*<h2>/g)?.length, 1);
+  assert.ok(second.includes('href="/blog/p1"'));
+  assert.ok(second.includes('<a href="/blog" rel="prev">Newer posts</a>'));
+  assert.ok(second.includes('<link rel="canonical" href="https://social-sdk.dev/blog/page/2" />'));
 });
