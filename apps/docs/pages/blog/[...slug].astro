@@ -1,0 +1,29 @@
+---
+// One page per Revnu post, at /blog + canonicalPath. Only canonical paths are
+// generated, so a post has exactly one URL and removed posts have none.
+import type { GetStaticPaths } from "astro";
+
+import { withAnalytics } from "../../analytics";
+import { pageCount, renderPost } from "../_blog/render";
+import { revnuPosts } from "../_blog/revnu";
+import { withFonts } from "../_home/fonts";
+
+export const getStaticPaths = (async () => {
+  const posts = await revnuPosts();
+  const published = new Set(posts.map((post) => post.canonicalPath));
+  const reserved = new Set(["/rss.xml", "/sitemap.xml"]);
+
+  for (let page = 2; page <= pageCount(posts); page++) reserved.add(`/page/${page}`);
+
+  return posts.map((post) => {
+    if (reserved.has(post.canonicalPath))
+      throw new Error(`[blog] Revnu post path ${post.canonicalPath} collides with a blog route.`);
+
+    return { params: { slug: post.canonicalPath.slice(1) }, props: { post, published } };
+  });
+}) satisfies GetStaticPaths;
+
+const { post, published } = Astro.props;
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderPost({ post, published })))} />

@@ -1,0 +1,23 @@
+---
+// Blog index pages 2 and later.
+import type { GetStaticPaths } from "astro";
+
+import { withAnalytics } from "../../../analytics";
+import { pageCount, renderIndex } from "../../_blog/render";
+import { revnuPosts } from "../../_blog/revnu";
+import { withFonts } from "../../_home/fonts";
+
+export const getStaticPaths = (async () => {
+  const posts = await revnuPosts();
+
+  return Array.from({ length: pageCount(posts) - 1 }, (_, index) => ({
+    params: { page: String(index + 2) },
+  }));
+}) satisfies GetStaticPaths;
+
+const posts = await revnuPosts();
+
+const page = Number(Astro.params.page);
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderIndex({ posts, page })))} />

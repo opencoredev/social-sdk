@@ -1,0 +1,11 @@
+---
+// Blog index, page 1. Posts come from the Revnu Content API at build time.
+import { withAnalytics } from "../../analytics";
+import { renderIndex } from "../_blog/render";
+import { revnuPosts } from "../_blog/revnu";
+import { withFonts } from "../_home/fonts";
+
+const posts = await revnuPosts();
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderIndex({ posts, page: 1 })))} />

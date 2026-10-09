@@ -4,17 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <title>@title</title>
-    <meta name="description" content="@description" />
-    <link rel="canonical" href="https://social-sdk.dev@path" />
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://social-sdk.dev@path" />
-    <meta property="og:site_name" content="Social SDK" />
-    <meta property="og:title" content="@title" />
-    <meta property="og:description" content="@description" />
-    <meta property="og:image" content="https://social-sdk.dev/og-home.png" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@leodev" />
+    <!-- @meta -->
     <script>
       (() => {
         const stored = localStorage.getItem("blume-theme");
@@ -186,6 +176,166 @@
       .foot-links a:hover {
         color: var(--ink);
       }
+      /* ---------- blog ---------- */
+      .posts {
+        list-style: none;
+        padding: 0;
+        margin-top: 8px;
+      }
+      .posts li {
+        padding: 30px 0 0;
+      }
+      .posts h2 a {
+        text-decoration: none;
+      }
+      .posts h2 a:hover {
+        text-decoration: underline;
+        text-decoration-color: var(--marker);
+      }
+      .posts p {
+        margin-top: 8px;
+        color: var(--ink-soft);
+      }
+      .date {
+        display: block;
+        margin-top: 6px;
+        font-size: 15px;
+        color: var(--ink-soft);
+      }
+      .empty {
+        padding-top: 44px;
+        color: var(--ink-soft);
+      }
+      .pager {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding-top: 48px;
+        font-size: 17px;
+      }
+      .hero {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin-top: 36px;
+        border-radius: 6px;
+      }
+      .prose {
+        padding-top: 28px;
+        color: var(--ink-soft);
+        overflow-wrap: break-word;
+      }
+      .prose > * + * {
+        margin-top: 18px;
+      }
+      .prose h2,
+      .prose h3,
+      .prose h4 {
+        color: var(--ink);
+        scroll-margin-top: 24px;
+      }
+      .prose h2 {
+        margin-top: 44px;
+      }
+      .prose h3 {
+        margin-top: 32px;
+        font-weight: 560;
+        font-size: 22px;
+        line-height: 1.3;
+      }
+      .prose h4 {
+        margin-top: 26px;
+        font-weight: 560;
+        font-size: 19px;
+      }
+      .prose ul,
+      .prose ol {
+        padding-left: 24px;
+      }
+      .prose li + li {
+        margin-top: 6px;
+      }
+      .prose strong,
+      .prose b {
+        color: var(--ink);
+        font-weight: 560;
+      }
+      .prose blockquote {
+        padding-left: 18px;
+        border-left: 3px solid var(--marker);
+        font-style: italic;
+      }
+      .prose img,
+      .prose video {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        border-radius: 6px;
+      }
+      .prose pre {
+        overflow-x: auto;
+        padding: 16px 18px;
+        border: 1.5px solid var(--ink);
+        border-radius: 6px;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+      .prose pre code {
+        font-size: inherit;
+      }
+      .prose table {
+        display: block;
+        overflow-x: auto;
+        border-collapse: collapse;
+        font-size: 16px;
+      }
+      .prose th,
+      .prose td {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--ink-soft);
+        text-align: left;
+        vertical-align: top;
+      }
+      .prose th {
+        color: var(--ink);
+        font-weight: 560;
+      }
+      .prose hr {
+        border: 0;
+        border-top: 1.5px solid var(--ink-soft);
+      }
+      .toc {
+        margin-top: 36px;
+      }
+      .toc b {
+        font-family: var(--hand);
+        font-weight: 400;
+        font-size: 22px;
+        color: var(--marker);
+      }
+      .toc ul {
+        margin-top: 4px;
+        padding-left: 22px;
+        color: var(--ink-soft);
+      }
+      .faq dt {
+        margin-top: 22px;
+        color: var(--ink);
+        font-weight: 560;
+      }
+      .faq dd {
+        margin-top: 6px;
+        color: var(--ink-soft);
+      }
+      @media (max-width: 480px) {
+        .nav-links {
+          gap: 18px;
+        }
+        /* The logo already links home. */
+        .nav-links a[href="/"] {
+          display: none;
+        }
+      }
       html.dark {
         --ink: #f2efe9;
         --ink-soft: #beb7aa;
@@ -263,6 +413,7 @@
         <div class="nav-links">
           <a href="/">Home</a>
           <a href="/docs">Docs</a>
+          <a href="/blog">Blog</a>
         </div>
       </nav>
 
@@ -293,6 +444,7 @@
             <a href="/contact">Contact</a>
             <a href="/privacy">Privacy</a>
             <a href="/docs">Docs</a>
+            <a href="/blog">Blog</a>
           </div>
         </div>
       </footer>

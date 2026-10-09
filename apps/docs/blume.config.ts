@@ -3,6 +3,7 @@ import { script } from "blume/analytics";
 
 import { posthogScript } from "./analytics";
 import { platformTabsMarkdown } from "./components/platforms.ts";
+import { blogFeeds } from "./pages/_blog/feeds.ts";
 
 export default defineConfig({
   title: "Social SDK",
@@ -253,4 +254,6 @@ export default defineConfig({
   deployment: {
     site: "https://social-sdk.dev",
   },
+  // The blog's RSS feed and sitemap. Its pages live in pages/blog.
+  integrations: [blogFeeds],
 });
