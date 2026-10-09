@@ -193,7 +193,21 @@ function fakePosts(count: number): Summary[] {
 }
 
 test("paginates the index at ten posts", () => {
-  assert.ok(renderIndex({ posts: [], page: 1 }).includes("No posts yet."));
+  const empty = renderIndex({ posts: [], page: 1 });
+
+  assert.ok(empty.includes("<h2>No posts yet</h2>"));
+  assert.ok(empty.includes("Posts will cover building social features with Social SDK"));
+  assert.ok(empty.includes('<a href="/blog/rss.xml">RSS feed</a>'));
+
+  for (const guide of [
+    "/docs/getting-started/mock-quickstart",
+    "/docs/getting-started/choose-an-integration",
+    "/docs/authentication",
+    "/docs/publishing",
+    "/docs/platforms",
+    "/docs/comments",
+  ])
+    assert.ok(empty.includes(`<a href="${guide}">`), guide);
   assert.equal(pageCount([]), 1);
 
   const ten = fakePosts(10);

@@ -2,6 +2,7 @@ import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { resolve, basename } from "node:path";
 
 import { fontLoader } from "../apps/docs/pages/_home/font-loader.ts";
+import { addLastmod, type PageSource } from "../apps/docs/sitemap-dates.ts";
 
 const directory = resolve(import.meta.dir, "../apps/docs/dist");
 
@@ -80,10 +81,43 @@ if (siteUrls.length === 0) throw new Error("sitemap.xml has no non-blog entries 
 
 if (!sitemap.includes("</urlset>")) throw new Error("sitemap.xml has no closing </urlset>.");
 
+// Blume dates docs pages from git but leaves the custom pages undated, and the
+// blog index has no post dates while it is empty. apps/docs/sitemap-dates.ts
+// says what each of those renders from; git supplies the last change.
+const pagesRoot = resolve(import.meta.dir, "../apps/docs/pages");
+
+function git(args: string[]): string {
+  const result = Bun.spawnSync(["git", "log", "-1", "--format=%cI", ...args], { cwd: pagesRoot });
+  const date = result.stdout.toString().trim();
+
+  if (result.exitCode !== 0 || date === "")
+    throw new Error(`git has no commit date for ${args.join(" ")}.`);
+
+  return date;
+}
+
+/** The latest commit that touched any of the source's files or line ranges. */
+function lastChange(source: PageSource): string {
+  const dates = [
+    ...(source.files.length > 0 ? [git(["--", ...source.files])] : []),
+    ...source.ranges.map((range) =>
+      git(["-s", "-L", `/${range.from}/,/${range.to}/:${range.file}`]),
+    ),
+  ];
+
+  return dates.reduce((latest, date) => (Date.parse(date) > Date.parse(latest) ? date : latest));
+}
+
 await writeFile(
   sitemapPath,
   sitemap.replace(/<urlset([^>]*)>[\s\S]*<\/urlset>/, (_, attributes: string) =>
-    [`<urlset${attributes}>`, ...siteUrls, ...blogUrls, "</urlset>"].join("\n"),
+    [
+      `<urlset${attributes}>`,
+      ...[...siteUrls, ...blogUrls].map((entry) =>
+        addLastmod({ entry, origin: "https://social-sdk.dev", dateOf: lastChange }),
+      ),
+      "</urlset>",
+    ].join("\n"),
   ),
 );
 
