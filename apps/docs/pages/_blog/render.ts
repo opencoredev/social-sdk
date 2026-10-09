@@ -98,9 +98,37 @@ export function renderIndex({ posts, page }: { posts: readonly Summary[]; page: 
       shown.length > 0
         ? `<ul class="posts">${items}
         </ul>${pager}`
-        : `<p class="empty">No posts yet.</p>`,
+        : emptyIndex,
   });
 }
+
+// Shown while the blog has no posts, so the page still says what it is for and
+// where to start reading.
+const emptyIndex = `
+        <section>
+          <h2>No posts yet</h2>
+          <p>
+            Posts will cover building social features with Social SDK: setting up platform apps
+            and connecting accounts, publishing text, images, and video to several platforms at
+            once, reading per-platform outcomes and media processing states, choosing between
+            direct platform routes and managed backends, and what changed in each release.
+          </p>
+          <p>
+            New posts appear here and in the <a href="${BLOG_PATH}/rss.xml">RSS feed</a>. Until
+            then, the documentation covers the same ground.
+          </p>
+        </section>
+        <section>
+          <h2>Start with the guides</h2>
+          <ul>
+            <li><a href="/docs/getting-started/mock-quickstart">Run the mock quickstart</a>, no credentials needed</li>
+            <li><a href="/docs/getting-started/choose-an-integration">Choose between direct routes and managed backends</a></li>
+            <li><a href="/docs/authentication">Connect accounts</a> with OAuth and tenant grants</li>
+            <li><a href="/docs/publishing">Publish content</a> and read each destination's outcome</li>
+            <li><a href="/docs/platforms">Compare what each platform supports</a></li>
+            <li><a href="/docs/comments">Handle comments and messages</a></li>
+          </ul>
+        </section>`;
 
 // ---------- post ----------
 

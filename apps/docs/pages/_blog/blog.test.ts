@@ -193,7 +193,7 @@ function fakePosts(count: number): Summary[] {
 }
 
 test("paginates the index at ten posts", () => {
-  assert.ok(renderIndex({ posts: [], page: 1 }).includes("No posts yet."));
+  assert.ok(renderIndex({ posts: [], page: 1 }).includes("<h2>No posts yet</h2>"));
   assert.equal(pageCount([]), 1);
 
   const ten = fakePosts(10);
