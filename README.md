@@ -7,7 +7,11 @@
   <a href="https://x.com/leodev"><img alt="Follow @leodev on X" src="https://shieldcn.dev/x/follow/leodev.svg?variant=branded&mode=dark" /></a>
 </p>
 
-Typed social platform integrations for TypeScript applications. Use direct platform adapters or an optional managed backend while keeping account selection, capabilities, content, and delivery outcomes explicit.
+Social SDK is an open-source TypeScript toolkit for solo founders and small teams adding social features to their apps. Publish, read, and access analytics or comments where available across X, Threads, Bluesky, YouTube, TikTok, Instagram, and LinkedIn through a typed interface.
+
+Choose direct platform access or a managed backend: Zernio, Post for Me, PostFast, or Postiz.
+
+[Start with the quickstart](https://social-sdk.dev/docs/getting-started/mock-quickstart) · [Install from npm](https://social-sdk.dev/docs/getting-started/installation)
 
 - Direct adapters for Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube
 - Optional managed backends for Zernio, Post for Me, PostFast, and Postiz
