@@ -68,6 +68,7 @@ export const about: InfoPage = {
             <li><a href="/docs/getting-started/installation">Install the package</a></li>
             <li><a href="/docs/getting-started/mock-quickstart">Run the mock quickstart</a></li>
             <li><a href="/docs/platforms">Compare platforms</a></li>
+            <li><a href="/blog">Read the blog</a></li>
             <li><a href="/contact">Contact the maintainers</a></li>
           </ul>
         </section>`,
@@ -200,12 +201,19 @@ export const privacy: InfoPage = {
         </section>`,
 };
 
-/** Fills the shared shell with one page's copy. */
-export function renderInfoPage(page: InfoPage): string {
+/** The parts of the shared shell a page fills. Values are HTML, already escaped. */
+export type Shell = {
+  meta: string;
+  kicker: string;
+  heading: string;
+  lede: string;
+  content: string;
+};
+
+/** Fills the shared shell. The shell is scanned once, so inserted values are never re-read. */
+export function renderShell(page: Shell): string {
   const fields = new Map([
-    ["@title", page.title],
-    ["@description", page.description],
-    ["@path", page.path],
+    ["<!-- @meta -->", page.meta],
     ["@kicker", page.kicker],
     ["@heading", page.heading],
     ["@lede", page.lede],
@@ -213,7 +221,29 @@ export function renderInfoPage(page: InfoPage): string {
   ]);
 
   return shell.replace(
-    /<!-- @content -->|@(?:title|description|path|kicker|heading|lede)\b/g,
+    /<!-- @(?:meta|content) -->|@(?:kicker|heading|lede)\b/g,
     (token) => fields.get(token) ?? token,
   );
+}
+
+/** The site's standard head tags for a page at `path`. */
+export function siteMeta(page: { path: string; title: string; description: string }): string {
+  const url = `https://social-sdk.dev${page.path}`;
+
+  return `<title>${page.title}</title>
+    <meta name="description" content="${page.description}" />
+    <link rel="canonical" href="${url}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="${url}" />
+    <meta property="og:site_name" content="Social SDK" />
+    <meta property="og:title" content="${page.title}" />
+    <meta property="og:description" content="${page.description}" />
+    <meta property="og:image" content="https://social-sdk.dev/og-home.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@leodev" />`;
+}
+
+/** Fills the shared shell with one page's copy. */
+export function renderInfoPage(page: InfoPage): string {
+  return renderShell({ ...page, meta: siteMeta(page) });
 }

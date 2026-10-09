@@ -45,6 +45,39 @@ for (const candidate of candidates) {
 
 console.log(`Removed ${candidates.length} unreachable disabled-feedback chunk(s).`);
 
+// The blog route writes its own sitemap with last-modified times from Revnu.
+// Blume's sitemap lists the same blog pages without them, so its blog entries
+// are replaced by the blog's, and the separate file is removed.
+const blogSitemapPath = `${directory}/blog/sitemap.xml`;
+
+const sitemapPath = `${directory}/sitemap.xml`;
+
+const blogSitemap = texts.get(blogSitemapPath);
+
+const sitemap = texts.get(sitemapPath);
+
+if (blogSitemap === undefined || sitemap === undefined)
+  throw new Error("Both sitemap.xml and blog/sitemap.xml must exist to merge the blog sitemap.");
+
+const blogUrls = blogSitemap.match(/^ {2}<url>.*<\/url>$/gm) ?? [];
+
+const siteUrls = (sitemap.match(/^ {2}<url>.*<\/url>$/gm) ?? []).filter(
+  (entry) => !/<loc>https:\/\/social-sdk\.dev\/blog(?:[/<])/.test(entry),
+);
+
+if (!sitemap.includes("</urlset>")) throw new Error("sitemap.xml has no closing </urlset>.");
+
+await writeFile(
+  sitemapPath,
+  sitemap.replace(/<urlset([^>]*)>[\s\S]*<\/urlset>/, (_, attributes: string) =>
+    [`<urlset${attributes}>`, ...siteUrls, ...blogUrls, "</urlset>"].join("\n"),
+  ),
+);
+
+await unlink(blogSitemapPath);
+
+console.log(`Merged ${blogUrls.length} blog URL(s) into sitemap.xml.`);
+
 // Blume writes the same index to llms.txt and to index.md, which is what the
 // homepage serves to agents that ask for Markdown. Both get when-to-use guidance
 // under the summary, and the custom Astro routes (landing, about, contact,
@@ -84,6 +117,7 @@ const site = `
 - [About](https://social-sdk.dev/about): What Social SDK is, what it is not, and who maintains it.
 - [Contact](https://social-sdk.dev/contact): Where to report bugs, ask questions, and raise security issues.
 - [Privacy](https://social-sdk.dev/privacy): What the website records and what the SDK never collects.
+- [Blog](https://social-sdk.dev/blog): Guides and updates, with an RSS feed at https://social-sdk.dev/blog/rss.xml.
 `;
 
 for (const name of ["llms.txt", "index.md"]) {

@@ -809,6 +809,12 @@
           padding-top: 80px;
         }
       }
+      /* Three links and the wordmark don't fit; GitHub is also in the footer. */
+      @media (max-width: 380px) {
+        .nav-links a[href^="https://github.com"] {
+          display: none;
+        }
+      }
       @media (prefers-reduced-motion: reduce) {
         .bob {
           animation: none;
@@ -972,6 +978,18 @@
             <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
               <path
                 d="M2 4 Q28 7 55 4 T98 5"
+                stroke="#e8542f"
+                stroke-width="2.4"
+                fill="none"
+                stroke-linecap="round"
+              />
+            </svg>
+          </a>
+          <a href="/blog"
+            >Blog
+            <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+              <path
+                d="M2 5 Q26 2 52 5 T98 4"
                 stroke="#e8542f"
                 stroke-width="2.4"
                 fill="none"
@@ -1965,6 +1983,7 @@
           <small>© 2026 Social SDK. Open source.</small>
           <div class="foot-links">
             <a href="/docs">Docs</a>
+            <a href="/blog">Blog</a>
             <a href="/brand">Brand</a>
             <a href="/docs/contributing">Contributing</a>
             <a href="/about">About</a>

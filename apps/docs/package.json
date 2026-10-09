@@ -8,7 +8,8 @@
     "check-types": "blume check --strict",
     "validate": "blume validate --strict",
     "audit": "blume audit --fail-on warning",
-    "preview": "blume preview --host 0.0.0.0 --port 4000"
+    "preview": "blume preview --host 0.0.0.0 --port 4000",
+    "test": "bun test pages/_blog"
   },
   "devDependencies": {
     "astro": "7.3.3",
