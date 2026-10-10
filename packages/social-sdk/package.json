@@ -49,6 +49,10 @@
       "types": "./dist/cloud/postiz.d.ts",
       "import": "./dist/cloud/postiz.js"
     },
+    "./cloud/buffer": {
+      "types": "./dist/cloud/buffer.d.ts",
+      "import": "./dist/cloud/buffer.js"
+    },
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"

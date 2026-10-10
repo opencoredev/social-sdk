@@ -10,6 +10,7 @@ import { zernio } from "./cloud/zernio.js";
 import { postForMe } from "./cloud/post-for-me.js";
 import { postfast } from "./cloud/postfast.js";
 import { postiz } from "./cloud/postiz.js";
+import { buffer } from "./cloud/buffer.js";
 import { bluesky } from "./platforms/bluesky.js";
 import { x } from "./platforms/x.js";
 import { threads } from "./platforms/threads.js";
@@ -25,6 +26,7 @@ export const adapterNames = [
   "post-for-me",
   "postfast",
   "postiz",
+  "buffer",
   "bluesky",
   "x",
   "threads",
@@ -52,6 +54,7 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   "post-for-me": ["POST_FOR_ME_API_KEY"],
   postfast: ["POSTFAST_API_KEY"],
   postiz: ["POSTIZ_API_KEY"],
+  buffer: ["BUFFER_API_KEY"],
   bluesky: ["BLUESKY_SERVICE", "BLUESKY_DID", "BLUESKY_ACCESS_JWT"],
   x: ["X_USER_ID", "X_ACCESS_TOKEN"],
   threads: ["THREADS_USER_ID", "THREADS_ACCESS_TOKEN"],
@@ -80,6 +83,8 @@ export function createDiagnosticAdapter(
       return postfast({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "postiz":
       return postiz({ apiKey: "offline-placeholder", fetch: noNetwork });
+    case "buffer":
+      return buffer({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "bluesky":
       return bluesky({
         auth: { service: "https://bsky.social", did: accountId, accessJwt: "offline-placeholder" },

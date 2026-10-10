@@ -236,26 +236,34 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
 /** Every accepted normalized option has an intentional provider mapping. */
 export function managedOptionIssues(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me" | "postfast" | "postiz",
+  provider: "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer",
 ): PreparationIssue[] {
   const config = optionsObject(target);
 
   const keys: Partial<Record<Platform, readonly string[]>> = {
-    youtube: ["title", "visibility", "madeForKids"],
-    instagram: ["shareToFeed"],
-    x: ["replySettings"],
-    tiktok: [
-      "privacy",
-      "consentGiven",
-      "disableComments",
-      "disableDuet",
-      "disableStitch",
-      "brandedContent",
-      "ownBrand",
-      "aiGenerated",
-      "draft",
-      ...(provider === "zernio" ? ["photoCoverIndex"] : []),
+    youtube: [
+      "title",
+      "visibility",
+      "madeForKids",
+      ...(provider === "buffer" ? ["categoryId"] : []),
     ],
+    instagram: ["shareToFeed"],
+    x: provider === "buffer" ? [] : ["replySettings"],
+    tiktok:
+      provider === "buffer"
+        ? ["aiGenerated"]
+        : [
+            "privacy",
+            "consentGiven",
+            "disableComments",
+            "disableDuet",
+            "disableStitch",
+            "brandedContent",
+            "ownBrand",
+            "aiGenerated",
+            "draft",
+            ...(provider === "zernio" ? ["photoCoverIndex"] : []),
+          ],
   };
 
   const issues: PreparationIssue[] = [];
@@ -295,23 +303,26 @@ export function managedOptionIssues(
     fail("x.reply_settings", "Select a supported reply setting explicitly.");
 
   if (target.account.platform === "tiktok") {
-    for (const key of [
-      "disableComments",
-      "disableDuet",
-      "disableStitch",
-      "brandedContent",
-      "ownBrand",
-      "aiGenerated",
-      "draft",
-    ])
-      if (!isBoolean(config[key]))
-        fail(
-          "tiktok.explicit_choice",
-          "Select every interaction, disclosure, AI-content and draft/direct-post choice before submission.",
-        );
+    if (provider !== "buffer") {
+      for (const key of [
+        "disableComments",
+        "disableDuet",
+        "disableStitch",
+        "brandedContent",
+        "ownBrand",
+        "aiGenerated",
+        "draft",
+      ])
+        if (!isBoolean(config[key]))
+          fail(
+            "tiktok.explicit_choice",
+            "Select every interaction, disclosure, AI-content and draft/direct-post choice before submission.",
+          );
 
-    if (config["brandedContent"] === true && config["privacy"] === "SELF_ONLY")
-      fail("tiktok.branded_privacy", "TikTok branded content cannot use private visibility.");
+      if (config["brandedContent"] === true && config["privacy"] === "SELF_ONLY")
+        fail("tiktok.branded_privacy", "TikTok branded content cannot use private visibility.");
+    }
+
     const media = target.content.media ?? [];
 
     if (
@@ -336,7 +347,10 @@ export function managedOptionIssues(
   return issues;
 }
 
-export function managedPreparation(target: PreparedPublishTarget): PreparationIssue[] {
+export function managedPreparation(
+  target: PreparedPublishTarget,
+  provider: "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer",
+): PreparationIssue[] {
   const issues: PreparationIssue[] = [];
 
   const fail = (code: string, message: string) =>
@@ -405,7 +419,7 @@ export function managedPreparation(target: PreparedPublishTarget): PreparationIs
   if (["instagram", "tiktok"].includes(target.account.platform) && media.length === 0)
     fail("media.required", "This destination requires image or video media.");
 
-  if (target.account.platform === "tiktok") {
+  if (target.account.platform === "tiktok" && provider !== "buffer") {
     const options = optionsObject(target);
 
     if (options["consentGiven"] !== true)

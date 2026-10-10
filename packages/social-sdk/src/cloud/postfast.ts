@@ -457,7 +457,7 @@ export function postfast(options: ManagedOptions) {
     posts: {
       prepareTarget(target: Parameters<typeof managedPreparation>[0]) {
         const issues: PreparationIssue[] = [
-          ...managedPreparation(target),
+          ...managedPreparation(target, "postfast"),
           ...managedOptionIssues(target, "postfast"),
         ];
 

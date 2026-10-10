@@ -3,6 +3,7 @@ import { bluesky } from "@opencoredev/social-sdk/bluesky";
 import { postForMe } from "@opencoredev/social-sdk/cloud/post-for-me";
 import { postfast } from "@opencoredev/social-sdk/cloud/postfast";
 import { postiz } from "@opencoredev/social-sdk/cloud/postiz";
+import { buffer } from "@opencoredev/social-sdk/cloud/buffer";
 import { zernio } from "@opencoredev/social-sdk/cloud/zernio";
 
 /** Call on your server with secrets from your environment or credential store. */
@@ -12,6 +13,7 @@ export function backendQuickstarts(credentials: {
   postForMeApiKey: string;
   postfastApiKey: string;
   postizApiKey: string;
+  bufferApiKey: string;
 }) {
   return {
     directBluesky: createSocial({ backend: bluesky({ auth: credentials.bluesky }) }),
@@ -19,5 +21,6 @@ export function backendQuickstarts(credentials: {
     managedPostForMe: createSocial({ backend: postForMe({ apiKey: credentials.postForMeApiKey }) }),
     managedPostFast: createSocial({ backend: postfast({ apiKey: credentials.postfastApiKey }) }),
     managedPostiz: createSocial({ backend: postiz({ apiKey: credentials.postizApiKey }) }),
+    managedBuffer: createSocial({ backend: buffer({ apiKey: credentials.bufferApiKey }) }),
   };
 }

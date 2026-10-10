@@ -81,6 +81,7 @@ export default defineConfig({
               icon: "/integrations/postfast.png",
             },
             { label: "Postiz", root: "/backends/postiz", icon: "/integrations/postiz.svg" },
+            { label: "Buffer", root: "/backends/buffer", icon: "calendar-clock" },
           ],
         },
         {

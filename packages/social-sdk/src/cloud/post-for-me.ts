@@ -283,7 +283,7 @@ export function postForMe(options: ManagedOptions) {
       },
       prepareTarget(target: Parameters<typeof managedPreparation>[0]) {
         const issues = [
-          ...managedPreparation(target),
+          ...managedPreparation(target, "post-for-me"),
           ...managedOptionIssues(target, "post-for-me"),
         ];
 
