@@ -435,6 +435,8 @@ it("Buffer maps GraphQL and HTTP failures without echoing secrets", async () => 
     fetch: async (_input, init) => {
       const { query } = graphql(init);
 
+      if (query.includes("query Channels")) return envelope({ channels: [channel({})] });
+
       if (query.includes("createPost"))
         return envelope({ createPost: { message: "Text is required" } });
 
@@ -487,6 +489,35 @@ it("Buffer maps GraphQL and HTTP failures without echoing secrets", async () => 
       error.retryDisposition.kind === "after-delay" &&
       error.retryDisposition.delayMs === 12_000,
   );
+});
+
+it("Buffer verifies channel ownership before publishing", async () => {
+  let creates = 0;
+
+  const adapter = buffer({
+    apiKey: "fixture-key",
+    organizationId: "org_example",
+    fetch: async (_input, init) => {
+      const { query } = graphql(init);
+
+      if (query.includes("query Channels")) return envelope({ channels: [] });
+
+      if (query.includes("createPost")) creates += 1;
+
+      return envelope({ createPost: { post: post({}) } });
+    },
+  });
+
+  const social = createSocial({ backend: adapter });
+  const prepared = social.posts.prepare({ targets: [{ account: x }], content: { text: "hi" } });
+  const target = prepared.targets[0];
+
+  assert.ok(target);
+  await assert.rejects(
+    () => adapter.posts.publishTarget(target, context),
+    (error) => error instanceof SocialError && error.code === "not_found",
+  );
+  assert.equal(creates, 0);
 });
 
 it("Buffer reads, lists, cancels, and deletes posts from mocked GraphQL fixtures", async () => {
@@ -628,6 +659,7 @@ it("Buffer reports post metrics only after a sent post", async () => {
             { type: "reactions", value: 4, unit: "count", name: "Reactions" },
             { type: "mystery", value: 1, unit: "widgets", name: "Mystery" },
           ],
+          metricsUpdatedAt: "2026-10-10T00:00:00.000Z",
         }),
       });
     },
@@ -651,11 +683,45 @@ it("Buffer reports post metrics only after a sent post", async () => {
       value: 4,
       unit: "count",
       period: "lifetime",
-      freshness: "reported",
+      freshness: "unknown",
       source: "buffer:x:post",
-      measuredAt: "2026-10-09T16:00:00.000Z",
+      fetchedAt: "2026-10-10T00:00:00.000Z",
     },
   ]);
+});
+
+it("Buffer keeps metrics out of basic post reads and maps analytics permission errors", async () => {
+  const adapter = buffer({
+    apiKey: "fixture-key",
+    fetch: async (_input, init) => {
+      const { query } = graphql(init);
+
+      if (query.includes("metrics"))
+        return envelope(null, [
+          { message: "Metrics require an API key", extensions: { code: "FORBIDDEN" } },
+        ]);
+
+      assert.doesNotMatch(query, /metricsUpdatedAt/);
+
+      return envelope({ post: post({ status: "sent" }) });
+    },
+  });
+
+  const ref = {
+    kind: "platform-post" as const,
+    version: 1 as const,
+    backend: "default",
+    platform: "x" as const,
+    accountId: "channel_x_example",
+    postId: "post_example",
+  };
+
+  await adapter.posts.get!(ref, context);
+
+  await assert.rejects(
+    () => adapter.analytics!.getPostMetrics(ref, context),
+    (error) => error instanceof SocialError && error.code === "missing_permission",
+  );
 });
 
 it("Buffer OAuth helpers require PKCE and never echo grants", async () => {

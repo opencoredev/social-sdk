@@ -117,12 +117,16 @@ const postSelection = `
   status
   shareMode
   externalLink
+`;
+
+const metricsSelection = `
   metrics {
     type
     value
     unit
     name
   }
+  metricsUpdatedAt
 `;
 
 const reject = (operation: string, message: string): never => {
@@ -679,6 +683,7 @@ export function buffer(options: BufferOptions) {
     ref: Pick<ConnectedAccountRef, "backend" | "platform" | "accountId">,
     context: AdapterOperationContext,
     operation: string,
+    includeMetrics = false,
   ): Promise<JsonObject> => {
     accountMatches(ref, context);
 
@@ -689,6 +694,7 @@ export function buffer(options: BufferOptions) {
       `query Post($input: PostInput!) {
         post(input: $input) {
           ${postSelection}
+          ${includeMetrics ? metricsSelection : ""}
         }
       }`,
       { input: { id: postId } },
@@ -837,9 +843,9 @@ export function buffer(options: BufferOptions) {
           value,
           unit,
           period: "lifetime" as const,
-          freshness: "reported" as const,
+          freshness: "unknown" as const,
           source: `buffer:${platform}:post`,
-          ...definedFields({ measuredAt: optionalString(row["sentAt"]) }),
+          ...definedFields({ fetchedAt: optionalString(row["metricsUpdatedAt"]) }),
         },
       ];
     });
@@ -981,6 +987,7 @@ export function buffer(options: BufferOptions) {
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
         accountMatches(target.account, context);
+        await ownedChannel(target.account, context, "posts.publish");
 
         const at = target.schedule?.at;
         const scheduled = at !== undefined;
@@ -1244,7 +1251,7 @@ export function buffer(options: BufferOptions) {
     },
     analytics: {
       async getPostMetrics(ref: PlatformPostRef, context: AdapterOperationContext) {
-        const row = await readPost(ref.postId, ref, context, "analytics.read");
+        const row = await readPost(ref.postId, ref, context, "analytics.read", true);
 
         if (row["status"] !== "sent")
           throw new SocialError({

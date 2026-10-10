@@ -146,15 +146,21 @@ export async function finishOAuth(session: OAuthSession, url: URL) {
     codeVerifier: verifier,
   });
 
-  return buffer({ apiKey: tokens.accessToken });
+  return {
+    backend: buffer({ apiKey: tokens.accessToken }),
+    tokens,
+  };
 }
 
 export async function refresh(tokens: { refreshToken: string }) {
-  return refreshBufferToken({
+  const refreshed = await refreshBufferToken({
     clientId: process.env.BUFFER_CLIENT_ID!,
     clientSecret: process.env.BUFFER_CLIENT_SECRET,
     refreshToken: tokens.refreshToken,
   });
+
+  // Persist `refreshed.refreshToken` before replacing the old token.
+  return refreshed;
 }
 ```
 
