@@ -520,6 +520,62 @@ it("Buffer verifies channel ownership before publishing", async () => {
   assert.equal(creates, 0);
 });
 
+it("Buffer scopes post reads and destructive operations to the configured organization", async () => {
+  let postReads = 0;
+
+  const adapter = buffer({
+    apiKey: "fixture-key",
+    organizationId: "org_example",
+    fetch: async (_input, init) => {
+      const { query } = graphql(init);
+
+      if (query.includes("query Channels")) return envelope({ channels: [] });
+
+      if (query.includes("query Post")) postReads += 1;
+
+      return envelope({ post: post({}) });
+    },
+  });
+
+  const ref = {
+    kind: "platform-post" as const,
+    version: 1 as const,
+    backend: "default",
+    platform: "x" as const,
+    accountId: "channel_x_example",
+    postId: "post_example",
+  };
+
+  await assert.rejects(
+    () => adapter.posts.get!(ref, context),
+    (error) => error instanceof SocialError && error.code === "not_found",
+  );
+  assert.equal(postReads, 0);
+});
+
+it("Buffer reports preflight timeouts as before-submission outcomes", async () => {
+  const adapter = buffer({
+    apiKey: "fixture-key",
+    timeoutMs: 1,
+    fetch: async () => new Promise<Response>(() => {}),
+  });
+
+  const social = createSocial({ backend: adapter });
+
+  const result = await social.posts.publish({
+    targets: [{ account: x }],
+    content: { text: "hello" },
+  });
+
+  assert.deepEqual(result.outcomes[0], {
+    state: "not-submitted",
+    targetIndex: 0,
+    account: x,
+    observedAt: result.outcomes[0]?.observedAt,
+    reason: "before-submission",
+  });
+});
+
 it("Buffer reads, lists, cancels, and deletes posts from mocked GraphQL fixtures", async () => {
   const adapter = buffer({
     apiKey: "fixture-key",
@@ -693,8 +749,11 @@ it("Buffer reports post metrics only after a sent post", async () => {
 it("Buffer keeps metrics out of basic post reads and maps analytics permission errors", async () => {
   const adapter = buffer({
     apiKey: "fixture-key",
+    organizationId: "org_example",
     fetch: async (_input, init) => {
       const { query } = graphql(init);
+
+      if (query.includes("query Channels")) return envelope({ channels: [channel({})] });
 
       if (query.includes("metrics"))
         return envelope(null, [

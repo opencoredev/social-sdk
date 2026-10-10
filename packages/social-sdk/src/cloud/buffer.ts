@@ -685,7 +685,7 @@ export function buffer(options: BufferOptions) {
     operation: string,
     includeMetrics = false,
   ): Promise<JsonObject> => {
-    accountMatches(ref, context);
+    await ownedChannel(ref, context, operation);
 
     const postId = bufferId(id, operation, "post");
 
@@ -987,7 +987,30 @@ export function buffer(options: BufferOptions) {
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
         accountMatches(target.account, context);
-        await ownedChannel(target.account, context, "posts.publish");
+
+        try {
+          await ownedChannel(target.account, context, "posts.publish");
+        } catch (error) {
+          if (error instanceof SocialError && error.code === "cancelled")
+            return {
+              state: "cancelled",
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt: now(),
+              reason: "before-submission",
+            };
+
+          if (error instanceof SocialError && error.code === "timeout")
+            return {
+              state: "not-submitted",
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt: now(),
+              reason: "before-submission",
+            };
+
+          throw error;
+        }
 
         const at = target.schedule?.at;
         const scheduled = at !== undefined;

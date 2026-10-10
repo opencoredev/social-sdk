@@ -326,7 +326,12 @@ interface OutcomeBase<S extends string> {
 
 export type DeliveryOutcome =
   | (OutcomeBase<"not-submitted"> & {
-      readonly reason: "validation" | "unauthorized" | "idempotency-conflict" | "capacity";
+      readonly reason:
+        | "validation"
+        | "unauthorized"
+        | "idempotency-conflict"
+        | "capacity"
+        | "before-submission";
       readonly issues?: readonly PreparationIssue[];
     })
   | (OutcomeBase<"scheduled"> & { readonly job: ScheduledJobRef })
