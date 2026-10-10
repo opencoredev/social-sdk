@@ -273,6 +273,13 @@ export function tiktok(
     const config = optionsObject(target);
     const draft = config["draft"] === true;
 
+    for (const [key, message] of [
+      ["description", "description is only supported by the Zernio managed adapter."],
+      ["mediaType", "mediaType is only supported by the Zernio managed adapter."],
+      ["autoAddMusic", "autoAddMusic is only supported by the Zernio managed adapter."],
+    ] as const)
+      if (config[key] !== undefined) fail(`tiktok.${key}`, message);
+
     if (config["consentGiven"] !== true)
       fail(
         "tiktok.consent",

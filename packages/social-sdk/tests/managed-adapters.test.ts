@@ -608,6 +608,52 @@ for (const provider of ["zernio", "post-for-me"] as const) {
   });
 }
 
+it("managed TikTok format checks stay scoped to Zernio", () => {
+  const social = createSocial({ backend: postForMe({ apiKey: "test" }) });
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "tiktok",
+    accountId: "tt1",
+  });
+
+  const preparation = social.posts.prepare({
+    targets: [
+      {
+        account,
+        options: {
+          privacy: "PUBLIC_TO_EVERYONE",
+          consentGiven: true,
+          disableComments: false,
+          disableDuet: false,
+          disableStitch: false,
+          brandedContent: false,
+          ownBrand: false,
+          aiGenerated: false,
+          draft: false,
+          title: "t".repeat(91),
+        },
+      },
+    ],
+    content: {
+      media: [
+        {
+          kind: "image",
+          mimeType: "image/jpeg",
+          source: { kind: "https-url", url: "https://media.example.test/photo.jpg" },
+        },
+      ],
+    },
+  });
+
+  assert.equal(preparation.ok, false);
+  assert.deepEqual(
+    preparation.issues.filter((issue) => issue.code === "tiktok.title"),
+    [],
+  );
+  assert.ok(preparation.issues.some((issue) => issue.code === "options.unmapped"));
+});
+
 it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", async () => {
   let payload: JsonValue | undefined;
 
@@ -645,7 +691,7 @@ it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", as
           disableDuet: false,
           disableStitch: false,
           brandedContent: false,
-          ownBrand: true,
+          ownBrand: false,
           aiGenerated: false,
           draft: false,
           title: "Photo title under ninety",
@@ -683,7 +729,7 @@ it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", as
   assert.equal(native["description"], "Full caption body for the photo post.");
   assert.equal(native["autoAddMusic"], true);
   assert.equal(native["photoCoverIndex"], 0);
-  assert.equal(native["isBrandOrganicPost"], true);
+  assert.equal(native["isBrandOrganicPost"], false);
   assert.equal(native["allowComment"], true);
 });
 
@@ -752,4 +798,43 @@ it("Zernio rejects TikTok photo-only options on video posts and enforces photo l
   assert.equal(social.posts.prepare(request({ title: "t".repeat(91) }, photo)).ok, false);
   assert.equal(social.posts.prepare(request({ description: "d".repeat(4000) }, photo)).ok, true);
   assert.equal(social.posts.prepare(request({ description: "d".repeat(4001) }, photo)).ok, false);
+});
+
+it("Zernio rejects automatic music for branded TikTok photo posts", () => {
+  const social = createSocial({ backend: zernio({ apiKey: "test" }) });
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "tiktok",
+    accountId: "tt1",
+  });
+
+  const options = {
+    privacy: "PUBLIC_TO_EVERYONE" as const,
+    consentGiven: true,
+    disableComments: false,
+    disableDuet: false,
+    disableStitch: false,
+    brandedContent: true,
+    ownBrand: false,
+    aiGenerated: false,
+    draft: false,
+    autoAddMusic: true,
+  };
+
+  const preparation = social.posts.prepare({
+    targets: [{ account, options }],
+    content: {
+      media: [
+        {
+          kind: "image" as const,
+          mimeType: "image/jpeg",
+          source: { kind: "https-url" as const, url: "https://media.example.test/photo.jpg" },
+        },
+      ],
+    },
+  });
+
+  assert.equal(preparation.ok, false);
+  assert.ok(preparation.issues.some((issue) => issue.code === "tiktok.auto_add_music"));
 });
