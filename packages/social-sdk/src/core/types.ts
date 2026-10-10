@@ -188,6 +188,8 @@ export interface ThreadsPublishOptions {
 
 export interface YouTubePublishOptions {
   readonly title: string;
+  /** Required by managed Buffer publishing; native YouTube can retain the channel default. */
+  readonly categoryId?: string;
   readonly visibility: "private" | "unlisted" | "public";
   readonly madeForKids: boolean;
 }

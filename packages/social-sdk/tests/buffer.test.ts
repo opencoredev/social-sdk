@@ -35,6 +35,18 @@ const youtube = connectedAccountRef({
   accountId: "channel_yt_example",
 });
 
+const instagram = connectedAccountRef({
+  backend: "default",
+  platform: "instagram",
+  accountId: "channel_ig_example",
+});
+
+const tiktok = connectedAccountRef({
+  backend: "default",
+  platform: "tiktok",
+  accountId: "channel_tt_example",
+});
+
 function graphql(init?: RequestInit) {
   const parsed: unknown = JSON.parse(String(init?.body));
 
@@ -340,7 +352,12 @@ it("Buffer publishes now or on a custom schedule and maps documented metadata", 
       targets: [
         {
           account: youtube,
-          options: { title: "Walkthrough", visibility: "unlisted", madeForKids: false },
+          options: {
+            title: "Walkthrough",
+            categoryId: "22",
+            visibility: "unlisted",
+            madeForKids: false,
+          },
         },
       ],
       content: {
@@ -362,9 +379,52 @@ it("Buffer publishes now or on a custom schedule and maps documented metadata", 
   assert.equal(seen[1]?.["mode"], "customScheduled");
   assert.equal(seen[1]?.["dueAt"], future);
   assert.deepEqual(seen[1]?.["metadata"], {
-    youtube: { title: "Walkthrough", privacy: "unlisted", madeForKids: false },
+    youtube: { title: "Walkthrough", categoryId: "22", privacy: "unlisted", madeForKids: false },
   });
   assert.deepEqual(seen[1]?.["assets"], [{ video: { url: "https://cdn.example/tour.mp4" } }]);
+});
+
+it("Buffer requires channel-specific YouTube and Instagram choices without TikTok direct-post choices", () => {
+  const social = createSocial({
+    backend: buffer({ apiKey: "fixture-key", clock, fetch: async () => envelope({}) }),
+    clock,
+  });
+
+  const video = {
+    kind: "video" as const,
+    mimeType: "video/mp4",
+    source: { kind: "https-url" as const, url: "https://cdn.example/video.mp4" },
+  };
+
+  const image = {
+    kind: "image" as const,
+    mimeType: "image/jpeg",
+    source: { kind: "https-url" as const, url: "https://cdn.example/image.jpg" },
+  };
+
+  const issues = (request: Parameters<typeof social.posts.prepare>[0]) =>
+    social.posts.prepare(request).issues.map((issue) => issue.code);
+
+  assert.ok(
+    issues({
+      targets: [
+        { account: youtube, options: { title: "Tour", visibility: "public", madeForKids: false } },
+      ],
+      content: { text: "Tour", media: [video] },
+    }).includes("youtube.category"),
+  );
+  assert.ok(
+    issues({
+      targets: [{ account: instagram }],
+      content: { text: "Photo", media: [image] },
+    }).includes("instagram.share_to_feed"),
+  );
+  assert.ok(
+    issues({
+      targets: [{ account: tiktok }],
+      content: { text: "Mixed", media: [video, image] },
+    }).includes("tiktok.media_mix"),
+  );
 });
 
 it("Buffer maps GraphQL and HTTP failures without echoing secrets", async () => {

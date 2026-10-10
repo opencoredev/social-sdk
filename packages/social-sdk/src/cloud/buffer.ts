@@ -933,7 +933,7 @@ export function buffer(options: BufferOptions) {
     posts: {
       prepareTarget(target: Parameters<typeof managedPreparation>[0]) {
         const issues: PreparationIssue[] = [
-          ...managedPreparation(target).filter((issue) => !issue.code.startsWith("tiktok.")),
+          ...managedPreparation(target, "buffer"),
           ...managedOptionIssues(target, "buffer"),
         ];
 
@@ -941,9 +941,22 @@ export function buffer(options: BufferOptions) {
           issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
 
         const at = target.schedule?.at;
+        const config = optionsObject(target);
 
         if (at !== undefined && !(Date.parse(at) > clock().getTime()))
           fail("schedule.past", "Buffer custom schedules require a time in the future.");
+
+        if (
+          target.account.platform === "youtube" &&
+          (!isString(config["categoryId"]) || config["categoryId"].length === 0)
+        )
+          fail("youtube.category", "Select a YouTube category explicitly.");
+
+        if (target.account.platform === "instagram" && !isBoolean(config["shareToFeed"]))
+          fail(
+            "instagram.share_to_feed",
+            "Select whether Instagram should share the post to feed.",
+          );
 
         for (const item of target.content.media ?? []) {
           if (item.kind === "document") {
@@ -1005,6 +1018,7 @@ export function buffer(options: BufferOptions) {
 
         if (target.account.platform === "youtube") {
           const title = config["title"];
+          const categoryId = config["categoryId"];
           const visibility = optionalString(config["visibility"]);
 
           if (!isString(title) || title.length === 0)
@@ -1016,10 +1030,14 @@ export function buffer(options: BufferOptions) {
               "Select public, unlisted, or private YouTube visibility.",
             );
 
+          if (!isString(categoryId) || categoryId.length === 0)
+            return reject("posts.publish", "Select a YouTube category explicitly.");
+
           metadataEntries.push([
             "youtube",
             {
               title,
+              categoryId,
               privacy: visibility,
               ...definedFields({
                 madeForKids: isBoolean(config["madeForKids"]) ? config["madeForKids"] : undefined,
@@ -1028,14 +1046,16 @@ export function buffer(options: BufferOptions) {
           ]);
         }
 
-        if (target.account.platform === "instagram" && config["shareToFeed"] !== undefined) {
-          if (!isBoolean(config["shareToFeed"]))
-            reject("posts.publish", "Instagram shareToFeed must be a boolean.");
+        if (target.account.platform === "instagram") {
+          const shareToFeed = config["shareToFeed"];
+
+          if (!isBoolean(shareToFeed))
+            return reject("posts.publish", "Instagram shareToFeed must be selected explicitly.");
 
           metadataEntries.push([
             "instagram",
             {
-              shouldShareToFeed: config["shareToFeed"],
+              shouldShareToFeed: shareToFeed,
               type: "post",
             },
           ]);

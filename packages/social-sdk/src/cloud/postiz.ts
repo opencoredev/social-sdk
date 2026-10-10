@@ -647,7 +647,7 @@ export function postiz(options: PostizOptions) {
     posts: {
       prepareTarget(target: Parameters<typeof managedPreparation>[0]) {
         const issues: PreparationIssue[] = [
-          ...managedPreparation(target),
+          ...managedPreparation(target, "postiz"),
           ...managedOptionIssues(target, "postiz"),
         ];
 

@@ -70,7 +70,12 @@ const scheduled = await social.posts.publish(
     targets: [
       {
         account: youtubeAccount,
-        options: { title: "Release walkthrough", visibility: "unlisted", madeForKids: false },
+        options: {
+          title: "Release walkthrough",
+          categoryId: "22",
+          visibility: "unlisted",
+          madeForKids: false,
+        },
       },
     ],
     content: {
@@ -88,7 +93,7 @@ const scheduled = await social.posts.publish(
 );
 ```
 
-YouTube `visibility` is sent as Buffer `metadata.youtube.privacy`. Instagram `shareToFeed` is sent as `metadata.instagram.shouldShareToFeed` with `type: post`; stories and reels are not mapped. TikTok's Buffer metadata documents only `isAiGenerated`, so other TikTok options are rejected. X reply settings have no Buffer Twitter field.
+YouTube requires `title`, `categoryId`, `visibility`, and `madeForKids`; these are sent as Buffer `metadata.youtube`. Instagram requires an explicit boolean `shareToFeed`, sent as `metadata.instagram.shouldShareToFeed` with `type: post`; stories and reels are not mapped. TikTok's Buffer metadata documents only optional `isAiGenerated`, so other TikTok options are rejected while Buffer's media shape rules still apply. X reply settings have no Buffer Twitter field.
 
 ## Cancel or delete a Buffer record
 

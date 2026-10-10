@@ -352,7 +352,11 @@ export function zernio(options: ManagedOptions) {
         };
       },
       prepareTarget(target: PreparedPublishTarget) {
-        const issues = [...managedPreparation(target), ...managedOptionIssues(target, "zernio")];
+        const issues = [
+          ...managedPreparation(target, "zernio"),
+          ...managedOptionIssues(target, "zernio"),
+        ];
+
         const config = optionsObject(target);
 
         if (target.account.platform === "threads" && config["replyControl"] !== undefined)
