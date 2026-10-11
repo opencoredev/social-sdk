@@ -2,4 +2,4 @@
 "@opencoredev/social-sdk": minor
 ---
 
-Add normalized Instagram Login messaging for listing conversations, reading message IDs, and sending text replies. Facebook Login messaging remains explicitly unsupported in the direct adapter because Meta routes it through Messenger Platform with a linked Page access token.
+Add Instagram Login messaging coverage for normalized conversation and message-ID reads plus native text replies. Native replies require the Instagram-scoped recipient ID from a messaging webhook. Facebook Login messaging remains explicitly unsupported in the direct adapter because Meta routes it through Messenger Platform with a linked Page access token.
