@@ -1,6 +1,7 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
+import { buffer } from "../src/cloud/buffer.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { postfast } from "../src/cloud/postfast.js";
 import { postiz } from "../src/cloud/postiz.js";
@@ -86,24 +87,96 @@ it("managed account lists skip provider platforms outside SDK support", async ()
 
 it("managed capability manifests match the implemented backend surfaces", () => {
   const adapters = [
-    postForMe({ apiKey: "test" }),
-    postfast({ apiKey: "test" }),
-    postiz({ apiKey: "test" }),
-    zernio({ apiKey: "test" }),
-  ];
+    [
+      "buffer",
+      buffer({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+      ],
+    ],
+    [
+      "post-for-me",
+      postForMe({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+        "webhooks.verify",
+      ],
+    ],
+    [
+      "postfast",
+      postfast({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+      ],
+    ],
+    [
+      "postiz",
+      postiz({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+      ],
+    ],
+    [
+      "zernio",
+      zernio({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "analytics.account.read",
+        "media.upload",
+        "webhooks.verify",
+        "posts.removeFromPlatform",
+        "comments.read",
+        "comments.write",
+        "messages.read",
+        "messages.write",
+      ],
+    ],
+  ] as const;
 
-  for (const adapter of adapters) {
-    const operations = new Set(adapter.capabilities.capabilities.map((entry) => entry.operation));
+  for (const [id, adapter, expected] of adapters) {
+    assert.equal(adapter.id, id);
+    const declarations = adapter.capabilities.capabilities;
 
-    assert.ok(operations.has("media.upload"));
-    assert.ok(operations.has("analytics.read"));
-    assert.ok(!operations.has("analytics.account.read") || adapter.id === "zernio");
-    assert.ok(!operations.has("comments.read") || adapter.id === "zernio");
-    assert.ok(!operations.has("messages.read") || adapter.id === "zernio");
-    assert.ok(!operations.has("posts.removeFromPlatform") || adapter.id === "zernio");
-    assert.ok(
-      !operations.has("webhooks.verify") || adapter.id === "post-for-me" || adapter.id === "zernio",
-    );
+    const actual = declarations
+      .map((entry) => entry.operation)
+      .filter((value, index, all) => all.indexOf(value) === index);
+
+    assert.deepEqual(actual.sort(), [...expected].sort());
+    assert.ok(declarations.every((entry) => entry.availability === "available"));
   }
 
   const zernioCapabilities = zernio({ apiKey: "test" }).capabilities.capabilities;
