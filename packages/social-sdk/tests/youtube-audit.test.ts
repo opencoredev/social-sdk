@@ -79,13 +79,11 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
   });
   await adapter.native!.liveChatModerators({
     action: "delete",
-    liveChatId: "chat1",
     moderatorId: "moderator1",
     context: context(),
   });
   await adapter.native!.liveChatBans({
     action: "insert",
-    liveChatId: "chat1",
     body: { snippet: { liveChatId: "chat1", type: "temporary" } },
     context: context(),
   });

@@ -199,11 +199,8 @@ export interface YouTubeNative {
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject | void>;
   readonly liveChatBans: (input: {
-    readonly action: "list" | "insert" | "delete";
-    readonly liveChatId?: string;
+    readonly action: "insert" | "delete";
     readonly banId?: string;
-    readonly pageToken?: string;
-    readonly maxResults?: number;
     readonly body?: JsonObject;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject | void>;
@@ -734,7 +731,7 @@ export function youtube(
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube"],
           notes:
-            "Native access to liveChatBans list, insert, and delete. Ban bodies must follow the YouTube liveChatBan resource shape.",
+            "Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list method. Ban bodies must follow the YouTube liveChatBan resource shape.",
         },
         {
           operation: "channel.sections.read",
@@ -2375,16 +2372,17 @@ export function youtube(
         context,
       }) {
         nativeAuthorize(context);
-        const chatId = liveChatId?.trim();
 
-        if (!chatId)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "live.chat.messages",
-            message: "liveChatId is required.",
-          });
+        if (action === "list") {
+          const chatId = liveChatId?.trim();
 
-        if (action === "list")
+          if (!chatId)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.messages",
+              message: "liveChatId is required for list.",
+            });
+
           return object(
             await request("/youtube/v3/liveChat/messages", context, undefined, {
               liveChatId: chatId,
@@ -2395,6 +2393,7 @@ export function youtube(
               }),
             }),
           );
+        }
 
         const id = messageId?.trim();
 
@@ -2437,16 +2436,17 @@ export function youtube(
         context,
       }) {
         nativeAuthorize(context);
-        const chatId = liveChatId?.trim();
 
-        if (!chatId)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "live.chat.moderators",
-            message: "liveChatId is required.",
-          });
+        if (action === "list") {
+          const chatId = liveChatId?.trim();
 
-        if (action === "list")
+          if (!chatId)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.moderators",
+              message: "liveChatId is required for list.",
+            });
+
           return object(
             await request("/youtube/v3/liveChat/moderators", context, undefined, {
               liveChatId: chatId,
@@ -2457,6 +2457,7 @@ export function youtube(
               }),
             }),
           );
+        }
 
         const id = moderatorId?.trim();
 
@@ -2489,29 +2490,8 @@ export function youtube(
           ),
         );
       },
-      async liveChatBans({ action, liveChatId, banId, pageToken, maxResults, body, context }) {
+      async liveChatBans({ action, banId, body, context }) {
         nativeAuthorize(context);
-        const chatId = liveChatId?.trim();
-
-        if (!chatId)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "live.chat.bans",
-            message: "liveChatId is required.",
-          });
-
-        if (action === "list")
-          return object(
-            await request("/youtube/v3/liveChat/bans", context, undefined, {
-              liveChatId: chatId,
-              part: "snippet",
-              ...definedFields({
-                pageToken: nonEmpty(pageToken),
-                maxResults: maxResults ? String(maxResults) : undefined,
-              }),
-            }),
-          );
-
         const id = banId?.trim();
 
         if (action === "delete") {
