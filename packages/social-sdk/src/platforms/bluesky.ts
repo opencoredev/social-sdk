@@ -1530,13 +1530,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       });
   };
 
-  const pageQuery = (input: BlueskyPageInput): URLSearchParams => {
+  const pageQuery = (
+    input: BlueskyPageInput,
+    operation = "bluesky.graph.read",
+  ): URLSearchParams => {
     const limit = input.limit ?? 50;
 
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       throw new SocialError({
         code: "invalid_input",
-        operation: "bluesky.graph.read",
+        operation,
         message: "Page size must be between 1 and 100.",
       });
 
@@ -1565,6 +1568,20 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     actors: array(response[key] ?? []).map((value) => object(value)),
     ...definedFields({ cursor: optionalString(response["cursor"]) }),
   });
+
+  const feedPage = (response: JsonObject, operation: string): BlueskyFeedPageResult => {
+    if (response["feed"] === undefined)
+      throw new SocialError({
+        code: "upstream_failure",
+        operation,
+        message: "Bluesky feed response did not include a feed array.",
+      });
+
+    return {
+      feed: array(response["feed"]).map((entry) => object(entry)),
+      ...definedFields({ cursor: optionalString(response["cursor"]) }),
+    };
+  };
 
   const native: BlueskyNative = {
     async getPost(input) {
@@ -2113,16 +2130,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.feeds.timeline");
       assertNativeAccount(input.account, context, "bluesky.feeds.timeline");
 
-      const q = pageQuery(input);
+      const q = pageQuery(input, "bluesky.feeds.timeline");
 
       if (input.algorithm?.trim()) q.set("algorithm", input.algorithm.trim());
 
       const value = object(await xrpc(`app.bsky.feed.getTimeline?${q}`, context));
 
-      return {
-        feed: array(value["feed"] ?? []).map((entry) => object(entry)),
-        ...definedFields({ cursor: optionalString(value["cursor"]) }),
-      };
+      return feedPage(value, "bluesky.feeds.timeline");
     },
     async getFeed(input) {
       const context = nativeContext(input.context, "bluesky.feeds.feed");
@@ -2135,22 +2149,19 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Feed generator AT-URI is required.",
         });
 
-      const q = pageQuery(input);
+      const q = pageQuery(input, "bluesky.feeds.feed");
 
       q.set("feed", input.feed.trim());
 
       const value = object(await xrpc(`app.bsky.feed.getFeed?${q}`, context));
 
-      return {
-        feed: array(value["feed"] ?? []).map((entry) => object(entry)),
-        ...definedFields({ cursor: optionalString(value["cursor"]) }),
-      };
+      return feedPage(value, "bluesky.feeds.feed");
     },
     async getAuthorFeed(input) {
       const context = nativeContext(input.context, "bluesky.feeds.author");
       assertNativeAccount(input.account, context, "bluesky.feeds.author");
 
-      const q = pageQuery(input);
+      const q = pageQuery(input, "bluesky.feeds.author");
 
       q.set("actor", input.actor?.trim() || auth.did);
 
@@ -2158,10 +2169,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const value = object(await xrpc(`app.bsky.feed.getAuthorFeed?${q}`, context));
 
-      return {
-        feed: array(value["feed"] ?? []).map((entry) => object(entry)),
-        ...definedFields({ cursor: optionalString(value["cursor"]) }),
-      };
+      return feedPage(value, "bluesky.feeds.author");
     },
     async searchActors(input) {
       const context = nativeContext(input.context, "bluesky.profiles.search");
