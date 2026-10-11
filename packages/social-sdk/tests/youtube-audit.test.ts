@@ -60,7 +60,20 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
         body: init?.body ? JSON.parse(String(init.body)) : undefined,
       });
 
-      return init?.method === "DELETE" ? new Response(null, { status: 204 }) : Response.json({});
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+
+      if (url.pathname === "/youtube/v3/liveChat/messages")
+        return Response.json({ items: [{ id: "message1", snippet: { liveChatId: "chat1" } }] });
+
+      if (url.pathname === "/youtube/v3/liveChat/moderators")
+        return Response.json({ items: [{ id: "moderator1", snippet: { liveChatId: "chat1" } }] });
+
+      if (url.pathname === "/youtube/v3/channelSections")
+        return Response.json({
+          items: [{ id: "section1", snippet: { channelId: "channel1" } }],
+        });
+
+      return Response.json({});
     },
   });
 
@@ -77,14 +90,39 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
     body: { snippet: { liveChatId: "chat1", type: "textMessageEvent" } },
     context: context(),
   });
+  await adapter.native!.liveChatMessages({
+    action: "delete",
+    liveChatId: "chat1",
+    messageId: "message1",
+    context: context(),
+  });
+  await adapter.native!.liveChatModerators({
+    action: "list",
+    liveChatId: "chat1",
+    pageToken: "page2",
+    context: context(),
+  });
+  await adapter.native!.liveChatModerators({
+    action: "insert",
+    liveChatId: "chat1",
+    body: { snippet: { liveChatId: "chat1", moderatorDetails: {} } },
+    context: context(),
+  });
   await adapter.native!.liveChatModerators({
     action: "delete",
+    liveChatId: "chat1",
     moderatorId: "moderator1",
     context: context(),
   });
   await adapter.native!.liveChatBans({
     action: "insert",
     body: { snippet: { liveChatId: "chat1", type: "temporary" } },
+    context: context(),
+  });
+  await adapter.native!.liveChatBans({
+    action: "delete",
+    liveChatId: "chat1",
+    banId: "ban1",
     context: context(),
   });
   await adapter.native!.channelSections({
@@ -95,6 +133,16 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
     action: "update",
     channelSectionId: "section1",
     body: { snippet: { type: "singlePlaylist" } },
+    context: context(),
+  });
+  await adapter.native!.channelSections({
+    action: "insert",
+    body: { snippet: { type: "singlePlaylist" } },
+    context: context(),
+  });
+  await adapter.native!.channelSections({
+    action: "delete",
+    channelSectionId: "section1",
     context: context(),
   });
   await adapter.native!.activities({ channelId: "channel1", context: context() });
@@ -109,16 +157,27 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
     [
       ["GET", "/youtube/v3/liveChat/messages", "snippet,authorDetails", "page1"],
       ["POST", "/youtube/v3/liveChat/messages", "snippet,authorDetails", null],
+      ["GET", "/youtube/v3/liveChat/messages", "snippet", null],
+      ["DELETE", "/youtube/v3/liveChat/messages", null, null],
+      ["GET", "/youtube/v3/liveChat/moderators", "snippet", "page2"],
+      ["POST", "/youtube/v3/liveChat/moderators", "snippet", null],
+      ["GET", "/youtube/v3/liveChat/moderators", "snippet", null],
       ["DELETE", "/youtube/v3/liveChat/moderators", null, null],
       ["POST", "/youtube/v3/liveChat/bans", "snippet", null],
+      ["GET", "/youtube/v3/liveChat/messages", "snippet", null],
+      ["DELETE", "/youtube/v3/liveChat/bans", null, null],
       ["GET", "/youtube/v3/channelSections", "snippet,contentDetails", null],
+      ["GET", "/youtube/v3/channelSections", "snippet", null],
       ["PUT", "/youtube/v3/channelSections", "snippet", null],
+      ["POST", "/youtube/v3/channelSections", "snippet", null],
+      ["GET", "/youtube/v3/channelSections", "snippet", null],
+      ["DELETE", "/youtube/v3/channelSections", null, null],
       ["GET", "/youtube/v3/activities", "snippet,contentDetails", null],
     ],
   );
-  assert.equal(calls[4]?.query.get("mine"), "true");
-  assert.deepEqual(calls[5]?.body, { id: "section1", snippet: { type: "singlePlaylist" } });
-  assert.equal(calls[6]?.query.get("channelId"), "channel1");
+  assert.equal(calls[11]?.query.get("channelId"), "channel1");
+  assert.deepEqual(calls[13]?.body, { id: "section1", snippet: { type: "singlePlaylist" } });
+  assert.equal(calls[17]?.query.get("channelId"), "channel1");
 });
 
 it("YouTube activity and live chat natives reject cross-channel or missing identifiers", async () => {
@@ -141,6 +200,53 @@ it("YouTube activity and live chat natives reject cross-channel or missing ident
     }),
     { code: "invalid_input" },
   );
+  await assert.rejects(
+    adapter.native!.channelSections({
+      action: "list",
+      channelSectionId: "   ",
+      context: context(),
+    }),
+    { code: "invalid_input" },
+  );
+  await assert.rejects(
+    adapter.native!.liveChatMessages({
+      action: "insert",
+      liveChatId: "other-chat",
+      body: { snippet: { liveChatId: "chat1" } },
+      context: context(),
+    }),
+    { code: "invalid_input" },
+  );
+  await assert.rejects(
+    adapter.native!.liveChatModerators({ action: "insert", context: context() }),
+    { code: "invalid_input" },
+  );
+  await assert.rejects(
+    adapter.native!.liveChatBans({ action: "delete", banId: "ban1", context: context() }),
+    { code: "invalid_input" },
+  );
+
+  const calls: URL[] = [];
+
+  const configured = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (input) => {
+      calls.push(new URL(String(input)));
+
+      return Response.json({ items: [{ id: "section1", snippet: { channelId: "other" } }] });
+    },
+  });
+
+  await assert.rejects(
+    configured.native!.channelSections({
+      action: "list",
+      channelSectionId: "section1",
+      context: context(),
+    }),
+    { code: "unauthorized" },
+  );
+  await configured.native!.activities({ mine: true, context: context() });
+  assert.equal(calls.at(-1)?.searchParams.get("channelId"), "channel1");
 });
 
 for (const paginated of [false, true]) {
