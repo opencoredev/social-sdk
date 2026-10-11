@@ -822,8 +822,7 @@ export function instagram(
 
     const result = validatedObject(
       await request(`/${encodeURIComponent(conversation.conversationId)}`, context, undefined, {
-        fields: "messages",
-        ...definedFields({ after: input.cursor, limit: limit?.toString() }),
+        fields: `messages${limit === undefined ? "" : `.limit(${limit})`}${input.cursor === undefined ? "" : `.after(${input.cursor})`}`,
       }),
       "instagram.messages.read",
     );

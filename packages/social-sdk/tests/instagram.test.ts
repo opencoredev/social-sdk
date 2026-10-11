@@ -1084,8 +1084,12 @@ it("supports Instagram Login conversation reads and native text replies", async 
         return Response.json({
           id: "conversation-1",
           messages: {
-            data: [{ id: "message-1", created_time: "2026-10-11T12:01:00Z" }],
-            paging: { cursors: { after: "messages-next" } },
+            data: url.searchParams.get("fields")?.includes("after(messages-next)")
+              ? [{ id: "message-2", created_time: "2026-10-11T12:02:00Z" }]
+              : [{ id: "message-1", created_time: "2026-10-11T12:01:00Z" }],
+            paging: url.searchParams.get("fields")?.includes("after(messages-next)")
+              ? {}
+              : { cursors: { after: "messages-next" } },
           },
         });
 
@@ -1118,6 +1122,14 @@ it("supports Instagram Login conversation reads and native text replies", async 
   const messages = await social.messages.listMessages(conversation, { limit: 10 });
   assert.deepEqual(messages.items, [{ id: "message-1", created_time: "2026-10-11T12:01:00Z" }]);
   assert.match(messages.nextCursor ?? "", /messages-next/);
+  assert.ok(messages.nextCursor);
+
+  const nextMessages = await social.messages.listMessages(conversation, {
+    limit: 10,
+    cursor: messages.nextCursor,
+  });
+
+  assert.deepEqual(nextMessages.items, [{ id: "message-2", created_time: "2026-10-11T12:02:00Z" }]);
   assert.deepEqual(
     await adapter.native!.sendMessage({
       account,
@@ -1133,9 +1145,13 @@ it("supports Instagram Login conversation reads and native text replies", async 
 
   assert.equal(requests[0]?.url.origin, "https://graph.instagram.com");
   assert.equal(requests[0]?.url.searchParams.get("platform"), "instagram");
-  assert.equal(requests[1]?.url.searchParams.get("fields"), "messages");
-  assert.equal(requests[2]?.method, "POST");
-  assert.deepEqual(JSON.parse(requests[2]?.body ?? "{}"), {
+  assert.equal(requests[1]?.url.searchParams.get("fields"), "messages.limit(10)");
+  assert.equal(
+    requests[2]?.url.searchParams.get("fields"),
+    "messages.limit(10).after(messages-next)",
+  );
+  assert.equal(requests[3]?.method, "POST");
+  assert.deepEqual(JSON.parse(requests[3]?.body ?? "{}"), {
     recipient: { id: "customer-1" },
     message: { text: "Thanks!" },
   });
