@@ -5,6 +5,7 @@ import type {
   AdapterOperationContext,
   CapabilityDeclaration,
   CapabilityConstraints,
+  CapabilityMediaSource,
   CapabilityManifest,
   ConnectedAccountRef,
   JsonObject,
@@ -204,25 +205,37 @@ const managedApproval = [
   "Provider account eligibility and application approval are checked by the managed provider.",
 ] as const;
 
-const managedMediaSources = ["https-url", "media-ref", "blob", "stream"] as const;
+export function managedConstraints(
+  operation: string,
+  mediaSources?: readonly CapabilityMediaSource[],
+): CapabilityConstraints {
+  const eligibility =
+    operation === "accounts.read" || operation === "webhooks.verify"
+      ? undefined
+      : managedEligibility;
 
-const managedConstraints = (operation: string): CapabilityConstraints => {
-  const constraints: CapabilityConstraints = {
-    eligibility: managedEligibility,
-    approval: managedApproval,
-  };
+  if (mediaSources !== undefined && eligibility !== undefined)
+    return { approval: managedApproval, eligibility, mediaSources };
 
-  if (operation === "media.upload" || operation === "posts.publish")
-    return { ...constraints, mediaSources: managedMediaSources };
+  if (mediaSources !== undefined) return { approval: managedApproval, mediaSources };
 
-  return constraints;
-};
+  if (eligibility !== undefined) return { approval: managedApproval, eligibility };
+
+  return { approval: managedApproval };
+}
+
+export type CapabilityConstraintsFor = (
+  platform: (typeof selectedPlatforms)[number],
+  operation: string,
+) => CapabilityConstraints;
 
 export function capabilityManifest(
   backend: string,
   apiRevision: string,
   operations: readonly string[],
   formats: PublishFormats = publishFormats,
+  constraintsFor: CapabilityConstraintsFor = (_platform, operation) =>
+    managedConstraints(operation),
 ): CapabilityManifest {
   return {
     schemaVersion: 1,
@@ -237,7 +250,7 @@ export function capabilityManifest(
         surface: "normalized" as const,
         ...definedFields({
           formats: operation === "posts.publish" ? formats(platform) : undefined,
-          constraints: managedConstraints(operation),
+          constraints: constraintsFor(platform, operation),
         }),
         notes:
           "Contract implementation; live account verification and provider/platform eligibility are separate.",
