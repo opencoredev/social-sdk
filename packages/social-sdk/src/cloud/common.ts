@@ -371,17 +371,19 @@ export function managedOptionIssues(
       if (config["autoAddMusic"] !== undefined)
         fail("tiktok.auto_add_music", "autoAddMusic requires at least one image.");
     } else if (provider === "zernio") {
+      const photoTitle = config["title"] ?? target.content.text;
+
       if (
-        config["title"] !== undefined &&
-        (!isString(config["title"]) ||
-          String(config["title"]).length === 0 ||
-          String(config["title"]).length > 90)
+        photoTitle !== undefined &&
+        (!isString(photoTitle) || String(photoTitle).length === 0 || String(photoTitle).length > 90)
       )
         fail("tiktok.title", "Photo titles are limited to 90 characters.");
 
+      const photoDescription = config["description"] ?? target.content.text;
+
       if (
-        config["description"] !== undefined &&
-        (!isString(config["description"]) || String(config["description"]).length > 4000)
+        photoDescription !== undefined &&
+        (!isString(photoDescription) || String(photoDescription).length > 4000)
       )
         fail("tiktok.description", "Photo descriptions are limited to 4000 characters.");
 
