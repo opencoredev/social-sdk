@@ -158,6 +158,23 @@ it("LinkedIn rejects article metadata over provider limits", () => {
   }
 });
 
+it("LinkedIn applies article metadata limits after trimming", () => {
+  const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
+  const prepared = social.posts.prepare({
+    targets: [{ account }],
+    content: {
+      text: "Read this",
+      link: {
+        url: "https://example.com/article",
+        title: ` ${"t".repeat(399)} `,
+        description: ` ${"d".repeat(4086)} `,
+      },
+    },
+  });
+
+  assert.equal(prepared.ok, true);
+});
+
 it("LinkedIn refuses unsupported formats/options and cross-author media locally", () => {
   const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
 
