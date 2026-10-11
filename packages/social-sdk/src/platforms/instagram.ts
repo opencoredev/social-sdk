@@ -4,6 +4,7 @@ import { profileRef } from "../core/types.js";
 import type {
   AdapterOperationContext,
   CommentRef,
+  ConversationRef,
   ConnectedAccountRef,
   DeliveryOutcome,
   JsonObject,
@@ -76,6 +77,12 @@ export interface InstagramNative {
     readonly limit?: number;
     readonly context: AdapterOperationContext;
   }) => Promise<Page<JsonObject>>;
+  readonly sendMessage: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly recipientId: string;
+    readonly text: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
   readonly mentionedMedia: (input: {
     readonly account: ConnectedAccountRef;
     readonly mediaId: string;
@@ -773,6 +780,103 @@ export function instagram(
     return page(result, tagFields, true);
   };
 
+  const requireInstagramLoginMessaging = (operation: string) => {
+    if (flavor !== "instagram-login")
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation,
+        message:
+          "Instagram messaging through this adapter requires an Instagram Login user token. Facebook Login messaging uses the Messenger Platform and a Page access token, which this adapter does not accept.",
+        retryDisposition: { kind: "never" },
+      });
+  };
+
+  const listConversations = async (
+    account: ConnectedAccountRef,
+    input: { readonly cursor?: string; readonly limit?: number },
+    context: AdapterOperationContext,
+  ): Promise<Page<JsonObject>> => {
+    authorize(account, context);
+    requireInstagramLoginMessaging("instagram.messages.read");
+    const limit = input.limit === undefined ? undefined : pageLimit(input.limit, 100);
+
+    const result = validatedObject(
+      await request(`/${encodeURIComponent(account.accountId)}/conversations`, context, undefined, {
+        platform: "instagram",
+        ...definedFields({ after: input.cursor, limit: limit?.toString() }),
+      }),
+      "instagram.messages.read",
+    );
+
+    return page(result, ["id", "updated_time"], true);
+  };
+
+  const listMessages = async (
+    conversation: ConversationRef,
+    input: { readonly cursor?: string; readonly limit?: number },
+    context: AdapterOperationContext,
+  ): Promise<Page<JsonObject>> => {
+    authorize(conversation, context);
+    requireInstagramLoginMessaging("instagram.messages.read");
+    const limit = input.limit === undefined ? undefined : pageLimit(input.limit, 100);
+
+    const result = validatedObject(
+      await request(`/${encodeURIComponent(conversation.conversationId)}`, context, undefined, {
+        fields: "messages",
+        ...definedFields({ after: input.cursor, limit: limit?.toString() }),
+      }),
+      "instagram.messages.read",
+    );
+
+    const messages = result["messages"];
+
+    if (messages === undefined)
+      throw new SocialError({
+        code: "upstream_failure",
+        operation: "instagram.messages.read",
+        message: "Instagram returned no messages connection for the conversation.",
+      });
+
+    return page(object(messages), ["id", "created_time"], true);
+  };
+
+  const sendMessage = async ({
+    account,
+    recipientId,
+    text,
+    context,
+  }: {
+    readonly account: ConnectedAccountRef;
+    readonly recipientId: string;
+    readonly text: string;
+    readonly context: AdapterOperationContext;
+  }): Promise<JsonObject> => {
+    authorize(account, context);
+    requireInstagramLoginMessaging("instagram.messages.write");
+
+    if (!text.trim())
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "instagram.messages.write",
+        message: "Instagram messages require non-empty text.",
+      });
+
+    if (new TextEncoder().encode(text).byteLength > 1000)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "instagram.messages.write",
+        message: "Instagram message text must be 1,000 UTF-8 bytes or fewer.",
+      });
+
+    return validatedObject(
+      await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
+        recipient: { id: recipientId },
+        message: { text },
+      }),
+      "instagram.messages.write",
+    );
+  };
+
   const profileFields = [
     "id",
     "username",
@@ -948,8 +1052,26 @@ export function instagram(
         {
           platform: "instagram",
           operation: "messages.read",
+          availability:
+            flavor === "instagram-login"
+              ? ("available" as const)
+              : ("unsupported-by-platform" as const),
+          requiredScopes:
+            flavor === "instagram-login"
+              ? ["instagram_business_basic", "instagram_business_manage_messages"]
+              : ["instagram_basic", "instagram_manage_messages", "pages_manage_metadata"],
+          notes:
+            flavor === "instagram-login"
+              ? "Reads conversations and their recent message IDs through the Instagram Conversations API. The account must be a qualifying professional account and the app must have the required access level."
+              : "Facebook Login messaging is exposed through Messenger Platform with a linked Page access token; this adapter accepts an Instagram account token only.",
+        },
+        {
+          platform: "instagram",
+          operation: "messages.write",
           availability: "not-implemented-by-adapter" as const,
-          notes: "The adapter does not implement messaging reads.",
+          requiredScopes: ["instagram_business_basic", "instagram_business_manage_messages"],
+          notes:
+            "The normalized conversation reference does not carry the Instagram-scoped recipient ID required by POST /{ig-user-id}/messages. Use native.sendMessage with the recipient ID from a messaging webhook. Facebook Login remains on Messenger Platform with a linked Page access token.",
         },
         webhookCapability(
           "instagram",
@@ -1283,6 +1405,19 @@ export function instagram(
         return { ...ref, commentId: string(result["id"]) };
       },
     },
+    messages: {
+      listConversations,
+      listMessages,
+      send: async () => {
+        throw new SocialError({
+          code: "unsupported_capability",
+          operation: "messages.write",
+          message:
+            "Use Instagram native.sendMessage with the recipient's Instagram-scoped ID; a conversation reference does not contain that recipient ID.",
+          retryDisposition: { kind: "never" },
+        });
+      },
+    },
     analytics: {
       getAccountMetrics,
       async getPostMetrics(
@@ -1456,6 +1591,7 @@ export function instagram(
         );
       },
       listMentions,
+      sendMessage,
       async mentionedMedia({ account, mediaId, context }) {
         authorize(account, context);
         requireFacebookLoginForMentionLookup("mentioned_media");

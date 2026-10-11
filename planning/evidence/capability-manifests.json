@@ -4233,8 +4233,22 @@
         {
           "platform": "instagram",
           "operation": "messages.read",
+          "availability": "available",
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_messages"
+          ],
+          "notes": "Reads conversations and their recent message IDs through the Instagram Conversations API. The account must be a qualifying professional account and the app must have the required access level."
+        },
+        {
+          "platform": "instagram",
+          "operation": "messages.write",
           "availability": "not-implemented-by-adapter",
-          "notes": "The adapter does not implement messaging reads."
+          "requiredScopes": [
+            "instagram_business_basic",
+            "instagram_business_manage_messages"
+          ],
+          "notes": "The normalized conversation reference does not carry the Instagram-scoped recipient ID required by POST /{ig-user-id}/messages. Use native.sendMessage with the recipient ID from a messaging webhook. Facebook Login remains on Messenger Platform with a linked Page access token."
         },
         {
           "platform": "instagram",
