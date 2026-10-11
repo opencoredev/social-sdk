@@ -804,13 +804,14 @@ it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", as
     }).ok,
     false,
   );
-  assert.equal(
-    social.posts.prepare({
-      targets: [{ account, options: fallbackOptions }],
-      content: { text: "d".repeat(4001), media: request.content.media },
-    }).ok,
-    false,
-  );
+
+  const longDescriptionPreparation = social.posts.prepare({
+    targets: [{ account, options: { ...fallbackOptions, title: "Short title" } }],
+    content: { text: "d".repeat(4001), media: request.content.media },
+  });
+
+  assert.equal(longDescriptionPreparation.ok, false);
+  assert.ok(longDescriptionPreparation.issues.some((issue) => issue.code === "tiktok.description"));
 });
 
 it("Zernio rejects TikTok photo-only options on video posts and enforces photo limits", () => {
