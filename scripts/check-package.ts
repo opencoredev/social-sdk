@@ -138,6 +138,16 @@ console.log(JSON.stringify({ runtime: typeof Bun === 'undefined' ? 'node' : 'bun
     ...(process.env["SOCIAL_NODE22_BIN"] ? [process.env["SOCIAL_NODE22_BIN"]!] : []),
   ]) {
     console.log((await run([runtime, "consumer.mjs"], temporary)).trim());
+
+    const diagnostic = parseObject(
+      await run([runtime, "node_modules/.bin/social-sdk", "doctor", "--json"], temporary),
+      "Packed CLI runtime output",
+    );
+
+    const data = diagnostic["data"];
+
+    if (diagnostic["ok"] !== true || !isJsonObject(data) || data["authenticated"] !== false)
+      throw new Error("Packed CLI runtime diagnostic failed");
   }
 
   const installedBin = join(temporary, "node_modules/.bin/social-sdk");
