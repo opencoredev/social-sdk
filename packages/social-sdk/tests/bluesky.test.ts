@@ -139,6 +139,7 @@ describe("Bluesky adapter", () => {
     }
 
     assert.equal(timelineError?.operation, "bluesky.feeds.timeline");
+    assert.equal(timelineError?.code, "invalid_input");
     await assert.rejects(
       adapter.native!.getFeed({
         account,
