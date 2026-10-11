@@ -119,6 +119,7 @@ function mockManifest(): CapabilityManifest {
       { operation: "graph.unmute", platform: "*", availability: "available" },
       { operation: "posts.read", platform: "*", availability: "available" },
       { operation: "posts.list", platform: "*", availability: "available" },
+      { operation: "posts.schedule", platform: "*", availability: "available" },
       { operation: "posts.cancelScheduled", platform: "*", availability: "available" },
       { operation: "posts.deleteBackendRecord", platform: "*", availability: "available" },
       { operation: "posts.removeFromPlatform", platform: "*", availability: "available" },

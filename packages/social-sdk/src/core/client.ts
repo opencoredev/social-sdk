@@ -760,9 +760,16 @@ export function createSocial(
     platform: string,
     backend: string,
   ): void {
+    const accepted =
+      operation === "posts.get"
+        ? [operation, "posts.read"]
+        : operation === "posts.getDelivery"
+          ? [operation, "posts.status"]
+          : [operation];
+
     const declaration = adapter.capabilities.capabilities.find(
       (candidate) =>
-        candidate.operation === operation &&
+        accepted.includes(candidate.operation) &&
         (platform === "*" || candidate.platform === "*" || candidate.platform === platform),
     );
 
@@ -785,9 +792,12 @@ export function createSocial(
       });
     }
 
+    const authorizationOperation =
+      request.schedule === undefined ? "posts.publish" : "posts.schedule";
+
     if (config.authorization !== undefined) {
       const decisions = await config.authorization.authorizeTargets({
-        operation: "posts.publish",
+        operation: authorizationOperation,
         accounts: request.targets.map((target) => target.account),
         context: authContext,
       });
@@ -800,7 +810,7 @@ export function createSocial(
         if (decision?.allowed !== true) {
           throw new SocialError({
             code: "unauthorized",
-            operation: "posts.publish",
+            operation: authorizationOperation,
             message: decision?.reason ?? "A target is not authorized for this operation",
             account: target.account,
             correlationId,
@@ -819,6 +829,29 @@ export function createSocial(
         correlationId,
         issues: plan.issues,
       });
+    }
+
+    for (const target of plan.targets) {
+      const adapter = registry[target.account.backend];
+
+      if (adapter === undefined) throw new Error("Prepared adapter disappeared");
+
+      requireCapability(adapter, "posts.publish", target.account.platform, target.account.backend);
+
+      if (
+        target.schedule !== undefined &&
+        adapter.capabilities.capabilities.some(
+          (candidate) =>
+            candidate.operation === "posts.schedule" &&
+            (candidate.platform === "*" || candidate.platform === target.account.platform),
+        )
+      )
+        requireCapability(
+          adapter,
+          "posts.schedule",
+          target.account.platform,
+          target.account.backend,
+        );
     }
 
     const targetViews = plan.targets.map((target) => ({
@@ -1285,7 +1318,7 @@ export function createSocial(
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
     ): Promise<Page<JsonObject>> {
       const correlationId = `social-${++correlationSequence}`;
-      await authorizeRef("posts.read", account, callOptions, correlationId);
+      await authorizeRef("posts.list", account, callOptions, correlationId);
       const adapter = selected(account, "posts.list");
       requireCapability(adapter, "posts.list", account.platform, account.backend);
 
@@ -1517,7 +1550,7 @@ export function createSocial(
     async get(ref: PlatformPostRef, callOptions?: PublishCallOptions): Promise<JsonObject> {
       const correlationId = `social-${++correlationSequence}`;
       await authorizeRef(
-        "posts.read",
+        "posts.get",
         {
           kind: "connected-account",
           version: 1,
@@ -1529,11 +1562,11 @@ export function createSocial(
         correlationId,
       );
       const adapter = selected(ref, "posts.get");
-      requireCapability(adapter, "posts.read", ref.platform, ref.backend);
+      requireCapability(adapter, "posts.get", ref.platform, ref.backend);
 
-      if (adapter.posts?.get === undefined) unsupported("posts.read", ref.backend);
+      if (adapter.posts?.get === undefined) unsupported("posts.get", ref.backend);
 
-      return dispatch(ref.backend, callOptions?.signal, "posts.read", () =>
+      return dispatch(ref.backend, callOptions?.signal, "posts.get", () =>
         adapter.posts!.get!(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
@@ -1557,13 +1590,13 @@ export function createSocial(
         accountId: ref.accountId,
       };
 
-      await authorizeRef("posts.read", account, callOptions, correlationId);
+      await authorizeRef("posts.getDelivery", account, callOptions, correlationId);
       const adapter = selected(ref, "posts.getDelivery");
-      requireCapability(adapter, "posts.status", ref.platform, ref.backend);
+      requireCapability(adapter, "posts.getDelivery", ref.platform, ref.backend);
 
-      if (adapter.posts?.getDelivery === undefined) unsupported("posts.status", ref.backend);
+      if (adapter.posts?.getDelivery === undefined) unsupported("posts.getDelivery", ref.backend);
 
-      return dispatch(ref.backend, callOptions?.signal, "posts.status", () =>
+      return dispatch(ref.backend, callOptions?.signal, "posts.getDelivery", () =>
         adapter.posts!.getDelivery!(ref, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
@@ -1657,7 +1690,7 @@ export function createSocial(
       callOptions?: PublishCallOptions,
     ): Promise<MediaRef> {
       const correlationId = `social-${++correlationSequence}`;
-      await authorizeRef("posts.publish", account, callOptions, correlationId);
+      await authorizeRef("media.upload", account, callOptions, correlationId);
       const adapter = selected(account, "media.upload");
       requireCapability(adapter, "media.upload", account.platform, account.backend);
 
