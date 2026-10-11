@@ -43,7 +43,7 @@ const implementationPaths = new Map<string, readonly string[]>([
   ],
   ["profiles.search", ["native.searchActors"]],
   ["profile.update", ["native.updateProfile"]],
-  ["feeds.read", ["native.listFeeds"]],
+  ["feeds.read", ["native.listFeeds|native.getTimeline|native.getFeed|native.getAuthorFeed"]],
   ["chat.read", ["native.listConversations", "native.listMessages"]],
   ["chat.write", ["native.sendMessage"]],
   ["polls.create", ["native.createPoll"]],

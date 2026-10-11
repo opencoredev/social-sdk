@@ -28,6 +28,89 @@ function context(): AdapterOperationContext {
 }
 
 describe("Bluesky adapter", () => {
+  it("reads the documented timeline, feed-generator, and author-feed XRPC routes", async () => {
+    const requests: URL[] = [];
+
+    const adapter = bluesky({
+      backend: "direct",
+      auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
+      fetch: async (input) => {
+        const url = new URL(String(input));
+
+        requests.push(url);
+
+        return response({ feed: [{ post: { uri: "at://post" } }], cursor: "next" });
+      },
+    });
+
+    const account = connectedAccountRef({
+      backend: "direct",
+      platform: "bluesky",
+      accountId: "did:plc:test",
+    });
+
+    const timeline = await adapter.native!.getTimeline({
+      account,
+      algorithm: "reverse-chronological",
+      limit: 30,
+      cursor: "before",
+      context: context(),
+    });
+
+    const feed = await adapter.native!.getFeed({
+      account,
+      feed: "at://did:plc:feed/app.bsky.feed.generator/discover",
+      limit: 20,
+      context: context(),
+    });
+
+    const author = await adapter.native!.getAuthorFeed({
+      account,
+      actor: "did:plc:author",
+      filter: "posts_with_media",
+      context: context(),
+    });
+
+    assert.equal(timeline.feed[0]?.["post"] !== undefined, true);
+    assert.equal(feed.cursor, "next");
+    assert.equal(author.feed.length, 1);
+    assert.equal(requests[0]?.pathname, "/xrpc/app.bsky.feed.getTimeline");
+    assert.equal(requests[0]?.searchParams.get("algorithm"), "reverse-chronological");
+    assert.equal(requests[1]?.pathname, "/xrpc/app.bsky.feed.getFeed");
+    assert.equal(
+      requests[1]?.searchParams.get("feed"),
+      "at://did:plc:feed/app.bsky.feed.generator/discover",
+    );
+    assert.equal(requests[2]?.pathname, "/xrpc/app.bsky.feed.getAuthorFeed");
+    assert.equal(requests[2]?.searchParams.get("filter"), "posts_with_media");
+  });
+
+  it("rejects an empty Bluesky feed-generator URI before network access", async () => {
+    let requests = 0;
+
+    const adapter = bluesky({
+      backend: "direct",
+      auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "jwt" },
+      fetch: async () => {
+        requests++;
+
+        return response({ feed: [] });
+      },
+    });
+
+    const account = connectedAccountRef({
+      backend: "direct",
+      platform: "bluesky",
+      accountId: "did:plc:test",
+    });
+
+    await assert.rejects(
+      adapter.native!.getFeed({ account, feed: " ", context: context() }),
+      /AT-URI/,
+    );
+    assert.equal(requests, 0);
+  });
+
   it("searches posts with typed filters and preserves pagination metadata", async () => {
     const requests: string[] = [];
 
