@@ -198,13 +198,14 @@ test("native lifecycle operations remain explicit instead of being advertised as
       );
     }
 
-    assert.equal(adapter.posts === undefined || Object.hasOwn(adapter.posts, "update"), false);
+    if (adapter.posts !== undefined) {
+      assert.equal(Object.hasOwn(adapter.posts, "update"), false);
+    }
 
-    assert.equal(
-      adapter.comments === undefined ||
-        (Object.hasOwn(adapter.comments, "delete") && Object.hasOwn(adapter.comments, "moderate")),
-      false,
-    );
+    if (adapter.comments !== undefined) {
+      assert.equal(Object.hasOwn(adapter.comments, "delete"), false);
+      assert.equal(Object.hasOwn(adapter.comments, "moderate"), false);
+    }
   }
 });
 

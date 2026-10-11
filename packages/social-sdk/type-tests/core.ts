@@ -1,7 +1,9 @@
 import {
   connectedAccountRef,
   createSocial,
+  type AuthorizationPolicy,
   type ConnectedAccountRef,
+  type OperationName,
   type PublishOptionsFor,
 } from "../src/index.js";
 import { mockBackend } from "../src/testing/index.js";
@@ -19,6 +21,24 @@ const options: PublishOptionsFor<"youtube"> = {
 };
 
 const social = createSocial({ backend: mockBackend() });
+
+const lifecycleOperations = [
+  "posts.update",
+  "posts.delete",
+  "comments.moderate",
+  "comments.delete",
+] as const satisfies readonly OperationName[];
+
+const lifecycleAuthorizationPolicy: AuthorizationPolicy = {
+  async authorizeTargets(input) {
+    void input;
+    void lifecycleOperations;
+
+    return [];
+  },
+};
+
+void lifecycleAuthorizationPolicy;
 
 void social.posts.prepare({
   targets: [{ account: x, options: { replySettings: "everyone" } }],
