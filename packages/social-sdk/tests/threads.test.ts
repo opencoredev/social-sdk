@@ -16,6 +16,47 @@ const context: AdapterOperationContext = {
   retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
 };
 
+test("Threads publishing limit read requests the documented quota fields", async () => {
+  let requested: URL | undefined;
+
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async (input) => {
+      requested = new URL(String(input));
+
+      return Response.json({
+        data: [{ quota_usage: 4, config: { quota_total: 250, quota_duration: 86400 } }],
+      });
+    },
+  });
+
+  const result = await adapter.native!.publishingLimit({ account, context });
+
+  assert.equal(requested?.pathname, "/v1.0/u1/threads_publishing_limit");
+  assert.equal(requested?.searchParams.get("fields"), "quota_usage,config");
+  assert.deepEqual(result["data"], [
+    { quota_usage: 4, config: { quota_total: 250, quota_duration: 86400 } },
+  ]);
+});
+
+test("Threads publishing limit read enforces the authorized account", async () => {
+  const adapter = threads({
+    auth: { userId: "u1", accessToken: "fixture" },
+    fetch: async () => Response.json({ data: [] }),
+  });
+
+  const error = await adapter
+    .native!.publishingLimit({
+      account: connectedAccountRef({ backend: "default", platform: "threads", accountId: "u2" }),
+      context,
+    })
+    .catch((cause: unknown) => cause);
+
+  assert.ok(error instanceof SocialError);
+  assert.equal(error.code, "unauthorized");
+  assert.match(error.message, /does not match this Threads authorization/);
+});
+
 test("Threads keyword search sends the documented q and filter parameters", async () => {
   let requested: URL | undefined;
 
