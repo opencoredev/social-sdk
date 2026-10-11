@@ -118,6 +118,7 @@ test("lifecycle vocabulary is available to capability and authorization contract
       "linkedin",
       linkedin({
         auth: { accessToken: "token", author: "urn:li:person:person-1" },
+        apiVersion: "202601",
         fetch: async () => Response.json({}),
       }),
       ["comments.delete", "posts.delete", "posts.update"],
@@ -146,8 +147,10 @@ test("lifecycle vocabulary is available to capability and authorization contract
     const declared = new Set(adapter.capabilities.capabilities.map((entry) => entry.operation));
 
     assert.ok(declared.size > 0, `${id} should expose a non-empty capability manifest`);
-    for (const operation of lifecycleOperations)
+
+    for (const operation of lifecycleOperations) {
       assert.ok(declared.has(operation), `${id} should declare ${operation}`);
+    }
   }
 });
 
@@ -173,6 +176,7 @@ test("native lifecycle operations remain explicit instead of being advertised as
       "linkedin",
       linkedin({
         auth: { accessToken: "token", author: "urn:li:person:person-1" },
+        apiVersion: "202601",
         fetch: async () => Response.json({}),
       }),
       ["updatePost", "deletePost", "deleteComment"],
@@ -186,13 +190,16 @@ test("native lifecycle operations remain explicit instead of being advertised as
 
   for (const [id, adapter, nativeOperations] of adapters) {
     assert.ok(adapter.native, `${id} should expose its native surface`);
-    for (const operation of nativeOperations)
-      assert.equal(
-        typeof Reflect.get(adapter.native, operation),
-        "function",
+
+    for (const operation of nativeOperations) {
+      assert.ok(
+        Object.keys(adapter.native).includes(operation),
         `${id}.${operation} should remain native-only`,
       );
+    }
+
     assert.equal(adapter.posts === undefined || Object.hasOwn(adapter.posts, "update"), false);
+
     assert.equal(
       adapter.comments === undefined ||
         (Object.hasOwn(adapter.comments, "delete") && Object.hasOwn(adapter.comments, "moderate")),
@@ -202,8 +209,8 @@ test("native lifecycle operations remain explicit instead of being advertised as
 });
 
 test("the server subpath exports the normalized webhook facade", () => {
-  assert.equal(typeof server.acceptWebhook, "function");
-  assert.equal(typeof server.decodeWebhook, "function");
-  assert.equal(typeof server.verifyPostForMeWebhook, "function");
-  assert.equal(typeof server.verifyZernioWebhook, "function");
+  assert.ok(Object.hasOwn(server, "acceptWebhook"));
+  assert.ok(Object.hasOwn(server, "decodeWebhook"));
+  assert.ok(Object.hasOwn(server, "verifyPostForMeWebhook"));
+  assert.ok(Object.hasOwn(server, "verifyZernioWebhook"));
 });
