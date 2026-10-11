@@ -293,25 +293,30 @@ it("TikTok bounds native Display list pagination before dispatch", async () => {
 
 it("TikTok normalized video reads request and preserve the shared Display fields", async () => {
   const requests: { path: string; fields: string | null }[] = [];
+
   const video = {
     id: "video1",
     embed_html: "<blockquote>video</blockquote>",
     embed_link: "https://www.tiktok.com/player/v1/video1",
     is_aigc: false,
   };
+
   const adapter = tiktok({
     auth: { accessToken: "test", openId: "creator1" },
     verifiedMediaOrigins: [],
     fetch: async (input) => {
       const url = new URL(String(input));
       requests.push({ path: url.pathname, fields: url.searchParams.get("fields") });
+
       return response({ videos: [video] });
     },
   });
 
-  assert.ok(adapter.posts);
+  const posts = adapter.posts;
+  assert.ok(posts?.get);
+  assert.ok(posts?.list);
 
-  const post = await adapter.posts.get(
+  const post = await posts.get(
     {
       kind: "platform-post",
       version: 1,
@@ -322,11 +327,13 @@ it("TikTok normalized video reads request and preserve the shared Display fields
     },
     context,
   );
-  const page = await adapter.posts.list(account, { limit: 1 }, context);
+
+  const page = await posts.list(account, { limit: 1 }, context);
 
   assert.deepEqual(post, video);
   assert.deepEqual(page.items, [video]);
   assert.equal(requests.length, 2);
+
   for (const request of requests) {
     assert.equal(
       request.fields,
