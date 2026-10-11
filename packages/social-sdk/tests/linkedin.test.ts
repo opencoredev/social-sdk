@@ -160,6 +160,7 @@ it("LinkedIn rejects article metadata over provider limits", () => {
 
 it("LinkedIn applies article metadata limits after trimming", () => {
   const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
+
   const prepared = social.posts.prepare({
     targets: [{ account }],
     content: {
