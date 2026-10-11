@@ -252,6 +252,24 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       async cancelScheduled(ref, context) {
         record("posts.cancelScheduled", context, connectedAccountRef(ref));
 
+        for (const [deliveryId, outcome] of deliveries) {
+          if (
+            outcome.state === "scheduled" &&
+            outcome.job.jobId === ref.jobId &&
+            outcome.account.accountId === ref.accountId &&
+            outcome.account.platform === ref.platform &&
+            outcome.account.backend === ref.backend
+          ) {
+            deliveries.set(deliveryId, {
+              ...outcome,
+              state: "cancelled",
+              reason: "schedule-cancelled",
+              observedAt: clock().toISOString(),
+            });
+            break;
+          }
+        }
+
         return { state: "cancelled", backendRecord: "retained" } satisfies ScheduleCancellation;
       },
       async deleteBackendRecord(ref, context) {

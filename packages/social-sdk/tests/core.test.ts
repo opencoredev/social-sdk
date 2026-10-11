@@ -486,6 +486,28 @@ describe("core publication contract", () => {
     assert.equal(result.items.length, 2);
   });
 
+  test("mock schedule cancellation updates delivery reconciliation state", async () => {
+    const social = createSocial({ backend: mockBackend() });
+    const target = { account: account("default", "mock-account-1") };
+
+    const result = await social.posts.publish({
+      targets: [target],
+      content: { text: "scheduled" },
+      schedule: { at: "2030-01-01T00:00:00Z" },
+    });
+
+    const outcome = result.outcomes[0];
+
+    assert.equal(outcome?.state, "scheduled");
+
+    if (outcome?.state !== "scheduled" || outcome.delivery === undefined) return;
+
+    await social.posts.cancelScheduled(outcome.job);
+    const reconciled = await social.posts.getDelivery(outcome.delivery);
+
+    assert.equal(reconciled.state, "cancelled");
+  });
+
   test("replyToPrevious stops when the parent was not published", async () => {
     const pendingAdapter = defineAdapter({
       id: "pending",
