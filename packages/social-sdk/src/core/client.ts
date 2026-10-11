@@ -626,7 +626,6 @@ export function createSocial(
               targetIndex,
             ),
           );
-          continue;
         }
       }
 
