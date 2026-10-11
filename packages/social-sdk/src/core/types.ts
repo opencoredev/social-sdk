@@ -433,12 +433,25 @@ export type CapabilityAvailability =
   | "approval-dependent"
   | "unknown-until-request";
 
+export type CapabilitySurface = "normalized" | "native";
+
+export type CapabilityMediaSource = MediaInput["kind"];
+
+export interface CapabilityConstraints {
+  readonly eligibility?: readonly string[];
+  readonly approval?: readonly string[];
+  readonly scopes?: readonly string[];
+  readonly mediaSources?: readonly CapabilityMediaSource[];
+}
+
 export interface CapabilityDeclaration {
   readonly operation: string;
   readonly platform: Platform | "*";
   readonly availability: CapabilityAvailability;
+  readonly surface?: CapabilitySurface;
   readonly formats?: readonly ("text" | "image" | "video" | "carousel" | "sequence" | "document")[];
   readonly requiredScopes?: readonly string[];
+  readonly constraints?: CapabilityConstraints;
   readonly notes?: string;
 }
 

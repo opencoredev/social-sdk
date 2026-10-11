@@ -4,6 +4,7 @@ import { SocialError } from "../core/errors.js";
 import type {
   AdapterOperationContext,
   CapabilityDeclaration,
+  CapabilityConstraints,
   CapabilityManifest,
   ConnectedAccountRef,
   JsonObject,
@@ -195,6 +196,28 @@ export const publishFormats: PublishFormats = (platform) => {
   return ["text", "image", "video", "carousel"];
 };
 
+const managedEligibility = [
+  "A connected account returned by the managed provider is required.",
+] as const;
+
+const managedApproval = [
+  "Provider account eligibility and application approval are checked by the managed provider.",
+] as const;
+
+const managedMediaSources = ["https-url", "media-ref", "blob", "stream"] as const;
+
+const managedConstraints = (operation: string): CapabilityConstraints => {
+  const constraints: CapabilityConstraints = {
+    eligibility: managedEligibility,
+    approval: managedApproval,
+  };
+
+  if (operation === "media.upload" || operation === "posts.publish")
+    return { ...constraints, mediaSources: managedMediaSources };
+
+  return constraints;
+};
+
 export function capabilityManifest(
   backend: string,
   apiRevision: string,
@@ -211,8 +234,10 @@ export function capabilityManifest(
         platform,
         operation,
         availability: "available" as const,
+        surface: "normalized" as const,
         ...definedFields({
           formats: operation === "posts.publish" ? formats(platform) : undefined,
+          constraints: managedConstraints(operation),
         }),
         notes:
           "Contract implementation; live account verification and provider/platform eligibility are separate.",
