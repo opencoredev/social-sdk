@@ -201,7 +201,6 @@ export interface XSpacesLookupInput {
 export interface XSpacesSearchInput extends XSpacesLookupInput {
   readonly query: string;
   readonly state?: "live" | "scheduled";
-  readonly cursor?: string;
   readonly limit?: number;
 }
 
@@ -2932,30 +2931,25 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         if (
           search.limit !== undefined &&
-          (!Number.isInteger(search.limit) || search.limit < 10 || search.limit > 100)
+          (!Number.isInteger(search.limit) || search.limit < 1 || search.limit > 100)
         )
           throw new SocialError({
             code: "invalid_input",
             operation: "x.spaces.read",
-            message: "Space search limits must be integers from 10 through 100.",
+            message: "Space search limits must be integers from 1 through 100.",
           });
 
         const result = object(
           await readRequest("/2/spaces/search")("/2/spaces/search", context, undefined, {
             query: search.query,
-            ...definedFields({ state: search.state, pagination_token: search.cursor }),
+            ...definedFields({ state: search.state }),
             ...spaceParams(search),
             ...definedFields({ max_results: search.limit?.toString() }),
           }),
         );
 
-        const meta = result["meta"] === undefined ? undefined : object(result["meta"]);
-
         return {
           items: result["data"] === undefined ? [] : array(result["data"]).map(object),
-          ...definedFields({
-            nextCursor: meta === undefined ? undefined : optionalString(meta["next_token"]),
-          }),
           ...definedFields({
             metadata:
               result["includes"] === undefined

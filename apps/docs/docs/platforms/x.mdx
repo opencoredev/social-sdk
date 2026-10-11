@@ -418,8 +418,8 @@ const matches = await native.searchSpaces({
 
 `getSpace` calls `GET /2/spaces/:id`; `getSpaces` calls `GET /2/spaces` for up to 100 IDs;
 `getSpacesByCreators` calls `GET /2/spaces/by/creator_ids` for up to 100 numeric user IDs; and
-`searchSpaces` calls `GET /2/spaces/search` for live or scheduled Spaces. Search pages return
-X's `meta.next_token` as `nextCursor`. These endpoints require the app's approved `space.read`,
+`searchSpaces` calls `GET /2/spaces/search` for live or scheduled Spaces. X's current search
+contract is bounded and does not expose a pagination token. These endpoints require the app's approved `space.read`,
 `tweet.read`, and `users.read` access where X requires them, and ended Spaces may no longer be
 retrievable after the provider removes them. The SDK does not expose recordings because the
 current official lookup documentation does not define a recording endpoint or stable recording

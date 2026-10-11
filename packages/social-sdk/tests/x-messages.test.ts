@@ -189,7 +189,6 @@ it("looks up and searches Spaces through the official v2 endpoints", async () =>
         return Response.json({
           data: [{ id: "space2", state: "live", title: "AI" }],
           includes: { users: [{ id: "u2", username: "host" }] },
-          meta: { next_token: "next" },
         });
 
       return Response.json({
@@ -219,12 +218,11 @@ it("looks up and searches Spaces through the official v2 endpoints", async () =>
 
   const result = await adapter.native.searchSpaces({
     account,
-    search: { query: "AI", state: "live", limit: 10, cursor: "old", userFields: ["username"] },
+    search: { query: "AI", state: "live", limit: 5, userFields: ["username"] },
     context,
   });
 
   assert.equal(result.items[0]?.["title"], "AI");
-  assert.equal(result.nextCursor, "next");
   assert.deepEqual(result.metadata, { includes: { users: [{ id: "u2", username: "host" }] } });
   assert.equal(requests[0]?.pathname, "/2/spaces/space1");
   assert.equal(requests[0]?.searchParams.get("space.fields"), "title,state");
@@ -232,8 +230,8 @@ it("looks up and searches Spaces through the official v2 endpoints", async () =>
   assert.equal(requests[2]?.pathname, "/2/spaces/by/creator_ids");
   assert.equal(requests[2]?.searchParams.get("user_ids"), "123");
   assert.equal(requests[3]?.pathname, "/2/spaces/search");
-  assert.equal(requests[3]?.searchParams.get("pagination_token"), "old");
-  assert.equal(requests[3]?.searchParams.get("max_results"), "10");
+  assert.equal(requests[3]?.searchParams.get("pagination_token"), null);
+  assert.equal(requests[3]?.searchParams.get("max_results"), "5");
 });
 
 it("validates Space lookup inputs before dispatch", async () => {
