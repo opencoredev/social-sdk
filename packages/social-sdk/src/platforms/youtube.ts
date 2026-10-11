@@ -564,24 +564,44 @@ export function youtube(
     context: AdapterOperationContext,
     operation: string,
   ): Promise<void> => {
-    const result = object(
-      await request(path, context, undefined, {
-        liveChatId,
-        part: "snippet",
-        maxResults: "100",
-      }),
-    );
+    const maxResults = path === "/youtube/v3/liveChat/messages" ? "200" : "50";
+    const seen = new Set<string>();
+    let pageToken: string | undefined;
 
-    const item = array(result["items"])
-      .map(object)
-      .find((candidate) => candidate["id"] === resourceId);
+    do {
+      const result = object(
+        await request(path, context, undefined, {
+          liveChatId,
+          part: "snippet",
+          maxResults,
+          ...definedFields({ pageToken }),
+        }),
+      );
 
-    if (!item || optionalString(object(item["snippet"])["liveChatId"]) !== liveChatId)
-      throw new SocialError({
-        code: "unauthorized",
-        operation,
-        message: "The selected live chat resource does not belong to this live chat.",
-      });
+      const item = array(result["items"])
+        .map(object)
+        .find((candidate) => candidate["id"] === resourceId);
+
+      if (item && optionalString(object(item["snippet"])["liveChatId"]) === liveChatId) return;
+
+      pageToken = optionalString(result["nextPageToken"]);
+
+      if (pageToken) {
+        if (seen.has(pageToken) || seen.size >= 99)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation,
+            message: "YouTube live chat pagination did not terminate.",
+          });
+        seen.add(pageToken);
+      }
+    } while (pageToken);
+
+    throw new SocialError({
+      code: "unauthorized",
+      operation,
+      message: "The selected live chat resource does not belong to this live chat.",
+    });
   };
 
   const assertChannelSection = async (

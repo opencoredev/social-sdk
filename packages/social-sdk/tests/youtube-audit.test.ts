@@ -249,6 +249,61 @@ it("YouTube activity and live chat natives reject cross-channel or missing ident
   assert.equal(calls.at(-1)?.searchParams.get("channelId"), "channel1");
 });
 
+it("YouTube live chat ownership checks follow later pages before deleting", async () => {
+  const calls: URL[] = [];
+
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      calls.push(url);
+
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+
+      const later = url.searchParams.get("pageToken") === "later";
+
+      const item = url.pathname.endsWith("/moderators")
+        ? { id: later ? "moderator2" : "other", snippet: { liveChatId: "chat1" } }
+        : { id: later ? "message2" : "other", snippet: { liveChatId: "chat1" } };
+
+      const response = later ? { items: [item] } : { items: [item], nextPageToken: "later" };
+
+      if (!later) response.nextPageToken = "later";
+
+      return Response.json(response);
+    },
+  });
+
+  await adapter.native!.liveChatMessages({
+    action: "delete",
+    liveChatId: "chat1",
+    messageId: "message2",
+    context: context(),
+  });
+  await adapter.native!.liveChatModerators({
+    action: "delete",
+    liveChatId: "chat1",
+    moderatorId: "moderator2",
+    context: context(),
+  });
+
+  assert.deepEqual(
+    calls.map((url) => [
+      url.pathname,
+      url.searchParams.get("pageToken"),
+      url.searchParams.get("maxResults"),
+    ]),
+    [
+      ["/youtube/v3/liveChat/messages", null, "200"],
+      ["/youtube/v3/liveChat/messages", "later", "200"],
+      ["/youtube/v3/liveChat/messages", null, null],
+      ["/youtube/v3/liveChat/moderators", null, "50"],
+      ["/youtube/v3/liveChat/moderators", "later", "50"],
+      ["/youtube/v3/liveChat/moderators", null, null],
+    ],
+  );
+});
+
 for (const paginated of [false, true]) {
   it(`replies to a distinct comment ID on ${paginated ? "a later" : "the first"} thread page`, async () => {
     const pages: (string | null)[] = [];
