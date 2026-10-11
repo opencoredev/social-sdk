@@ -185,15 +185,28 @@ it("looks up and searches Spaces through the official v2 endpoints", async () =>
       const url = new URL(String(input));
       requests.push(url);
 
+      if (url.pathname === "/2/spaces/space1")
+        return Response.json({
+          data: { id: "space1", state: "scheduled", title: "Roadmap" },
+          includes: { users: [{ id: "u2", username: "host" }] },
+        });
+
       if (url.pathname === "/2/spaces/search")
         return Response.json({
           data: [{ id: "space2", state: "live", title: "AI" }],
           includes: { users: [{ id: "u2", username: "host" }] },
+          errors: [{ resource_id: "missing", title: "Not Found" }],
+        });
+
+      if (url.pathname === "/2/spaces/by/creator_ids")
+        return Response.json({
+          data: [{ id: "space1", state: "scheduled" }],
+          errors: [{ resource_id: "creator-missing", title: "Not Found" }],
         });
 
       return Response.json({
         data: [{ id: "space1", state: "scheduled" }],
-        includes: { users: [{ id: "u2", username: "host" }] },
+        errors: [{ resource_id: "missing", title: "Not Found" }],
       });
     },
   });
@@ -207,14 +220,21 @@ it("looks up and searches Spaces through the official v2 endpoints", async () =>
   } as const;
 
   assert.ok(adapter.native);
-  await adapter.native.getSpace({
+
+  const single = await adapter.native.getSpace({
     account,
     spaceId: "space1",
     options: { spaceFields: ["title", "state"], expansions: ["host_ids"] },
     context,
   });
-  await adapter.native.getSpaces({ account, spaceIds: ["space1"], context });
-  await adapter.native.getSpacesByCreators({ account, creatorIds: ["123"], context });
+
+  const byIds = await adapter.native.getSpaces({ account, spaceIds: ["space1"], context });
+
+  const byCreators = await adapter.native.getSpacesByCreators({
+    account,
+    creatorIds: ["123"],
+    context,
+  });
 
   const result = await adapter.native.searchSpaces({
     account,
@@ -223,7 +243,16 @@ it("looks up and searches Spaces through the official v2 endpoints", async () =>
   });
 
   assert.equal(result.items[0]?.["title"], "AI");
-  assert.deepEqual(result.metadata, { includes: { users: [{ id: "u2", username: "host" }] } });
+  assert.deepEqual(single["data"], { id: "space1", state: "scheduled", title: "Roadmap" });
+  assert.deepEqual(single["includes"], { users: [{ id: "u2", username: "host" }] });
+  assert.deepEqual(byIds.metadata, { errors: [{ resource_id: "missing", title: "Not Found" }] });
+  assert.deepEqual(byCreators.metadata, {
+    errors: [{ resource_id: "creator-missing", title: "Not Found" }],
+  });
+  assert.deepEqual(result.metadata, {
+    includes: { users: [{ id: "u2", username: "host" }] },
+    errors: [{ resource_id: "missing", title: "Not Found" }],
+  });
   assert.equal(requests[0]?.pathname, "/2/spaces/space1");
   assert.equal(requests[0]?.searchParams.get("space.fields"), "title,state");
   assert.equal(requests[0]?.searchParams.get("expansions"), "host_ids");

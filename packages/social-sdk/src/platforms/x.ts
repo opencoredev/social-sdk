@@ -641,6 +641,20 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     }),
   });
 
+  const spaceMetadata = (result: JsonObject): JsonObject | undefined => {
+    const includes = result["includes"];
+    const errors = result["errors"];
+
+    if (includes === undefined && errors === undefined) return undefined;
+
+    return {
+      ...definedFields({
+        includes: includes === undefined ? undefined : object(includes),
+        errors: errors === undefined ? undefined : array(errors).map(object),
+      }),
+    };
+  };
+
   const validateSpaceIds = (ids: readonly string[], name: string, max: number) => {
     if (ids.length < 1 || ids.length > max || ids.some((id) => !/^[a-zA-Z0-9]{1,13}$/.test(id)))
       throw new SocialError({
@@ -2879,10 +2893,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             nextCursor: meta === undefined ? undefined : optionalString(meta["next_token"]),
           }),
           ...definedFields({
-            metadata:
-              result["includes"] === undefined
-                ? undefined
-                : { includes: object(result["includes"]) },
+            metadata: spaceMetadata(result),
           }),
         };
       },
@@ -2912,10 +2923,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         return {
           items: result["data"] === undefined ? [] : array(result["data"]).map(object),
           ...definedFields({
-            metadata:
-              result["includes"] === undefined
-                ? undefined
-                : { includes: object(result["includes"]) },
+            metadata: spaceMetadata(result),
           }),
         };
       },
@@ -2951,10 +2959,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         return {
           items: result["data"] === undefined ? [] : array(result["data"]).map(object),
           ...definedFields({
-            metadata:
-              result["includes"] === undefined
-                ? undefined
-                : { includes: object(result["includes"]) },
+            metadata: spaceMetadata(result),
           }),
         };
       },
