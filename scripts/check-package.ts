@@ -140,10 +140,7 @@ console.log(JSON.stringify({ runtime: typeof Bun === 'undefined' ? 'node' : 'bun
     console.log((await run([runtime, "consumer.mjs"], temporary)).trim());
 
     const diagnostic = parseObject(
-      await run(
-        [runtime, "node_modules/@opencoredev/social-sdk/dist/cli.js", "doctor", "--json"],
-        temporary,
-      ),
+      await run([runtime, "node_modules/.bin/social-sdk", "doctor", "--json"], temporary),
       "Packed CLI doctor output",
     );
 

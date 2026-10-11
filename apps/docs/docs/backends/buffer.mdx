@@ -62,7 +62,7 @@ const result = await social.posts.publish(
 
 ## Media is a public HTTPS URL
 
-Buffer has no upload mutation. Host the file yourself and pass a stable public HTTPS URL. Buffer fetches the file when the post publishes, which can be hours or days later, so expiring or signed URLs fail after create. This adapter maps image and video assets. It does not map Buffer document assets, because those require a title and thumbnail the SDK does not collect.
+Buffer has no upload mutation. Host the file yourself and pass a stable public HTTPS URL. Buffer fetches the file when the post publishes, which can be hours or days later, so expiring or signed URLs fail after create. This adapter maps image and video assets, including an ordered multi-image carousel when the destination supports it. It does not map Buffer document assets, because those require a title and thumbnail the SDK does not collect.
 
 ```ts
 const scheduled = await social.posts.publish(
