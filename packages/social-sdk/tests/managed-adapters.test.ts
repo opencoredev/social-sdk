@@ -2,6 +2,8 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
+import { postfast } from "../src/cloud/postfast.js";
+import { postiz } from "../src/cloud/postiz.js";
 import { zernio } from "../src/cloud/zernio.js";
 import type { AdapterOperationContext, JsonValue, PublishRequest } from "../src/core/types.js";
 import { array, object } from "../src/transport/validation.js";
@@ -80,6 +82,42 @@ it("managed account lists skip provider platforms outside SDK support", async ()
     );
     assert.equal(result.items[0]?.ref.platform, "x");
   }
+});
+
+it("managed capability manifests match the implemented backend surfaces", () => {
+  const adapters = [
+    postForMe({ apiKey: "test" }),
+    postfast({ apiKey: "test" }),
+    postiz({ apiKey: "test" }),
+    zernio({ apiKey: "test" }),
+  ];
+
+  for (const adapter of adapters) {
+    const operations = new Set(adapter.capabilities.capabilities.map((entry) => entry.operation));
+
+    assert.ok(operations.has("media.upload"));
+    assert.ok(operations.has("analytics.read"));
+    assert.ok(!operations.has("analytics.account.read") || adapter.id === "zernio");
+    assert.ok(!operations.has("comments.read") || adapter.id === "zernio");
+    assert.ok(!operations.has("messages.read") || adapter.id === "zernio");
+    assert.ok(!operations.has("posts.removeFromPlatform") || adapter.id === "zernio");
+    assert.ok(
+      !operations.has("webhooks.verify") || adapter.id === "post-for-me" || adapter.id === "zernio",
+    );
+  }
+
+  const zernioCapabilities = zernio({ apiKey: "test" }).capabilities.capabilities;
+
+  const facebookMessaging = zernioCapabilities.find(
+    (entry) => entry.platform === "facebook" && entry.operation === "messages.read",
+  );
+
+  const facebookRemoval = zernioCapabilities.find(
+    (entry) => entry.platform === "facebook" && entry.operation === "posts.removeFromPlatform",
+  );
+
+  assert.match(JSON.stringify(facebookMessaging), /Page-scoped/);
+  assert.match(JSON.stringify(facebookRemoval), /Page posts/);
 });
 
 it("Zernio accounts.get lists accounts and reports an absent account as not_found", async () => {

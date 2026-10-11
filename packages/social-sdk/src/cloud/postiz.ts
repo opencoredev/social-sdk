@@ -549,15 +549,24 @@ export function postiz(options: PostizOptions) {
 
   const adapter = defineAdapter({
     id: "postiz",
-    capabilities: capabilityManifest("postiz", "Public API v1, source 374fb20 read 2026-09-25", [
-      "accounts.read",
-      "posts.publish",
-      "posts.status",
-      "posts.cancelScheduled",
-      "posts.deleteBackendRecord",
-      "analytics.read",
-      "media.upload",
-    ]),
+    capabilities: capabilityManifest(
+      "postiz",
+      "Public API v1, source 374fb20 read 2026-09-25",
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+      ],
+      undefined,
+      {
+        facebook:
+          "Postiz's Facebook integration is Page-scoped; personal profiles are not supported.",
+      },
+    ),
     media: {
       async upload(
         item: MediaAttachment,

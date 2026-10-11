@@ -769,7 +769,8 @@
         {
           "platform": "facebook",
           "operation": "posts.removeFromPlatform",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Zernio removes Facebook Page posts; personal profiles are not supported."
         },
         {
           "platform": "x",
@@ -834,12 +835,14 @@
         {
           "platform": "facebook",
           "operation": "comments.read",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Zernio's Facebook inbox is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "comments.write",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Zernio's Facebook inbox is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "x",
@@ -881,13 +884,13 @@
           "platform": "facebook",
           "operation": "messages.read",
           "availability": "available",
-          "notes": "Recipient permissions and reply-window eligibility remain upstream constraints."
+          "notes": "Zernio's Facebook messaging is Page-scoped; recipient permissions and reply-window eligibility remain upstream constraints."
         },
         {
           "platform": "facebook",
           "operation": "messages.write",
           "availability": "available",
-          "notes": "Recipient permissions and reply-window eligibility remain upstream constraints."
+          "notes": "Zernio's Facebook messaging is Page-scoped; recipient permissions and reply-window eligibility remain upstream constraints."
         }
       ]
     }
@@ -1365,7 +1368,7 @@
           "platform": "facebook",
           "operation": "accounts.read",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -1377,55 +1380,55 @@
             "video",
             "carousel"
           ],
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.read",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.list",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.status",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.cancelScheduled",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.deleteBackendRecord",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "analytics.read",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "media.upload",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "webhooks.verify",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         }
       ]
     }
@@ -1776,7 +1779,7 @@
           "platform": "facebook",
           "operation": "accounts.read",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -1788,37 +1791,37 @@
             "video",
             "carousel"
           ],
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.status",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.cancelScheduled",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.deleteBackendRecord",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "analytics.read",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "media.upload",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         }
       ]
     }
@@ -2170,7 +2173,7 @@
           "platform": "facebook",
           "operation": "accounts.read",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2182,37 +2185,37 @@
             "video",
             "carousel"
           ],
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.status",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.cancelScheduled",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "posts.deleteBackendRecord",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "analytics.read",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "media.upload",
           "availability": "available",
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         }
       ]
     }
