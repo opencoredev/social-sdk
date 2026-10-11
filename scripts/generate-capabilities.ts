@@ -173,7 +173,7 @@ for (const adapter of adapterNames) {
 
   for (const entry of manifest.capabilities)
     rows.push(
-      `| ${cell(adapter)} | ${cell(entry.platform)} | ${cell(surface(entry))} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? entry.constraints?.scopes ?? []).join(", ") || "See adapter setup")} | ${cell(entry.notes ?? "None declared")} |`,
+      `| ${cell(adapter)} | ${cell(entry.platform)} | ${cell(surface(entry))} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? entry.constraints?.scopes ?? []).join(", ") || "See adapter setup")} | ${cell((entry.constraints?.eligibility ?? []).join("; ") || "None declared")} | ${cell((entry.constraints?.approval ?? []).join("; ") || "None declared")} | ${cell((entry.constraints?.mediaSources ?? []).join(", ") || "None declared")} | ${cell(entry.notes ?? "None declared")} |`,
     );
 }
 
@@ -192,8 +192,8 @@ Diagnostic manifests use one fixed setup per adapter: Instagram Login for Instag
 
 The adapter ID below identifies the implementation, such as \`instagram\` or \`zernio\`. It is not your configured backend instance key: references use the key registered with \`createSocial\`, such as \`default\` or \`company\`.
 
-| Adapter ID | Platform | Surface | Operation | Declaration | Formats | Scope guidance | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
+| Adapter ID | Platform | Surface | Operation | Declaration | Formats | Scope guidance | Eligibility | Approval | Media sources | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ${rows.join("\n")}
 
 ## Capability IDs and methods

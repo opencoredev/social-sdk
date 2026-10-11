@@ -566,7 +566,11 @@ export function postiz(options: PostizOptions) {
       (_platform, operation) =>
         managedConstraints(
           operation,
-          operation === "media.upload" ? ["https-url", "blob", "stream"] : undefined,
+          operation === "media.upload"
+            ? ["https-url", "blob", "stream"]
+            : operation === "posts.publish"
+              ? ["https-url", "media-ref", "blob", "stream"]
+              : undefined,
         ),
     ),
     media: {

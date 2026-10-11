@@ -3800,6 +3800,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -3913,6 +3919,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4026,6 +4038,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4136,6 +4154,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4248,6 +4272,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4360,6 +4390,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4473,6 +4509,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4586,6 +4628,12 @@
             ],
             "eligibility": [
               "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "media-ref",
+              "blob",
+              "stream"
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
