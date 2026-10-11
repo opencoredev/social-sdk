@@ -731,6 +731,59 @@ it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", as
   assert.equal(native["photoCoverIndex"], 0);
   assert.equal(native["isBrandOrganicPost"], false);
   assert.equal(native["allowComment"], true);
+
+  const emptyTitleRequest = {
+    targets: [
+      {
+        account,
+        options: {
+          privacy: "PUBLIC_TO_EVERYONE" as const,
+          consentGiven: true,
+          disableComments: false,
+          disableDuet: false,
+          disableStitch: false,
+          brandedContent: false,
+          ownBrand: false,
+          aiGenerated: false,
+          draft: false,
+        },
+      },
+    ],
+    content: { ...request.content, text: "Fallback photo caption" },
+  };
+
+  assert.equal(
+    social.posts.prepare({
+      ...emptyTitleRequest,
+      targets: [
+        {
+          account,
+          options: {
+            privacy: "PUBLIC_TO_EVERYONE" as const,
+            consentGiven: true,
+            disableComments: false,
+            disableDuet: false,
+            disableStitch: false,
+            brandedContent: false,
+            ownBrand: false,
+            aiGenerated: false,
+            draft: false,
+            title: "",
+          },
+        },
+      ],
+    }).ok,
+    false,
+  );
+  await social.posts.publish(emptyTitleRequest);
+  const fallbackBody = object(payload);
+  assert.equal(fallbackBody["content"], "Fallback photo caption");
+
+  const fallbackNative = object(
+    object(array(fallbackBody["platforms"])[0])["platformSpecificData"],
+  );
+
+  assert.equal(fallbackNative["description"], "Fallback photo caption");
 });
 
 it("Zernio rejects TikTok photo-only options on video posts and enforces photo limits", () => {

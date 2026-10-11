@@ -451,7 +451,8 @@ export function zernio(options: ManagedOptions) {
 
           if (isBoolean(brandedContent)) native["brandPartnerPromote"] = brandedContent;
 
-          if (photo && isString(description)) native["description"] = description;
+          if (photo && (isString(description) || target.content.text !== undefined))
+            native["description"] = description ?? target.content.text ?? "";
 
           if (photo && mediaType === "photo") native["mediaType"] = "photo";
         }
@@ -461,8 +462,7 @@ export function zernio(options: ManagedOptions) {
           media.length > 0 &&
           media.every((item) => item["type"] === "image");
 
-        const tiktokTitle =
-          tiktokPhoto && isString(config["title"]) ? string(config["title"]) : undefined;
+        const tiktokTitle = tiktokPhoto ? optionalString(config["title"]) : undefined;
 
         try {
           const response = await request("/v1/posts", context, {

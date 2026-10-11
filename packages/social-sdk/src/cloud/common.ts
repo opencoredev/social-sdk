@@ -326,6 +326,7 @@ export function managedOptionIssues(
     }
 
     const media = target.content.media ?? [];
+    const video = media.length === 1 && media[0]?.kind === "video";
 
     if (
       media.some((item) => item.kind === "video") &&
@@ -372,7 +373,9 @@ export function managedOptionIssues(
     } else if (provider === "zernio") {
       if (
         config["title"] !== undefined &&
-        (!isString(config["title"]) || String(config["title"]).length > 90)
+        (!isString(config["title"]) ||
+          String(config["title"]).length === 0 ||
+          String(config["title"]).length > 90)
       )
         fail("tiktok.title", "Photo titles are limited to 90 characters.");
 
