@@ -595,10 +595,7 @@ export function tiktok(
             "/v2/video/query/",
             context,
             { filters: { video_ids: [ref.postId] } },
-            {
-              fields:
-                "id,create_time,cover_image_url,share_url,title,video_description,duration,height,width,like_count,comment_count,share_count,view_count",
-            },
+            { fields: videoFields.join(",") },
           ),
         );
 
@@ -643,10 +640,7 @@ export function tiktok(
             "/v2/video/list/",
             context,
             { cursor, max_count: limit },
-            {
-              fields:
-                "id,create_time,cover_image_url,share_url,title,video_description,duration,height,width,like_count,comment_count,share_count,view_count",
-            },
+            { fields: videoFields.join(",") },
           ),
         );
 
