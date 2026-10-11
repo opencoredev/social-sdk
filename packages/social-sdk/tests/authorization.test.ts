@@ -201,11 +201,15 @@ it("authorizes normalized reads, delivery status, uploads, and schedules by cano
     },
     account,
   );
-  await social.posts.publish({
+
+  const scheduled = await social.posts.publish({
     targets: [{ account }],
     content: { text: "scheduled" },
     schedule: { at: "2030-01-01T00:00:00Z" },
   });
+
+  assert.equal(scheduled.status, "pending");
+  assert.equal(scheduled.outcomes[0]?.state, "scheduled");
 
   assert.deepEqual(operations, [
     "accounts.read",

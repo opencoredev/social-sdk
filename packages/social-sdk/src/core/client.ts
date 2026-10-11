@@ -610,6 +610,26 @@ export function createSocial(
         continue;
       }
 
+      if (request.schedule !== undefined) {
+        const scheduleDeclaration = adapter.capabilities.capabilities.find(
+          (candidate) =>
+            candidate.operation === "posts.schedule" &&
+            (candidate.platform === "*" || candidate.platform === target.account.platform),
+        );
+
+        if (scheduleDeclaration !== undefined && scheduleDeclaration.availability !== "available") {
+          issues.push(
+            preparationIssue(
+              "capability.unavailable",
+              scheduleDeclaration.notes ??
+                `Backend ${target.account.backend} does not declare posts.schedule for ${target.account.platform}`,
+              targetIndex,
+            ),
+          );
+          continue;
+        }
+      }
+
       const replyTo = target.replyTo ?? request.replyTo;
 
       if (
@@ -760,18 +780,26 @@ export function createSocial(
     platform: string,
     backend: string,
   ): void {
-    const accepted =
+    const aliases =
       operation === "posts.get"
         ? [operation, "posts.read"]
         : operation === "posts.getDelivery"
           ? [operation, "posts.status"]
           : [operation];
 
-    const declaration = adapter.capabilities.capabilities.find(
+    const canonical = adapter.capabilities.capabilities.find(
       (candidate) =>
-        accepted.includes(candidate.operation) &&
+        candidate.operation === operation &&
         (platform === "*" || candidate.platform === "*" || candidate.platform === platform),
     );
+
+    const declaration =
+      canonical ??
+      adapter.capabilities.capabilities.find(
+        (candidate) =>
+          aliases.includes(candidate.operation) &&
+          (platform === "*" || candidate.platform === "*" || candidate.platform === platform),
+      );
 
     if (declaration?.availability !== "available") unsupported(operation, backend);
   }
@@ -781,19 +809,19 @@ export function createSocial(
     options?: PublishCallOptions,
   ): Promise<PublishResult> {
     const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
+    const executionOperation = request.schedule === undefined ? "posts.publish" : "posts.schedule";
     const authContext = makeContext("*", correlationId, options);
 
     if (options?.signal?.aborted) {
       throw new SocialError({
         code: "cancelled",
-        operation: "posts.publish",
+        operation: executionOperation,
         message: "Publishing was cancelled before authorization",
         correlationId,
       });
     }
 
-    const authorizationOperation =
-      request.schedule === undefined ? "posts.publish" : "posts.schedule";
+    const authorizationOperation = executionOperation;
 
     if (config.authorization !== undefined) {
       const decisions = await config.authorization.authorizeTargets({
@@ -824,7 +852,7 @@ export function createSocial(
     if (!plan.ok) {
       throw new SocialError({
         code: "invalid_input",
-        operation: "posts.publish",
+        operation: executionOperation,
         message: "Publication preparation failed; no targets were dispatched",
         correlationId,
         issues: plan.issues,
@@ -882,7 +910,7 @@ export function createSocial(
       if (claim.kind === "conflict") {
         throw new SocialError({
           code: "idempotency_conflict",
-          operation: "posts.publish",
+          operation: executionOperation,
           message: "The idempotency key was already used with a different target or payload",
           correlationId,
         });
@@ -936,7 +964,7 @@ export function createSocial(
           const candidate = await dispatch(
             target.account.backend,
             options?.signal,
-            "posts.publish",
+            executionOperation,
             () => {
               enteredAdapter = true;
 

@@ -12,6 +12,7 @@ import {
   type DeliveryOutcome,
   type MediaRef,
   type ScheduleCancellation,
+  type ScheduledJobRef,
   type IdempotencyClaim,
   type IdempotencyClaimInput,
   type IdempotencyStore,
@@ -382,6 +383,19 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
 
           if (scenario === "media-processing-then-success" && !processingAdvanced) {
             return { ...base, state: "processing", backendState: "PROCESSING_MEDIA" };
+          }
+
+          if (target.schedule !== undefined) {
+            const job: ScheduledJobRef = {
+              kind: "scheduled-job",
+              version: 1,
+              backend,
+              platform: target.account.platform,
+              accountId: target.account.accountId,
+              jobId: `job-${deliveryNumber}`,
+            };
+
+            return { ...base, state: "scheduled", job };
           }
 
           return {
