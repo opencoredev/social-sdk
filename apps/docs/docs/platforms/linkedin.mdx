@@ -3,7 +3,7 @@ title: LinkedIn
 description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image, video, and document processing states, comments, and metrics.
 ---
 
-The direct LinkedIn adapter supports account reads, normalized text, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, video and document status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
+The direct LinkedIn adapter supports account reads, normalized text, article links, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, image, video and document status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
 
 ## Setup
 
@@ -312,6 +312,27 @@ await social.comments.reply(
 );
 ```
 
+### Publish an article link
+
+LinkedIn does not scrape article URLs when creating Posts API content. Supply the source URL,
+title, and description explicitly through `content.link`; the generic SDK contract does not expose
+an article thumbnail URN. The adapter requires an HTTPS URL and rejects article posts that include
+media.
+
+```ts
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: {
+    text: "Read the latest update",
+    link: {
+      url: "https://example.com/article",
+      title: "The latest update",
+      description: "A short description shown in the article card.",
+    },
+  },
+});
+```
+
 ### Read organization metrics
 
 Organization account metrics and native `getOrganizationFollowerCount` read the configured
@@ -421,8 +442,8 @@ alone does not start delivery. LinkedIn has no seen state, so `notifications.see
 
 ## Native operations
 
-The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, comment deletion, video and document status checks, and organization analytics. Multi-image, video, and document posts go through `social.posts.publish`. Ordinary article-link posts are a Posts API format, but `articles.create` and `profile.update` are
-`not-implemented-by-adapter`. The adapter rejects `content.link`; article creation is roadmap work.
+The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, comment deletion, image, video and document status checks, and organization analytics. Multi-image, video, document, and article-link posts go through `social.posts.publish`. `articles.create` is available through the generic `content.link` contract. `profile.update` remains
+`not-implemented-by-adapter` because LinkedIn restricts the Profile Edit API to approved developers.
 Profile editing also has a separate upstream approval requirement. Approval does not add an absent
 SDK method.
 

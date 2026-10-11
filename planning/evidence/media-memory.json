@@ -1,0 +1,31 @@
+{
+  "recordedAt": "2026-10-11T22:11:55.207Z",
+  "runtime": "v24.18.0",
+  "methodology": "Fresh 256 KiB chunks, sequential upload, injected consuming fetch; peak sampled at each consumed chunk. GC only between runs. No provider/network verification.",
+  "uploads": [
+    {
+      "totalBytes": 16777216,
+      "chunkBytes": 262144,
+      "maxOutstandingBytes": 524288,
+      "peakArrayBufferGrowthBytes": 16786308,
+      "peakRssGrowthBytes": 20860928,
+      "elapsedMs": 65.24206600000001
+    },
+    {
+      "totalBytes": 134217728,
+      "chunkBytes": 262144,
+      "maxOutstandingBytes": 524288,
+      "peakArrayBufferGrowthBytes": 77594624,
+      "peakRssGrowthBytes": 59461632,
+      "elapsedMs": 55.916574999999995
+    },
+    {
+      "totalBytes": 536870912,
+      "chunkBytes": 262144,
+      "maxOutstandingBytes": 524288,
+      "peakArrayBufferGrowthBytes": 91488256,
+      "peakRssGrowthBytes": 38330368,
+      "elapsedMs": 91.05852100000004
+    }
+  ]
+}

@@ -387,7 +387,18 @@ it("LinkedIn declares author-specific feed grants and unimplemented adapter surf
       ]);
     }
 
-    for (const operation of ["articles.create", "profile.update", "messages.write"])
+    assert.equal(
+      adapter.capabilities.capabilities.find((entry) => entry.operation === "articles.create")
+        ?.availability,
+      "available",
+    );
+    assert.equal(
+      adapter.capabilities.capabilities.find((entry) => entry.operation === "media.read")
+        ?.availability,
+      "available",
+    );
+
+    for (const operation of ["profile.update", "messages.write"])
       assert.equal(
         adapter.capabilities.capabilities.find((entry) => entry.operation === operation)
           ?.availability,
