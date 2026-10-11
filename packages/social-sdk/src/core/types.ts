@@ -525,6 +525,8 @@ export interface AdapterOperationContext extends OperationContext {
 
 export type OperationName =
   | "posts.publish"
+  | "posts.update"
+  | "posts.delete"
   | "accounts.read"
   | "profiles.read"
   | "graph.read"
@@ -541,6 +543,8 @@ export type OperationName =
   | "analytics.report.read"
   | "comments.read"
   | "comments.write"
+  | "comments.moderate"
+  | "comments.delete"
   | "messages.read"
   | "messages.write"
   | "notifications.read"
