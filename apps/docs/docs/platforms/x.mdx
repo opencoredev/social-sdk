@@ -201,6 +201,15 @@ a duplicate; the adapter does not fail over to another backend.
 
 ### Read post and account metrics
 
+```ts
+const knownPost = platformPostRef({
+  backend: "default",
+  platform: "x",
+  accountId: account.accountId,
+  postId: "1900000000000000001", // Load the stored reference from your application.
+});
+```
+
 The normalized analytics facade exposes both post metrics and account metrics for X. Post metrics
 come from the post's `public_metrics`; account metrics come from the acting user's `public_metrics`
 and preserve X's `tweet_count` name. The adapter accepts both X's newer `post_count` and older
@@ -216,12 +225,6 @@ const accountMetrics = await social.analytics.getAccountMetrics(account);
 When you already know the post ID, read that account's post directly:
 
 ```ts
-const knownPost = platformPostRef({
-  backend: "default",
-  platform: "x",
-  accountId: account.accountId,
-  postId: "1900000000000000001", // Load the stored reference from your application.
-});
 const observed = await native.readPost(knownPost, operationContext());
 console.log(observed["id"]);
 ```

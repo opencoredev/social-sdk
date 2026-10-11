@@ -150,6 +150,22 @@ console.log(JSON.stringify({ runtime: typeof Bun === 'undefined' ? 'node' : 'bun
       throw new Error("Packed CLI diagnostic failed");
   }
 
+  const installedBin = join(temporary, "node_modules/.bin/social-sdk");
+
+  const shebangDiagnostic = parseObject(
+    await run([installedBin, "doctor", "--json"], temporary),
+    "Installed CLI shebang output",
+  );
+
+  const shebangData = shebangDiagnostic["data"];
+
+  if (
+    shebangDiagnostic["ok"] !== true ||
+    !isJsonObject(shebangData) ||
+    shebangData["authenticated"] !== false
+  )
+    throw new Error("Installed CLI shebang diagnostic failed");
+
   console.log(
     `Packed consumer check passed: ${pack.paths.length} files, ${pack.size} compressed bytes, ${pack.unpackedSize} unpacked bytes.`,
   );

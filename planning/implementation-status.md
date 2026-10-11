@@ -2,9 +2,10 @@
 
 Updated 2026-10-11. This status reflects the current `main` checkout after the integrated audit and Buffer GraphQL backend. Rows cite current source and deterministic test evidence; provider documentation links are provenance only, and no row claims live provider verification unless explicitly marked.
 
-On `audit/01-core`, shared reference validation, OAuth discovery and grant handling, webhook decoding, transport fallback, and capability generation are implemented and contract-tested. Current `tests/oauth.test.ts` also covers refresh grant retention and stalled-response cancellation added during PR review. `tests/integration-errors.test.ts` checks malformed, oversized, and throwing decoder fallback only. Zernio recovery IDs, Google quota classification, X usage caps and duration classification, and later-page YouTube selected-account reads remain dependent on the backend, X, and YouTube slices; their implementation and tests are not included here. The transport decoder is present, but provider adapters on this core branch do not opt into it. Provider audit test files in the table arrive with their owning slices.
-
-On `audit/11-integrations`, the Express, Trigger.dev, Inngest, Restate, Neon, and SurrealDB guides recheck current grants before workflow continuation. Checks match the tenant and exact backend, platform, and account ID; retried durable steps check inside the write callback. Convex and Supabase already document this check. Changed snippets were extracted under `/tmp/pr66-grants` and strictly typechecked against built SDK declarations and installed framework dependencies. Inngest, Trigger.dev, and Restate record a review disposition before revocation stops a workflow. Offline probes exercise active and revoked grants on all six continuation paths and assert those review transitions. Trigger.dev also excludes review-flagged drafts after a grant is restored; evidence is recorded in the local verification notes. These are documentation examples with application-owned grant storage, not live database or provider verification.
+The integrated audit implementation and its provider, backend, and integration tests are present in
+this checkout. The table cites the current source paths and test files; older lane commit names are
+historical provenance only. Integration examples use application-owned grant storage and offline
+fixtures, not live database or provider verification.
 
 These states describe source and offline contracts. They do not establish provider approval, account eligibility, live behavior, publication, or release.
 
@@ -24,7 +25,8 @@ These states describe source and offline contracts. They do not establish provid
 | Generated capabilities | Documented and implementation-conformance checked | `scripts/generate-capabilities.ts`, `apps/docs/docs/reference/capabilities.mdx`, `planning/evidence/capability-manifests.json` | Regenerated 559 declarations; `bun scripts/generate-capabilities.ts --check`; fixed diagnostic setup, adapter IDs versus instance keys, notes and method map |
 | Integration examples and CLI | Documented, typechecked and offline contract-tested | `examples/snippets/`, `apps/docs/docs/integrations/`, `apps/docs/docs/reference/cli.mdx`; installed `social-sdk` bin in the package smoke check | `bun run recipes:check`, OAuth snippet typecheck, deterministic snippets, and `scripts/check-package.ts` invoking `node_modules/.bin/social-sdk` |
 
-SDK paths in the table are relative to `packages/social-sdk/`. Evidence names refer to tests at the integrated source commit. They are not claims of core-branch coverage or live provider runs.
+SDK paths in the table are relative to `packages/social-sdk/`. Evidence names refer to the current
+checkout. They are not claims of live provider runs.
 
 All provider-authorized live verification is **NOT CHECKED**: this audit was explicitly offline. Native approval and account eligibility remain approval-dependent. Release is **NOT PERFORMED** and requires owner authorization through Changesets; the audit PR stack is open, and no release or provider mutation was performed.
 
