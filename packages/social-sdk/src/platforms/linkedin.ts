@@ -1746,6 +1746,15 @@ export function linkedin(
               "LinkedIn article posts require a non-empty title and description.",
             );
 
+          if ((link.title?.length ?? 0) >= 400)
+            fail("linkedin.article_title", "LinkedIn article titles must be under 400 characters.");
+
+          if ((link.description?.length ?? 0) > 4086)
+            fail(
+              "linkedin.article_description",
+              "LinkedIn article descriptions must be at most 4,086 characters.",
+            );
+
           if (target.content.media?.length)
             fail("linkedin.article_media", "LinkedIn article posts cannot include media.");
         }

@@ -105,7 +105,6 @@ it("LinkedIn publishes article links with explicit Posts API metadata", async ()
   const result = await social.posts.publish({
     targets: [{ account }],
     content: {
-      text: "Read this",
       link: {
         url: "https://example.com/article",
         title: "An article",
@@ -131,8 +130,32 @@ it("LinkedIn rejects article links without provider-required metadata or HTTPS",
     { url: "http://example.com/article", title: "Title", description: "Description" },
     { url: "https://example.com/article", title: "", description: "Description" },
     { url: "https://example.com/article", title: "Title", description: "" },
-  ])
-    assert.equal(social.posts.prepare({ targets: [{ account }], content: { link } }).ok, false);
+  ]) {
+    const prepared = social.posts.prepare({
+      targets: [{ account }],
+      content: { text: "Read this", link },
+    });
+
+    assert.equal(prepared.ok, false);
+    assert.ok(prepared.issues.some((issue) => issue.code.startsWith("linkedin.article_")));
+  }
+});
+
+it("LinkedIn rejects article metadata over provider limits", () => {
+  const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
+
+  for (const link of [
+    { url: "https://example.com/article", title: "t".repeat(400), description: "Description" },
+    { url: "https://example.com/article", title: "Title", description: "d".repeat(4087) },
+  ]) {
+    const prepared = social.posts.prepare({
+      targets: [{ account }],
+      content: { text: "Read this", link },
+    });
+
+    assert.equal(prepared.ok, false);
+    assert.ok(prepared.issues.some((issue) => issue.code.startsWith("linkedin.article_")));
+  }
 });
 
 it("LinkedIn refuses unsupported formats/options and cross-author media locally", () => {

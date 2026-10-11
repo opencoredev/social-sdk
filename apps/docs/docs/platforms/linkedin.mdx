@@ -317,7 +317,7 @@ await social.comments.reply(
 LinkedIn does not scrape article URLs when creating Posts API content. Supply the source URL,
 title, and description explicitly through `content.link`; the generic SDK contract does not expose
 an article thumbnail URN. The adapter requires an HTTPS URL and rejects article posts that include
-media.
+media. Titles must be under 400 characters and descriptions must be at most 4,086 characters.
 
 ```ts
 const result = await social.posts.publish({
@@ -457,7 +457,9 @@ SDK method.
   must supply intentional little-text markup themselves.
 - Post reads return only `id`, `author`, `commentary`, `visibility`, `lifecycleState`, `createdAt`,
   and `lastModifiedAt`; they do not return content-rich media or link objects.
-- Link posts, post replies, and scheduling are not implemented. Comment replies are supported.
+- Article links through `content.link` are supported with HTTPS source URLs, explicit title and
+  description, and no media. Post replies and scheduling are not implemented. Comment replies are
+  supported.
 - Member post reads need the closed `r_member_social` grant, unavailable to new apps. This differs
   from `w_member_social` publishing and the separate feed permissions.
 - LinkedIn has a restricted partner Messages API, but this adapter implements no send method.
