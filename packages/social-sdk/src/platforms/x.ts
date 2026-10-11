@@ -178,6 +178,33 @@ export interface XUploadedMedia {
   readonly mediaId: string;
 }
 
+export type XSpaceField =
+  | "creator_id"
+  | "ended_at"
+  | "host_ids"
+  | "is_ticketed"
+  | "participant_count"
+  | "scheduled_start"
+  | "speaker_ids"
+  | "started_at"
+  | "state"
+  | "title";
+
+export type XSpaceExpansion = "creator_id" | "host_ids" | "speaker_ids";
+
+export interface XSpacesLookupInput {
+  readonly spaceFields?: readonly XSpaceField[];
+  readonly expansions?: readonly XSpaceExpansion[];
+  readonly userFields?: readonly XUserField[];
+}
+
+export interface XSpacesSearchInput extends XSpacesLookupInput {
+  readonly query: string;
+  readonly state?: "live" | "scheduled";
+  readonly cursor?: string;
+  readonly limit?: number;
+}
+
 /** A confirmed X post edit. X assigns every edited version a new post ID. */
 export interface XUpdatedPost {
   /** Reference to the new version created by the edit. */
@@ -302,6 +329,33 @@ export interface XNative {
     readonly message: string;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /** Looks up one Space by its ID using the official Spaces lookup endpoint. */
+  readonly getSpace: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly spaceId: string;
+    readonly options?: XSpacesLookupInput;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Looks up up to 100 Spaces by ID. */
+  readonly getSpaces: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly spaceIds: readonly string[];
+    readonly options?: XSpacesLookupInput;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  /** Looks up Spaces created by up to 100 users. */
+  readonly getSpacesByCreators: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly creatorIds: readonly string[];
+    readonly options?: XSpacesLookupInput;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  /** Searches live or scheduled Spaces by title keyword. */
+  readonly searchSpaces: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly search: XSpacesSearchInput;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
   readonly getUserById: (input: {
     readonly account: ConnectedAccountRef;
     readonly userId: string;
@@ -579,6 +633,23 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       : options.auth.accessToken?.trim()
         ? request
         : appRequest();
+
+  const spaceParams = (options: XSpacesLookupInput | undefined) => ({
+    ...definedFields({
+      "space.fields": options?.spaceFields?.join(","),
+      expansions: options?.expansions?.join(","),
+      "user.fields": options?.userFields?.join(","),
+    }),
+  });
+
+  const validateSpaceIds = (ids: readonly string[], name: string, max: number) => {
+    if (ids.length < 1 || ids.length > max || ids.some((id) => !/^[a-zA-Z0-9]{1,13}$/.test(id)))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "x.spaces.read",
+        message: `${name} must contain ${max === 1 ? "one" : `1-${max}`} valid X Space IDs.`,
+      });
+  };
 
   const http = createHttp(definedFields({ fetch: options.fetch }));
 
@@ -2776,6 +2847,122 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             message: { text: message },
           }),
         );
+      },
+      async getSpace({ account, spaceId, options: lookup, context }) {
+        authorize(account, context);
+        validateSpaceIds([spaceId], "spaceId", 1);
+
+        return object(
+          await readRequest(`/2/spaces/${encodeURIComponent(spaceId)}`)(
+            `/2/spaces/${encodeURIComponent(spaceId)}`,
+            context,
+            undefined,
+            spaceParams(lookup),
+          ),
+        );
+      },
+      async getSpaces({ account, spaceIds, options: lookup, context }) {
+        authorize(account, context);
+        validateSpaceIds(spaceIds, "spaceIds", 100);
+
+        const result = object(
+          await readRequest("/2/spaces")("/2/spaces", context, undefined, {
+            ids: spaceIds.join(","),
+            ...spaceParams(lookup),
+          }),
+        );
+
+        const meta = result["meta"] === undefined ? undefined : object(result["meta"]);
+
+        return {
+          items: result["data"] === undefined ? [] : array(result["data"]).map(object),
+          ...definedFields({
+            nextCursor: meta === undefined ? undefined : optionalString(meta["next_token"]),
+          }),
+          ...definedFields({
+            metadata:
+              result["includes"] === undefined
+                ? undefined
+                : { includes: object(result["includes"]) },
+          }),
+        };
+      },
+      async getSpacesByCreators({ account, creatorIds, options: lookup, context }) {
+        authorize(account, context);
+
+        if (
+          creatorIds.length < 1 ||
+          creatorIds.length > 100 ||
+          creatorIds.some((id) => !/^[0-9]{1,19}$/.test(id))
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "x.spaces.read",
+            message: "creatorIds must contain 1-100 numeric X user IDs.",
+          });
+
+        const result = object(
+          await readRequest("/2/spaces/by/creator_ids")(
+            "/2/spaces/by/creator_ids",
+            context,
+            undefined,
+            { user_ids: creatorIds.join(","), ...spaceParams(lookup) },
+          ),
+        );
+
+        return {
+          items: result["data"] === undefined ? [] : array(result["data"]).map(object),
+          ...definedFields({
+            metadata:
+              result["includes"] === undefined
+                ? undefined
+                : { includes: object(result["includes"]) },
+          }),
+        };
+      },
+      async searchSpaces({ account, search, context }) {
+        authorize(account, context);
+
+        if (!search.query.trim())
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "x.spaces.read",
+            message: "Space search query must be non-empty.",
+          });
+
+        if (
+          search.limit !== undefined &&
+          (!Number.isInteger(search.limit) || search.limit < 10 || search.limit > 100)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "x.spaces.read",
+            message: "Space search limits must be integers from 10 through 100.",
+          });
+
+        const result = object(
+          await readRequest("/2/spaces/search")("/2/spaces/search", context, undefined, {
+            query: search.query,
+            ...definedFields({ state: search.state, pagination_token: search.cursor }),
+            ...spaceParams(search),
+            ...definedFields({ max_results: search.limit?.toString() }),
+          }),
+        );
+
+        const meta = result["meta"] === undefined ? undefined : object(result["meta"]);
+
+        return {
+          items: result["data"] === undefined ? [] : array(result["data"]).map(object),
+          ...definedFields({
+            nextCursor: meta === undefined ? undefined : optionalString(meta["next_token"]),
+          }),
+          ...definedFields({
+            metadata:
+              result["includes"] === undefined
+                ? undefined
+                : { includes: object(result["includes"]) },
+          }),
+        };
       },
       async getUserById({ account, userId, context }) {
         authorize(account, context);

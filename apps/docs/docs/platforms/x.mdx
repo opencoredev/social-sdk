@@ -391,6 +391,40 @@ Conversation and group sends require `dm.write`, `users.read`, and `tweet.read`,
 missing/invalid media IDs and multiple attachments. `listDirectMessages` returns the standard `Page` shape, including
 `nextCursor` when X returns `meta.next_token`, plus sender fields and `metadata.includes` for user expansions.
 
+### Look up Spaces
+
+The native X module exposes the official Spaces lookup and search endpoints without inventing a
+normalized Space record. These reads use the configured user token when present and otherwise the
+app bearer fallback, and preserve X's response fields and `metadata.includes` expansions:
+
+```ts
+const space = await native.getSpace({
+  account,
+  spaceId: "1DXxyRYNejbKM",
+  options: { spaceFields: ["title", "state", "host_ids"] },
+  context: operationContext(),
+});
+const upcoming = await native.getSpacesByCreators({
+  account,
+  creatorIds: ["123"],
+  context: operationContext(),
+});
+const matches = await native.searchSpaces({
+  account,
+  search: { query: "AI", state: "live", limit: 10 },
+  context: operationContext(),
+});
+```
+
+`getSpace` calls `GET /2/spaces/:id`; `getSpaces` calls `GET /2/spaces` for up to 100 IDs;
+`getSpacesByCreators` calls `GET /2/spaces/by/creator_ids` for up to 100 numeric user IDs; and
+`searchSpaces` calls `GET /2/spaces/search` for live or scheduled Spaces. Search pages return
+X's `meta.next_token` as `nextCursor`. These endpoints require the app's approved `space.read`,
+`tweet.read`, and `users.read` access where X requires them, and ended Spaces may no longer be
+retrievable after the provider removes them. The SDK does not expose recordings because the
+current official lookup documentation does not define a recording endpoint or stable recording
+contract.
+
 ### Use normalized messages
 
 The normalized messages facade uses X's Direct Messages endpoints with the configured user token:
