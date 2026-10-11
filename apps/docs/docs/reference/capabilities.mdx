@@ -562,6 +562,12 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | youtube | youtube | comments.moderate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared |
 | youtube | youtube | comments.delete | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | comments.delete costs 50 quota units. Delete a thread through its top-level comment ID. Google does not document which comments a channel may delete; insufficient permissions return 403 forbidden. |
 | youtube | youtube | analytics.youtube.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly | None declared |
+| youtube | youtube | live.chat.messages | available | None declared | https://www.googleapis.com/auth/youtube | Native access to liveChatMessages list, insert, and delete. The configured channel must own or moderate the selected live chat, and the chat must be active for inserts. |
+| youtube | youtube | live.chat.moderators | available | None declared | https://www.googleapis.com/auth/youtube | Native access to liveChatModerators list, insert, and delete for a chat owned by the configured channel. |
+| youtube | youtube | live.chat.bans | available | None declared | https://www.googleapis.com/auth/youtube | Native access to liveChatBans list, insert, and delete. Ban bodies must follow the YouTube liveChatBan resource shape. |
+| youtube | youtube | channel.sections.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly | None declared |
+| youtube | youtube | channel.sections.write | available | None declared | https://www.googleapis.com/auth/youtube | Channel sections are limited to ten shelves and updates replace the mutable parts supplied in the request. |
+| youtube | youtube | channel.activity.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly | Reads activities.list. Channel bulletins and activities.insert are deprecated and are not exposed. |
 | youtube | youtube | analytics.report.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly | Reports require an explicit bounded date range and provider-supported metrics. |
 | youtube | youtube | live.broadcasts | available | None declared | https://www.googleapis.com/auth/youtube | The channel must have live streaming enabled in YouTube Studio. Use native access: liveBroadcasts. |
 | tiktok | tiktok | webhooks.verify | available | None declared | See adapter setup | Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event. |
@@ -728,6 +734,12 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | posts.update | native.updateVideo\|native.updatePost |
 | analytics.youtube.read | native.analytics |
 | live.broadcasts | native.liveBroadcasts |
+| live.chat.messages | native.liveChatMessages |
+| live.chat.moderators | native.liveChatModerators |
+| live.chat.bans | native.liveChatBans |
+| channel.sections.read | native.channelSections |
+| channel.sections.write | native.channelSections |
+| channel.activity.read | native.activities |
 | posts.multi-image | posts.publishTarget |
 | posts.video | posts.publishTarget, media.upload, native.videoStatus |
 | posts.document | posts.publishTarget, media.upload, native.documentStatus |

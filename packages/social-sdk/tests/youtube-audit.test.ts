@@ -46,6 +46,105 @@ const media = {
   source: { kind: "blob", blob: new Blob(["x"]), fingerprint: "audit" },
 } satisfies import("../src/index.js").MediaAttachment;
 
+it("YouTube live chat, channel sections, and activity natives use documented routes", async () => {
+  const calls: { method: string; path: string; query: URLSearchParams; body?: unknown }[] = [];
+
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      calls.push({
+        method: init?.method ?? "GET",
+        path: url.pathname,
+        query: url.searchParams,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+
+      return init?.method === "DELETE" ? new Response(null, { status: 204 }) : Response.json({});
+    },
+  });
+
+  await adapter.native!.liveChatMessages({
+    action: "list",
+    liveChatId: "chat1",
+    pageToken: "page1",
+    maxResults: 25,
+    context: context(),
+  });
+  await adapter.native!.liveChatMessages({
+    action: "insert",
+    liveChatId: "chat1",
+    body: { snippet: { liveChatId: "chat1", type: "textMessageEvent" } },
+    context: context(),
+  });
+  await adapter.native!.liveChatModerators({
+    action: "delete",
+    liveChatId: "chat1",
+    moderatorId: "moderator1",
+    context: context(),
+  });
+  await adapter.native!.liveChatBans({
+    action: "insert",
+    liveChatId: "chat1",
+    body: { snippet: { liveChatId: "chat1", type: "temporary" } },
+    context: context(),
+  });
+  await adapter.native!.channelSections({
+    action: "list",
+    context: context(),
+  });
+  await adapter.native!.channelSections({
+    action: "update",
+    channelSectionId: "section1",
+    body: { snippet: { type: "singlePlaylist" } },
+    context: context(),
+  });
+  await adapter.native!.activities({ channelId: "channel1", context: context() });
+
+  assert.deepEqual(
+    calls.map(({ method, path, query }) => [
+      method,
+      path,
+      query.get("part"),
+      query.get("pageToken"),
+    ]),
+    [
+      ["GET", "/youtube/v3/liveChat/messages", "snippet,authorDetails", "page1"],
+      ["POST", "/youtube/v3/liveChat/messages", "snippet,authorDetails", null],
+      ["DELETE", "/youtube/v3/liveChat/moderators", null, null],
+      ["POST", "/youtube/v3/liveChat/bans", "snippet", null],
+      ["GET", "/youtube/v3/channelSections", "snippet,contentDetails", null],
+      ["PUT", "/youtube/v3/channelSections", "snippet", null],
+      ["GET", "/youtube/v3/activities", "snippet,contentDetails", null],
+    ],
+  );
+  assert.equal(calls[4]?.query.get("mine"), "true");
+  assert.deepEqual(calls[5]?.body, { id: "section1", snippet: { type: "singlePlaylist" } });
+  assert.equal(calls[6]?.query.get("channelId"), "channel1");
+});
+
+it("YouTube activity and live chat natives reject cross-channel or missing identifiers", async () => {
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async () => Response.json({}),
+  });
+
+  await assert.rejects(adapter.native!.activities({ channelId: "other", context: context() }), {
+    code: "unauthorized",
+  });
+  await assert.rejects(adapter.native!.liveChatMessages({ action: "delete", context: context() }), {
+    code: "invalid_input",
+  });
+  await assert.rejects(
+    adapter.native!.channelSections({
+      action: "update",
+      channelSectionId: "s",
+      context: context(),
+    }),
+    { code: "invalid_input" },
+  );
+});
+
 for (const paginated of [false, true]) {
   it(`replies to a distinct comment ID on ${paginated ? "a later" : "the first"} thread page`, async () => {
     const pages: (string | null)[] = [];
