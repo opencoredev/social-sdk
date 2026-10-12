@@ -247,7 +247,7 @@ it("YouTube activity and live chat natives reject cross-channel or missing ident
   assert.equal(calls.at(-1)?.searchParams.get("channelId"), "channel1");
 });
 
-it("YouTube live chat ownership checks follow later pages before deleting", async () => {
+it("YouTube moderator ownership checks follow later pages while message deletes use provider auth", async () => {
   const calls: URL[] = [];
 
   const adapter = youtube({
@@ -293,7 +293,6 @@ it("YouTube live chat ownership checks follow later pages before deleting", asyn
     ]),
     [
       ["/youtube/v3/liveChat/messages", null, "200"],
-      ["/youtube/v3/liveChat/messages", "later", "200"],
       ["/youtube/v3/liveChat/messages", null, null],
       ["/youtube/v3/liveChat/moderators", null, "50"],
       ["/youtube/v3/liveChat/moderators", "later", "50"],

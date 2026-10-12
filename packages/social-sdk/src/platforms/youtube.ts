@@ -583,6 +583,17 @@ export function youtube(
 
       if (item && optionalString(object(item["snippet"])["liveChatId"]) === liveChatId) return;
 
+      if (path === "/youtube/v3/liveChat/messages") {
+        if (item)
+          throw new SocialError({
+            code: "unauthorized",
+            operation,
+            message: "The selected live chat resource does not belong to this live chat.",
+          });
+
+        return;
+      }
+
       pageToken = optionalString(result["nextPageToken"]);
 
       if (pageToken) {
