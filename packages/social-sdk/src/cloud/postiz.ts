@@ -41,6 +41,7 @@ import {
 import {
   accountMatches,
   capabilityManifest,
+  managedConstraints,
   managedHttp,
   managedOptionIssues,
   managedPreparation,
@@ -549,15 +550,29 @@ export function postiz(options: PostizOptions) {
 
   const adapter = defineAdapter({
     id: "postiz",
-    capabilities: capabilityManifest("postiz", "Public API v1, source 374fb20 read 2026-09-25", [
-      "accounts.read",
-      "posts.publish",
-      "posts.status",
-      "posts.cancelScheduled",
-      "posts.deleteBackendRecord",
-      "analytics.read",
-      "media.upload",
-    ]),
+    capabilities: capabilityManifest(
+      "postiz",
+      "Public API v1, source 374fb20 read 2026-09-25",
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+      ],
+      undefined,
+      (_platform, operation) =>
+        managedConstraints(
+          operation,
+          operation === "media.upload"
+            ? ["https-url", "blob", "stream"]
+            : operation === "posts.publish"
+              ? ["https-url", "media-ref", "blob", "stream"]
+              : undefined,
+        ),
+    ),
     media: {
       async upload(
         item: MediaAttachment,

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { bluesky } from "../src/platforms/bluesky.js";
 import { x } from "../src/platforms/x.js";
 import { youtube } from "../src/platforms/youtube.js";
+import { postfast } from "../src/cloud/postfast.js";
+import { buffer } from "../src/cloud/buffer.js";
+import { postiz } from "../src/cloud/postiz.js";
 import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
 import { instagram } from "../src/platforms/instagram.js";
 import { linkedin } from "../src/platforms/linkedin.js";
@@ -214,4 +217,41 @@ test("the server subpath exports the normalized webhook facade", () => {
   assert.ok(Object.hasOwn(server, "decodeWebhook"));
   assert.ok(Object.hasOwn(server, "verifyPostForMeWebhook"));
   assert.ok(Object.hasOwn(server, "verifyZernioWebhook"));
+});
+
+test("managed capability declarations distinguish normalized execution and constraints", () => {
+  const adapter = postfast({ apiKey: "test" });
+
+  const publish = adapter.capabilities.capabilities.find(
+    (entry) => entry.operation === "posts.publish" && entry.platform === "x",
+  );
+
+  assert.equal(publish?.surface, "normalized");
+  assert.deepEqual(publish?.constraints?.mediaSources, ["media-ref", "blob", "stream"]);
+  assert.ok(publish?.constraints?.eligibility?.length);
+  assert.ok(publish?.constraints?.approval?.length);
+
+  const bufferPublish = buffer({ apiKey: "test" }).capabilities.capabilities.find(
+    (entry) => entry.operation === "posts.publish" && entry.platform === "x",
+  );
+
+  const bufferAccounts = buffer({ apiKey: "test" }).capabilities.capabilities.find(
+    (entry) => entry.operation === "accounts.read" && entry.platform === "x",
+  );
+
+  assert.deepEqual(bufferPublish?.constraints?.mediaSources, ["https-url"]);
+  assert.equal(bufferAccounts?.constraints?.eligibility, undefined);
+
+  const postizCapabilities = postiz({ apiKey: "test" }).capabilities.capabilities;
+  assert.deepEqual(
+    postizCapabilities.find((entry) => entry.operation === "media.upload" && entry.platform === "x")
+      ?.constraints?.mediaSources,
+    ["https-url", "blob", "stream"],
+  );
+  assert.deepEqual(
+    postizCapabilities.find(
+      (entry) => entry.operation === "posts.publish" && entry.platform === "x",
+    )?.constraints?.mediaSources,
+    ["https-url", "media-ref", "blob", "stream"],
+  );
 });
