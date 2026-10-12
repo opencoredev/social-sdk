@@ -1,0 +1,44 @@
+{
+  "recordedAt": "2026-10-11T22:11:54.933Z",
+  "runner": {
+    "platform": "linux",
+    "architecture": "x64",
+    "cpu": "AMD EPYC",
+    "bun": "1.4.2"
+  },
+  "methodology": {
+    "prepareTargets": 20,
+    "prepareWarmup": 100,
+    "dispatchTargets": 1,
+    "dispatchWarmup": 50,
+    "baseline": "One resolved async mock transport; no upstream latency",
+    "bundles": "Bun browser ESM bundle, minified then gzip; all runtime exports of the selected entry retained"
+  },
+  "bundles": {
+    "core": {
+      "minifiedBytes": 33190,
+      "gzipBytes": 8676
+    },
+    "managed": {
+      "minifiedBytes": 76879,
+      "gzipBytes": 22580
+    }
+  },
+  "preparation": {
+    "coldMs": 0.3254009999999994,
+    "p50Ms": 0.009759999999999991,
+    "p95Ms": 0.021110000000000184,
+    "samples": 1000
+  },
+  "dispatch": {
+    "p50Ms": 0.1004299999999958,
+    "p95Ms": 0.3065910000000045,
+    "samples": 200
+  },
+  "baseline": {
+    "p50Ms": 0.0001299999999986312,
+    "p95Ms": 0.0002800000000036107,
+    "samples": 200
+  },
+  "dispatchOverheadP95Ms": 0.3063110000000009
+}

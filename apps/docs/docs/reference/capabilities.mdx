@@ -621,7 +621,7 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | linkedin | linkedin | posts.removeFromPlatform | available | None declared | See adapter setup | None declared |
 | linkedin | linkedin | comments.delete | available | None declared | w_member_social_feed | Native deleteComment needs the post URN and the complete commentUrn. LinkedIn does not document which comments an actor may delete; expect only the configured author's own comments to succeed. |
 | linkedin | linkedin | analytics.organization.read | account-ineligible | None declared | rw_organization_admin | Requires the Community Management API product and organization administrator access. Member accounts are not eligible. |
-| linkedin | linkedin | articles.create | not-implemented-by-adapter | None declared | See adapter setup | Ordinary article-link content is a Posts API format, but this adapter does not implement it and rejects content.link. |
+| linkedin | linkedin | articles.create | available | None declared | See adapter setup | Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. Thumbnail URNs are not exposed by the generic LinkMetadata contract. |
 | linkedin | linkedin | profile.update | not-implemented-by-adapter | None declared | See adapter setup | Member profile writes use the Profile Edit API, which LinkedIn restricts to approved developers. This adapter does not implement it. |
 | linkedin | linkedin | messages.write | not-implemented-by-adapter | None declared | See adapter setup | LinkedIn has a restricted partner Messages API. This adapter implements no message send method. |
 | linkedin | linkedin | webhooks.verify | approval-dependent | None declared | rw_organization_admin | LinkedIn enables webhooks only for apps with an approved webhook use case. Organization social action notifications also need the Community Management API and an organization administrator. Verifies X-LI-Signature (HMAC-SHA256 over hmacsha256= plus the raw body) with the app client secret; answer the GET validation with answerLinkedInWebhookChallenge. |
@@ -633,6 +633,7 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | linkedin | linkedin | analytics.shares.read | account-ineligible | None declared | rw_organization_admin | Community Management API product and organization administrator access are required. Member accounts are not eligible. |
 | linkedin | linkedin | posts.list | available | None declared | r_member_social | Author-feed pagination uses the returned offset cursor. |
 | linkedin | linkedin | media.upload | available | image, video, document | See adapter setup | None declared |
+| linkedin | linkedin | media.read | available | None declared | r_member_social | Reads the configured author's uploaded image, video, or document processing status through the native status helpers. |
 | linkedin | linkedin | comments.read | available | None declared | r_member_social_feed, r_member_social | Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only. |
 | linkedin | linkedin | comments.write | available | None declared | w_member_social_feed, r_member_social, r_member_social_feed | Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only. |
 | linkedin | linkedin | analytics.read | available | None declared | r_member_social_feed, r_member_social | Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only. |
@@ -652,6 +653,7 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | posts.deleteBackendRecord | posts.deleteBackendRecord |
 | posts.removeFromPlatform | posts.removeFromPlatform |
 | media.upload | media.upload |
+| media.read | native.imageStatus, native.videoStatus, native.documentStatus |
 | analytics.read | analytics.getPostMetrics |
 | analytics.account.read | analytics.getAccountMetrics |
 | analytics.report.read | analytics.getReport |
@@ -734,5 +736,6 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | reactions.write | native.react |
 | reshares.write | native.reshare |
 | analytics.organization.read | native.organizationAnalytics |
+| articles.create | posts.publishTarget |
 
 Generate this page with `bun scripts/generate-capabilities.ts`. CI uses `--check` to detect drift. The complete manifests, including API revisions, runtimes and notes, are returned by `social-sdk capabilities --adapter NAME --json`.

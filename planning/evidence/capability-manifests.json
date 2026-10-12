@@ -4394,8 +4394,8 @@
         {
           "platform": "linkedin",
           "operation": "articles.create",
-          "availability": "not-implemented-by-adapter",
-          "notes": "Ordinary article-link content is a Posts API format, but this adapter does not implement it and rejects content.link."
+          "availability": "available",
+          "notes": "Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. Thumbnail URNs are not exposed by the generic LinkMetadata contract."
         },
         {
           "platform": "linkedin",
@@ -4487,6 +4487,15 @@
             "video",
             "document"
           ]
+        },
+        {
+          "platform": "linkedin",
+          "operation": "media.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_social"
+          ],
+          "notes": "Reads the configured author's uploaded image, video, or document processing status through the native status helpers."
         },
         {
           "platform": "linkedin",
