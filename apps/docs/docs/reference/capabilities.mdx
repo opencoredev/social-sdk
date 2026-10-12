@@ -566,12 +566,13 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | youtube | youtube | live.broadcasts | available | None declared | https://www.googleapis.com/auth/youtube | The channel must have live streaming enabled in YouTube Studio. Use native access: liveBroadcasts. |
 | tiktok | tiktok | webhooks.verify | available | None declared | See adapter setup | Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event. |
 | tiktok | tiktok | posts.publish | available | image, video, carousel | video.publish | Verified URL source; explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload. |
+| tiktok | tiktok | posts.publish.preflight | available | None declared | video.publish | Direct Post refreshes creator_info/query immediately before initialization. Inbox drafts do not require this preflight. |
 | tiktok | tiktok | posts.schedule | unsupported-by-platform | None declared | See adapter setup | Content Posting API post_info has no publish-time field. |
-| tiktok | tiktok | posts.status | available | None declared | See adapter setup | None declared |
+| tiktok | tiktok | posts.status | available | None declared | See adapter setup | Requires video.publish for Direct Post or video.upload for inbox drafts. |
 | tiktok | tiktok | posts.read | available | None declared | video.list | None declared |
 | tiktok | tiktok | posts.list | available | None declared | video.list | None declared |
 | tiktok | tiktok | posts.draft | available | None declared | video.upload | None declared |
-| tiktok | tiktok | posts.status.poll | available | None declared | See adapter setup | None declared |
+| tiktok | tiktok | posts.status.poll | available | None declared | See adapter setup | Requires video.publish for Direct Post or video.upload for inbox drafts. |
 | tiktok | tiktok | posts.update | unsupported-by-platform | None declared | See adapter setup | The Content Posting API sets caption and privacy only when a post is initialized. It has no endpoint to edit a published post. |
 | tiktok | tiktok | comments.read | unsupported-by-platform | None declared | See adapter setup | Standard Content Posting and Display APIs do not expose comments. |
 | tiktok | tiktok | messages.read | unsupported-by-platform | None declared | See adapter setup | None declared |
@@ -645,6 +646,7 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | --- | --- |
 | accounts.read | accounts.list, accounts.get |
 | posts.publish | posts.prepareTarget, posts.publishTarget |
+| posts.publish.preflight | native.creatorInfo |
 | posts.read | posts.get |
 | posts.list | posts.list |
 | posts.status | posts.getDelivery |

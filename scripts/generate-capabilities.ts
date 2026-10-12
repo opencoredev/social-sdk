@@ -8,6 +8,7 @@ const manifests = [];
 const implementationPaths = new Map<string, readonly string[]>([
   ["accounts.read", ["accounts.list", "accounts.get"]],
   ["posts.publish", ["posts.prepareTarget", "posts.publishTarget"]],
+  ["posts.publish.preflight", ["native.creatorInfo"]],
   ["posts.read", ["posts.get"]],
   ["posts.list", ["posts.list"]],
   ["posts.status", ["posts.getDelivery"]],
