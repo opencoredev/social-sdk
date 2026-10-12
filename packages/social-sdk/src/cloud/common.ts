@@ -200,6 +200,7 @@ export function capabilityManifest(
   apiRevision: string,
   operations: readonly string[],
   formats: PublishFormats = publishFormats,
+  platformNotes: Partial<Record<Platform, string>> = {},
 ): CapabilityManifest {
   return {
     schemaVersion: 1,
@@ -214,8 +215,12 @@ export function capabilityManifest(
         ...definedFields({
           formats: operation === "posts.publish" ? formats(platform) : undefined,
         }),
-        notes:
+        notes: [
           "Contract implementation; live account verification and provider/platform eligibility are separate.",
+          platformNotes[platform],
+        ]
+          .filter((value): value is string => value !== undefined)
+          .join(" "),
       })),
     ),
   };

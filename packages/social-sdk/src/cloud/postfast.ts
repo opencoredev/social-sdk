@@ -365,6 +365,10 @@ export function postfast(options: ManagedOptions) {
         "media.upload",
       ],
       postfastFormats,
+      {
+        facebook:
+          "PostFast's Facebook integration is Page-scoped; personal profiles are not supported.",
+      },
     ),
     media: {
       async upload(

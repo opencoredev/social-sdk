@@ -150,18 +150,27 @@ export function postForMe(options: ManagedOptions) {
 
   const adapter = defineAdapter({
     id: "post-for-me",
-    capabilities: capabilityManifest("post-for-me", "v1 / OpenAPI 1.0", [
-      "accounts.read",
-      "posts.publish",
-      "posts.read",
-      "posts.list",
-      "posts.status",
-      "posts.cancelScheduled",
-      "posts.deleteBackendRecord",
-      "analytics.read",
-      "media.upload",
-      "webhooks.verify",
-    ]),
+    capabilities: capabilityManifest(
+      "post-for-me",
+      "v1 / OpenAPI 1.0",
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+        "webhooks.verify",
+      ],
+      undefined,
+      {
+        facebook:
+          "Post for Me's Facebook integration is Page-scoped; personal profiles are not supported.",
+      },
+    ),
     media: { upload: mediaPipeline.upload },
     accounts: {
       async list(input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
