@@ -317,7 +317,7 @@ await social.comments.reply(
 LinkedIn does not scrape article URLs when creating Posts API content. Supply the source URL,
 title, and description explicitly through `content.link`; the generic SDK contract does not expose
 an article thumbnail URN. The adapter requires an HTTPS URL and rejects article posts that include
-media. Titles must be under 400 characters and descriptions must be at most 4,086 characters.
+media. Titles and descriptions must be under 400 and 4,086 characters respectively.
 
 ```ts
 const result = await social.posts.publish({

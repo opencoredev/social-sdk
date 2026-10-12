@@ -146,7 +146,7 @@ it("LinkedIn rejects article metadata over provider limits", () => {
 
   for (const link of [
     { url: "https://example.com/article", title: "t".repeat(400), description: "Description" },
-    { url: "https://example.com/article", title: "Title", description: "d".repeat(4087) },
+    { url: "https://example.com/article", title: "Title", description: "d".repeat(4086) },
   ]) {
     const prepared = social.posts.prepare({
       targets: [{ account }],
@@ -168,7 +168,7 @@ it("LinkedIn applies article metadata limits after trimming", () => {
       link: {
         url: "https://example.com/article",
         title: ` ${"t".repeat(399)} `,
-        description: ` ${"d".repeat(4086)} `,
+        description: ` ${"d".repeat(4085)} `,
       },
     },
   });

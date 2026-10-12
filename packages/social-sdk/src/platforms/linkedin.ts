@@ -1749,10 +1749,10 @@ export function linkedin(
           if ((link.title?.trim().length ?? 0) >= 400)
             fail("linkedin.article_title", "LinkedIn article titles must be under 400 characters.");
 
-          if ((link.description?.trim().length ?? 0) > 4086)
+          if ((link.description?.trim().length ?? 0) >= 4086)
             fail(
               "linkedin.article_description",
-              "LinkedIn article descriptions must be at most 4,086 characters.",
+              "LinkedIn article descriptions must be under 4,086 characters.",
             );
 
           if (target.content.media?.length)
