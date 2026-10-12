@@ -384,6 +384,55 @@ it("Buffer publishes now or on a custom schedule and maps documented metadata", 
   assert.deepEqual(seen[1]?.["assets"], [{ video: { url: "https://cdn.example/tour.mp4" } }]);
 });
 
+it("Buffer maps multiple public image URLs as an ordered carousel asset list", async () => {
+  let assets: JsonValue = null;
+
+  const adapter = buffer({
+    apiKey: "fixture-key",
+    organizationId: "org_example",
+    fetch: async (_input, init) => {
+      const { query, variables } = graphql(init);
+
+      if (query.includes("query Channels")) return envelope({ channels: [channel({})] });
+
+      if (query.includes("createPost")) {
+        assets = object(variables["input"])["assets"] ?? null;
+
+        return envelope({
+          createPost: { post: post({ status: "sending", shareMode: "shareNow" }) },
+        });
+      }
+
+      return envelope(null, [{ message: "unexpected", extensions: { code: "UNEXPECTED" } }]);
+    },
+  });
+
+  const result = await createSocial({ backend: adapter, clock }).posts.publish({
+    targets: [{ account: x }],
+    content: {
+      text: "Carousel",
+      media: [
+        {
+          kind: "image",
+          mimeType: "image/jpeg",
+          source: { kind: "https-url", url: "https://cdn.example/one.jpg" },
+        },
+        {
+          kind: "image",
+          mimeType: "image/jpeg",
+          source: { kind: "https-url", url: "https://cdn.example/two.jpg" },
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.outcomes[0]?.state, "processing");
+  assert.deepEqual(assets, [
+    { image: { url: "https://cdn.example/one.jpg" } },
+    { image: { url: "https://cdn.example/two.jpg" } },
+  ]);
+});
+
 it("Buffer requires channel-specific YouTube and Instagram choices without TikTok direct-post choices", () => {
   const social = createSocial({
     backend: buffer({ apiKey: "fixture-key", clock, fetch: async () => envelope({}) }),
