@@ -322,6 +322,38 @@ it("TikTok photo publishing keeps cover order and disables unrequested added mus
   assert.equal(result.outcomes[0]?.state, "accepted");
 });
 
+it("TikTok rejects Zernio-only photo options instead of silently ignoring them", () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: ["https://media.example.test"],
+  });
+
+  const social = createSocial({ backend: adapter });
+  const directBase: TikTokPublishOptions = { ...options, creatorInfo: creator };
+
+  for (const option of [
+    { description: "photo description" },
+    { mediaType: "photo" as const },
+    { autoAddMusic: true },
+  ]) {
+    const preparation = social.posts.prepare({
+      targets: [{ account, options: { ...directBase, ...option } }],
+      content: {
+        text: "photos",
+        media: [
+          {
+            kind: "image" as const,
+            mimeType: "image/jpeg",
+            source: { kind: "https-url" as const, url: "https://media.example.test/photo.jpg" },
+          },
+        ],
+      },
+    });
+
+    assert.equal(preparation.ok, false);
+  }
+});
+
 for (const transport of ["custom", "default"]) {
   for (const retryAfter of [undefined, "2", "999999999"]) {
     it(`TikTok ${transport} fetch preserves HTTP 429 with a bounded delay (${retryAfter})`, async () => {
