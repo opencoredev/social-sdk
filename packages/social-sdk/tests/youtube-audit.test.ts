@@ -121,7 +121,6 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
   });
   await adapter.native!.liveChatBans({
     action: "delete",
-    liveChatId: "chat1",
     banId: "ban1",
     context: context(),
   });
@@ -164,7 +163,6 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
       ["GET", "/youtube/v3/liveChat/moderators", "snippet", null],
       ["DELETE", "/youtube/v3/liveChat/moderators", null, null],
       ["POST", "/youtube/v3/liveChat/bans", "snippet", null],
-      ["GET", "/youtube/v3/liveChat/messages", "snippet", null],
       ["DELETE", "/youtube/v3/liveChat/bans", null, null],
       ["GET", "/youtube/v3/channelSections", "snippet,contentDetails", null],
       ["GET", "/youtube/v3/channelSections", "snippet", null],
@@ -175,9 +173,10 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
       ["GET", "/youtube/v3/activities", "snippet,contentDetails", null],
     ],
   );
-  assert.equal(calls[11]?.query.get("channelId"), "channel1");
-  assert.deepEqual(calls[13]?.body, { id: "section1", snippet: { type: "singlePlaylist" } });
-  assert.equal(calls[17]?.query.get("channelId"), "channel1");
+  assert.equal(calls[10]?.query.get("channelId"), "channel1");
+  assert.equal(calls[9]?.query.get("id"), "ban1");
+  assert.deepEqual(calls[12]?.body, { id: "section1", snippet: { type: "singlePlaylist" } });
+  assert.equal(calls[16]?.query.get("channelId"), "channel1");
 });
 
 it("YouTube activity and live chat natives reject cross-channel or missing identifiers", async () => {
@@ -221,10 +220,9 @@ it("YouTube activity and live chat natives reject cross-channel or missing ident
     adapter.native!.liveChatModerators({ action: "insert", context: context() }),
     { code: "invalid_input" },
   );
-  await assert.rejects(
-    adapter.native!.liveChatBans({ action: "delete", banId: "ban1", context: context() }),
-    { code: "invalid_input" },
-  );
+  await assert.rejects(adapter.native!.liveChatBans({ action: "delete", context: context() }), {
+    code: "invalid_input",
+  });
 
   const calls: URL[] = [];
 

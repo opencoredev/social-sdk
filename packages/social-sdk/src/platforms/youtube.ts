@@ -200,7 +200,6 @@ export interface YouTubeNative {
   }) => Promise<JsonObject | void>;
   readonly liveChatBans: (input: {
     readonly action: "insert" | "delete";
-    readonly liveChatId?: string;
     readonly banId?: string;
     readonly body?: JsonObject;
     readonly context: AdapterOperationContext;
@@ -824,7 +823,7 @@ export function youtube(
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube"],
           notes:
-            "Native access to liveChatMessages list, insert, and delete. The configured channel must own or moderate the selected live chat, and the chat must be active for inserts.",
+            "Native access to liveChatMessages list, insert, and delete. The YouTube authorization determines whether the caller may act on the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership.",
         },
         {
           operation: "live.chat.moderators",
@@ -832,7 +831,7 @@ export function youtube(
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube"],
           notes:
-            "Native access to liveChatModerators list, insert, and delete for a chat owned by the configured channel.",
+            "Native access to liveChatModerators list, insert, and delete. The YouTube authorization determines whether the caller may moderate the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership.",
         },
         {
           operation: "live.chat.bans",
@@ -840,7 +839,7 @@ export function youtube(
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/youtube"],
           notes:
-            "Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list method. Ban bodies must follow the YouTube liveChatBan resource shape.",
+            "Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list or read method, so provider authorization is the ownership boundary for ban deletion. Ban bodies must follow the YouTube liveChatBan resource shape.",
         },
         {
           operation: "channel.sections.read",
@@ -2633,24 +2632,17 @@ export function youtube(
           ),
         );
       },
-      async liveChatBans({ action, liveChatId, banId, body, context }) {
+      async liveChatBans({ action, banId, body, context }) {
         nativeAuthorize(context);
         const id = banId?.trim();
 
         if (action === "delete") {
-          const chatId = requireLiveChatId(liveChatId, "live.chat.bans");
-
           if (!id)
             throw new SocialError({
               code: "invalid_input",
               operation: "live.chat.bans",
               message: "banId is required.",
             });
-          await request("/youtube/v3/liveChat/messages", context, undefined, {
-            liveChatId: chatId,
-            part: "snippet",
-            maxResults: "1",
-          });
           await request("/youtube/v3/liveChat/bans", context, undefined, { id }, "DELETE");
 
           return;
@@ -2662,14 +2654,7 @@ export function youtube(
             operation: "live.chat.bans",
             message: "A live chat ban body is required.",
           });
-        const chatId = bodyLiveChatId(body, "live.chat.bans");
-
-        if (liveChatId !== undefined && liveChatId.trim() !== chatId)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "live.chat.bans",
-            message: "liveChatId must match body.snippet.liveChatId.",
-          });
+        bodyLiveChatId(body, "live.chat.bans");
 
         return object(
           await request("/youtube/v3/liveChat/bans", context, body, { part: "snippet" }, "POST"),

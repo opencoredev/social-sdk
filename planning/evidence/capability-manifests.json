@@ -3909,7 +3909,7 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ],
-          "notes": "Native access to liveChatMessages list, insert, and delete. The configured channel must own or moderate the selected live chat, and the chat must be active for inserts."
+          "notes": "Native access to liveChatMessages list, insert, and delete. The YouTube authorization determines whether the caller may act on the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership."
         },
         {
           "operation": "live.chat.moderators",
@@ -3918,7 +3918,7 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ],
-          "notes": "Native access to liveChatModerators list, insert, and delete for a chat owned by the configured channel."
+          "notes": "Native access to liveChatModerators list, insert, and delete. The YouTube authorization determines whether the caller may moderate the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership."
         },
         {
           "operation": "live.chat.bans",
@@ -3927,7 +3927,7 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ],
-          "notes": "Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list method. Ban bodies must follow the YouTube liveChatBan resource shape."
+          "notes": "Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list or read method, so provider authorization is the ownership boundary for ban deletion. Ban bodies must follow the YouTube liveChatBan resource shape."
         },
         {
           "operation": "channel.sections.read",
