@@ -169,6 +169,32 @@ The adapter sends relative XRPC paths to `session.fetchHandler`, so a session fr
 
 ## Examples
 
+### Read timelines and feeds
+
+The native feed reads map directly to Bluesky's documented XRPC views. `getTimeline` reads the
+authenticated account's default timeline, `getFeed` reads a feed generator by AT-URI, and
+`getAuthorFeed` reads one actor with an optional provider filter. Each returns the native `feed`
+views and an optional cursor; pass that cursor unchanged to the next call. Timeline reads require
+the account's authenticated session, while feed-generator and author-feed views are public AppView
+reads when the configured service permits them. Native calls bypass normalized middleware, so keep
+tenant authorization around the account reference.
+
+```ts
+const timeline = await native.getTimeline({ account, limit: 30 });
+const custom = await native.getFeed({
+  account,
+  feed: "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot",
+});
+const author = await native.getAuthorFeed({
+  account,
+  actor: "did:plc:z72i7hdynmk6r22z27h6tvur",
+  filter: "posts_and_author_threads",
+});
+```
+
+See the official [viewing feeds guide](https://docs.bsky.app/docs/tutorials/viewing-feeds) and
+the [`getTimeline` HTTP reference](https://docs.bsky.app/docs/api/app-bsky-feed-get-timeline).
+
 ### Publish a text post
 
 The adapter enforces 300 graphemes and 3,000 UTF-8 bytes and creates rich-text URL facets automatically. Explicit `content.link` cards are rejected until an external-embed mapping is supported; put URLs in text to get link facets.
