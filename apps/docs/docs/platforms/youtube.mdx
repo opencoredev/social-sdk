@@ -27,6 +27,8 @@ These are operation-specific choices, not a request to grant every scope. Use th
 | Comment writes, moderation, caption writes/downloads, ratings                 | `https://www.googleapis.com/auth/youtube.force-ssl`                                              |
 | Analytics reports                                                             | `https://www.googleapis.com/auth/yt-analytics.readonly`                                          |
 | Monetary Analytics metrics                                                    | `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`                                 |
+| Live chat messages, moderators, and bans; channel section writes              | `https://www.googleapis.com/auth/youtube`                                                        |
+| Channel sections and activity reads                                           | `https://www.googleapis.com/auth/youtube.readonly`                                               |
 
 `youtube.readonly` cannot authorize mutations. Account/post statistics use the Data API read scope; Analytics reports use the separate Analytics scope. Public reads may have different upstream authorization requirements, but this adapter always uses its configured OAuth token.
 
@@ -390,7 +392,26 @@ Reports need `https://www.googleapis.com/auth/yt-analytics.readonly`; monetary m
 
 ### Live broadcasts
 
-`native.liveBroadcasts` supports a limited list (configured channel or selected ID), insertion, and transition to `testing`, `live`, or `complete`. Reads include `contentDetails`, and inserts select caller-supplied `contentDetails`. The channel must have live streaming enabled. Stream creation, stream binding, live chat, and expanded list filters remain outside this surface. A broadcast generally needs a separately created and bound stream before transition.
+`native.liveBroadcasts` supports a limited list (configured channel or selected ID), insertion, and transition to `testing`, `live`, or `complete`. Reads include `contentDetails`, and inserts select caller-supplied `contentDetails`. The channel must have live streaming enabled. Stream creation and stream binding remain outside this surface. A broadcast generally needs a separately created and bound stream before transition.
+
+### Live chat, channel sections, and activity
+
+The native surface exposes `liveChatMessages` and `liveChatModerators` for list, insert, and delete operations, plus `liveChatBans` for insert and delete. YouTube does not expose a `liveChatBans.list` or read method. Supply the live chat ID from a broadcast's `snippet.liveChatId` when listing; inserts use the provider resource body's `snippet.liveChatId`, and deletes need the message or moderator ID, while ban deletion needs only the ban ID. The YouTube authorization is the ownership boundary for these actions; the adapter validates supplied IDs and body consistency but cannot independently verify chat or ban ownership where the API has no lookup. These methods preserve upstream response bodies and do not claim normalized message or moderation semantics.
+
+`native.channelSections` lists, inserts, updates, and deletes featured shelves for the configured channel. Updates replace the writable parts supplied in the body, and YouTube limits a channel to ten sections. `native.activities` reads activity events for the configured channel; channel bulletins and `activities.insert` are deprecated and are intentionally unavailable.
+
+```ts
+const chat = await native.liveChatMessages({
+  action: "list",
+  liveChatId: "Cg0KC2xpdmVjaGF0…",
+  maxResults: 50,
+  context,
+});
+const sections = await native.channelSections({ action: "list", context });
+const activity = await native.activities({ channelId: channelId, context });
+```
+
+See YouTube's [liveChatMessages](https://developers.google.com/youtube/v3/live/docs/liveChatMessages), [liveChatModerators](https://developers.google.com/youtube/v3/live/docs/liveChatModerators), [liveChatBans](https://developers.google.com/youtube/v3/live/docs/liveChatBans), [channelSections](https://developers.google.com/youtube/v3/docs/channelSections), and [activities.list](https://developers.google.com/youtube/v3/docs/activities/list) references for current resource fields and eligibility rules.
 
 ## Limits and requirements
 
