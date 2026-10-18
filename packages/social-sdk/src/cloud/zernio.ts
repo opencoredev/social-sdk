@@ -416,10 +416,17 @@ export function zernio(options: ManagedOptions) {
           native["replySettings"] = string(config["replySettings"]);
 
         if (target.account.platform === "tiktok") {
+          const video = media.length === 1 && media[0]?.["type"] === "video";
+          const photo = media.length > 0 && media.every((item) => item["type"] === "image");
           native["privacyLevel"] = string(config["privacy"]);
           native["contentPreviewConfirmed"] = true;
           native["expressConsentGiven"] = true;
-          native["autoAddMusic"] = false;
+
+          if (video) native["autoAddMusic"] = false;
+          else if (photo)
+            native["autoAddMusic"] = isBoolean(config["autoAddMusic"])
+              ? config["autoAddMusic"]
+              : false;
           native["allowDuet"] = !config["disableDuet"];
           native["allowStitch"] = !config["disableStitch"];
 
@@ -435,18 +442,31 @@ export function zernio(options: ManagedOptions) {
             if (value !== undefined) native[nativeKey] = value;
           }
 
-          const { photoCoverIndex, disableComments, brandedContent } = config;
+          const { photoCoverIndex, disableComments, brandedContent, description, mediaType } =
+            config;
 
           if (isFiniteNumber(photoCoverIndex)) native["photoCoverIndex"] = photoCoverIndex;
 
           if (isBoolean(disableComments)) native["allowComment"] = !disableComments;
 
           if (isBoolean(brandedContent)) native["brandPartnerPromote"] = brandedContent;
+
+          if (photo && (isString(description) || target.content.text !== undefined))
+            native["description"] = description ?? target.content.text ?? "";
+
+          if (photo && mediaType === "photo") native["mediaType"] = "photo";
         }
+
+        const tiktokPhoto =
+          target.account.platform === "tiktok" &&
+          media.length > 0 &&
+          media.every((item) => item["type"] === "image");
+
+        const tiktokTitle = tiktokPhoto ? optionalString(config["title"]) : undefined;
 
         try {
           const response = await request("/v1/posts", context, {
-            content: target.content.text ?? "",
+            content: tiktokTitle ?? target.content.text ?? "",
             mediaItems: media,
             platforms: [
               {

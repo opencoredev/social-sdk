@@ -312,6 +312,9 @@ it("YouTube creates a resumable session, preserves explicit metadata, streams vi
         assert.equal(init?.redirect, "manual");
 
         if (init?.method === "POST") {
+          // videos.insert rejects processingDetails with 400 unexpectedPart.
+          assert.equal(url.searchParams.get("part"), "snippet,status");
+          assert.equal(url.searchParams.get("uploadType"), "resumable");
           const body = JSON.parse(String(init.body));
           assert.deepEqual(body.status, {
             privacyStatus: "private",
@@ -367,6 +370,41 @@ it("YouTube creates a resumable session, preserves explicit metadata, streams vi
   assert.equal(result.outcomes[0]?.state, "processing");
   assert.ok(!JSON.stringify(result).includes("upload_id"));
   assert.deepEqual(calls, ["POST", "PUT"]);
+});
+
+it("YouTube names the provider reason when it rejects an upload session", async () => {
+  const reject = (reason: string) =>
+    beginYouTubeUpload(
+      { channelId: "channel1", size: 100, mimeType: "video/mp4", metadata: {} },
+      {
+        accessToken: "test",
+        fetch: async () =>
+          Response.json(
+            {
+              error: {
+                code: 400,
+                errors: [{ domain: "youtube.part", reason, location: "part" }],
+              },
+            },
+            { status: 400 },
+          ),
+      },
+    );
+
+  await assert.rejects(
+    reject("unexpectedPart"),
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError &&
+      error.code === "media_error" &&
+      error.upstreamStatus === 400 &&
+      error.message === "YouTube upload request failed with HTTP 400 (unexpectedPart).",
+  );
+  await assert.rejects(
+    reject("bad reason <script>"),
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError &&
+      error.message === "YouTube upload request failed with HTTP 400.",
+  );
 });
 
 it("YouTube validates video, visibility and audience locally and rejects wrong-channel refs", () => {

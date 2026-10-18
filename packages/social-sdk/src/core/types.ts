@@ -208,7 +208,14 @@ export interface TikTokPublishOptions {
   readonly aiGenerated: boolean;
   readonly draft: boolean;
   readonly photoCoverIndex?: number;
+  /** Photo-post title (≤90). Zernio maps this onto `content` when set. */
   readonly title?: string;
+  /** Photo-post caption/description (≤4000). Zernio `platformSpecificData.description`. */
+  readonly description?: string;
+  /** Zernio-only: `"photo"` for image carousels. */
+  readonly mediaType?: "photo";
+  /** Photo-only. Defaults to false when unset. Brand-organic/branded posts attach no auto music. */
+  readonly autoAddMusic?: boolean;
   readonly consentGiven: boolean;
   readonly creatorInfo?: JsonObject;
 }
@@ -525,6 +532,9 @@ export interface AdapterOperationContext extends OperationContext {
 
 export type OperationName =
   | "posts.publish"
+  | "posts.update"
+  | "posts.delete"
+  | "posts.schedule"
   | "accounts.read"
   | "profiles.read"
   | "graph.read"
@@ -535,12 +545,19 @@ export type OperationName =
   | "graph.mute"
   | "graph.unmute"
   | "posts.read"
+  | "posts.list"
+  | "posts.get"
+  | "posts.getDelivery"
+  | "posts.status"
+  | "media.upload"
   | "search.posts"
   | "analytics.read"
   | "analytics.account.read"
   | "analytics.report.read"
   | "comments.read"
   | "comments.write"
+  | "comments.moderate"
+  | "comments.delete"
   | "messages.read"
   | "messages.write"
   | "notifications.read"
