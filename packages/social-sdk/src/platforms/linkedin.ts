@@ -1644,13 +1644,9 @@ export function linkedin(
           platform: "linkedin",
           operation: "media.read",
           availability: "available" as const,
-          requiredScopes: [
-            options.auth.author.startsWith("urn:li:organization:")
-              ? "r_organization_social"
-              : "r_member_social",
-          ],
+          formats: ["image" as const, "video" as const, "document" as const],
           notes:
-            "Reads the configured author's uploaded image, video, or document processing status through the native status helpers.",
+            "Reads the configured author's uploaded media status through native helpers. Scopes vary by API and cannot be expressed as one required-scopes list. Videos: w_member_social or w_organization_social for the configured author (ads permissions are also documented). Images: rw_ads, w_organization_social, or w_power_creators; w_member_social alone cannot GET versioned images. Documents: the API lists w_member_social, r_member_social, w_organization_social, r_organization_social, rw_ads, and r_ads, without a GET-specific scope mapping. Provider ownership and organization role checks still apply.",
         },
         ...["comments.read", "comments.write", "analytics.read"].map((operation) => ({
           platform: "linkedin" as const,

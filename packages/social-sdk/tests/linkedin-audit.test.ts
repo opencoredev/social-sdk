@@ -411,3 +411,31 @@ it("LinkedIn declares author-specific feed grants and unimplemented adapter surf
     );
   }
 });
+
+// Microsoft Learn Images, Videos and Documents APIs, 202609; checked 2026-10-18.
+it("LinkedIn media status guidance distinguishes API permissions and versioned image reads", () => {
+  for (const author of ["urn:li:person:fixture", "urn:li:organization:2414183"] satisfies readonly (
+    | `urn:li:person:${string}`
+    | `urn:li:organization:${string}`
+  )[]) {
+    const adapter = linkedin({ auth: { accessToken: "fixture", author }, apiVersion: "202609" });
+
+    const declarations = adapter.capabilities.capabilities.filter(
+      (entry) => entry.operation === "media.read",
+    );
+
+    assert.equal(declarations.length, 1);
+    const entry = declarations[0];
+    assert.deepEqual(entry?.formats, ["image", "video", "document"]);
+    // A flat scope array cannot express the APIs' different grants and alternatives.
+    assert.equal(entry?.requiredScopes, undefined);
+    assert.match(entry?.notes ?? "", /Videos: w_member_social or w_organization_social/);
+    assert.match(entry?.notes ?? "", /Images: rw_ads, w_organization_social, or w_power_creators/);
+    assert.match(entry?.notes ?? "", /w_member_social alone cannot GET versioned images/);
+    assert.match(
+      entry?.notes ?? "",
+      /Documents:.*w_member_social.*r_member_social.*w_organization_social.*r_organization_social.*rw_ads.*r_ads/,
+    );
+    assert.match(entry?.notes ?? "", /ownership and organization role checks/);
+  }
+});
