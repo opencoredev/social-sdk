@@ -41,6 +41,7 @@ import {
 import {
   accountMatches,
   capabilityManifest,
+  managedConstraints,
   managedHttp,
   managedOptionIssues,
   managedPreparation,
@@ -562,6 +563,15 @@ export function postiz(options: PostizOptions) {
         "media.upload",
       ],
       undefined,
+      (_platform, operation) =>
+        managedConstraints(
+          operation,
+          operation === "media.upload"
+            ? ["https-url", "media-ref", "blob", "stream"]
+            : operation === "posts.publish"
+              ? ["https-url", "media-ref", "blob", "stream"]
+              : undefined,
+        ),
       {
         facebook:
           "Postiz's Facebook integration is Page-scoped; personal profiles are not supported.",

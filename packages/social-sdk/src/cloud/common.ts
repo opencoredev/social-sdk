@@ -4,6 +4,8 @@ import { SocialError } from "../core/errors.js";
 import type {
   AdapterOperationContext,
   CapabilityDeclaration,
+  CapabilityConstraints,
+  CapabilityMediaSource,
   CapabilityManifest,
   ConnectedAccountRef,
   JsonObject,
@@ -195,11 +197,45 @@ export const publishFormats: PublishFormats = (platform) => {
   return ["text", "image", "video", "carousel"];
 };
 
+const managedEligibility = [
+  "A connected account returned by the managed provider is required.",
+] as const;
+
+const managedApproval = [
+  "Provider account eligibility and application approval are checked by the managed provider.",
+] as const;
+
+export function managedConstraints(
+  operation: string,
+  mediaSources?: readonly CapabilityMediaSource[],
+): CapabilityConstraints {
+  const eligibility =
+    operation === "accounts.read" || operation === "webhooks.verify"
+      ? undefined
+      : managedEligibility;
+
+  if (mediaSources !== undefined && eligibility !== undefined)
+    return { approval: managedApproval, eligibility, mediaSources };
+
+  if (mediaSources !== undefined) return { approval: managedApproval, mediaSources };
+
+  if (eligibility !== undefined) return { approval: managedApproval, eligibility };
+
+  return { approval: managedApproval };
+}
+
+export type CapabilityConstraintsFor = (
+  platform: (typeof selectedPlatforms)[number],
+  operation: string,
+) => CapabilityConstraints;
+
 export function capabilityManifest(
   backend: string,
   apiRevision: string,
   operations: readonly string[],
   formats: PublishFormats = publishFormats,
+  constraintsFor: CapabilityConstraintsFor = (_platform, operation) =>
+    managedConstraints(operation),
   platformNotes: Partial<Record<Platform, string>> = {},
 ): CapabilityManifest {
   return {
@@ -212,8 +248,10 @@ export function capabilityManifest(
         platform,
         operation,
         availability: "available" as const,
+        surface: "normalized" as const,
         ...definedFields({
           formats: operation === "posts.publish" ? formats(platform) : undefined,
+          constraints: constraintsFor(platform, operation),
         }),
         notes: [
           "Contract implementation; live account verification and provider/platform eligibility are separate.",
@@ -267,7 +305,9 @@ export function managedOptionIssues(
             "ownBrand",
             "aiGenerated",
             "draft",
-            ...(provider === "zernio" ? ["photoCoverIndex"] : []),
+            ...(provider === "zernio"
+              ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
+              : []),
           ],
   };
 
@@ -329,6 +369,7 @@ export function managedOptionIssues(
     }
 
     const media = target.content.media ?? [];
+    const video = media.length === 1 && media[0]?.kind === "video";
 
     if (
       media.some((item) => item.kind === "video") &&
@@ -347,6 +388,63 @@ export function managedOptionIssues(
         media.some((item) => item.kind !== "image"))
     )
       fail("tiktok.cover", "Choose an existing photo index for the cover.");
+
+    if (provider === "zernio" && video) {
+      if (config["title"] !== undefined)
+        fail("tiktok.title", "Video captions use content.text; title is a photo-only option.");
+
+      if (config["description"] !== undefined)
+        fail("tiktok.description", "Description is a photo-only option.");
+
+      if (config["mediaType"] !== undefined)
+        fail("tiktok.media_type", "mediaType is a photo-only option.");
+
+      if (config["autoAddMusic"] !== undefined)
+        fail("tiktok.auto_add_music", "autoAddMusic is a photo-only option.");
+    } else if (provider === "zernio" && media.length === 0) {
+      if (config["title"] !== undefined)
+        fail("tiktok.title", "Photo titles require at least one image.");
+
+      if (config["description"] !== undefined)
+        fail("tiktok.description", "Photo descriptions require at least one image.");
+
+      if (config["mediaType"] !== undefined)
+        fail("tiktok.media_type", "mediaType requires at least one image.");
+
+      if (config["autoAddMusic"] !== undefined)
+        fail("tiktok.auto_add_music", "autoAddMusic requires at least one image.");
+    } else if (provider === "zernio") {
+      const photoTitle = config["title"] ?? target.content.text;
+
+      if (
+        photoTitle !== undefined &&
+        (!isString(photoTitle) || String(photoTitle).length === 0 || String(photoTitle).length > 90)
+      )
+        fail("tiktok.title", "Photo titles are limited to 90 characters.");
+
+      const photoDescription = config["description"] ?? target.content.text;
+
+      if (
+        photoDescription !== undefined &&
+        (!isString(photoDescription) || String(photoDescription).length > 4000)
+      )
+        fail("tiktok.description", "Photo descriptions are limited to 4000 characters.");
+
+      if (config["mediaType"] !== undefined && config["mediaType"] !== "photo")
+        fail("tiktok.media_type", 'mediaType must be "photo" when set.');
+
+      if (config["autoAddMusic"] !== undefined && !isBoolean(config["autoAddMusic"]))
+        fail("tiktok.auto_add_music", "autoAddMusic must be a boolean.");
+
+      if (
+        config["autoAddMusic"] === true &&
+        (config["brandedContent"] === true || config["ownBrand"] === true)
+      )
+        fail(
+          "tiktok.auto_add_music",
+          "Branded and brand-organic photo posts cannot request automatic music.",
+        );
+    }
   }
 
   return issues;

@@ -231,6 +231,24 @@ export interface BlueskyNative {
   readonly getBlocks: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
   readonly getLikes: (input: BlueskyPostPageInput) => Promise<BlueskyLikePageResult>;
   readonly getActorLikes: (input: BlueskyActorPageInput) => Promise<BlueskyFeedPageResult>;
+  /** Reads the authenticated user's default chronological timeline. */
+  readonly getTimeline: (
+    input: BlueskyPageInput & { readonly algorithm?: string },
+  ) => Promise<BlueskyFeedPageResult>;
+  /** Reads posts from a feed generator identified by its AT-URI. */
+  readonly getFeed: (
+    input: BlueskyPageInput & { readonly feed: string },
+  ) => Promise<BlueskyFeedPageResult>;
+  /** Reads posts authored by an actor, with the provider's author-feed filter. */
+  readonly getAuthorFeed: (
+    input: BlueskyActorPageInput & {
+      readonly filter?:
+        | "posts_with_replies"
+        | "posts_no_replies"
+        | "posts_with_media"
+        | "posts_and_author_threads";
+    },
+  ) => Promise<BlueskyFeedPageResult>;
   readonly searchActors: (input: BlueskyActorSearchInput) => Promise<BlueskyActorPageResult>;
   readonly searchActorsTypeahead: (
     input: BlueskyActorSearchInput,
@@ -1512,13 +1530,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       });
   };
 
-  const pageQuery = (input: BlueskyPageInput): URLSearchParams => {
+  const pageQuery = (
+    input: BlueskyPageInput,
+    operation = "bluesky.graph.read",
+  ): URLSearchParams => {
     const limit = input.limit ?? 50;
 
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       throw new SocialError({
         code: "invalid_input",
-        operation: "bluesky.graph.read",
+        operation,
         message: "Page size must be between 1 and 100.",
       });
 
@@ -1547,6 +1568,20 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     actors: array(response[key] ?? []).map((value) => object(value)),
     ...definedFields({ cursor: optionalString(response["cursor"]) }),
   });
+
+  const feedPage = (response: JsonObject, operation: string): BlueskyFeedPageResult => {
+    if (response["feed"] === undefined)
+      throw new SocialError({
+        code: "upstream_failure",
+        operation,
+        message: "Bluesky feed response did not include a feed array.",
+      });
+
+    return {
+      feed: array(response["feed"]).map((entry) => object(entry)),
+      ...definedFields({ cursor: optionalString(response["cursor"]) }),
+    };
+  };
 
   const native: BlueskyNative = {
     async getPost(input) {
@@ -2090,6 +2125,51 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         feed: array(value["feed"] ?? []).map((entry) => object(entry)),
         ...definedFields({ cursor: optionalString(value["cursor"]) }),
       };
+    },
+    async getTimeline(input) {
+      const context = nativeContext(input.context, "bluesky.feeds.timeline");
+      assertNativeAccount(input.account, context, "bluesky.feeds.timeline");
+
+      const q = pageQuery(input, "bluesky.feeds.timeline");
+
+      if (input.algorithm?.trim()) q.set("algorithm", input.algorithm.trim());
+
+      const value = object(await xrpc(`app.bsky.feed.getTimeline?${q}`, context));
+
+      return feedPage(value, "bluesky.feeds.timeline");
+    },
+    async getFeed(input) {
+      const context = nativeContext(input.context, "bluesky.feeds.feed");
+      assertNativeAccount(input.account, context, "bluesky.feeds.feed");
+
+      if (!input.feed.trim())
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.feeds.feed",
+          message: "Feed generator AT-URI is required.",
+        });
+
+      const q = pageQuery(input, "bluesky.feeds.feed");
+
+      q.set("feed", input.feed.trim());
+
+      const value = object(await xrpc(`app.bsky.feed.getFeed?${q}`, context));
+
+      return feedPage(value, "bluesky.feeds.feed");
+    },
+    async getAuthorFeed(input) {
+      const context = nativeContext(input.context, "bluesky.feeds.author");
+      assertNativeAccount(input.account, context, "bluesky.feeds.author");
+
+      const q = pageQuery(input, "bluesky.feeds.author");
+
+      q.set("actor", input.actor?.trim() || auth.did);
+
+      if (input.filter) q.set("filter", input.filter);
+
+      const value = object(await xrpc(`app.bsky.feed.getAuthorFeed?${q}`, context));
+
+      return feedPage(value, "bluesky.feeds.author");
     },
     async searchActors(input) {
       const context = nativeContext(input.context, "bluesky.profiles.search");

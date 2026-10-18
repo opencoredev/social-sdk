@@ -123,6 +123,11 @@ export interface ThreadsOptions {
 }
 
 export interface ThreadsNative {
+  /** Reads the authenticated profile's rolling Threads publishing quota. */
+  readonly publishingLimit: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
   readonly getPost: (id: string, context: AdapterOperationContext) => Promise<JsonObject>;
   readonly getContainer: (id: string, context: AdapterOperationContext) => Promise<JsonObject>;
   readonly resumePublication: (
@@ -720,6 +725,15 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       { operation: "posts.read", platform: "threads", availability: "available" },
       { operation: "posts.list", platform: "threads", availability: "available" },
       { operation: "posts.status", platform: "threads", availability: "available" },
+      // Source, accessed 2026-10-11: https://developers.facebook.com/docs/threads/overview
+      {
+        operation: "publishing.limit.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_content_publish"],
+        notes:
+          "Reads the authenticated profile's rolling 24-hour publishing quota from threads_publishing_limit. The response includes quota_usage and config.",
+      },
       {
         operation: "analytics.read",
         platform: "threads",
@@ -864,6 +878,16 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   };
 
   const native: ThreadsNative = {
+    publishingLimit: async ({ account: selected, context }) => {
+      authorize(selected, "threads.publishing.limit.read");
+
+      return request(
+        `${encodeURIComponent(selected.accountId)}/threads_publishing_limit?fields=quota_usage,config`,
+        { method: "GET" },
+        "threads.publishing.limit.read",
+        context,
+      );
+    },
     getPost: (id, c) =>
       request(
         `${encodeURIComponent(id)}?fields=id,text,username,media_type,permalink`,

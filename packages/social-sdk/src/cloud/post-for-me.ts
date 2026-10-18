@@ -166,6 +166,7 @@ export function postForMe(options: ManagedOptions) {
         "webhooks.verify",
       ],
       undefined,
+      undefined,
       {
         facebook:
           "Post for Me's Facebook integration is Page-scoped; personal profiles are not supported.",

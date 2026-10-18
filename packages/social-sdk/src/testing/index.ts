@@ -12,6 +12,7 @@ import {
   type DeliveryOutcome,
   type MediaRef,
   type ScheduleCancellation,
+  type ScheduledJobRef,
   type IdempotencyClaim,
   type IdempotencyClaimInput,
   type IdempotencyStore,
@@ -251,6 +252,24 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
       async cancelScheduled(ref, context) {
         record("posts.cancelScheduled", context, connectedAccountRef(ref));
 
+        for (const [deliveryId, outcome] of deliveries) {
+          if (
+            outcome.state === "scheduled" &&
+            outcome.job.jobId === ref.jobId &&
+            outcome.account.accountId === ref.accountId &&
+            outcome.account.platform === ref.platform &&
+            outcome.account.backend === ref.backend
+          ) {
+            deliveries.set(deliveryId, {
+              ...outcome,
+              state: "cancelled",
+              reason: "schedule-cancelled",
+              observedAt: clock().toISOString(),
+            });
+            break;
+          }
+        }
+
         return { state: "cancelled", backendRecord: "retained" } satisfies ScheduleCancellation;
       },
       async deleteBackendRecord(ref, context) {
@@ -381,6 +400,19 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
 
           if (scenario === "media-processing-then-success" && !processingAdvanced) {
             return { ...base, state: "processing", backendState: "PROCESSING_MEDIA" };
+          }
+
+          if (target.schedule !== undefined) {
+            const job: ScheduledJobRef = {
+              kind: "scheduled-job",
+              version: 1,
+              backend,
+              platform: target.account.platform,
+              accountId: target.account.accountId,
+              jobId: `job-${deliveryNumber}`,
+            };
+
+            return { ...base, state: "scheduled", job };
           }
 
           return {
