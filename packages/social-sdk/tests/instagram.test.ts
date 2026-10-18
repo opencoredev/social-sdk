@@ -1064,3 +1064,132 @@ it("rejects media deletion on Instagram Login without a network request", async 
       "unsupported-by-platform",
     );
 });
+
+it("supports Instagram Login conversation reads and native text replies", async () => {
+  const requests: { url: URL; method: string; body: string | undefined }[] = [];
+
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1" },
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      requests.push({ url, method: init?.method ?? "GET", body: init?.body?.toString() });
+
+      if (url.pathname.endsWith("/conversations"))
+        return Response.json({
+          data: [{ id: "conversation-1", updated_time: "2026-10-11T12:00:00Z" }],
+          paging: { cursors: { after: "next" } },
+        });
+
+      if (url.pathname.endsWith("/conversation-1"))
+        return Response.json({
+          id: "conversation-1",
+          messages: {
+            data: url.searchParams.get("fields")?.includes("after(messages-next)")
+              ? [{ id: "message-2", created_time: "2026-10-11T12:02:00Z" }]
+              : [{ id: "message-1", created_time: "2026-10-11T12:01:00Z" }],
+            paging: url.searchParams.get("fields")?.includes("after(messages-next)")
+              ? {}
+              : { cursors: { after: "messages-next" } },
+          },
+        });
+
+      return Response.json({ recipient_id: "customer-1", message_id: "message-2" });
+    },
+  });
+
+  const social = createSocial({ backend: adapter });
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+
+  const conversation = {
+    kind: "conversation" as const,
+    version: 1 as const,
+    backend: "default",
+    platform: "instagram" as const,
+    accountId: "ig1",
+    conversationId: "conversation-1",
+  };
+
+  const conversations = await social.messages.listConversations(account, { limit: 10 });
+  assert.deepEqual(conversations.items, [
+    { id: "conversation-1", updated_time: "2026-10-11T12:00:00Z" },
+  ]);
+  assert.match(conversations.nextCursor ?? "", /next/);
+  const messages = await social.messages.listMessages(conversation, { limit: 10 });
+  assert.deepEqual(messages.items, [{ id: "message-1", created_time: "2026-10-11T12:01:00Z" }]);
+  assert.match(messages.nextCursor ?? "", /messages-next/);
+  assert.ok(messages.nextCursor);
+
+  const nextMessages = await social.messages.listMessages(conversation, {
+    limit: 10,
+    cursor: messages.nextCursor,
+  });
+
+  assert.deepEqual(nextMessages.items, [{ id: "message-2", created_time: "2026-10-11T12:02:00Z" }]);
+  assert.deepEqual(
+    await adapter.native!.sendMessage({
+      account,
+      recipientId: "customer-1",
+      text: "Thanks!",
+      context: context("default"),
+    }),
+    {
+      recipient_id: "customer-1",
+      message_id: "message-2",
+    },
+  );
+
+  assert.equal(requests[0]?.url.origin, "https://graph.instagram.com");
+  assert.equal(requests[0]?.url.searchParams.get("platform"), "instagram");
+  assert.equal(requests[1]?.url.searchParams.get("fields"), "messages.limit(10)");
+  assert.equal(
+    requests[2]?.url.searchParams.get("fields"),
+    "messages.limit(10).after(messages-next)",
+  );
+  assert.equal(requests[3]?.method, "POST");
+  assert.deepEqual(JSON.parse(requests[3]?.body ?? "{}"), {
+    recipient: { id: "customer-1" },
+    message: { text: "Thanks!" },
+  });
+});
+
+it("keeps Facebook Login messaging on the Messenger Platform boundary", async () => {
+  let fetches = 0;
+
+  const adapter = instagram({
+    auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
+    fetch: async () => {
+      fetches++;
+
+      return Response.json({ data: [] });
+    },
+  });
+
+  const social = createSocial({ backend: adapter });
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+
+  await assert.rejects(() => social.messages.listConversations(account), {
+    code: "unsupported_capability",
+    operation: "messages.read",
+  });
+  assert.equal(fetches, 0);
+  assert.equal(
+    adapter.capabilities.capabilities.find((entry) => entry.operation === "messages.read")
+      ?.availability,
+    "unsupported-by-platform",
+  );
+  assert.equal(
+    adapter.capabilities.capabilities.find((entry) => entry.operation === "messages.write")
+      ?.availability,
+    "not-implemented-by-adapter",
+  );
+});

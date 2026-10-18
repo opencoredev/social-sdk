@@ -144,6 +144,91 @@ it("TikTok queries current creator restrictions and preserves explicit privacy/d
   assert.deepEqual(calls, ["/v2/post/publish/creator_info/query/", "/v2/post/publish/video/init/"]);
 });
 
+it("TikTok exposes the documented Direct Post preflight and Display video query fields", async () => {
+  const calls: { path: string; body?: JsonValue; fields?: string }[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      calls.push({
+        path: url.pathname,
+        ...definedFields({
+          body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+        }),
+        ...definedFields({ fields: url.searchParams.get("fields") ?? undefined }),
+      });
+
+      return response({
+        videos: [
+          {
+            id: "video1",
+            embed_html: "<blockquote>video</blockquote>",
+            embed_link: "https://www.tiktok.com/player/v1/video1",
+            is_aigc: false,
+          },
+        ],
+      });
+    },
+  });
+
+  const declaration = adapter.capabilities.capabilities.find(
+    (entry) => entry.operation === "posts.publish.preflight",
+  );
+
+  assert.deepEqual(declaration, {
+    platform: "tiktok",
+    operation: "posts.publish.preflight",
+    availability: "available",
+    requiredScopes: ["video.publish"],
+    notes:
+      "Direct Post refreshes creator_info/query immediately before initialization. Inbox drafts do not require this preflight.",
+  });
+
+  assert.ok(adapter.native);
+
+  const result = await adapter.native.queryVideos({
+    account,
+    videoIds: ["video1"],
+    context,
+  });
+
+  assert.deepEqual(result["videos"], [
+    {
+      id: "video1",
+      embed_html: "<blockquote>video</blockquote>",
+      embed_link: "https://www.tiktok.com/player/v1/video1",
+      is_aigc: false,
+    },
+  ]);
+  assert.equal(calls[0]?.path, "/v2/video/query/");
+  assert.deepEqual(calls[0]?.body, { filters: { video_ids: ["video1"] } });
+  assert.ok(calls[0]?.fields?.includes("embed_html"));
+  assert.ok(calls[0]?.fields?.includes("embed_link"));
+  assert.ok(calls[0]?.fields?.includes("is_aigc"));
+});
+
+it("TikTok bounds Display video queries to the documented filter size", async () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async () => {
+      throw new Error("must not run");
+    },
+  });
+
+  assert.ok(adapter.native);
+  await assert.rejects(
+    adapter.native.queryVideos({
+      account,
+      videoIds: Array.from({ length: 21 }, (_, index) => `video${index}`),
+      context,
+    }),
+    (error: Error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+});
+
 it("TikTok refuses changed creator privacy before initializing a post", async () => {
   let calls = 0;
 
@@ -164,6 +249,97 @@ it("TikTok refuses changed creator privacy before initializing a post", async ()
   const result = await createSocial({ backend: adapter }).posts.publish(request);
   assert.equal(result.outcomes[0]?.state, "failed");
   assert.equal(calls, 1);
+});
+
+it("TikTok reports malformed creator snapshots during preparation", () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async () => {
+      throw new Error("must not run");
+    },
+  });
+
+  const result = createSocial({ backend: adapter }).posts.prepare({
+    ...request,
+    targets: [{ account, options: { ...options, creatorInfo: JSON.parse("[]") } }],
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((issue) => issue.code === "tiktok.creator_info"));
+});
+
+it("TikTok bounds native Display list pagination before dispatch", async () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async () => {
+      throw new Error("must not run");
+    },
+  });
+
+  assert.ok(adapter.native);
+
+  for (const input of [
+    { cursor: "-1", maxCount: 1 },
+    { cursor: "1.5", maxCount: 1 },
+    { cursor: "0", maxCount: 21 },
+  ])
+    await assert.rejects(
+      adapter.native.listVideos({ account, ...input, context }),
+      (error: Error) => error instanceof SocialError && error.code === "invalid_input",
+    );
+});
+
+it("TikTok normalized video reads request and preserve the shared Display fields", async () => {
+  const requests: { path: string; fields: string | null }[] = [];
+
+  const video = {
+    id: "video1",
+    embed_html: "<blockquote>video</blockquote>",
+    embed_link: "https://www.tiktok.com/player/v1/video1",
+    is_aigc: false,
+  };
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      requests.push({ path: url.pathname, fields: url.searchParams.get("fields") });
+
+      return response({ videos: [video] });
+    },
+  });
+
+  const posts = adapter.posts;
+  assert.ok(posts?.get);
+  assert.ok(posts?.list);
+
+  const post = await posts.get(
+    {
+      kind: "platform-post",
+      version: 1,
+      backend: "default",
+      platform: "tiktok",
+      accountId: "creator1",
+      postId: "video1",
+    },
+    context,
+  );
+
+  const page = await posts.list(account, { limit: 1 }, context);
+
+  assert.deepEqual(post, video);
+  assert.deepEqual(page.items, [video]);
+  assert.equal(requests.length, 2);
+
+  for (const request of requests) {
+    assert.equal(
+      request.fields,
+      "id,create_time,cover_image_url,share_url,title,video_description,duration,height,width,like_count,comment_count,share_count,view_count,embed_html,embed_link,is_aigc",
+    );
+  }
 });
 
 it("TikTok draft inbox remains accepted and large native IDs retain their exact decimal digits", async () => {
@@ -320,6 +496,38 @@ it("TikTok photo publishing keeps cover order and disables unrequested added mus
   });
 
   assert.equal(result.outcomes[0]?.state, "accepted");
+});
+
+it("TikTok rejects Zernio-only photo options instead of silently ignoring them", () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: ["https://media.example.test"],
+  });
+
+  const social = createSocial({ backend: adapter });
+  const directBase: TikTokPublishOptions = { ...options, creatorInfo: creator };
+
+  for (const option of [
+    { description: "photo description" },
+    { mediaType: "photo" as const },
+    { autoAddMusic: true },
+  ]) {
+    const preparation = social.posts.prepare({
+      targets: [{ account, options: { ...directBase, ...option } }],
+      content: {
+        text: "photos",
+        media: [
+          {
+            kind: "image" as const,
+            mimeType: "image/jpeg",
+            source: { kind: "https-url" as const, url: "https://media.example.test/photo.jpg" },
+          },
+        ],
+      },
+    });
+
+    assert.equal(preparation.ok, false);
+  }
 });
 
 for (const transport of ["custom", "default"]) {

@@ -1,0 +1,44 @@
+{
+  "recordedAt": "2026-10-18T17:29:40.557Z",
+  "runner": {
+    "platform": "linux",
+    "architecture": "x64",
+    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "bun": "1.4.2"
+  },
+  "methodology": {
+    "prepareTargets": 20,
+    "prepareWarmup": 100,
+    "dispatchTargets": 1,
+    "dispatchWarmup": 50,
+    "baseline": "One resolved async mock transport; no upstream latency",
+    "bundles": "Bun browser ESM bundle, minified then gzip; all runtime exports of the selected entry retained"
+  },
+  "bundles": {
+    "core": {
+      "minifiedBytes": 34125,
+      "gzipBytes": 8883
+    },
+    "managed": {
+      "minifiedBytes": 80751,
+      "gzipBytes": 23546
+    }
+  },
+  "preparation": {
+    "coldMs": 0.27231099999999486,
+    "p50Ms": 0.005471000000000004,
+    "p95Ms": 0.009548000000002332,
+    "samples": 1000
+  },
+  "dispatch": {
+    "p50Ms": 0.03621799999999098,
+    "p95Ms": 0.05528400000000033,
+    "samples": 200
+  },
+  "baseline": {
+    "p50Ms": 0.00010000000000331966,
+    "p95Ms": 0.0002599999999972624,
+    "samples": 200
+  },
+  "dispatchOverheadP95Ms": 0.05502400000000307
+}

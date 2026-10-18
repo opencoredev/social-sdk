@@ -84,6 +84,98 @@ it("LinkedIn does not claim publication without an upstream ID or replay uncerta
   }
 });
 
+it("LinkedIn publishes article links with explicit Posts API metadata", async () => {
+  let body: JsonObject | undefined;
+
+  const social = createSocial({
+    backend: linkedin({
+      auth,
+      apiVersion: "202609",
+      fetch: async (_input, init) => {
+        body = object(JSON.parse(String(init?.body)));
+
+        return new Response(null, {
+          status: 201,
+          headers: { "x-restli-id": "urn:li:share:123" },
+        });
+      },
+    }),
+  });
+
+  const result = await social.posts.publish({
+    targets: [{ account }],
+    content: {
+      link: {
+        url: "https://example.com/article",
+        title: "An article",
+        description: "A short description",
+      },
+    },
+  });
+
+  assert.equal(result.outcomes[0]?.state, "published");
+  assert.deepEqual(body?.["content"], {
+    article: {
+      source: "https://example.com/article",
+      title: "An article",
+      description: "A short description",
+    },
+  });
+});
+
+it("LinkedIn rejects article links without provider-required metadata or HTTPS", () => {
+  const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
+
+  for (const link of [
+    { url: "http://example.com/article", title: "Title", description: "Description" },
+    { url: "https://example.com/article", title: "", description: "Description" },
+    { url: "https://example.com/article", title: "Title", description: "" },
+  ]) {
+    const prepared = social.posts.prepare({
+      targets: [{ account }],
+      content: { text: "Read this", link },
+    });
+
+    assert.equal(prepared.ok, false);
+    assert.ok(prepared.issues.some((issue) => issue.code.startsWith("linkedin.article_")));
+  }
+});
+
+it("LinkedIn rejects article metadata over provider limits", () => {
+  const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
+
+  for (const link of [
+    { url: "https://example.com/article", title: "t".repeat(400), description: "Description" },
+    { url: "https://example.com/article", title: "Title", description: "d".repeat(4086) },
+  ]) {
+    const prepared = social.posts.prepare({
+      targets: [{ account }],
+      content: { text: "Read this", link },
+    });
+
+    assert.equal(prepared.ok, false);
+    assert.ok(prepared.issues.some((issue) => issue.code.startsWith("linkedin.article_")));
+  }
+});
+
+it("LinkedIn applies article metadata limits after trimming", () => {
+  const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
+
+  const prepared = social.posts.prepare({
+    targets: [{ account }],
+    content: {
+      text: "Read this",
+      link: {
+        url: "https://example.com/article",
+        title: ` ${"t".repeat(399)} `,
+        description: ` ${"d".repeat(4085)} `,
+      },
+    },
+  });
+
+  assert.equal(prepared.ok, true);
+});
+
 it("LinkedIn refuses unsupported formats/options and cross-author media locally", () => {
   const social = createSocial({ backend: linkedin({ auth, apiVersion: "202609" }) });
 

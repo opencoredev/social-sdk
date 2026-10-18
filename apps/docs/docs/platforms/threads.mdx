@@ -204,6 +204,7 @@ const found = await native.search({
 });
 const mentions = await native.mentions({ account, context });
 const profile = await native.getProfile({ account, context });
+const publishingLimit = await native.publishingLimit({ account, context });
 const media = await native.getPost(post.postId, context);
 const container = await native.getContainer("YOUR_CONTAINER_ID", context);
 
@@ -271,7 +272,7 @@ Meta requires the Threads webhooks sub-use case, appropriate access and permissi
 - Publish text, one image or video, or a carousel of two through twenty media items. Use public HTTPS URLs; local uploads and document media are rejected. Declared image MIME types must be `image/jpeg` or `image/png`; video MIME types must be `video/mp4` or `video/quicktime` (MOV). Alt text is limited to 1,000 characters by the adapter's string-length check.
 - The mapped `replyControl` values are `everyone`, `accountsYouFollow`, and `mentionedOnly`. Other options are rejected as unmapped. Additional provider reply audiences, polls, topic tags, and explicit link-preview options are not implemented.
 - Publishing is immediate. Native scheduling is `unsupported-by-platform`; use an application-owned durable runner to dispatch at the desired time.
-- Meta allows 250 API-published posts per profile per rolling 24 hours; a carousel counts as one. The adapter does not read the publishing-quota endpoint.
+- Meta allows 250 API-published posts per profile per rolling 24 hours; a carousel counts as one. Read the current quota with `native.publishingLimit`, which calls `threads_publishing_limit` and returns Meta's `{ data: [{ quota_usage, config }] }` envelope. This read requires `threads_basic` and `threads_content_publish`.
 - Credentials, grants, app review, and account eligibility remain server-owned setup. Contract tests use mocked transports; no live Threads account has been verified.
 
 Scheduling, post updates, profile updates, profile search, graph reads, messages, and notifications are declared `unsupported-by-platform`. Published text and attachments cannot be edited through this API; profiles are read-only. Profile discovery only matches exact usernames, so it does not provide query-based profile search. Threads has no follower/following edges or follow, block, and mute operations; use the `followers_count` insight for the authorized user's aggregate count. Standard apps have no messaging or notification-inbox API.

@@ -8,6 +8,7 @@ const manifests = [];
 const implementationPaths = new Map<string, readonly string[]>([
   ["accounts.read", ["accounts.list", "accounts.get"]],
   ["posts.publish", ["posts.prepareTarget", "posts.publishTarget"]],
+  ["posts.publish.preflight", ["native.creatorInfo"]],
   ["posts.read", ["posts.get"]],
   ["posts.list", ["posts.list"]],
   ["posts.status", ["posts.getDelivery"]],
@@ -15,6 +16,7 @@ const implementationPaths = new Map<string, readonly string[]>([
   ["posts.deleteBackendRecord", ["posts.deleteBackendRecord"]],
   ["posts.removeFromPlatform", ["posts.removeFromPlatform"]],
   ["media.upload", ["media.upload"]],
+  ["media.read", ["native.imageStatus", "native.videoStatus", "native.documentStatus"]],
   ["analytics.read", ["analytics.getPostMetrics"]],
   ["analytics.account.read", ["analytics.getAccountMetrics"]],
   ["analytics.report.read", ["analytics.getReport"]],
@@ -43,7 +45,9 @@ const implementationPaths = new Map<string, readonly string[]>([
   ],
   ["profiles.search", ["native.searchActors"]],
   ["profile.update", ["native.updateProfile"]],
-  ["feeds.read", ["native.listFeeds"]],
+  // Feed discovery is provider-specific: every adapter may expose a different native read,
+  // while Bluesky intentionally conformance-tests all four feed routes in bluesky.test.ts.
+  ["feeds.read", ["native.listFeeds|native.getTimeline|native.getFeed|native.getAuthorFeed"]],
   ["chat.read", ["native.listConversations", "native.listMessages"]],
   ["chat.write", ["native.sendMessage"]],
   ["polls.create", ["native.createPoll"]],
@@ -100,12 +104,19 @@ const implementationPaths = new Map<string, readonly string[]>([
   ["posts.update", ["native.updateVideo|native.updatePost"]],
   ["analytics.youtube.read", ["native.analytics"]],
   ["live.broadcasts", ["native.liveBroadcasts"]],
+  ["live.chat.messages", ["native.liveChatMessages"]],
+  ["live.chat.moderators", ["native.liveChatModerators"]],
+  ["live.chat.bans", ["native.liveChatBans"]],
+  ["channel.sections.read", ["native.channelSections"]],
+  ["channel.sections.write", ["native.channelSections"]],
+  ["channel.activity.read", ["native.activities"]],
   ["posts.multi-image", ["posts.publishTarget"]],
   ["posts.video", ["posts.publishTarget", "media.upload", "native.videoStatus"]],
   ["posts.document", ["posts.publishTarget", "media.upload", "native.documentStatus"]],
   ["reactions.write", ["native.react"]],
   ["reshares.write", ["native.reshare"]],
   ["analytics.organization.read", ["native.organizationAnalytics"]],
+  ["articles.create", ["posts.publishTarget"]],
 ]);
 
 function isObject(value: unknown): value is object {
@@ -125,6 +136,20 @@ const cell = (value: string) =>
     .replaceAll("}", "&#125;")
     .replaceAll("|", "\\|")
     .replaceAll("\n", " ");
+
+function surface(entry: { readonly operation: string; readonly surface?: string }): string {
+  if (entry.surface !== undefined) return entry.surface;
+
+  const paths = implementationPaths.get(entry.operation);
+
+  if (
+    paths?.length &&
+    paths.every((path) => path.split("|").every((candidate) => candidate.startsWith("native.")))
+  )
+    return "native";
+
+  return "normalized";
+}
 
 const rows = [];
 
@@ -159,7 +184,7 @@ for (const adapter of adapterNames) {
 
   for (const entry of manifest.capabilities)
     rows.push(
-      `| ${cell(adapter)} | ${cell(entry.platform)} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? []).join(", ") || "See adapter setup")} | ${cell(entry.notes ?? "None declared")} |`,
+      `| ${cell(adapter)} | ${cell(entry.platform)} | ${cell(surface(entry))} | ${cell(entry.operation)} | ${cell(entry.availability)} | ${cell((entry.formats ?? []).join(", ") || "None declared")} | ${cell((entry.requiredScopes ?? entry.constraints?.scopes ?? []).join(", ") || "See adapter setup")} | ${cell((entry.constraints?.eligibility ?? []).join("; ") || "None declared")} | ${cell((entry.constraints?.approval ?? []).join("; ") || "None declared")} | ${cell((entry.constraints?.mediaSources ?? []).join(", ") || "None declared")} | ${cell(entry.notes ?? "None declared")} |`,
     );
 }
 
@@ -172,12 +197,14 @@ This table is generated from the same manifests used by local preparation and th
 
 An omitted operation is unsupported through the normalized API. Some operations need several permissions, and token/product restrictions can differ between member and organization accounts. The setup guide and current provider documentation determine the permissions for your account.
 
+Surface is \`normalized\` for the SDK's portable facade and \`native\` for a provider-specific route. Eligibility, approval, scopes, and accepted media sources are constraints on a declaration; they do not prove that a particular account can use it.
+
 Diagnostic manifests use one fixed setup per adapter: Instagram Login for Instagram and a member author for LinkedIn. Facebook Login deletion and organization-only analytics can therefore appear unavailable in this table. Create the adapter with your actual flavor or author to inspect its declarations.
 
 The adapter ID below identifies the implementation, such as \`instagram\` or \`zernio\`. It is not your configured backend instance key: references use the key registered with \`createSocial\`, such as \`default\` or \`company\`.
 
-| Adapter ID | Platform | Operation | Declaration | Formats | Scope guidance | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
+| Adapter ID | Platform | Surface | Operation | Declaration | Formats | Scope guidance | Eligibility | Approval | Media sources | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ${rows.join("\n")}
 
 ## Capability IDs and methods

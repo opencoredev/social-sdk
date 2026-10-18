@@ -3,7 +3,7 @@ title: LinkedIn
 description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image, video, and document processing states, comments, and metrics.
 ---
 
-The direct LinkedIn adapter supports account reads, normalized text, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, video and document status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
+The direct LinkedIn adapter supports account reads, normalized text, article links, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, image, video and document status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
 
 ## Setup
 
@@ -312,6 +312,27 @@ await social.comments.reply(
 );
 ```
 
+### Publish an article link
+
+LinkedIn does not scrape article URLs when creating Posts API content. Supply the source URL,
+title, and description explicitly through `content.link`; the generic SDK contract does not expose
+an article thumbnail URN. The adapter requires an HTTPS URL and rejects article posts that include
+media. Titles and descriptions must be under 400 and 4,086 characters respectively.
+
+```ts
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: {
+    text: "Read the latest update",
+    link: {
+      url: "https://example.com/article",
+      title: "The latest update",
+      description: "A short description shown in the article card.",
+    },
+  },
+});
+```
+
 ### Read organization metrics
 
 Organization account metrics and native `getOrganizationFollowerCount` read the configured
@@ -421,10 +442,28 @@ alone does not start delivery. LinkedIn has no seen state, so `notifications.see
 
 ## Native operations
 
-The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, comment deletion, video and document status checks, and organization analytics. Multi-image, video, and document posts go through `social.posts.publish`. Ordinary article-link posts are a Posts API format, but `articles.create` and `profile.update` are
-`not-implemented-by-adapter`. The adapter rejects `content.link`; article creation is roadmap work.
+The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, comment deletion, image, video and document status checks, and organization analytics. Multi-image, video, document, and article-link posts go through `social.posts.publish`. `articles.create` is available through the generic `content.link` contract. `profile.update` remains
+`not-implemented-by-adapter` because LinkedIn restricts the Profile Edit API to approved developers.
 Profile editing also has a separate upstream approval requirement. Approval does not add an absent
 SDK method.
+
+`media.read` covers the native `imageStatus`, `videoStatus`, and `documentStatus` helpers.
+Its declaration uses notes rather than a single required-scopes list because permissions differ:
+
+- Videos: `w_member_social` or `w_organization_social` for the configured author. The Videos API
+  also lists `rw_ads` and `r_ads` for ads access.
+- Images: the API lists `rw_ads`, `w_organization_social`, and `w_power_creators` alongside
+  `w_member_social`, but explicitly excludes versioned GET access with only `w_member_social`.
+  This adapter sends a version header, so that restriction applies to `imageStatus`.
+- Documents: the API lists `w_member_social`, `r_member_social`, `w_organization_social`,
+  `r_organization_social`, `rw_ads`, and `r_ads`. It does not map a specific scope to GET, so
+  the declaration does not claim that post-read permissions are required for every status helper.
+
+Provider ownership and organization role checks still apply. Checked against the
+[Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-09),
+[Videos API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-09),
+and [Documents API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api?view=li-lms-2026-09)
+on 2026-10-18 for API version 202609.
 
 `deleteComment({ account, postId, commentId, context })` calls `DELETE /rest/socialActions/{postUrn}/comments/{numericCommentId}`. Pass the `urn:li:share` or `urn:li:ugcPost` URN and the full comment URN returned by comment reads. The HTTP path uses the numeric comment ID extracted from the full URN. Organization authors need `w_organization_social_feed`, and the SDK adds the required `actor` query. Member authors need `w_member_social_feed`. LinkedIn does not document which comments an actor may delete.
 
@@ -436,7 +475,9 @@ SDK method.
   must supply intentional little-text markup themselves.
 - Post reads return only `id`, `author`, `commentary`, `visibility`, `lifecycleState`, `createdAt`,
   and `lastModifiedAt`; they do not return content-rich media or link objects.
-- Link posts, post replies, and scheduling are not implemented. Comment replies are supported.
+- Article links through `content.link` are supported with HTTPS source URLs, explicit title and
+  description, and no media. Post replies and scheduling are not implemented. Comment replies are
+  supported.
 - Member post reads need the closed `r_member_social` grant, unavailable to new apps. This differs
   from `w_member_social` publishing and the separate feed permissions.
 - LinkedIn has a restricted partner Messages API, but this adapter implements no send method.

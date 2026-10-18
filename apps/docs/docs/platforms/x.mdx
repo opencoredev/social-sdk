@@ -84,7 +84,7 @@ console.log(result.outcomes[0]?.state);
 
 ### Publish with an image
 
-The normalized adapter accepts static JPEG/PNG images, MP4 video, and GIF images as Blobs. Static images are at most 5 MiB each, with up to four per post. A post can instead attach one video or one GIF.
+The normalized adapter accepts static JPEG/PNG images, MP4 video, and GIF images as Blobs. Static images are at most 5 MiB each, with up to four per post. A post can instead attach one video or one GIF. The capability manifest lists `text`, `image`, and `video`; GIF is represented by the native image shape and is not a separate normalized format.
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -199,7 +199,14 @@ timeline in X or through `native.userPosts` and compare the intended post and cr
 deciding what to do. Absence from a page does not prove the write failed. A blind retry can create
 a duplicate; the adapter does not fail over to another backend.
 
-When you already know the post ID, read that account's post directly:
+### Read post and account metrics
+
+The normalized analytics facade exposes both post metrics and account metrics for X. Post metrics
+come from the post's `public_metrics`; account metrics come from the acting user's `public_metrics`
+and preserve X's `tweet_count` name. The adapter accepts both X's newer `post_count` and older
+`tweet_count` field spellings, preferring the newer field when both are present. These reads still
+need a user-context token with the provider's current read access, and the repository evidence is
+offline transport coverage rather than a live X account or paid-plan verification.
 
 ```ts
 const knownPost = platformPostRef({
@@ -208,6 +215,13 @@ const knownPost = platformPostRef({
   accountId: account.accountId,
   postId: "1900000000000000001", // Load the stored reference from your application.
 });
+const postMetrics = await social.analytics.getPostMetrics(knownPost);
+const accountMetrics = await social.analytics.getAccountMetrics(account);
+```
+
+When you already know the post ID, read that account's post directly:
+
+```ts
 const observed = await native.readPost(knownPost, operationContext());
 console.log(observed["id"]);
 ```
@@ -624,3 +638,7 @@ X API self-serve access uses pay-per-use credits; Enterprise-only operations req
 - Current repository evidence is contract and mocked transport coverage; no live X account or paid API plan has been verified here.
 
 See [X API pricing](https://docs.x.com/x-api/getting-started/pricing), [posts](https://docs.x.com/x-api/posts/create-post), [delete post](https://docs.x.com/x-api/posts/delete-post), and [media](https://docs.x.com/x-api/media/introduction) for current upstream access and limits. See also [chunked uploads](https://docs.x.com/x-api/media/quickstart/media-upload-chunked) and [media best practices](https://docs.x.com/x-api/media/quickstart/best-practices).
+
+The links above are the provenance for the provider limits and access requirements described here;
+they were checked on 2026-10-11. The repository evidence remains deterministic contract tests, not
+a live X account, paid-plan check, or claim of provider approval.

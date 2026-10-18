@@ -1559,9 +1559,9 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "articles.create",
-          availability: "not-implemented-by-adapter" as const,
+          availability: "available" as const,
           notes:
-            "Ordinary article-link content is a Posts API format, but this adapter does not implement it and rejects content.link.",
+            "Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. Thumbnail URNs are not exposed by the generic LinkMetadata contract.",
         },
         {
           platform: "linkedin",
@@ -1640,6 +1640,14 @@ export function linkedin(
           availability: "available" as const,
           formats: ["image" as const, "video" as const, "document" as const],
         },
+        {
+          platform: "linkedin",
+          operation: "media.read",
+          availability: "available" as const,
+          formats: ["image" as const, "video" as const, "document" as const],
+          notes:
+            "Reads the configured author's uploaded media status through native helpers. Scopes vary by API and cannot be expressed as one required-scopes list. Videos: w_member_social or w_organization_social for the configured author (ads permissions are also documented). Images: rw_ads, w_organization_social, or w_power_creators; w_member_social alone cannot GET versioned images. Documents: the API lists w_member_social, r_member_social, w_organization_social, r_organization_social, rw_ads, and r_ads, without a GET-specific scope mapping. Provider ownership and organization role checks still apply.",
+        },
         ...["comments.read", "comments.write", "analytics.read"].map((operation) => ({
           platform: "linkedin" as const,
           operation,
@@ -1707,11 +1715,45 @@ export function linkedin(
         if ((target.content.text?.length ?? 0) > 3000)
           fail("linkedin.text", "LinkedIn commentary exceeds 3,000 characters.");
 
-        if (target.schedule || target.replyTo || target.content.link)
+        if (target.schedule || target.replyTo)
           fail(
             "linkedin.operation",
-            "Scheduling, reply posts and structured links are not supported by this publishing slice.",
+            "Scheduling and reply posts are not supported by this publishing slice.",
           );
+
+        const link = target.content.link;
+
+        if (link !== undefined) {
+          let url: URL;
+
+          try {
+            url = new URL(link.url);
+          } catch {
+            fail("linkedin.article_url", "LinkedIn article source must be a valid HTTPS URL.");
+            url = new URL("https://invalid.example");
+          }
+
+          if (url.protocol !== "https:")
+            fail("linkedin.article_url", "LinkedIn article source must be a valid HTTPS URL.");
+
+          if (!link.title?.trim() || !link.description?.trim())
+            fail(
+              "linkedin.article_metadata",
+              "LinkedIn article posts require a non-empty title and description.",
+            );
+
+          if ((link.title?.trim().length ?? 0) >= 400)
+            fail("linkedin.article_title", "LinkedIn article titles must be under 400 characters.");
+
+          if ((link.description?.trim().length ?? 0) >= 4086)
+            fail(
+              "linkedin.article_description",
+              "LinkedIn article descriptions must be under 4,086 characters.",
+            );
+
+          if (target.content.media?.length)
+            fail("linkedin.article_media", "LinkedIn article posts cannot include media.");
+        }
 
         const settings = optionsObject(target);
 
@@ -1867,7 +1909,17 @@ export function linkedin(
         const document = media.find((item) => item.kind === "document");
         let content: JsonObject | undefined;
 
-        if (document) content = await documentContent(document, context);
+        if (target.content.link !== undefined)
+          content = {
+            article: {
+              source: target.content.link.url,
+              ...definedFields({
+                title: target.content.link.title?.trim(),
+                description: target.content.link.description?.trim(),
+              }),
+            },
+          };
+        else if (document) content = await documentContent(document, context);
         else if (entries.length > 1) content = { multiImage: { images: entries } };
         else if (entries[0] !== undefined) content = { media: entries[0] };
 

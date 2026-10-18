@@ -180,6 +180,47 @@ export interface YouTubeNative {
     readonly broadcastStatus?: "testing" | "live" | "complete";
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  readonly liveChatMessages: (input: {
+    readonly action: "list" | "insert" | "delete";
+    readonly liveChatId?: string;
+    readonly messageId?: string;
+    readonly pageToken?: string;
+    readonly maxResults?: number;
+    readonly body?: JsonObject;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject | void>;
+  readonly liveChatModerators: (input: {
+    readonly action: "list" | "insert" | "delete";
+    readonly liveChatId?: string;
+    readonly moderatorId?: string;
+    readonly pageToken?: string;
+    readonly maxResults?: number;
+    readonly body?: JsonObject;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject | void>;
+  readonly liveChatBans: (input: {
+    readonly action: "insert" | "delete";
+    readonly banId?: string;
+    readonly body?: JsonObject;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject | void>;
+  readonly channelSections: (input: {
+    readonly action: "list" | "insert" | "update" | "delete";
+    readonly channelSectionId?: string;
+    readonly pageToken?: string;
+    readonly maxResults?: number;
+    readonly body?: JsonObject;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject | void>;
+  readonly activities: (input: {
+    readonly channelId?: string;
+    readonly mine?: boolean;
+    readonly pageToken?: string;
+    readonly maxResults?: number;
+    readonly publishedAfter?: string;
+    readonly publishedBefore?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
 }
 
 /** Drop empty strings so optional query parameters are omitted rather than sent blank. */
@@ -496,6 +537,112 @@ export function youtube(
     }
   };
 
+  const requireLiveChatId = (value: string | undefined, operation: string): string => {
+    const id = value?.trim();
+
+    if (!id)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "liveChatId is required for this operation.",
+      });
+
+    return id;
+  };
+
+  const bodyLiveChatId = (body: JsonObject | undefined, operation: string): string => {
+    const snippet = body?.["snippet"] === undefined ? undefined : object(body["snippet"]);
+
+    return requireLiveChatId(optionalString(snippet?.["liveChatId"]), operation);
+  };
+
+  const assertLiveChatModerator = async (
+    liveChatId: string,
+    resourceId: string,
+    context: AdapterOperationContext,
+    operation: string,
+  ): Promise<void> => {
+    const seen = new Set<string>();
+    let pageToken: string | undefined;
+
+    do {
+      const result = object(
+        await request("/youtube/v3/liveChat/moderators", context, undefined, {
+          liveChatId,
+          part: "snippet",
+          maxResults: "50",
+          ...definedFields({ pageToken }),
+        }),
+      );
+
+      const item = array(result["items"])
+        .map(object)
+        .find((candidate) => candidate["id"] === resourceId);
+
+      if (item && optionalString(object(item["snippet"])["liveChatId"]) === liveChatId) return;
+
+      pageToken = optionalString(result["nextPageToken"]);
+
+      if (pageToken) {
+        if (seen.has(pageToken) || seen.size >= 99)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation,
+            message: "YouTube live chat pagination did not terminate.",
+          });
+        seen.add(pageToken);
+      }
+    } while (pageToken);
+
+    throw new SocialError({
+      code: "unauthorized",
+      operation,
+      message: "The selected live chat resource does not belong to this live chat.",
+    });
+  };
+
+  const assertChannelSection = async (
+    channelSectionId: string,
+    context: AdapterOperationContext,
+  ): Promise<void> => {
+    const result = object(
+      await request("/youtube/v3/channelSections", context, undefined, {
+        id: channelSectionId,
+        part: "snippet",
+      }),
+    );
+
+    const section = array(result["items"])
+      .map(object)
+      .find((candidate) => candidate["id"] === channelSectionId);
+
+    if (
+      !section ||
+      optionalString(object(section["snippet"])["channelId"]) !== options.auth.channelId
+    )
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "channel.sections.write",
+        message: "The selected channel section does not belong to the configured channel.",
+      });
+  };
+
+  const assertChannelSectionResult = (result: JsonObject, id: string): void => {
+    const section = array(result["items"])
+      .map(object)
+      .find((candidate) => candidate["id"] === id);
+
+    if (
+      !section ||
+      optionalString(object(section["snippet"])["channelId"]) !== options.auth.channelId
+    )
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "channel.sections.read",
+        message: "The selected channel section does not belong to the configured channel.",
+      });
+  };
+
   return defineAdapter({
     id: "youtube",
     capabilities: {
@@ -667,6 +814,52 @@ export function youtube(
           platform: "youtube",
           availability: "available",
           requiredScopes: ["https://www.googleapis.com/auth/yt-analytics.readonly"],
+        },
+        {
+          operation: "live.chat.messages",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Native access to liveChatMessages list, insert, and delete. The YouTube authorization determines whether the caller may act on the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership.",
+        },
+        {
+          operation: "live.chat.moderators",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Native access to liveChatModerators list, insert, and delete. The YouTube authorization determines whether the caller may moderate the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership.",
+        },
+        {
+          operation: "live.chat.bans",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list or read method, so provider authorization is the ownership boundary for ban deletion. Ban bodies must follow the YouTube liveChatBan resource shape.",
+        },
+        {
+          operation: "channel.sections.read",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube.readonly"],
+        },
+        {
+          operation: "channel.sections.write",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube"],
+          notes:
+            "Channel sections are limited to ten shelves and updates replace the mutable parts supplied in the request.",
+        },
+        {
+          operation: "channel.activity.read",
+          platform: "youtube",
+          availability: "available",
+          requiredScopes: ["https://www.googleapis.com/auth/youtube.readonly"],
+          notes:
+            "Reads activities.list. Channel bulletins and activities.insert are deprecated and are not exposed.",
         },
         {
           operation: "analytics.report.read",
@@ -2273,6 +2466,307 @@ export function youtube(
             },
             "POST",
           ),
+        );
+      },
+      async liveChatMessages({
+        action,
+        liveChatId,
+        messageId,
+        pageToken,
+        maxResults,
+        body,
+        context,
+      }) {
+        nativeAuthorize(context);
+
+        if (action === "list") {
+          const chatId = liveChatId?.trim();
+
+          if (!chatId)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.messages",
+              message: "liveChatId is required for list.",
+            });
+
+          if (
+            maxResults !== undefined &&
+            (!Number.isInteger(maxResults) || maxResults < 200 || maxResults > 2000)
+          )
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.messages",
+              message: "maxResults must be an integer between 200 and 2000.",
+            });
+
+          return object(
+            await request("/youtube/v3/liveChat/messages", context, undefined, {
+              liveChatId: chatId,
+              part: "snippet,authorDetails",
+              ...definedFields({
+                pageToken: nonEmpty(pageToken),
+                maxResults: maxResults ? String(maxResults) : undefined,
+              }),
+            }),
+          );
+        }
+
+        const id = messageId?.trim();
+
+        if (action === "delete") {
+          requireLiveChatId(liveChatId, "live.chat.messages");
+
+          if (!id)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.messages",
+              message: "messageId is required.",
+            });
+          await request("/youtube/v3/liveChat/messages", context, undefined, { id }, "DELETE");
+
+          return;
+        }
+
+        if (!body)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "live.chat.messages",
+            message: "A live chat message body is required.",
+          });
+        const chatId = bodyLiveChatId(body, "live.chat.messages");
+
+        if (liveChatId !== undefined && liveChatId.trim() !== chatId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "live.chat.messages",
+            message: "liveChatId must match body.snippet.liveChatId.",
+          });
+
+        return object(
+          await request(
+            "/youtube/v3/liveChat/messages",
+            context,
+            body,
+            { part: "snippet" },
+            "POST",
+          ),
+        );
+      },
+      async liveChatModerators({
+        action,
+        liveChatId,
+        moderatorId,
+        pageToken,
+        maxResults,
+        body,
+        context,
+      }) {
+        nativeAuthorize(context);
+
+        if (action === "list") {
+          const chatId = liveChatId?.trim();
+
+          if (!chatId)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.moderators",
+              message: "liveChatId is required for list.",
+            });
+
+          return object(
+            await request("/youtube/v3/liveChat/moderators", context, undefined, {
+              liveChatId: chatId,
+              part: "snippet",
+              ...definedFields({
+                pageToken: nonEmpty(pageToken),
+                maxResults: maxResults ? String(maxResults) : undefined,
+              }),
+            }),
+          );
+        }
+
+        const id = moderatorId?.trim();
+
+        if (action === "delete") {
+          const chatId = requireLiveChatId(liveChatId, "live.chat.moderators");
+
+          if (!id)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.moderators",
+              message: "moderatorId is required.",
+            });
+          await assertLiveChatModerator(chatId, id, context, "live.chat.moderators");
+          await request("/youtube/v3/liveChat/moderators", context, undefined, { id }, "DELETE");
+
+          return;
+        }
+
+        if (!body)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "live.chat.moderators",
+            message: "A live chat moderator body is required.",
+          });
+        const chatId = bodyLiveChatId(body, "live.chat.moderators");
+
+        if (liveChatId !== undefined && liveChatId.trim() !== chatId)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "live.chat.moderators",
+            message: "liveChatId must match body.snippet.liveChatId.",
+          });
+
+        return object(
+          await request(
+            "/youtube/v3/liveChat/moderators",
+            context,
+            body,
+            { part: "snippet" },
+            "POST",
+          ),
+        );
+      },
+      async liveChatBans({ action, banId, body, context }) {
+        nativeAuthorize(context);
+        const id = banId?.trim();
+
+        if (action === "delete") {
+          if (!id)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.bans",
+              message: "banId is required.",
+            });
+          await request("/youtube/v3/liveChat/bans", context, undefined, { id }, "DELETE");
+
+          return;
+        }
+
+        if (!body)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "live.chat.bans",
+            message: "A live chat ban body is required.",
+          });
+        bodyLiveChatId(body, "live.chat.bans");
+
+        return object(
+          await request("/youtube/v3/liveChat/bans", context, body, { part: "snippet" }, "POST"),
+        );
+      },
+      async channelSections({ action, channelSectionId, pageToken, maxResults, body, context }) {
+        nativeAuthorize(context);
+        const id = channelSectionId?.trim();
+
+        if (channelSectionId !== undefined && !id)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "channel.sections.read",
+            message: "channelSectionId cannot be blank.",
+          });
+
+        if (action === "list") {
+          const result = object(
+            await request("/youtube/v3/channelSections", context, undefined, {
+              part: "snippet,contentDetails",
+              ...definedFields({
+                id,
+                channelId: id === undefined ? options.auth.channelId : undefined,
+                pageToken: nonEmpty(pageToken),
+                maxResults: maxResults ? String(maxResults) : undefined,
+              }),
+            }),
+          );
+
+          if (id !== undefined) assertChannelSectionResult(result, id);
+
+          return result;
+        }
+
+        if (action === "delete") {
+          if (!id)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "channel.sections.write",
+              message: "channelSectionId is required.",
+            });
+          await assertChannelSection(id, context);
+          await request("/youtube/v3/channelSections", context, undefined, { id }, "DELETE");
+
+          return;
+        }
+
+        if (action === "update" && !id)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "channel.sections.write",
+            message: "channelSectionId is required for update.",
+          });
+
+        const resource = writeResource(body, id, "channel.sections.write");
+        const part = writeParts(resource, ["snippet", "contentDetails"], "channel.sections.write");
+
+        const resourceChannelId =
+          resource["snippet"] === undefined
+            ? undefined
+            : optionalString(object(resource["snippet"])["channelId"]);
+
+        if (resourceChannelId !== undefined && resourceChannelId !== options.auth.channelId)
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "channel.sections.write",
+            message: "The channel section body does not belong to the configured channel.",
+          });
+
+        if (action === "update") {
+          if (!id)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "channel.sections.write",
+              message: "channelSectionId is required for update.",
+            });
+          await assertChannelSection(id, context);
+        }
+
+        return object(
+          await request(
+            "/youtube/v3/channelSections",
+            context,
+            resource,
+            { part },
+            action === "insert" ? "POST" : "PUT",
+          ),
+        );
+      },
+      async activities({
+        channelId,
+        pageToken,
+        maxResults,
+        publishedAfter,
+        publishedBefore,
+        context,
+      }) {
+        nativeAuthorize(context);
+
+        if (channelId && channelId !== options.auth.channelId)
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "channel.activity.read",
+            message: "Activities may only be read for the configured channel.",
+          });
+
+        return object(
+          await request("/youtube/v3/activities", context, undefined, {
+            part: "snippet,contentDetails",
+            channelId: options.auth.channelId,
+            ...definedFields({
+              pageToken: nonEmpty(pageToken),
+              maxResults: maxResults ? String(maxResults) : undefined,
+              publishedAfter: nonEmpty(publishedAfter),
+              publishedBefore: nonEmpty(publishedBefore),
+            }),
+          }),
         );
       },
     },
