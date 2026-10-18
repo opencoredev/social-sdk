@@ -7004,6 +7004,59 @@
           ]
         },
         {
+          "operation": "live.chat.messages",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Native access to liveChatMessages list, insert, and delete. The YouTube authorization determines whether the caller may act on the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership."
+        },
+        {
+          "operation": "live.chat.moderators",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Native access to liveChatModerators list, insert, and delete. The YouTube authorization determines whether the caller may moderate the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership."
+        },
+        {
+          "operation": "live.chat.bans",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list or read method, so provider authorization is the ownership boundary for ban deletion. Ban bodies must follow the YouTube liveChatBan resource shape."
+        },
+        {
+          "operation": "channel.sections.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ]
+        },
+        {
+          "operation": "channel.sections.write",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Channel sections are limited to ten shelves and updates replace the mutable parts supplied in the request."
+        },
+        {
+          "operation": "channel.activity.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Reads activities.list. Channel bulletins and activities.insert are deprecated and are not exposed."
+        },
+        {
           "operation": "analytics.report.read",
           "platform": "youtube",
           "availability": "available",

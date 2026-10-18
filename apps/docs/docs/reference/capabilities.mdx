@@ -565,6 +565,12 @@ The adapter ID below identifies the implementation, such as `instagram` or `zern
 | youtube | youtube | native | comments.moderate | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared | None declared | None declared | None declared |
 | youtube | youtube | native | comments.delete | available | None declared | https://www.googleapis.com/auth/youtube.force-ssl | None declared | None declared | None declared | comments.delete costs 50 quota units. Delete a thread through its top-level comment ID. Google does not document which comments a channel may delete; insufficient permissions return 403 forbidden. |
 | youtube | youtube | native | analytics.youtube.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly | None declared | None declared | None declared | None declared |
+| youtube | youtube | native | live.chat.messages | available | None declared | https://www.googleapis.com/auth/youtube | None declared | None declared | None declared | Native access to liveChatMessages list, insert, and delete. The YouTube authorization determines whether the caller may act on the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership. |
+| youtube | youtube | native | live.chat.moderators | available | None declared | https://www.googleapis.com/auth/youtube | None declared | None declared | None declared | Native access to liveChatModerators list, insert, and delete. The YouTube authorization determines whether the caller may moderate the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership. |
+| youtube | youtube | native | live.chat.bans | available | None declared | https://www.googleapis.com/auth/youtube | None declared | None declared | None declared | Native access to liveChatBans insert and delete. YouTube does not expose a liveChatBans list or read method, so provider authorization is the ownership boundary for ban deletion. Ban bodies must follow the YouTube liveChatBan resource shape. |
+| youtube | youtube | native | channel.sections.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly | None declared | None declared | None declared | None declared |
+| youtube | youtube | native | channel.sections.write | available | None declared | https://www.googleapis.com/auth/youtube | None declared | None declared | None declared | Channel sections are limited to ten shelves and updates replace the mutable parts supplied in the request. |
+| youtube | youtube | native | channel.activity.read | available | None declared | https://www.googleapis.com/auth/youtube.readonly | None declared | None declared | None declared | Reads activities.list. Channel bulletins and activities.insert are deprecated and are not exposed. |
 | youtube | youtube | normalized | analytics.report.read | available | None declared | https://www.googleapis.com/auth/yt-analytics.readonly | None declared | None declared | None declared | Reports require an explicit bounded date range and provider-supported metrics. |
 | youtube | youtube | native | live.broadcasts | available | None declared | https://www.googleapis.com/auth/youtube | None declared | None declared | None declared | The channel must have live streaming enabled in YouTube Studio. Use native access: liveBroadcasts. |
 | tiktok | tiktok | normalized | webhooks.verify | available | None declared | See adapter setup | None declared | None declared | None declared | Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event. |
@@ -734,6 +740,12 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | posts.update | native.updateVideo\|native.updatePost |
 | analytics.youtube.read | native.analytics |
 | live.broadcasts | native.liveBroadcasts |
+| live.chat.messages | native.liveChatMessages |
+| live.chat.moderators | native.liveChatModerators |
+| live.chat.bans | native.liveChatBans |
+| channel.sections.read | native.channelSections |
+| channel.sections.write | native.channelSections |
+| channel.activity.read | native.activities |
 | posts.multi-image | posts.publishTarget |
 | posts.video | posts.publishTarget, media.upload, native.videoStatus |
 | posts.document | posts.publishTarget, media.upload, native.documentStatus |
