@@ -43,7 +43,9 @@ const implementationPaths = new Map<string, readonly string[]>([
   ],
   ["profiles.search", ["native.searchActors"]],
   ["profile.update", ["native.updateProfile"]],
-  ["feeds.read", ["native.listFeeds"]],
+  // Feed discovery is provider-specific: every adapter may expose a different native read,
+  // while Bluesky intentionally conformance-tests all four feed routes in bluesky.test.ts.
+  ["feeds.read", ["native.listFeeds|native.getTimeline|native.getFeed|native.getAuthorFeed"]],
   ["chat.read", ["native.listConversations", "native.listMessages"]],
   ["chat.write", ["native.sendMessage"]],
   ["polls.create", ["native.createPoll"]],
