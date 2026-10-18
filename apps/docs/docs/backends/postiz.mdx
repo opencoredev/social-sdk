@@ -272,7 +272,7 @@ if (outcome.state === "published") {
 }
 ```
 
-A disabled channel is listed with status `unknown`, because Postiz does not say why it was disabled. Postiz also supports platforms such as Pinterest, Reddit, and Mastodon. The adapter skips those channels because they are outside Social SDK's platform list. Comments, messages, and post feeds are not part of this adapter.
+A disabled channel is listed with status `unknown`, because Postiz does not say why it was disabled. Postiz also supports provider channels outside this adapter's current support, including Pinterest, Reddit, Mastodon, Telegram, Discord, Slack, Medium, WordPress, and Google My Business. Provider-specific variants such as `linkedin-page` and `instagram-standalone` are mapped to the normalized `linkedin` and `instagram` platforms instead. Facebook in this adapter means Facebook Pages, not personal profiles. Comments, messages, and post feeds are not part of this adapter. See Postiz's [integration list](https://docs.postiz.com/public-api/integrations/list) for the provider's wider set; those extra channels are not declared by this SDK.
 
 Postiz limits how many posts one workspace can create per hour. Its documentation gives 100 per hour on Postiz Cloud, and the self-hosted code defaults to 90 when `API_LIMIT` is unset. The stock Docker Compose explicitly sets `API_LIMIT=30`; your deployment configuration determines the effective limit. Each target is one create request. Past the limit Postiz answers with HTTP 429, which the adapter reports as `rate_limited`. The adapter never retries a create, because a retry after a timeout can post twice.
 

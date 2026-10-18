@@ -35,6 +35,7 @@ import {
 import {
   accountMatches,
   capabilityManifest,
+  managedConstraints,
   managedOptionIssues,
   managedPreparation,
   optionsObject,
@@ -900,16 +901,23 @@ export function buffer(options: BufferOptions) {
 
   const adapter = defineAdapter({
     id: "buffer",
-    capabilities: capabilityManifest("buffer", "GraphQL api.buffer.com, docs read 2026-10-09", [
-      "accounts.read",
-      "posts.publish",
-      "posts.read",
-      "posts.list",
-      "posts.status",
-      "posts.cancelScheduled",
-      "posts.deleteBackendRecord",
-      "analytics.read",
-    ]),
+    capabilities: capabilityManifest(
+      "buffer",
+      "GraphQL api.buffer.com, docs read 2026-10-09",
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+      ],
+      undefined,
+      (_platform, operation) =>
+        managedConstraints(operation, operation === "posts.publish" ? ["https-url"] : undefined),
+    ),
     accounts: {
       async list(input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         const offset = input.cursor === undefined ? 0 : Number(input.cursor);

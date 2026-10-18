@@ -47,7 +47,7 @@ const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
 const video = new Blob([await readFile("./assets/release-walkthrough.mp4")]);
 ```
 
-The adapter supports account listing, publishing, external platform-feed reads and delivery status, media upload, analytics, verified webhooks, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, and Facebook, and messaging for X, Bluesky, Instagram, and Facebook. Provider permissions and recipient or reply-window rules still apply. Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
+The adapter supports account listing, publishing, external platform-feed reads and delivery status, media upload, post and account analytics, verified webhooks, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, and Facebook Pages, and messaging for X, Bluesky, Instagram, and Facebook Pages. Provider permissions and recipient or reply-window rules still apply. Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
 
 Run the setup on your server with your own assets and connected accounts. The later examples reuse its typed accounts, future `at`, and `authorization`. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; a tenant ID alone does not enforce access. Related server helpers are in `examples/snippets/backend-zernio.ts`.
 
@@ -56,6 +56,8 @@ Run the setup on your server with your own assets and connected accounts. The la
 Zernio post creation sends the derived target retry key as `Idempotency-Key`, including when a retry uploads media to a different URL. This provider replay key does not bypass completed claims in a configured client idempotency store.
 
 ## Publish a video
+
+For TikTok photo posts, Zernio maps `options.title` to the post title (up to 90 UTF-16 code units), `options.description` to the long-form caption (up to 4,000), and sends `mediaType: "photo"` when `options.mediaType` is set to `"photo"`. Set `autoAddMusic: true` to request automatic music; these options are photo-only and are rejected for TikTok video posts. Video posts continue to send `autoAddMusic: false` by default.
 
 Pass the file as a `Blob` with its MIME type and filename; the adapter uploads it to Zernio before it creates the post. Each target takes its platform's options, and images also accept `altText`.
 
@@ -142,7 +144,7 @@ if (outcome.state === "scheduled") {
 }
 ```
 
-To take down a post that already published on X, Threads, Bluesky, YouTube, LinkedIn, or Facebook, pass the `post` from a `published` outcome. It carries the Zernio record ID that removal needs.
+To take down a post that already published on X, Threads, Bluesky, YouTube, LinkedIn, or a Facebook Page, pass the `post` from a `published` outcome. It carries the Zernio record ID that removal needs; personal Facebook profiles are not supported.
 
 ```ts
 if (outcome.state === "published") {

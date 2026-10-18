@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { bluesky } from "../src/platforms/bluesky.js";
 import { x } from "../src/platforms/x.js";
 import { youtube } from "../src/platforms/youtube.js";
+import { postfast } from "../src/cloud/postfast.js";
+import { buffer } from "../src/cloud/buffer.js";
+import { postiz } from "../src/cloud/postiz.js";
 import { connectedAccountRef, type AdapterOperationContext } from "../src/core/index.js";
+import { instagram } from "../src/platforms/instagram.js";
+import { linkedin } from "../src/platforms/linkedin.js";
+import { threads } from "../src/platforms/threads.js";
+import * as server from "../src/server/index.js";
 
 const context: AdapterOperationContext = {
   backendInstance: "default",
@@ -90,4 +97,161 @@ test("YouTube parity declares native API families", () => {
     "live.broadcasts",
   ])
     assert.ok(operations.includes(operation));
+});
+
+test("lifecycle vocabulary is available to capability and authorization contracts", () => {
+  const adapters = [
+    [
+      "bluesky",
+      bluesky({
+        auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "token" },
+        fetch: async () => Response.json({}),
+      }),
+      ["comments.moderate", "posts.update"],
+    ],
+    [
+      "instagram",
+      instagram({
+        auth: { accountId: "ig1", accessToken: "token" },
+        fetch: async () => Response.json({}),
+      }),
+      ["comments.moderate", "comments.delete", "posts.update"],
+    ],
+    [
+      "linkedin",
+      linkedin({
+        auth: { accessToken: "token", author: "urn:li:person:person-1" },
+        apiVersion: "202601",
+        fetch: async () => Response.json({}),
+      }),
+      ["comments.delete", "posts.delete", "posts.update"],
+    ],
+    [
+      "threads",
+      threads({
+        auth: { userId: "threads-1", accessToken: "token" },
+        fetch: async () => Response.json({}),
+      }),
+      ["comments.delete", "comments.moderate", "posts.delete", "posts.update"],
+    ],
+    [
+      "x",
+      x({ auth: { userId: "u1", accessToken: "token" }, fetch: async () => Response.json({}) }),
+      ["comments.moderate", "posts.update"],
+    ],
+    [
+      "youtube",
+      youtube({ auth: { accessToken: "token", channelId: "channel" } }),
+      ["comments.delete", "comments.moderate", "posts.delete", "posts.update"],
+    ],
+  ] as const;
+
+  for (const [id, adapter, lifecycleOperations] of adapters) {
+    const declared = new Set(adapter.capabilities.capabilities.map((entry) => entry.operation));
+
+    assert.ok(declared.size > 0, `${id} should expose a non-empty capability manifest`);
+
+    for (const operation of lifecycleOperations) {
+      assert.ok(declared.has(operation), `${id} should declare ${operation}`);
+    }
+  }
+});
+
+test("native lifecycle operations remain explicit instead of being advertised as normalized methods", () => {
+  const adapters = [
+    [
+      "bluesky",
+      bluesky({
+        auth: { service: "https://bsky.example", did: "did:plc:test", accessJwt: "token" },
+        fetch: async () => Response.json({}),
+      }),
+      ["deletePost", "hideReply"],
+    ],
+    [
+      "threads",
+      threads({
+        auth: { userId: "threads-1", accessToken: "token" },
+        fetch: async () => Response.json({}),
+      }),
+      ["deletePost", "hideReply", "deleteComment"],
+    ],
+    [
+      "linkedin",
+      linkedin({
+        auth: { accessToken: "token", author: "urn:li:person:person-1" },
+        apiVersion: "202601",
+        fetch: async () => Response.json({}),
+      }),
+      ["updatePost", "deletePost", "deleteComment"],
+    ],
+    [
+      "x",
+      x({ auth: { userId: "u1", accessToken: "token" }, fetch: async () => Response.json({}) }),
+      ["updatePost", "deletePost", "hideReply"],
+    ],
+  ] as const;
+
+  for (const [id, adapter, nativeOperations] of adapters) {
+    assert.ok(adapter.native, `${id} should expose its native surface`);
+
+    for (const operation of nativeOperations) {
+      assert.ok(
+        Object.keys(adapter.native).includes(operation),
+        `${id}.${operation} should remain native-only`,
+      );
+    }
+
+    if (adapter.posts !== undefined) {
+      assert.equal(Object.hasOwn(adapter.posts, "update"), false);
+    }
+
+    if (adapter.comments !== undefined) {
+      assert.equal(Object.hasOwn(adapter.comments, "delete"), false);
+      assert.equal(Object.hasOwn(adapter.comments, "moderate"), false);
+    }
+  }
+});
+
+test("the server subpath exports the normalized webhook facade", () => {
+  assert.ok(Object.hasOwn(server, "acceptWebhook"));
+  assert.ok(Object.hasOwn(server, "decodeWebhook"));
+  assert.ok(Object.hasOwn(server, "verifyPostForMeWebhook"));
+  assert.ok(Object.hasOwn(server, "verifyZernioWebhook"));
+});
+
+test("managed capability declarations distinguish normalized execution and constraints", () => {
+  const adapter = postfast({ apiKey: "test" });
+
+  const publish = adapter.capabilities.capabilities.find(
+    (entry) => entry.operation === "posts.publish" && entry.platform === "x",
+  );
+
+  assert.equal(publish?.surface, "normalized");
+  assert.deepEqual(publish?.constraints?.mediaSources, ["media-ref", "blob", "stream"]);
+  assert.ok(publish?.constraints?.eligibility?.length);
+  assert.ok(publish?.constraints?.approval?.length);
+
+  const bufferPublish = buffer({ apiKey: "test" }).capabilities.capabilities.find(
+    (entry) => entry.operation === "posts.publish" && entry.platform === "x",
+  );
+
+  const bufferAccounts = buffer({ apiKey: "test" }).capabilities.capabilities.find(
+    (entry) => entry.operation === "accounts.read" && entry.platform === "x",
+  );
+
+  assert.deepEqual(bufferPublish?.constraints?.mediaSources, ["https-url"]);
+  assert.equal(bufferAccounts?.constraints?.eligibility, undefined);
+
+  const postizCapabilities = postiz({ apiKey: "test" }).capabilities.capabilities;
+  assert.deepEqual(
+    postizCapabilities.find((entry) => entry.operation === "media.upload" && entry.platform === "x")
+      ?.constraints?.mediaSources,
+    ["https-url", "media-ref", "blob", "stream"],
+  );
+  assert.deepEqual(
+    postizCapabilities.find(
+      (entry) => entry.operation === "posts.publish" && entry.platform === "x",
+    )?.constraints?.mediaSources,
+    ["https-url", "media-ref", "blob", "stream"],
+  );
 });
