@@ -43,6 +43,7 @@ import {
   accountMatches,
   capabilityManifest,
   managedHttp,
+  managedConstraints,
   managedOptionIssues,
   managedPreparation,
   optionsObject,
@@ -365,6 +366,15 @@ export function postfast(options: ManagedOptions) {
         "media.upload",
       ],
       postfastFormats,
+      (_platform, operation) =>
+        managedConstraints(
+          operation,
+          operation === "posts.publish" ? ["media-ref", "blob", "stream"] : undefined,
+        ),
+      {
+        facebook:
+          "PostFast's Facebook integration is Page-scoped; personal profiles are not supported.",
+      },
     ),
     media: {
       async upload(

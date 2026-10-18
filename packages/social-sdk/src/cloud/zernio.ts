@@ -138,18 +138,39 @@ export function zernio(options: ManagedOptions) {
           "media.upload",
           "webhooks.verify",
         ]).capabilities,
-        ...["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].map((platform) => ({
-          platform,
-          operation: "posts.removeFromPlatform",
-          availability: "available" as const,
-        })),
+        ...["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].map((platform) => {
+          const declaration = {
+            platform,
+            operation: "posts.removeFromPlatform",
+            availability: "available" as const,
+          };
+
+          if (platform === "facebook")
+            return {
+              ...declaration,
+              notes: "Zernio removes Facebook Page posts; personal profiles are not supported.",
+            };
+
+          return declaration;
+        }),
         ...["x", "threads", "bluesky", "youtube", "instagram", "linkedin", "facebook"].flatMap(
           (platform) =>
-            ["comments.read", "comments.write"].map((operation) => ({
-              platform,
-              operation,
-              availability: "available" as const,
-            })),
+            ["comments.read", "comments.write"].map((operation) => {
+              const declaration = {
+                platform,
+                operation,
+                availability: "available" as const,
+              };
+
+              if (platform === "facebook")
+                return {
+                  ...declaration,
+                  notes:
+                    "Zernio's Facebook inbox is Page-scoped; personal profiles are not supported.",
+                };
+
+              return declaration;
+            }),
         ),
         ...["x", "bluesky", "instagram", "facebook"].flatMap((platform) =>
           ["messages.read", "messages.write"].map((operation) => ({
@@ -157,7 +178,9 @@ export function zernio(options: ManagedOptions) {
             operation,
             availability: "available" as const,
             notes:
-              "Recipient permissions and reply-window eligibility remain upstream constraints.",
+              platform === "facebook"
+                ? "Zernio's Facebook messaging is Page-scoped; recipient permissions and reply-window eligibility remain upstream constraints."
+                : "Recipient permissions and reply-window eligibility remain upstream constraints.",
           })),
         ),
       ],
@@ -416,10 +439,17 @@ export function zernio(options: ManagedOptions) {
           native["replySettings"] = string(config["replySettings"]);
 
         if (target.account.platform === "tiktok") {
+          const video = media.length === 1 && media[0]?.["type"] === "video";
+          const photo = media.length > 0 && media.every((item) => item["type"] === "image");
           native["privacyLevel"] = string(config["privacy"]);
           native["contentPreviewConfirmed"] = true;
           native["expressConsentGiven"] = true;
-          native["autoAddMusic"] = false;
+
+          if (video) native["autoAddMusic"] = false;
+          else if (photo)
+            native["autoAddMusic"] = isBoolean(config["autoAddMusic"])
+              ? config["autoAddMusic"]
+              : false;
           native["allowDuet"] = !config["disableDuet"];
           native["allowStitch"] = !config["disableStitch"];
 
@@ -435,18 +465,31 @@ export function zernio(options: ManagedOptions) {
             if (value !== undefined) native[nativeKey] = value;
           }
 
-          const { photoCoverIndex, disableComments, brandedContent } = config;
+          const { photoCoverIndex, disableComments, brandedContent, description, mediaType } =
+            config;
 
           if (isFiniteNumber(photoCoverIndex)) native["photoCoverIndex"] = photoCoverIndex;
 
           if (isBoolean(disableComments)) native["allowComment"] = !disableComments;
 
           if (isBoolean(brandedContent)) native["brandPartnerPromote"] = brandedContent;
+
+          if (photo && (isString(description) || target.content.text !== undefined))
+            native["description"] = description ?? target.content.text ?? "";
+
+          if (photo && mediaType === "photo") native["mediaType"] = "photo";
         }
+
+        const tiktokPhoto =
+          target.account.platform === "tiktok" &&
+          media.length > 0 &&
+          media.every((item) => item["type"] === "image");
+
+        const tiktokTitle = tiktokPhoto ? optionalString(config["title"]) : undefined;
 
         try {
           const response = await request("/v1/posts", context, {
-            content: target.content.text ?? "",
+            content: tiktokTitle ?? target.content.text ?? "",
             mediaItems: media,
             platforms: [
               {
