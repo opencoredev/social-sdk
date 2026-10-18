@@ -246,7 +246,7 @@ test("managed capability declarations distinguish normalized execution and const
   assert.deepEqual(
     postizCapabilities.find((entry) => entry.operation === "media.upload" && entry.platform === "x")
       ?.constraints?.mediaSources,
-    ["https-url", "blob", "stream"],
+    ["https-url", "media-ref", "blob", "stream"],
   );
   assert.deepEqual(
     postizCapabilities.find(
