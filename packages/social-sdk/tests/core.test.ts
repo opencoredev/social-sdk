@@ -179,6 +179,58 @@ describe("core publication contract", () => {
     );
   });
 
+  test("rejects a scheduled target when its declared schedule capability is unavailable", async () => {
+    let calls = 0;
+
+    const adapter = defineAdapter({
+      id: "schedule-limited",
+      capabilities: {
+        schemaVersion: 1,
+        backend: "schedule-limited",
+        apiRevision: "1",
+        runtime: ["bun"],
+        capabilities: [
+          { operation: "posts.publish", platform: "*", availability: "available" },
+          {
+            operation: "posts.schedule",
+            platform: "x",
+            availability: "unsupported-by-platform",
+          },
+          { operation: "posts.schedule", platform: "threads", availability: "available" },
+        ],
+      },
+      posts: {
+        prepareTarget: () => [],
+        publishTarget: async () => {
+          calls++;
+          throw new Error("must not dispatch");
+        },
+      },
+    });
+
+    const social = createSocial({ backend: adapter });
+
+    await assert.rejects(
+      social.posts.publish({
+        targets: [
+          { account: account("schedule-limited", "x-account") },
+          {
+            account: connectedAccountRef({
+              backend: "schedule-limited",
+              platform: "threads",
+              accountId: "threads-account",
+            }),
+          },
+        ],
+        content: { text: "scheduled" },
+        schedule: { at: "2030-01-01T00:00:00Z" },
+      }),
+      { code: "invalid_input", operation: "posts.schedule" },
+    );
+
+    assert.equal(calls, 0);
+  });
+
   test("rejects past schedules during local preparation", () => {
     const social = createSocial({ backend: mockBackend() });
 
@@ -432,6 +484,28 @@ describe("core publication contract", () => {
 
     assert.equal(result.status, "pending");
     assert.equal(result.items.length, 2);
+  });
+
+  test("mock schedule cancellation updates delivery reconciliation state", async () => {
+    const social = createSocial({ backend: mockBackend() });
+    const target = { account: account("default", "mock-account-1") };
+
+    const result = await social.posts.publish({
+      targets: [target],
+      content: { text: "scheduled" },
+      schedule: { at: "2030-01-01T00:00:00Z" },
+    });
+
+    const outcome = result.outcomes[0];
+
+    assert.equal(outcome?.state, "scheduled");
+
+    if (outcome?.state !== "scheduled" || outcome.delivery === undefined) return;
+
+    await social.posts.cancelScheduled(outcome.job);
+    const reconciled = await social.posts.getDelivery(outcome.delivery);
+
+    assert.equal(reconciled.state, "cancelled");
   });
 
   test("replyToPrevious stops when the parent was not published", async () => {

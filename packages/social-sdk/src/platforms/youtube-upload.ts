@@ -198,7 +198,11 @@ async function uploadRequest(
                 ? "ambiguous_outcome"
                 : "media_error",
         operation: "youtube.upload",
-        message: `YouTube upload request failed with HTTP ${response.status}.`,
+        message: `YouTube upload request failed with HTTP ${response.status}${
+          reason !== undefined && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(reason)
+            ? ` (${reason})`
+            : ""
+        }.`,
         upstreamStatus: response.status,
         upstreamCode:
           reason === "quotaExceeded" || reason === "uploadLimitExceeded" ? reason : undefined,
@@ -263,7 +267,7 @@ export async function beginYouTubeUpload(
 
   const response = await uploadRequest(
     new URL(
-      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status,processingDetails",
+      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
     ),
     {
       method: "POST",

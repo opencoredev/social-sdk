@@ -132,6 +132,8 @@ async function publishVideo(choices: CreatorChoices) {
 
 The adapter supports one video or 1–35 photos. `photoCoverIndex` selects the cover image by its zero-based index. Photo titles allow 90 UTF-16 code units and descriptions (`content.text`) allow 4,000; video captions allow 2,200.
 
+When using the Zernio backend, `TikTokPublishOptions.title` (90 code units), `description` (4,000 code units), `mediaType: "photo"`, and `autoAddMusic` configure photo posts. These options are photo-only and are rejected for video posts; `autoAddMusic` defaults to `false` when omitted.
+
 ```ts
 async function publishPhotos(choices: CreatorChoices) {
   return social.posts.publish({
