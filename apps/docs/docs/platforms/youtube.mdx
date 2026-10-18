@@ -396,7 +396,7 @@ Reports need `https://www.googleapis.com/auth/yt-analytics.readonly`; monetary m
 
 ### Live chat, channel sections, and activity
 
-The native surface exposes `liveChatMessages` and `liveChatModerators` for list, insert, and delete operations, plus `liveChatBans` for insert and delete. YouTube does not expose a `liveChatBans.list` or read method. Supply the live chat ID from a broadcast's `snippet.liveChatId` when listing; inserts use the provider resource body's `snippet.liveChatId`, and deletes need the message or moderator ID, while ban deletion needs only the ban ID. The YouTube authorization is the ownership boundary for these actions; the adapter validates supplied IDs and body consistency but cannot independently verify chat or ban ownership where the API has no lookup. These methods preserve upstream response bodies and do not claim normalized message or moderation semantics.
+The native surface exposes `liveChatMessages` and `liveChatModerators` for list, insert, and delete operations, plus `liveChatBans` for insert and delete. YouTube does not expose a `liveChatBans.list` or read method. Supply the live chat ID from a broadcast's `snippet.liveChatId` when listing; inserts use the provider resource body's `snippet.liveChatId`, and message and moderator deletes require both `liveChatId` and the message or moderator ID, while ban deletion needs only the ban ID. The YouTube authorization is the ownership boundary for these actions; the adapter validates supplied IDs and body consistency but cannot independently verify chat or ban ownership where the API has no lookup. Message deletion goes directly to YouTube without polling chat; moderator deletion first checks membership in the supplied chat. Message lists accept an integer `maxResults` from 200 to 2000 and preserve `pollingIntervalMillis`, which callers must honor before polling again. These methods preserve upstream response bodies and do not claim normalized message or moderation semantics.
 
 `native.channelSections` lists, inserts, updates, and deletes featured shelves for the configured channel. Updates replace the writable parts supplied in the body, and YouTube limits a channel to ten sections. `native.activities` reads activity events for the configured channel; channel bulletins and `activities.insert` are deprecated and are intentionally unavailable.
 
@@ -404,7 +404,7 @@ The native surface exposes `liveChatMessages` and `liveChatModerators` for list,
 const chat = await native.liveChatMessages({
   action: "list",
   liveChatId: "Cg0KC2xpdmVjaGF0…",
-  maxResults: 50,
+  maxResults: 200,
   context,
 });
 const sections = await native.channelSections({ action: "list", context });

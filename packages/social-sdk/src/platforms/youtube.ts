@@ -556,23 +556,21 @@ export function youtube(
     return requireLiveChatId(optionalString(snippet?.["liveChatId"]), operation);
   };
 
-  const assertLiveChatResource = async (
-    path: "/youtube/v3/liveChat/messages" | "/youtube/v3/liveChat/moderators",
+  const assertLiveChatModerator = async (
     liveChatId: string,
     resourceId: string,
     context: AdapterOperationContext,
     operation: string,
   ): Promise<void> => {
-    const maxResults = path === "/youtube/v3/liveChat/messages" ? "200" : "50";
     const seen = new Set<string>();
     let pageToken: string | undefined;
 
     do {
       const result = object(
-        await request(path, context, undefined, {
+        await request("/youtube/v3/liveChat/moderators", context, undefined, {
           liveChatId,
           part: "snippet",
-          maxResults,
+          maxResults: "50",
           ...definedFields({ pageToken }),
         }),
       );
@@ -582,17 +580,6 @@ export function youtube(
         .find((candidate) => candidate["id"] === resourceId);
 
       if (item && optionalString(object(item["snippet"])["liveChatId"]) === liveChatId) return;
-
-      if (path === "/youtube/v3/liveChat/messages") {
-        if (item)
-          throw new SocialError({
-            code: "unauthorized",
-            operation,
-            message: "The selected live chat resource does not belong to this live chat.",
-          });
-
-        return;
-      }
 
       pageToken = optionalString(result["nextPageToken"]);
 
@@ -2502,6 +2489,16 @@ export function youtube(
               message: "liveChatId is required for list.",
             });
 
+          if (
+            maxResults !== undefined &&
+            (!Number.isInteger(maxResults) || maxResults < 200 || maxResults > 2000)
+          )
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "live.chat.messages",
+              message: "maxResults must be an integer between 200 and 2000.",
+            });
+
           return object(
             await request("/youtube/v3/liveChat/messages", context, undefined, {
               liveChatId: chatId,
@@ -2517,7 +2514,7 @@ export function youtube(
         const id = messageId?.trim();
 
         if (action === "delete") {
-          const chatId = requireLiveChatId(liveChatId, "live.chat.messages");
+          requireLiveChatId(liveChatId, "live.chat.messages");
 
           if (!id)
             throw new SocialError({
@@ -2525,13 +2522,6 @@ export function youtube(
               operation: "live.chat.messages",
               message: "messageId is required.",
             });
-          await assertLiveChatResource(
-            "/youtube/v3/liveChat/messages",
-            chatId,
-            id,
-            context,
-            "live.chat.messages",
-          );
           await request("/youtube/v3/liveChat/messages", context, undefined, { id }, "DELETE");
 
           return;
@@ -2557,7 +2547,7 @@ export function youtube(
             "/youtube/v3/liveChat/messages",
             context,
             body,
-            { part: "snippet,authorDetails" },
+            { part: "snippet" },
             "POST",
           ),
         );
@@ -2606,13 +2596,7 @@ export function youtube(
               operation: "live.chat.moderators",
               message: "moderatorId is required.",
             });
-          await assertLiveChatResource(
-            "/youtube/v3/liveChat/moderators",
-            chatId,
-            id,
-            context,
-            "live.chat.moderators",
-          );
+          await assertLiveChatModerator(chatId, id, context, "live.chat.moderators");
           await request("/youtube/v3/liveChat/moderators", context, undefined, { id }, "DELETE");
 
           return;

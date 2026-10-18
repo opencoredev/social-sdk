@@ -81,7 +81,7 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
     action: "list",
     liveChatId: "chat1",
     pageToken: "page1",
-    maxResults: 25,
+    maxResults: 200,
     context: context(),
   });
   await adapter.native!.liveChatMessages({
@@ -155,8 +155,7 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
     ]),
     [
       ["GET", "/youtube/v3/liveChat/messages", "snippet,authorDetails", "page1"],
-      ["POST", "/youtube/v3/liveChat/messages", "snippet,authorDetails", null],
-      ["GET", "/youtube/v3/liveChat/messages", "snippet", null],
+      ["POST", "/youtube/v3/liveChat/messages", "snippet", null],
       ["DELETE", "/youtube/v3/liveChat/messages", null, null],
       ["GET", "/youtube/v3/liveChat/moderators", "snippet", "page2"],
       ["POST", "/youtube/v3/liveChat/moderators", "snippet", null],
@@ -173,10 +172,10 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
       ["GET", "/youtube/v3/activities", "snippet,contentDetails", null],
     ],
   );
-  assert.equal(calls[10]?.query.get("channelId"), "channel1");
-  assert.equal(calls[9]?.query.get("id"), "ban1");
-  assert.deepEqual(calls[12]?.body, { id: "section1", snippet: { type: "singlePlaylist" } });
-  assert.equal(calls[16]?.query.get("channelId"), "channel1");
+  assert.equal(calls[9]?.query.get("channelId"), "channel1");
+  assert.equal(calls[8]?.query.get("id"), "ban1");
+  assert.deepEqual(calls[11]?.body, { id: "section1", snippet: { type: "singlePlaylist" } });
+  assert.equal(calls[15]?.query.get("channelId"), "channel1");
 });
 
 it("YouTube activity and live chat natives reject cross-channel or missing identifiers", async () => {
@@ -292,13 +291,83 @@ it("YouTube moderator ownership checks follow later pages while message deletes 
       url.searchParams.get("maxResults"),
     ]),
     [
-      ["/youtube/v3/liveChat/messages", null, "200"],
       ["/youtube/v3/liveChat/messages", null, null],
       ["/youtube/v3/liveChat/moderators", null, "50"],
       ["/youtube/v3/liveChat/moderators", "later", "50"],
       ["/youtube/v3/liveChat/moderators", null, null],
     ],
   );
+});
+
+it("YouTube message lists validate maxResults before dispatch", async () => {
+  const sizes: (string | null)[] = [];
+
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (input) => {
+      sizes.push(new URL(String(input)).searchParams.get("maxResults"));
+
+      return Response.json({ items: [] });
+    },
+  });
+
+  for (const maxResults of [0, 50, 199, 2001, 200.5, NaN, Infinity]) {
+    await assert.rejects(
+      adapter.native!.liveChatMessages({
+        action: "list",
+        liveChatId: "chat1",
+        maxResults,
+        context: context(),
+      }),
+      { code: "invalid_input" },
+    );
+  }
+
+  assert.equal(sizes.length, 0);
+
+  for (const maxResults of [undefined, 200, 2000]) {
+    await adapter.native!.liveChatMessages({
+      action: "list",
+      liveChatId: "chat1",
+      ...definedFields({ maxResults }),
+      context: context(),
+    });
+  }
+
+  assert.deepEqual(sizes, [null, "200", "2000"]);
+});
+
+it("YouTube message deletion skips polling and preserves identifier validation and provider authorization", async () => {
+  const methods: string[] = [];
+
+  const adapter = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: async (_input, init) => {
+      methods.push(init?.method ?? "GET");
+
+      return Response.json({ error: { message: "Forbidden" } }, { status: 403 });
+    },
+  });
+
+  await assert.rejects(
+    adapter.native!.liveChatMessages({
+      action: "delete",
+      messageId: "message1",
+      context: context(),
+    }),
+    { code: "invalid_input" },
+  );
+  assert.equal(methods.length, 0);
+  await assert.rejects(
+    adapter.native!.liveChatMessages({
+      action: "delete",
+      liveChatId: "chat1",
+      messageId: "message1",
+      context: context(),
+    }),
+    { code: "missing_permission" },
+  );
+  assert.deepEqual(methods, ["DELETE"]);
 });
 
 for (const paginated of [false, true]) {
