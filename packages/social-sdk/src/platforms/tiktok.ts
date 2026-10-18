@@ -16,7 +16,6 @@ import {
   array,
   isBoolean,
   isFiniteNumber,
-  isJsonArray,
   isJsonObject,
   isString,
   object,
@@ -46,6 +45,12 @@ export interface TikTokNative {
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
   ) => Promise<JsonObject>;
+  /** Query Display API metadata for up to 20 videos owned by the creator. */
+  readonly queryVideos: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly videoIds: readonly string[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
   readonly uploadDraft: (input: {
     readonly account: ConnectedAccountRef;
     readonly video: JsonObject;
@@ -78,6 +83,9 @@ const videoFields = [
   "comment_count",
   "share_count",
   "view_count",
+  "embed_html",
+  "embed_link",
+  "is_aigc",
 ];
 
 /**
@@ -273,6 +281,13 @@ export function tiktok(
     const config = optionsObject(target);
     const draft = config["draft"] === true;
 
+    for (const [key, message] of [
+      ["description", "description is only supported by the Zernio managed adapter."],
+      ["mediaType", "mediaType is only supported by the Zernio managed adapter."],
+      ["autoAddMusic", "autoAddMusic is only supported by the Zernio managed adapter."],
+    ] as const)
+      if (config[key] !== undefined) fail(`tiktok.${key}`, message);
+
     if (config["consentGiven"] !== true)
       fail(
         "tiktok.consent",
@@ -295,7 +310,7 @@ export function tiktok(
 
     const creatorInfoValue = config["creatorInfo"];
 
-    if (!draft && !isJsonObject(creatorInfoValue) && !isJsonArray(creatorInfoValue))
+    if (!draft && !isJsonObject(creatorInfoValue))
       fail(
         "tiktok.creator_info",
         "Query creator information explicitly and render its choices before preparation.",
@@ -420,11 +435,24 @@ export function tiktok(
         },
         {
           platform: "tiktok",
+          operation: "posts.publish.preflight",
+          availability: "available" as const,
+          requiredScopes: ["video.publish"],
+          notes:
+            "Direct Post refreshes creator_info/query immediately before initialization. Inbox drafts do not require this preflight.",
+        },
+        {
+          platform: "tiktok",
           operation: "posts.schedule",
           availability: "unsupported-by-platform" as const,
           notes: "Content Posting API post_info has no publish-time field.",
         },
-        { platform: "tiktok", operation: "posts.status", availability: "available" as const },
+        {
+          platform: "tiktok",
+          operation: "posts.status",
+          availability: "available" as const,
+          notes: "Requires video.publish for Direct Post or video.upload for inbox drafts.",
+        },
         {
           platform: "tiktok",
           operation: "posts.read",
@@ -443,7 +471,12 @@ export function tiktok(
           availability: "available" as const,
           requiredScopes: ["video.upload"],
         },
-        { platform: "tiktok", operation: "posts.status.poll", availability: "available" as const },
+        {
+          platform: "tiktok",
+          operation: "posts.status.poll",
+          availability: "available" as const,
+          notes: "Requires video.publish for Direct Post or video.upload for inbox drafts.",
+        },
         // Source, accessed 2026-09-24: https://developers.tiktok.com/doc/content-posting-api-get-started
         {
           platform: "tiktok",
@@ -569,10 +602,7 @@ export function tiktok(
             "/v2/video/query/",
             context,
             { filters: { video_ids: [ref.postId] } },
-            {
-              fields:
-                "id,create_time,cover_image_url,share_url,title,video_description,duration,height,width,like_count,comment_count,share_count,view_count",
-            },
+            { fields: videoFields.join(",") },
           ),
         );
 
@@ -617,10 +647,7 @@ export function tiktok(
             "/v2/video/list/",
             context,
             { cursor, max_count: limit },
-            {
-              fields:
-                "id,create_time,cover_image_url,share_url,title,video_description,duration,height,width,like_count,comment_count,share_count,view_count",
-            },
+            { fields: videoFields.join(",") },
           ),
         );
 
@@ -952,6 +979,29 @@ export function tiktok(
     },
     native: {
       creatorInfo,
+      async queryVideos({ account, videoIds, context }) {
+        authorize(account, context);
+
+        if (
+          videoIds.length < 1 ||
+          videoIds.length > 20 ||
+          videoIds.some((videoId) => videoId.trim() === "")
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "native",
+            message: "TikTok video queries require 1 to 20 nonempty video IDs.",
+          });
+
+        return data(
+          await request(
+            "/v2/video/query/",
+            context,
+            { filters: { video_ids: [...videoIds] } },
+            { fields: videoFields.join(",") },
+          ),
+        );
+      },
       async uploadDraft({ account, video, context }) {
         authorize(account, context);
 
@@ -961,12 +1011,27 @@ export function tiktok(
         authorize(account, context);
 
         const parsedCursor = cursor === undefined ? 0 : Number(cursor);
+        const parsedMaxCount = maxCount ?? 20;
+
+        if (
+          !Number.isSafeInteger(parsedCursor) ||
+          parsedCursor < 0 ||
+          cursor === "" ||
+          !Number.isSafeInteger(parsedMaxCount) ||
+          parsedMaxCount < 1 ||
+          parsedMaxCount > 20
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "native",
+            message: "TikTok requires a nonnegative cursor and page size from 1 to 20.",
+          });
 
         return data(
           await request(
             "/v2/video/list/",
             context,
-            { cursor: parsedCursor, max_count: maxCount ?? 20 },
+            { cursor: parsedCursor, max_count: parsedMaxCount },
             { fields: videoFields.join(",") },
           ),
         );

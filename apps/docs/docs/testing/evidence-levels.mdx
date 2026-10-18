@@ -15,4 +15,8 @@ Social integrations can compile while remaining unusable for a particular accoun
 
 These levels are recorded separately from the capability manifest. A manifest declaration carries only `operation`, `platform`, `availability`, and optionally `formats`, `requiredScopes`, and `notes`; the manifest itself names the `backend`, `apiRevision`, and `runtime`. Account class and verification date belong to a live-verification record, and a claim at that level needs one.
 
+Provider documentation links and their check date are provenance, not live verification. A cited
+limit or upstream feature can explain an adapter contract, but it does not prove that the current
+account, plan, scope, or approval accepts the request.
+
 Evidence levels are separate from the `CapabilityAvailability` values in a manifest: `available`, `unsupported-by-platform`, `not-implemented-by-adapter`, `permission-required`, `reconnect-required`, `account-ineligible`, `runtime-unavailable`, `approval-dependent`, and `unknown-until-request`. The client dispatches only `available`. The approval-dependent evidence level above is not the `approval-dependent` availability value; see [capabilities](/concepts/capabilities#evidence-is-a-separate-scale).

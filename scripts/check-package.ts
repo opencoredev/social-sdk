@@ -140,18 +140,31 @@ console.log(JSON.stringify({ runtime: typeof Bun === 'undefined' ? 'node' : 'bun
     console.log((await run([runtime, "consumer.mjs"], temporary)).trim());
 
     const diagnostic = parseObject(
-      await run(
-        [runtime, "node_modules/@opencoredev/social-sdk/dist/cli.js", "doctor", "--json"],
-        temporary,
-      ),
-      "Packed CLI doctor output",
+      await run([runtime, "node_modules/.bin/social-sdk", "doctor", "--json"], temporary),
+      "Packed CLI runtime output",
     );
 
     const data = diagnostic["data"];
 
     if (diagnostic["ok"] !== true || !isJsonObject(data) || data["authenticated"] !== false)
-      throw new Error("Packed CLI diagnostic failed");
+      throw new Error("Packed CLI runtime diagnostic failed");
   }
+
+  const installedBin = join(temporary, "node_modules/.bin/social-sdk");
+
+  const shebangDiagnostic = parseObject(
+    await run([installedBin, "doctor", "--json"], temporary),
+    "Installed CLI shebang output",
+  );
+
+  const shebangData = shebangDiagnostic["data"];
+
+  if (
+    shebangDiagnostic["ok"] !== true ||
+    !isJsonObject(shebangData) ||
+    shebangData["authenticated"] !== false
+  )
+    throw new Error("Installed CLI shebang diagnostic failed");
 
   console.log(
     `Packed consumer check passed: ${pack.paths.length} files, ${pack.size} compressed bytes, ${pack.unpackedSize} unpacked bytes.`,

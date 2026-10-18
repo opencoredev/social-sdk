@@ -132,6 +132,8 @@ async function publishVideo(choices: CreatorChoices) {
 
 The adapter supports one video or 1–35 photos. `photoCoverIndex` selects the cover image by its zero-based index. Photo titles allow 90 UTF-16 code units and descriptions (`content.text`) allow 4,000; video captions allow 2,200.
 
+When using the Zernio backend, `TikTokPublishOptions.title` (90 code units), `description` (4,000 code units), `mediaType: "photo"`, and `autoAddMusic` configure photo posts. These options are photo-only and are rejected for video posts; `autoAddMusic` defaults to `false` when omitted.
+
 ```ts
 async function publishPhotos(choices: CreatorChoices) {
   return social.posts.publish({
@@ -225,7 +227,14 @@ Pass the app client secret as `webhookSecret`. `adapter.webhooks.verify` checks 
 
 ## Native operations and Display API reads
 
-The typed native module adds inbox/draft upload, own-video listing with display fields, and an explicit publish-status query. `posts.list` accepts a page size from 1 to 20. The documented Display API surface lists the authorized creator's public videos; it does not promise photo or private-post enumeration. `create_time` is in Unix seconds, while returned pagination cursors are timestamps in milliseconds. Pass cursors back unchanged as strings.
+The typed native module adds inbox/draft upload, creator-info preflight, own-video listing with Display fields, filtered video query, and an explicit publish-status query. `posts.list` accepts a page size from 1 to 20. The documented Display API surface lists the authorized creator's public videos; it does not promise photo or private-post enumeration. `create_time` is in Unix seconds, while returned pagination cursors are timestamps in milliseconds. Pass cursors back unchanged as strings.
+
+Use `native.queryVideos` to refresh one to 20 owned video IDs and their current metadata, including
+`embed_html`, `embed_link`, and `is_aigc`. The adapter sends only the documented `video_ids` filter
+and rejects empty or oversized batches before making a request. Treat `embed_html` as untrusted
+provider content and sanitize it before rendering. The `posts.publish.preflight` capability records
+that Direct Post uses the Content Posting API creator-info query immediately before initialization;
+it is not a Research API declaration, and inbox drafts intentionally skip that preflight.
 
 `cover_image_url` expires after six hours. Refresh it through `posts.get` instead of treating it as a permanent asset URL. Post metrics from `social.analytics.getPostMetrics` read like, comment, share, and view counts through the video-query endpoint and require `video.list`; account metrics require `user.info.stats`. A missing requested video is an error; absent individual metric fields stay absent.
 

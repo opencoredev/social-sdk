@@ -160,6 +160,68 @@ it("missing managed messaging is an unsupported capability instead of an empty i
   assert.equal(calls, 0);
 });
 
+it("authorizes normalized reads, delivery status, uploads, and schedules by canonical operation", async () => {
+  const operations: string[] = [];
+  const backend = mockBackend();
+
+  const social = createSocial({
+    backend,
+    authorization: {
+      async authorizeTargets({ operation, accounts }) {
+        operations.push(operation);
+
+        return accounts.map((account) => ({ account, allowed: true }));
+      },
+    },
+  });
+
+  const account = (await social.accounts.list()).items[0]!.ref;
+
+  const published = await social.posts.publish({
+    targets: [{ account }],
+    content: { text: "canonical" },
+  });
+
+  const outcome = published.outcomes[0];
+
+  const post = outcome?.state === "published" ? outcome.post : undefined;
+  const delivery = outcome?.delivery;
+
+  await social.posts.list(account);
+
+  if (post !== undefined) await social.posts.get(post);
+
+  if (delivery !== undefined) await social.posts.getDelivery(delivery);
+
+  await social.media.upload(
+    {
+      kind: "image",
+      source: { kind: "https-url", url: "https://media.example.test/image.jpg" },
+      mimeType: "image/jpeg",
+    },
+    account,
+  );
+
+  const scheduled = await social.posts.publish({
+    targets: [{ account }],
+    content: { text: "scheduled" },
+    schedule: { at: "2030-01-01T00:00:00Z" },
+  });
+
+  assert.equal(scheduled.status, "pending");
+  assert.equal(scheduled.outcomes[0]?.state, "scheduled");
+
+  assert.deepEqual(operations, [
+    "accounts.read",
+    "posts.publish",
+    "posts.list",
+    "posts.get",
+    "posts.getDelivery",
+    "media.upload",
+    "posts.schedule",
+  ]);
+});
+
 it("account metric reads require tenant authorization before dispatch", async () => {
   const { createSocial } = await import("../src/index.js");
   const { mockBackend } = await import("../src/testing/index.js");
