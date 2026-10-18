@@ -199,7 +199,9 @@ async function uploadRequest(
                 : "media_error",
         operation: "youtube.upload",
         message: `YouTube upload request failed with HTTP ${response.status}${
-          reason !== undefined && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(reason) ? ` (${reason})` : ""
+          reason !== undefined && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(reason)
+            ? ` (${reason})`
+            : ""
         }.`,
         upstreamStatus: response.status,
         upstreamCode:
