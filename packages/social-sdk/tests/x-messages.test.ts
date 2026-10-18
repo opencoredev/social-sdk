@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { connectedAccountRef, createSocial } from "../src/index.js";
-import { x } from "../src/platforms/x.js";
+import { x, type XSpacesLookupInput } from "../src/platforms/x.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
 
@@ -175,3 +175,218 @@ it("ends long X conversation walks without repeating conversations", async () =>
   assert.equal(returned.length, 1200);
   assert.equal(new Set(returned).size, 1200);
 });
+
+it("looks up and searches Spaces through the official v2 endpoints", async () => {
+  const requests: URL[] = [];
+
+  const adapter = x({
+    auth: { userId: "u1", accessToken: "token" },
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      requests.push(url);
+
+      if (url.pathname === "/2/spaces/space1")
+        return Response.json({
+          data: { id: "space1", state: "scheduled", title: "Roadmap" },
+          includes: { users: [{ id: "u2", username: "host" }] },
+        });
+
+      if (url.pathname === "/2/spaces/search")
+        return Response.json({
+          data: [{ id: "space2", state: "live", title: "AI" }],
+          includes: { users: [{ id: "u2", username: "host" }] },
+          errors: [{ resource_id: "missing", title: "Not Found" }],
+        });
+
+      if (url.pathname === "/2/spaces/by/creator_ids")
+        return Response.json({
+          data: [{ id: "space1", state: "scheduled" }],
+          errors: [{ resource_id: "creator-missing", title: "Not Found" }],
+        });
+
+      return Response.json({
+        data: [{ id: "space1", state: "scheduled" }],
+        errors: [{ resource_id: "missing", title: "Not Found" }],
+      });
+    },
+  });
+
+  const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
+
+  const context = {
+    backendInstance: "default",
+    correlationId: "spaces",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  } as const;
+
+  assert.ok(adapter.native);
+
+  const single = await adapter.native.getSpace({
+    account,
+    spaceId: "space1",
+    options: { spaceFields: ["title", "state"], expansions: ["host_ids"] },
+    context,
+  });
+
+  const byIds = await adapter.native.getSpaces({ account, spaceIds: ["space1"], context });
+
+  const byCreators = await adapter.native.getSpacesByCreators({
+    account,
+    creatorIds: ["123"],
+    context,
+  });
+
+  const result = await adapter.native.searchSpaces({
+    account,
+    search: { query: "AI", state: "live", limit: 5, userFields: ["username"] },
+    context,
+  });
+
+  assert.equal(result.items[0]?.["title"], "AI");
+  assert.deepEqual(single["data"], { id: "space1", state: "scheduled", title: "Roadmap" });
+  assert.deepEqual(single["includes"], { users: [{ id: "u2", username: "host" }] });
+  assert.deepEqual(byIds.metadata, { errors: [{ resource_id: "missing", title: "Not Found" }] });
+  assert.deepEqual(byCreators.metadata, {
+    errors: [{ resource_id: "creator-missing", title: "Not Found" }],
+  });
+  assert.deepEqual(result.metadata, {
+    includes: { users: [{ id: "u2", username: "host" }] },
+    errors: [{ resource_id: "missing", title: "Not Found" }],
+  });
+  assert.equal(requests[0]?.pathname, "/2/spaces/space1");
+  assert.equal(requests[0]?.searchParams.get("space.fields"), "title,state");
+  assert.equal(requests[0]?.searchParams.get("expansions"), "host_ids");
+  assert.equal(requests[2]?.pathname, "/2/spaces/by/creator_ids");
+  assert.equal(requests[2]?.searchParams.get("user_ids"), "123");
+  assert.equal(requests[3]?.pathname, "/2/spaces/search");
+  assert.equal(requests[3]?.searchParams.get("pagination_token"), null);
+  assert.equal(requests[3]?.searchParams.get("max_results"), "5");
+});
+
+it("validates Space lookup inputs before dispatch", async () => {
+  let calls = 0;
+
+  const adapter = x({
+    auth: { userId: "u1", accessToken: "token" },
+    fetch: async () => {
+      calls++;
+
+      return Response.json({});
+    },
+  });
+
+  const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
+
+  const context = {
+    backendInstance: "default",
+    correlationId: "spaces-validation",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  } as const;
+
+  assert.ok(adapter.native);
+  await assert.rejects(adapter.native.getSpaces({ account, spaceIds: [], context }), {
+    code: "invalid_input",
+  });
+  await assert.rejects(
+    adapter.native.getSpacesByCreators({ account, creatorIds: ["not-a-user"], context }),
+    { code: "invalid_input" },
+  );
+  await assert.rejects(
+    adapter.native.searchSpaces({ account, search: { query: "   " }, context }),
+    { code: "invalid_input" },
+  );
+  assert.equal(calls, 0);
+});
+
+for (const userContext of [true, false])
+  it(`preserves OpenAPI Space selectors and expanded topics with ${userContext ? "user" : "app"} auth`, async () => {
+    const requests: { url: URL; authorization: string | null }[] = [];
+
+    const space = {
+      id: "space1",
+      created_at: "2026-10-18T12:00:00.000Z",
+      lang: "en",
+      subscriber_count: 3,
+      updated_at: "2026-10-18T12:01:00.000Z",
+      invited_user_ids: ["u2"],
+      topic_ids: ["topic1"],
+    };
+
+    const includes = {
+      users: [{ id: "u2", username: "guest" }],
+      topics: [{ id: "topic1", name: "Technology" }],
+    };
+
+    const adapter = x({
+      auth: userContext ? { userId: "u1", accessToken: "user-token" } : { userId: "u1" },
+      appBearerToken: "app-token",
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+
+        requests.push({ url, authorization: new Headers(init?.headers).get("authorization") });
+
+        return Response.json({
+          data: url.pathname === "/2/spaces/space1" ? space : [space],
+          includes,
+        });
+      },
+    });
+
+    // Literal selectors from the OpenAPI 2.172 parameter enums.
+    const options: XSpacesLookupInput = {
+      spaceFields: [
+        "created_at",
+        "ended_at",
+        "id",
+        "is_ticketed",
+        "lang",
+        "participant_count",
+        "scheduled_start",
+        "started_at",
+        "state",
+        "subscriber_count",
+        "title",
+        "updated_at",
+      ],
+      expansions: ["creator_id", "host_ids", "invited_user_ids", "speaker_ids", "topic_ids"],
+      userFields: ["username"],
+    };
+
+    const context = {
+      backendInstance: "default",
+      correlationId: "spaces-selectors",
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+    };
+
+    assert.ok(adapter.native);
+
+    const single = await adapter.native.getSpace({ account, spaceId: "space1", options, context });
+
+    assert.deepEqual(single, { data: space, includes });
+
+    const pages = [
+      await adapter.native.getSpaces({ account, spaceIds: ["space1"], options, context }),
+      await adapter.native.getSpacesByCreators({ account, creatorIds: ["123"], options, context }),
+      await adapter.native.searchSpaces({ account, search: { ...options, query: "AI" }, context }),
+    ];
+
+    for (const page of pages) {
+      assert.deepEqual(page.items, [space]);
+      assert.deepEqual(page.metadata, { includes });
+    }
+
+    assert.equal(requests.length, 4);
+
+    for (const request of requests) {
+      assert.equal(request.authorization, userContext ? "Bearer user-token" : "Bearer app-token");
+      assert.equal(
+        request.url.searchParams.get("space.fields"),
+        "created_at,ended_at,id,is_ticketed,lang,participant_count,scheduled_start,started_at,state,subscriber_count,title,updated_at",
+      );
+      assert.equal(
+        request.url.searchParams.get("expansions"),
+        "creator_id,host_ids,invited_user_ids,speaker_ids,topic_ids",
+      );
+      assert.equal(request.url.searchParams.get("user.fields"), "username");
+    }
+  });
