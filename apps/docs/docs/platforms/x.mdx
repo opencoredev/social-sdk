@@ -401,7 +401,7 @@ app bearer fallback, and preserve X's response fields and `metadata.includes` ex
 const space = await native.getSpace({
   account,
   spaceId: "1DXxyRYNejbKM",
-  options: { spaceFields: ["title", "state", "host_ids"] },
+  options: { spaceFields: ["title", "state"], expansions: ["host_ids"] },
   context: operationContext(),
 });
 const upcoming = await native.getSpacesByCreators({
@@ -425,7 +425,12 @@ retrievable after the provider removes them. The SDK does not expose recordings 
 current official lookup documentation does not define a recording endpoint or stable recording
 contract.
 
-This contract was checked against X API v2 OpenAPI 2.170 and the [Spaces lookup documentation](https://docs.x.com/x-api/spaces/lookup/introduction) on 2026-10-11. The SDK records only offline contract evidence; endpoint approval, plan eligibility, and live responses remain provider-dependent.
+`spaceFields` accepts the OpenAPI Space field selectors, including `created_at`, `lang`,
+`subscriber_count`, and `updated_at`. Request `creator_id`, `host_ids`, `invited_user_ids`,
+`speaker_ids`, and `topic_ids` through `expansions`. The adapter preserves expanded users and topics;
+X determines which requested data is available to the configured token.
+
+This contract was checked against X API v2 OpenAPI 2.172 and the [Spaces lookup documentation](https://docs.x.com/x-api/spaces/lookup/introduction) on 2026-10-18. The SDK records only offline contract evidence; endpoint approval, plan eligibility, and live responses remain provider-dependent.
 
 ### Use normalized messages
 

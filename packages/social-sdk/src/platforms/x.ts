@@ -178,19 +178,28 @@ export interface XUploadedMedia {
   readonly mediaId: string;
 }
 
+/** Selectors from X OpenAPI 2.172 SpaceFieldsParameter. */
 export type XSpaceField =
-  | "creator_id"
+  | "created_at"
   | "ended_at"
-  | "host_ids"
+  | "id"
   | "is_ticketed"
+  | "lang"
   | "participant_count"
   | "scheduled_start"
-  | "speaker_ids"
   | "started_at"
   | "state"
-  | "title";
+  | "subscriber_count"
+  | "title"
+  | "updated_at";
 
-export type XSpaceExpansion = "creator_id" | "host_ids" | "speaker_ids";
+/** Selectors from X OpenAPI 2.172 SpaceExpansionsParameter. */
+export type XSpaceExpansion =
+  | "creator_id"
+  | "host_ids"
+  | "invited_user_ids"
+  | "speaker_ids"
+  | "topic_ids";
 
 export interface XSpacesLookupInput {
   readonly spaceFields?: readonly XSpaceField[];

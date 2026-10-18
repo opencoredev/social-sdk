@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { connectedAccountRef, createSocial } from "../src/index.js";
-import { x } from "../src/platforms/x.js";
+import { x, type XSpacesLookupInput } from "../src/platforms/x.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "u1" });
 
@@ -297,3 +297,96 @@ it("validates Space lookup inputs before dispatch", async () => {
   );
   assert.equal(calls, 0);
 });
+
+for (const userContext of [true, false])
+  it(`preserves OpenAPI Space selectors and expanded topics with ${userContext ? "user" : "app"} auth`, async () => {
+    const requests: { url: URL; authorization: string | null }[] = [];
+
+    const space = {
+      id: "space1",
+      created_at: "2026-10-18T12:00:00.000Z",
+      lang: "en",
+      subscriber_count: 3,
+      updated_at: "2026-10-18T12:01:00.000Z",
+      invited_user_ids: ["u2"],
+      topic_ids: ["topic1"],
+    };
+
+    const includes = {
+      users: [{ id: "u2", username: "guest" }],
+      topics: [{ id: "topic1", name: "Technology" }],
+    };
+
+    const adapter = x({
+      auth: userContext ? { userId: "u1", accessToken: "user-token" } : { userId: "u1" },
+      appBearerToken: "app-token",
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+
+        requests.push({ url, authorization: new Headers(init?.headers).get("authorization") });
+
+        return Response.json({
+          data: url.pathname === "/2/spaces/space1" ? space : [space],
+          includes,
+        });
+      },
+    });
+
+    // Literal selectors from the OpenAPI 2.172 parameter enums.
+    const options: XSpacesLookupInput = {
+      spaceFields: [
+        "created_at",
+        "ended_at",
+        "id",
+        "is_ticketed",
+        "lang",
+        "participant_count",
+        "scheduled_start",
+        "started_at",
+        "state",
+        "subscriber_count",
+        "title",
+        "updated_at",
+      ],
+      expansions: ["creator_id", "host_ids", "invited_user_ids", "speaker_ids", "topic_ids"],
+      userFields: ["username"],
+    };
+
+    const context = {
+      backendInstance: "default",
+      correlationId: "spaces-selectors",
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+    };
+
+    assert.ok(adapter.native);
+
+    const single = await adapter.native.getSpace({ account, spaceId: "space1", options, context });
+
+    assert.deepEqual(single, { data: space, includes });
+
+    const pages = [
+      await adapter.native.getSpaces({ account, spaceIds: ["space1"], options, context }),
+      await adapter.native.getSpacesByCreators({ account, creatorIds: ["123"], options, context }),
+      await adapter.native.searchSpaces({ account, search: { ...options, query: "AI" }, context }),
+    ];
+
+    for (const page of pages) {
+      assert.deepEqual(page.items, [space]);
+      assert.deepEqual(page.metadata, { includes });
+    }
+
+    assert.equal(requests.length, 4);
+
+    for (const request of requests) {
+      assert.equal(request.authorization, userContext ? "Bearer user-token" : "Bearer app-token");
+      assert.equal(
+        request.url.searchParams.get("space.fields"),
+        "created_at,ended_at,id,is_ticketed,lang,participant_count,scheduled_start,started_at,state,subscriber_count,title,updated_at",
+      );
+      assert.equal(
+        request.url.searchParams.get("expansions"),
+        "creator_id,host_ids,invited_user_ids,speaker_ids,topic_ids",
+      );
+      assert.equal(request.url.searchParams.get("user.fields"), "username");
+    }
+  });
