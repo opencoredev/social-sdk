@@ -3967,6 +3967,15 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.publish.preflight",
+          "availability": "available",
+          "requiredScopes": [
+            "video.publish"
+          ],
+          "notes": "Direct Post refreshes creator_info/query immediately before initialization. Inbox drafts do not require this preflight."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.schedule",
           "availability": "unsupported-by-platform",
           "notes": "Content Posting API post_info has no publish-time field."
@@ -3974,7 +3983,8 @@
         {
           "platform": "tiktok",
           "operation": "posts.status",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Requires video.publish for Direct Post or video.upload for inbox drafts."
         },
         {
           "platform": "tiktok",
@@ -4003,7 +4013,8 @@
         {
           "platform": "tiktok",
           "operation": "posts.status.poll",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Requires video.publish for Direct Post or video.upload for inbox drafts."
         },
         {
           "platform": "tiktok",
