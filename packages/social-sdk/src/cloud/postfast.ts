@@ -371,6 +371,10 @@ export function postfast(options: ManagedOptions) {
           operation,
           operation === "posts.publish" ? ["media-ref", "blob", "stream"] : undefined,
         ),
+      {
+        facebook:
+          "PostFast's Facebook integration is Page-scoped; personal profiles are not supported.",
+      },
     ),
     media: {
       async upload(

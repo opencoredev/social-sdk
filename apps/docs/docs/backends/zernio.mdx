@@ -47,7 +47,7 @@ const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
 const video = new Blob([await readFile("./assets/release-walkthrough.mp4")]);
 ```
 
-The adapter supports account listing, publishing, external platform-feed reads and delivery status, media upload, analytics, verified webhooks, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, and Facebook, and messaging for X, Bluesky, Instagram, and Facebook. Provider permissions and recipient or reply-window rules still apply. Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
+The adapter supports account listing, publishing, external platform-feed reads and delivery status, media upload, post and account analytics, verified webhooks, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, and Facebook Pages, and messaging for X, Bluesky, Instagram, and Facebook Pages. Provider permissions and recipient or reply-window rules still apply. Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
 
 Run the setup on your server with your own assets and connected accounts. The later examples reuse its typed accounts, future `at`, and `authorization`. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; a tenant ID alone does not enforce access. Related server helpers are in `examples/snippets/backend-zernio.ts`.
 
@@ -144,7 +144,7 @@ if (outcome.state === "scheduled") {
 }
 ```
 
-To take down a post that already published on X, Threads, Bluesky, YouTube, LinkedIn, or Facebook, pass the `post` from a `published` outcome. It carries the Zernio record ID that removal needs.
+To take down a post that already published on X, Threads, Bluesky, YouTube, LinkedIn, or a Facebook Page, pass the `post` from a `published` outcome. It carries the Zernio record ID that removal needs; personal Facebook profiles are not supported.
 
 ```ts
 if (outcome.state === "published") {

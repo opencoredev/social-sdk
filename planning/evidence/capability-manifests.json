@@ -1513,7 +1513,8 @@
         {
           "platform": "facebook",
           "operation": "posts.removeFromPlatform",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Zernio removes Facebook Page posts; personal profiles are not supported."
         },
         {
           "platform": "x",
@@ -1578,12 +1579,14 @@
         {
           "platform": "facebook",
           "operation": "comments.read",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Zernio's Facebook inbox is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
           "operation": "comments.write",
-          "availability": "available"
+          "availability": "available",
+          "notes": "Zernio's Facebook inbox is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "x",
@@ -1625,13 +1628,13 @@
           "platform": "facebook",
           "operation": "messages.read",
           "availability": "available",
-          "notes": "Recipient permissions and reply-window eligibility remain upstream constraints."
+          "notes": "Zernio's Facebook messaging is Page-scoped; recipient permissions and reply-window eligibility remain upstream constraints."
         },
         {
           "platform": "facebook",
           "operation": "messages.write",
           "availability": "available",
-          "notes": "Recipient permissions and reply-window eligibility remain upstream constraints."
+          "notes": "Zernio's Facebook messaging is Page-scoped; recipient permissions and reply-window eligibility remain upstream constraints."
         }
       ]
     }
@@ -2703,7 +2706,7 @@
               "Provider account eligibility and application approval are checked by the managed provider."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2724,7 +2727,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2739,7 +2742,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2754,7 +2757,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2769,7 +2772,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2784,7 +2787,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2799,7 +2802,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2814,7 +2817,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2829,7 +2832,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -2841,7 +2844,7 @@
               "Provider account eligibility and application approval are checked by the managed provider."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
         }
       ]
     }
@@ -3653,7 +3656,7 @@
               "Provider account eligibility and application approval are checked by the managed provider."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -3679,7 +3682,7 @@
               "stream"
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -3694,7 +3697,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -3709,7 +3712,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -3724,7 +3727,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -3739,7 +3742,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -3754,7 +3757,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
         }
       ]
     }
@@ -4616,7 +4619,7 @@
               "Provider account eligibility and application approval are checked by the managed provider."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -4643,7 +4646,7 @@
               "stream"
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -4658,7 +4661,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -4673,7 +4676,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -4688,7 +4691,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -4703,7 +4706,7 @@
               "A connected account returned by the managed provider is required."
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         },
         {
           "platform": "facebook",
@@ -4724,7 +4727,7 @@
               "stream"
             ]
           },
-          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
         }
       ]
     }

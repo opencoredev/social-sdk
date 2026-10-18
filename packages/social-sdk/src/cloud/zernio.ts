@@ -138,18 +138,39 @@ export function zernio(options: ManagedOptions) {
           "media.upload",
           "webhooks.verify",
         ]).capabilities,
-        ...["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].map((platform) => ({
-          platform,
-          operation: "posts.removeFromPlatform",
-          availability: "available" as const,
-        })),
+        ...["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].map((platform) => {
+          const declaration = {
+            platform,
+            operation: "posts.removeFromPlatform",
+            availability: "available" as const,
+          };
+
+          if (platform === "facebook")
+            return {
+              ...declaration,
+              notes: "Zernio removes Facebook Page posts; personal profiles are not supported.",
+            };
+
+          return declaration;
+        }),
         ...["x", "threads", "bluesky", "youtube", "instagram", "linkedin", "facebook"].flatMap(
           (platform) =>
-            ["comments.read", "comments.write"].map((operation) => ({
-              platform,
-              operation,
-              availability: "available" as const,
-            })),
+            ["comments.read", "comments.write"].map((operation) => {
+              const declaration = {
+                platform,
+                operation,
+                availability: "available" as const,
+              };
+
+              if (platform === "facebook")
+                return {
+                  ...declaration,
+                  notes:
+                    "Zernio's Facebook inbox is Page-scoped; personal profiles are not supported.",
+                };
+
+              return declaration;
+            }),
         ),
         ...["x", "bluesky", "instagram", "facebook"].flatMap((platform) =>
           ["messages.read", "messages.write"].map((operation) => ({
@@ -157,7 +178,9 @@ export function zernio(options: ManagedOptions) {
             operation,
             availability: "available" as const,
             notes:
-              "Recipient permissions and reply-window eligibility remain upstream constraints.",
+              platform === "facebook"
+                ? "Zernio's Facebook messaging is Page-scoped; recipient permissions and reply-window eligibility remain upstream constraints."
+                : "Recipient permissions and reply-window eligibility remain upstream constraints.",
           })),
         ),
       ],

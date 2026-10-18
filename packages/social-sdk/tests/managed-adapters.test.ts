@@ -1,7 +1,10 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, platformPostRef } from "../src/index.js";
+import { buffer } from "../src/cloud/buffer.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
+import { postfast } from "../src/cloud/postfast.js";
+import { postiz } from "../src/cloud/postiz.js";
 import { zernio } from "../src/cloud/zernio.js";
 import type {
   AdapterOperationContext,
@@ -85,6 +88,114 @@ it("managed account lists skip provider platforms outside SDK support", async ()
     );
     assert.equal(result.items[0]?.ref.platform, "x");
   }
+});
+
+it("managed capability manifests match the implemented backend surfaces", () => {
+  const adapters = [
+    [
+      "buffer",
+      buffer({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+      ],
+    ],
+    [
+      "post-for-me",
+      postForMe({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+        "webhooks.verify",
+      ],
+    ],
+    [
+      "postfast",
+      postfast({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+      ],
+    ],
+    [
+      "postiz",
+      postiz({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "media.upload",
+      ],
+    ],
+    [
+      "zernio",
+      zernio({ apiKey: "test" }),
+      [
+        "accounts.read",
+        "posts.publish",
+        "posts.read",
+        "posts.list",
+        "posts.status",
+        "posts.cancelScheduled",
+        "posts.deleteBackendRecord",
+        "analytics.read",
+        "analytics.account.read",
+        "media.upload",
+        "webhooks.verify",
+        "posts.removeFromPlatform",
+        "comments.read",
+        "comments.write",
+        "messages.read",
+        "messages.write",
+      ],
+    ],
+  ] as const;
+
+  for (const [id, adapter, expected] of adapters) {
+    assert.equal(adapter.id, id);
+    const declarations = adapter.capabilities.capabilities;
+
+    const actual = declarations
+      .map((entry) => entry.operation)
+      .filter((value, index, all) => all.indexOf(value) === index);
+
+    assert.deepEqual(actual.sort(), [...expected].sort());
+    assert.ok(declarations.every((entry) => entry.availability === "available"));
+  }
+
+  const zernioCapabilities = zernio({ apiKey: "test" }).capabilities.capabilities;
+
+  const facebookMessaging = zernioCapabilities.find(
+    (entry) => entry.platform === "facebook" && entry.operation === "messages.read",
+  );
+
+  const facebookRemoval = zernioCapabilities.find(
+    (entry) => entry.platform === "facebook" && entry.operation === "posts.removeFromPlatform",
+  );
+
+  assert.match(JSON.stringify(facebookMessaging), /Page-scoped/);
+  assert.match(JSON.stringify(facebookRemoval), /Page posts/);
 });
 
 it("Zernio accounts.get lists accounts and reports an absent account as not_found", async () => {

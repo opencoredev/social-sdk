@@ -236,6 +236,7 @@ export function capabilityManifest(
   formats: PublishFormats = publishFormats,
   constraintsFor: CapabilityConstraintsFor = (_platform, operation) =>
     managedConstraints(operation),
+  platformNotes: Partial<Record<Platform, string>> = {},
 ): CapabilityManifest {
   return {
     schemaVersion: 1,
@@ -252,8 +253,12 @@ export function capabilityManifest(
           formats: operation === "posts.publish" ? formats(platform) : undefined,
           constraints: constraintsFor(platform, operation),
         }),
-        notes:
+        notes: [
           "Contract implementation; live account verification and provider/platform eligibility are separate.",
+          platformNotes[platform],
+        ]
+          .filter((value): value is string => value !== undefined)
+          .join(" "),
       })),
     ),
   };

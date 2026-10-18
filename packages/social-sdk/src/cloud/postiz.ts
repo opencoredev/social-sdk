@@ -572,6 +572,10 @@ export function postiz(options: PostizOptions) {
               ? ["https-url", "media-ref", "blob", "stream"]
               : undefined,
         ),
+      {
+        facebook:
+          "Postiz's Facebook integration is Page-scoped; personal profiles are not supported.",
+      },
     ),
     media: {
       async upload(
