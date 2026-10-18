@@ -282,6 +282,10 @@ it("declares comment and insight grants separately from user counters and missin
     );
     assert.equal(
       entries.find((entry) => entry.operation === "messages.read")?.availability,
+      flavor === "instagram-login" ? "available" : "unsupported-by-platform",
+    );
+    assert.equal(
+      entries.find((entry) => entry.operation === "messages.write")?.availability,
       "not-implemented-by-adapter",
     );
   }
