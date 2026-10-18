@@ -527,8 +527,12 @@ export function createSocial(
       issues.push(preparationIssue("targets.required", "At least one target is required"));
     }
 
-    if (request.content.text === undefined && (request.content.media?.length ?? 0) === 0) {
-      issues.push(preparationIssue("content.required", "Text or media is required"));
+    if (
+      request.content.text === undefined &&
+      (request.content.media?.length ?? 0) === 0 &&
+      request.content.link === undefined
+    ) {
+      issues.push(preparationIssue("content.required", "Text, media, or link is required"));
     }
 
     if (request.schedule !== undefined) {

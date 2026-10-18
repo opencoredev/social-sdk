@@ -7573,8 +7573,8 @@
         {
           "platform": "linkedin",
           "operation": "articles.create",
-          "availability": "not-implemented-by-adapter",
-          "notes": "Ordinary article-link content is a Posts API format, but this adapter does not implement it and rejects content.link."
+          "availability": "available",
+          "notes": "Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. Thumbnail URNs are not exposed by the generic LinkMetadata contract."
         },
         {
           "platform": "linkedin",
@@ -7666,6 +7666,17 @@
             "video",
             "document"
           ]
+        },
+        {
+          "platform": "linkedin",
+          "operation": "media.read",
+          "availability": "available",
+          "formats": [
+            "image",
+            "video",
+            "document"
+          ],
+          "notes": "Reads the configured author's uploaded media status through native helpers. Scopes vary by API and cannot be expressed as one required-scopes list. Videos: w_member_social or w_organization_social for the configured author (ads permissions are also documented). Images: rw_ads, w_organization_social, or w_power_creators; w_member_social alone cannot GET versioned images. Documents: the API lists w_member_social, r_member_social, w_organization_social, r_organization_social, rw_ads, and r_ads, without a GET-specific scope mapping. Provider ownership and organization role checks still apply."
         },
         {
           "platform": "linkedin",

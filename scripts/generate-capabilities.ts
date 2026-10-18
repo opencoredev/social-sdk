@@ -16,6 +16,7 @@ const implementationPaths = new Map<string, readonly string[]>([
   ["posts.deleteBackendRecord", ["posts.deleteBackendRecord"]],
   ["posts.removeFromPlatform", ["posts.removeFromPlatform"]],
   ["media.upload", ["media.upload"]],
+  ["media.read", ["native.imageStatus", "native.videoStatus", "native.documentStatus"]],
   ["analytics.read", ["analytics.getPostMetrics"]],
   ["analytics.account.read", ["analytics.getAccountMetrics"]],
   ["analytics.report.read", ["analytics.getReport"]],
@@ -115,6 +116,7 @@ const implementationPaths = new Map<string, readonly string[]>([
   ["reactions.write", ["native.react"]],
   ["reshares.write", ["native.reshare"]],
   ["analytics.organization.read", ["native.organizationAnalytics"]],
+  ["articles.create", ["posts.publishTarget"]],
 ]);
 
 function isObject(value: unknown): value is object {
