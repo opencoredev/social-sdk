@@ -3,8 +3,8 @@
 // <body>. Both share Blume's dismissal key, so closing it once hides it on
 // every page.
 
-// The X launch post for gradients.sh.
-export const LAUNCH_POST_URL = "__X_POST_URL__";
+// gradients.sh, tagged so its analytics show which site sent the visitor.
+export const LAUNCH_POST_URL = "https://gradients.sh/?utm_source=social-sdk.dev&utm_medium=banner&utm_campaign=gradients-launch";
 
 export const LAUNCH_BANNER_ID = "gradients-sh-launch";
 
