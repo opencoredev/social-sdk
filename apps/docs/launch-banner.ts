@@ -32,7 +32,9 @@ const bar = `<style>
         display: none;
       }
       .launch-banner a {
+        /* overflow clips to the line box, so leave room for g, j and y */
         overflow: hidden;
+        line-height: 1.5;
         color: var(--ink-soft);
         text-decoration: none;
         text-overflow: ellipsis;
