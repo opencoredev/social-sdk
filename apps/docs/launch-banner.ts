@@ -4,7 +4,8 @@
 // every page.
 
 // gradients.sh, tagged so its analytics show which site sent the visitor.
-export const LAUNCH_POST_URL = "https://gradients.sh/?utm_source=social-sdk.dev&utm_medium=banner&utm_campaign=gradients-launch";
+export const LAUNCH_POST_URL =
+  "https://gradients.sh/?utm_source=social-sdk.dev&utm_medium=banner&utm_campaign=gradients-launch";
 
 export const LAUNCH_BANNER_ID = "gradients-sh-launch";
 
