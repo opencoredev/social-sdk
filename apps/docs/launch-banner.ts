@@ -10,7 +10,9 @@ export const LAUNCH_BANNER_ID = "gradients-sh-launch";
 
 const STORAGE_KEY = `blume-banner:${LAUNCH_BANNER_ID}`;
 
-const promo = "{ project: 'gradients-sh', placement: 'banner' }";
+// analytics.ts turns this event into a cross_promo_<action> event.
+const promo = (action: string) =>
+  `document.dispatchEvent(new CustomEvent('cross-promo', { detail: { action: '${action}', project: 'gradients-sh' } }))`;
 
 const bar = `<style>
       .launch-banner {
@@ -78,14 +80,14 @@ const bar = `<style>
       } catch {}
     </script>
     <div class="launch-banner">
-      <a href="${LAUNCH_POST_URL}" target="_blank" rel="noopener" onclick="window.posthog?.capture?.('cross_promo_clicked', ${promo})"
+      <a href="${LAUNCH_POST_URL}" target="_blank" rel="noopener" onclick="${promo("clicked")}"
         ><span class="wide">Hey, Leo here 👋 </span>I just launched <b>gradients.sh</b
         ><span class="wide">, animated gradient backgrounds for React</span>. Come check it out →</a
       >
       <button
         type="button"
         aria-label="Close announcement"
-        onclick="document.documentElement.setAttribute('data-blume-banner-hidden', '');try{localStorage.setItem('${STORAGE_KEY}', '1')}catch{};window.posthog?.capture?.('cross_promo_dismissed', ${promo})"
+        onclick="document.documentElement.setAttribute('data-blume-banner-hidden', '');try{localStorage.setItem('${STORAGE_KEY}', '1')}catch{};${promo("dismissed")}"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
       </button>
