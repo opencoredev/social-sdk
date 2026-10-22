@@ -1,7 +1,12 @@
 ---
 title: X
 description: Publish and read X posts with existing user authorization, explicit media limits, native references, and uncertain-write reconciliation.
+seo:
+  title: Post to X from TypeScript with the X API v2
+  description: Post to X (Twitter) from Node.js or Bun with the X API v2. OAuth 2.0 user tokens, weighted 280-character text, image and video uploads, and typed per-post results.
 ---
+
+To post to X from a server, call the X API v2 `POST /2/tweets` endpoint with an OAuth 2.0 user access token that has the `tweet.write` scope. An app-only bearer token cannot write. The Social SDK X adapter wraps that call, media uploads through `/2/media/upload`, and X's weighted 280-character count behind `social.posts.publish`, which returns one typed outcome per post.
 
 The direct X adapter uses an existing bearer token and user ID. For a multi-user connection flow, use the server entrypoint's `xOAuth` with `ConnectionManager`; the adapter itself accepts the resulting credentials. Authorization does not transfer between backend instances. Configure the token on your server and treat the user ID as the account identity.
 

@@ -248,6 +248,14 @@ export default defineConfig({
   },
   seo: {
     x: { handle: "@leodev" },
+    // Emitted as the publisher in every docs page's JSON-LD; matches the
+    // homepage's SoftwareApplication author.
+    organization: {
+      name: "OpenCore",
+      url: "https://github.com/opencoredev",
+      logo: "/brand/social-sdk-mark.png",
+      sameAs: ["https://github.com/opencoredev"],
+    },
   },
   agents: {
     llmsTxt: true,
