@@ -32,6 +32,12 @@ const bannedTerms = [
   ["legacy product domain", ["email", "-sdk.dev"].join("")],
 ];
 
+const emailSdkLabels = new Set([
+  "legacy package shorthand",
+  "legacy product name",
+  "legacy product domain",
+]);
+
 const listed = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard"], {
   stdout: "pipe",
   stderr: "pipe",
@@ -94,6 +100,17 @@ for (const path of paths) {
         checkedContent = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, (script) =>
           script.includes("https://y.social-sdk.dev") ? "" : script,
         );
+      }
+    }
+
+    // The old name now belongs to a separate OpenCore product. The footer's "More
+    // from OpenCore" links name it, so the site list and the footer group are the
+    // only places allowed to.
+    if (emailSdkLabels.has(label)) {
+      if (path === "apps/docs/opencore-sites.ts") continue;
+
+      if (path.startsWith("apps/docs/dist/") && path.endsWith(".html")) {
+        checkedContent = checkedContent.replace(/<nav class="foot-family"[\s\S]*?<\/nav>/g, "");
       }
     }
 

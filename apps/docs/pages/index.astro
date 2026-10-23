@@ -5,6 +5,7 @@ import landing from "./_home/landing.html?raw";
 import { withAnalytics } from "../analytics";
 import { withLaunchBanner } from "../launch-banner";
 import { withFonts } from "./_home/fonts";
+import { withOpenCoreSites } from "../opencore-footer";
 ---
 
-<Fragment set:html={withAnalytics(withFonts(withLaunchBanner(landing)))} />
+<Fragment set:html={withAnalytics(withFonts(withLaunchBanner(withOpenCoreSites(landing))))} />
