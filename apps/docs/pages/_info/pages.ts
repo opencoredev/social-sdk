@@ -1,6 +1,7 @@
 // About, contact, and privacy pages. They share one hand-drawn shell with the
 // brand page's look; each page supplies its copy here.
 import shell from "./info.html?raw";
+import { withOpenCoreSites } from "../../opencore-footer";
 
 type InfoPage = {
   path: string;
@@ -220,9 +221,11 @@ export function renderShell(page: Shell): string {
     ["<!-- @content -->", page.content],
   ]);
 
-  return shell.replace(
-    /<!-- @(?:meta|content) -->|@(?:kicker|heading|lede)\b/g,
-    (token) => fields.get(token) ?? token,
+  return withOpenCoreSites(
+    shell.replace(
+      /<!-- @(?:meta|content) -->|@(?:kicker|heading|lede)\b/g,
+      (token) => fields.get(token) ?? token,
+    ),
   );
 }
 
