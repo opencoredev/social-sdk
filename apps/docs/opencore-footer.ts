@@ -1,13 +1,16 @@
-// "More from OpenCore" links for the footers of the hand-drawn landing, info and
-// brand pages. Each page marks the spot with <!-- @opencore-sites -->. The links
-// are plain followed links on purpose: they share authority between our sites.
+// "More from OpenCore" links for the footers of the hand-drawn landing, info, blog
+// and brand pages. Each page marks the spot with <!-- @opencore-sites -->. The
+// links are plain followed links on purpose: they share authority between our sites.
 import { otherOpenCoreSites } from "./opencore-sites";
 
-const items = otherOpenCoreSites("https://social-sdk.dev")
-  .map((site) => `<li><a href="${site.url}">${site.name} <span>${site.description}</span></a></li>`)
-  .join("");
+const renderItems = () =>
+  otherOpenCoreSites("https://social-sdk.dev")
+    .map(
+      (site) => `<li><a href="${site.url}">${site.name} <span>${site.description}</span></a></li>`,
+    )
+    .join("");
 
-const group = `<style>
+const renderGroup = () => `<style>
       nav.foot-family {
         display: block;
         margin-top: 28px;
@@ -56,8 +59,8 @@ const group = `<style>
     </style>
     <nav class="foot-family" aria-labelledby="foot-family-title">
       <p id="foot-family-title">More from OpenCore</p>
-      <ul>${items}</ul>
+      <ul>${renderItems()}</ul>
     </nav>`;
 
 export const withOpenCoreSites = (html: string): string =>
-  html.replace("<!-- @opencore-sites -->", group);
+  html.replace("<!-- @opencore-sites -->", renderGroup);
