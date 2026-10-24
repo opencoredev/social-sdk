@@ -180,7 +180,123 @@ A direct adapter accepts `schedule` only when the platform stores the post and p
 | TikTok    | `unsupported-by-platform`    | [Direct Post `post_info`](https://developers.tiktok.com/doc/content-posting-api-reference-direct-post) has no publish-time field.                                                                                                                                                                                                                                                   |
 | LinkedIn  | `unsupported-by-platform`    | The [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api) accepts only `lifecycleState: "PUBLISHED"` on creation and has no publish-time field.                                                                                                                                                                                   |
 
-These sources were checked on 2026-09-24. Because these adapters never create a scheduled post, they do not implement `posts.cancelScheduled`. To publish later on these platforms, run the publish from your own durable job runner, or use a managed backend that schedules on your behalf.
+These sources were checked on 2026-09-24. Because these adapters never create a scheduled post, they do not implement `posts.cancelScheduled`. To publish later on these platforms, use [`SocialScheduler`](#schedule-with-socialscheduler), run the publish from your own durable job runner, or use a managed backend that schedules on your behalf.
+
+## Schedule with SocialScheduler
+
+`SocialScheduler` stores publications and sequences and sends them when they are due. It runs in your server process against two stores you provide: a `ScheduleStore` for jobs and the client's `idempotencyStore` for delivery outcomes. It needs no hosted service.
+
+Both stores must be shared and durable in production, and the idempotency store must implement `compareAndSetOutcome`. `createKeyValueScheduleStore` and `createKeyValueIdempotencyStore` build both on one `VersionedKeyValueStore`: `get`, `compareAndSet` on a version, `delete` on a version, and ordered `list` by key prefix. In SQL that is one table with `key text primary key, value text, version bigint`, where a compare-and-set is `UPDATE ... WHERE key = ? AND version = ?` and an insert uses `ON CONFLICT DO NOTHING`. `MemoryScheduleStore` and `MemoryKeyValueStore` are for tests and single-process development.
+
+```ts
+import {
+  SocialScheduler,
+  createKeyValueIdempotencyStore,
+  createKeyValueScheduleStore,
+  createSocial,
+} from "@opencoredev/social-sdk";
+import { kv } from "./kv"; // your VersionedKeyValueStore over a SQL table or KV service
+
+const social = createSocial({
+  backends,
+  authorization: tenantPolicy,
+  idempotencyStore: createKeyValueIdempotencyStore(kv),
+});
+
+const scheduler = new SocialScheduler({ social, store: createKeyValueScheduleStore(kv) });
+const tenant = { authorization: { tenantId, principalId } };
+
+await scheduler.schedule({
+  work: {
+    kind: "publish",
+    request: {
+      targets: [{ account: xAccount }, { account: youtubeAccount, options }],
+      content,
+      idempotencyKey: draftId,
+    },
+  },
+  at: { kind: "local", date: "2026-11-02", time: "09:00", timeZone: "America/New_York" },
+  ...tenant,
+});
+
+await scheduler.schedule({
+  work: {
+    kind: "sequence",
+    request: {
+      items: [
+        {
+          targets: [{ account: xAccount }, { account: blueskyAccount }],
+          content: { text: "1/ What changed" },
+        },
+        {
+          targets: [{ account: xAccount }, { account: blueskyAccount }],
+          content: { text: "2/ Why it matters" },
+        },
+      ],
+      idempotencyKey: threadId,
+      replyToPrevious: true,
+    },
+  },
+  at: {
+    kind: "queue",
+    queueId: "weekday-mornings",
+    timeZone: "Europe/Berlin",
+    slots: [{ time: "09:30", weekdays: [1, 2, 3, 4, 5] }],
+  },
+  ...tenant,
+});
+
+// From a cron route or worker, every minute or so:
+const run = await scheduler.runDue({ limit: 25, concurrency: 4 });
+```
+
+`schedule` validates and authorizes every step with the stored `authorization`, then stores the job. It sends nothing. A route that rejects replies, such as LinkedIn, fails the whole reply chain here, before anything is stored. Media must use `https-url` or `media-ref` sources, because a `Blob` or stream cannot be stored and replayed later.
+
+### Times
+
+Each job resolves to one UTC instant when it is stored.
+
+- `{ kind: "instant", at }` needs `Z` or an explicit offset. A timestamp without an offset is rejected.
+- `{ kind: "local", date, time, timeZone }` uses an IANA zone. A wall time skipped by a daylight-saving jump is rejected. A wall time that occurs twice is rejected unless `ambiguous` is `"earlier"` or `"later"`.
+- `{ kind: "queue", queueId, timeZone, slots }` takes the first free slot after `notBefore` or now. Skipped wall times are passed over, a repeated wall time gives one slot at its earlier instant, and one slot never holds two active jobs in the same tenant. A cancelled job frees its slot.
+
+### Running due work
+
+`runDue` claims up to `limit` due jobs (default 25) and processes up to `concurrency` jobs at once (default 4). Within a job, steps run in order, and each publish shares the client's per-backend `concurrency` limit. Every state change is a compare-and-set on the job record, so several processes can call `runDue` on the same store. Each job is held by one lease at a time (`leaseMs`, default five minutes).
+
+Before sending a step, the scheduler records the exact request on the job. A step that a crashed or expired runner left in that state is never sent again: the next runner reads its outcomes from the idempotency claim, and targets with no saved outcome become `unknown`. Before a run sends anything, it prepares every pending step again and asks your `AuthorizationPolicy` with the stored context. If access was revoked, the job is `blocked` and nothing is sent.
+
+Pass `jobRunner` to `createSocial` or override it in `SocialScheduler` to enqueue a `social-sdk.schedule.run-due` hint at each job's next run time. The store stays authoritative, so keep a periodic `runDue` call as well.
+
+The generic KV adapter scans authoritative job records, avoiding a separate index that could become inconsistent after a crash. It reads at most 10,000 records per call by default; `createKeyValueScheduleStore(kv, { maxScanEntries })` can raise that bound to 100,000. Exceeding the bound throws before any dispatch. For larger queues, implement `ScheduleStore.listDue` with an indexed database query.
+
+Public scheduler reads and mutations reauthorize the current caller. Pass the authenticated authorization context on each call. Background dispatch also rechecks the context stored with the job. Each lease claim has a distinct token, so an expired worker cannot overwrite its replacement's progress.
+
+### Sequences and reply chains
+
+With `replyToPrevious`, each destination account gets its own chain, and every item must target the same accounts. A destination's next item is sent only after its previous post is `published`. An `accepted`, `processing`, or `unknown` parent pauses that destination while the scheduler polls it; other destinations continue. The scheduler never replies to a parent it has not seen published. Outcomes keep each item's original target indexes. Without `replyToPrevious`, items run in order. Unless `stopOnFailure` is `false`, a failed item stops the rest and an unresolved one pauses them until it settles.
+
+### Native scheduling
+
+For a single publication, routes whose manifest declares `posts.publish`, `posts.schedule`, and `posts.cancelScheduled` as available are submitted early with `schedule`, so the provider holds the post. All other routes are sent by `runDue` at the scheduled time. `preferNativeSchedule: false` sends every route at the scheduled time. The option never sends `schedule` to a route that does not declare it. If a native submission is still unsent when its time arrives, it is sent directly. Sequences always run at the scheduled time.
+
+### Cancel and reschedule
+
+`cancel(id)` first stops every step that has not been sent, so no runner can send it later. It then calls `posts.cancelScheduled` for each provider-held post. The result is `cancelled` only when nothing can still publish. Otherwise it is `unresolved` and lists each destination with `cancel-failed`, `cancel-unsupported`, `not-cancellable-state`, or `in-flight`. Calling `cancel` again retries those. Posts that already published stay published.
+
+`reschedule(id, at)` moves a job before any runtime step is sent. When native posts exist, it withdraws them first and moves the job only after every provider confirms. It refuses with `native-state-uncertain` when a provider-held post is no longer just scheduled. If any cancellation is uncertain, the job is stopped as `cancel-unresolved` instead of moved, so a reschedule never leaves two scheduled copies.
+
+### Reconcile and retry
+
+`runDue` polls `scheduled`, `accepted`, `processing`, and `unknown` outcomes through `posts.reconcile` every `pollIntervalMs` (default one minute) for up to `maxPolls` polls per step (default 30). After that, the job is `blocked`. `scheduler.reconcile(id)` polls once more on demand. `scheduler.retryFailed(id)` re-sends only destinations whose saved outcome proves nothing is live, then continues any chain the failure stopped.
+
+The same operations are available without the scheduler. `posts.reconcile(request)` and `posts.retryFailed(request)` take the full original request, check its fingerprint against the original claim, and authorize every target before any network call. `OutcomeReconciler.settle(request, { maxPasses, intervalMs })` polls in a bounded loop.
+
+- A poll result replaces the saved outcome only if it names the same account and delivery, and only if no retry or newer poll changed the outcome first. Index-0 results from managed backends are mapped back to the original target.
+- `retryFailed` sends `failed` targets whose `retryDisposition` is `after-delay` (once the delay has passed) or `after-reconnect`, plus `not-submitted` targets and targets cancelled before submission. It never sends `published`, `scheduled`, `accepted`, `processing`, or `unknown` targets, or failures marked `never` or `reconcile-first`. Each target is fenced to `unknown` before it is sent, so concurrent retries send it once.
+- An outcome without a `delivery` reference cannot be polled. Direct X and LinkedIn return `published` with the post ID, or `unknown` without one, so their `unknown` outcomes stay unresolved. The SDK does not search recent posts to guess a match.
+
+Every result reports the destinations it left alone and why. Check `job.status`: `scheduled`, `running`, `blocked`, `completed`, `cancelled`, or `cancel-unresolved`. `scheduledOutcomes(job)` lists the outcomes for each item.
 
 ## Cancel a schedule or remove content
 

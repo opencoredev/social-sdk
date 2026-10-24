@@ -20,6 +20,7 @@ import {
   type JsonValue,
   type ProfileRecord,
   type SocialAdapter,
+  stableSerialize,
 } from "../core/index.js";
 import { definedFields } from "../core/fields.js";
 import { isJsonValue } from "../transport/json.js";
@@ -474,7 +475,9 @@ export function mockBackend(options: MockBackendOptions = {}): MockSocialAdapter
           state: "published",
           observedAt: clock().toISOString(),
           post: platformPostRef({
-            ...saved.account,
+            backend: saved.account.backend,
+            platform: saved.account.platform,
+            accountId: saved.account.accountId,
             postId: ref.deliveryId.replace(/^delivery-/, "post-"),
           }),
         };
@@ -752,6 +755,33 @@ export class MemoryIdempotencyStore implements IdempotencyStore {
     }
 
     claim.outcomes[input.targetKey] = structuredClone(input.outcome);
+  }
+
+  async compareAndSetOutcome(input: {
+    readonly claimId: string;
+    readonly targetKey: string;
+    readonly expected: DeliveryOutcome | undefined;
+    readonly outcome: DeliveryOutcome;
+  }): Promise<boolean> {
+    const claim = this.#claimsById.get(input.claimId);
+
+    if (claim === undefined) throw new Error(`Unknown idempotency claim: ${input.claimId}`);
+
+    if (!claim.targetKeys.includes(input.targetKey)) {
+      throw new Error(`Target does not belong to idempotency claim: ${input.targetKey}`);
+    }
+
+    const current = claim.outcomes[input.targetKey];
+
+    if (
+      (current === undefined) !== (input.expected === undefined) ||
+      (current !== undefined && stableSerialize(current) !== stableSerialize(input.expected))
+    )
+      return false;
+
+    claim.outcomes[input.targetKey] = structuredClone(input.outcome);
+
+    return true;
   }
 
   reset(): void {
