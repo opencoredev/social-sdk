@@ -22,6 +22,7 @@ import type {
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { definedFields } from "../core/fields.js";
+import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import {
   array,
   isBoolean,
@@ -145,8 +146,12 @@ function nextGraphCursor(result: JsonObject): string | undefined {
     : undefined;
 }
 
-function graphPage(result: JsonObject, fields: readonly string[]): Page<JsonObject> {
-  const items = array(result["data"]).map((entry) => publicFields(entry, fields));
+function graphPage(
+  result: JsonObject,
+  fields: readonly string[],
+  project: (row: JsonObject) => JsonObject = (row) => row,
+): Page<JsonObject> {
+  const items = array(result["data"]).map((entry) => project(publicFields(entry, fields)));
 
   return { items, ...definedFields({ nextCursor: nextGraphCursor(result) }) };
 }
@@ -825,6 +830,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         ),
       ),
       fields,
+      normalizeComment,
     );
   };
 
@@ -1102,6 +1108,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
             }),
           ),
           commentFields,
+          normalizeComment,
         );
       },
       async reply(
@@ -1151,7 +1158,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
           ? optionalNumber(result["shares"]["count"])
           : undefined;
 
-        return (
+        const metrics = (
           [
             ["reactions", total("reactions")],
             ["comments", total("comments")],
@@ -1172,6 +1179,8 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
                 },
               ],
         );
+
+        return normalizeMetrics(metrics);
       },
       async getAccountMetrics(
         account: ConnectedAccountRef,
@@ -1192,7 +1201,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
             message: "Facebook returned metrics for a different Page.",
           });
 
-        return (["followers_count", "fan_count"] as const).flatMap((name) => {
+        const metrics = (["followers_count", "fan_count"] as const).flatMap((name) => {
           const value = optionalNumber(result[name]);
 
           return value === undefined
@@ -1209,6 +1218,8 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
                 },
               ];
         });
+
+        return normalizeMetrics(metrics);
       },
       getReport,
     },

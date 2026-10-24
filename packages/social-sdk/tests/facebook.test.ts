@@ -451,7 +451,9 @@ describe("facebook pages adapter", () => {
 
     const comments = await fb.comments!.list(post, {}, context);
 
-    assert.deepEqual(comments.items, [{ id: "c1", message: "Nice" }]);
+    assert.deepEqual(comments.items, [
+      { id: "c1", message: "Nice", text: "Nice", native: { id: "c1", message: "Nice" } },
+    ]);
     assert.equal(comments.nextCursor, undefined);
 
     const reply = await fb.comments!.reply(
@@ -552,21 +554,24 @@ describe("facebook pages adapter", () => {
       (await fb.analytics!.getPostMetrics(post, context)).map((metric) => [
         metric.name,
         metric.value,
+        metric.canonicalName,
       ]),
+      // Reactions include more than likes, so they keep only the provider name.
       [
-        ["reactions", 7],
-        ["comments", 2],
-        ["shares", 1],
+        ["reactions", 7, undefined],
+        ["comments", 2, "comments"],
+        ["shares", 1, "shares"],
       ],
     );
     assert.deepEqual(
       (await fb.analytics!.getAccountMetrics!(page, context)).map((metric) => [
         metric.name,
         metric.value,
+        metric.canonicalName,
       ]),
       [
-        ["followers_count", 50],
-        ["fan_count", 40],
+        ["followers_count", 50, "followers"],
+        ["fan_count", 40, undefined],
       ],
     );
 
