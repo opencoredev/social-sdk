@@ -95,6 +95,7 @@ describe("SocialError.fromJSON", () => {
       { ...valid, retryDisposition: { kind: "after-delay" } },
       { ...valid, retryDisposition: { kind: "after-delay", delayMs: -1 } },
       { ...valid, retryDisposition: { kind: "sometimes" } },
+      { ...valid, retryDisposition: { kind: "never", delayMs: 500 } },
       { ...valid, backend: 7 },
       {
         ...valid,

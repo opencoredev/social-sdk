@@ -187,7 +187,12 @@ function decodeRetryDisposition(value: JsonField): RetryDisposition {
 
   if (kind === "after-delay" && isFiniteNumber(delayMs) && delayMs >= 0) return { kind, delayMs };
 
-  if (kind === "never" || kind === "after-reconnect" || kind === "reconcile-first") return { kind };
+  // Only an after-delay disposition carries a delay.
+  if (
+    delayMs === undefined &&
+    (kind === "never" || kind === "after-reconnect" || kind === "reconcile-first")
+  )
+    return { kind };
 
   return invalidSerializedError("retryDisposition");
 }
