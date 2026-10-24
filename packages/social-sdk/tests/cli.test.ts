@@ -1,5 +1,6 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { runCli } from "../src/cli.js";
 import { isJsonValue } from "../src/transport/json.js";
 import { array, object, string } from "../src/transport/validation.js";
@@ -72,4 +73,31 @@ it("CLI rejects mutation/network commands and malformed options", async () => {
     ["doctor", "--adapter", "x", "--adapter", "mock"],
   ])
     assert.equal((await run(args)).code, 2);
+});
+
+it("CLI version and --version print the package version and help lists the command", async () => {
+  const manifest: unknown = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+
+  assert.ok(isJsonValue(manifest));
+  const expected = string(object(manifest)["version"]);
+
+  for (const command of ["version", "--version"]) {
+    const result = await run([command, "--json"]);
+    assert.equal(result.code, 0);
+    assert.deepEqual(JSON.parse(result.output), {
+      schemaVersion: 1,
+      command: "version",
+      ok: true,
+      data: { version: expected },
+    });
+
+    const human = await run([command]);
+    assert.equal(human.code, 0);
+    assert.equal(human.data["version"], expected);
+  }
+
+  const help = await run(["help", "--json"]);
+  assert.match(string(help.data["usage"]), /\|version[|>]/);
 });
