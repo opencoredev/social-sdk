@@ -656,6 +656,7 @@ export class SocialScheduler {
       key,
       job: fenced.job,
       finalize: true,
+      authorization: options.authorization,
     });
 
     return unresolved.length === 0
@@ -722,6 +723,9 @@ export class SocialScheduler {
     if (fixed !== undefined && Date.parse(fixed) <= now)
       throw invalid("The scheduled time must be in the future");
 
+    // Revalidate pending work with the stored execution context before removing a block.
+    await this.#preflight({ ...job, runAt: fixed ?? job.runAt });
+
     // A reschedule lease keeps runners off the job while provider cancellations run.
     const fenceOwner = `reschedule:${crypto.randomUUID()}`;
 
@@ -741,6 +745,7 @@ export class SocialScheduler {
         job,
         finalize: false,
         leaseOwner: fenceOwner,
+        authorization: options.authorization,
       });
 
       if (withdrawn.unresolved.length > 0) {
@@ -789,7 +794,13 @@ export class SocialScheduler {
         }),
       );
 
-      const { lease: _released, timeZone: _zone, queueId: _queue, ...rest } = current;
+      const {
+        lease: _released,
+        timeZone: _zone,
+        queueId: _queue,
+        blocked: _block,
+        ...rest
+      } = current;
 
       return {
         ...rest,
@@ -1139,6 +1150,8 @@ export class SocialScheduler {
     readonly job: ScheduledJob;
     readonly finalize: boolean;
     readonly leaseOwner?: string;
+    /** The caller asking for the cancellation; provider calls act with this context. */
+    readonly authorization: AuthorizationContext | undefined;
   }): Promise<{
     readonly job: ScheduledJob;
     readonly unresolved: readonly UnresolvedCancellation[];
@@ -1146,7 +1159,7 @@ export class SocialScheduler {
     const unresolved: UnresolvedCancellation[] = [];
     const confirmed = new Map<string, DeliveryOutcome>();
     const observedAt = this.#clock().toISOString();
-    const options = definedFields({ authorization: input.job.authorization });
+    const options = definedFields({ authorization: input.authorization });
 
     for (const lane of input.job.lanes)
       for (const [stepIndex, step] of lane.steps.entries()) {
@@ -1247,8 +1260,7 @@ export class SocialScheduler {
       });
     }
 
-    if (job.status === "cancelled" || job.status === "cancel-unresolved")
-      return input.force ? job : undefined;
+    if (job.status === "cancelled") return input.force ? job : undefined;
 
     // An explicit retry may clear a block that the retry itself can resolve.
     const { blocked: _cleared, ...unblocked } = job;
@@ -1269,13 +1281,23 @@ export class SocialScheduler {
     const touched = new Set<string>();
 
     try {
-      if (input.retry) await this.#retrySteps(key);
+      if (job.status === "cancel-unresolved") {
+        // Cancellation fences new submissions, but durable claims can still supply the
+        // references needed to cancel provider work after a runner crashed.
+        for (const lane of job.lanes)
+          for (const [stepIndex, step] of lane.steps.entries())
+            if (step.state === "dispatching") await this.#recover({ key, job, lane, stepIndex });
 
-      for (let round = 0; round < 3; round++) {
-        const advanced = await this.#advance({ key, now: nowMs, touched });
-        const polled = await this.#poll({ key, now: nowMs, force: input.force, touched });
+        await this.#poll({ key, now: nowMs, force: input.force, touched });
+      } else {
+        if (input.retry) await this.#retrySteps(key);
 
-        if (!advanced && !polled) break;
+        for (let round = 0; round < 3; round++) {
+          const advanced = await this.#advance({ key, now: nowMs, touched });
+          const polled = await this.#poll({ key, now: nowMs, force: input.force, touched });
+
+          if (!advanced && !polled) break;
+        }
       }
     } finally {
       // Releasing records the next due time even if a provider call threw.
@@ -1628,7 +1650,19 @@ export class SocialScheduler {
               stepIndex,
               update: (saved) =>
                 saved.state === "dispatched"
-                  ? { ...saved, outcomes: outcomes ?? saved.outcomes, polls: saved.polls + 1 }
+                  ? {
+                      ...saved,
+                      // Provider cancellation is saved on the job, while its original
+                      // idempotency claim may still report the earlier scheduled state.
+                      outcomes: saved.outcomes.map((outcome) =>
+                        terminal.has(outcome.state)
+                          ? outcome
+                          : (outcomes?.find(
+                              (polled) => polled.targetIndex === outcome.targetIndex,
+                            ) ?? outcome),
+                      ),
+                      polls: saved.polls + 1,
+                    }
                   : undefined,
             }),
           ),

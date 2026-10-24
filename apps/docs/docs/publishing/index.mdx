@@ -264,11 +264,11 @@ Each job resolves to one UTC instant when it is stored.
 
 `runDue` claims up to `limit` due jobs (default 25) and processes up to `concurrency` jobs at once (default 4). Within a job, steps run in order, and each publish shares the client's per-backend `concurrency` limit. Every state change is a compare-and-set on the job record, so several processes can call `runDue` on the same store. Each job is held by one lease at a time (`leaseMs`, default five minutes).
 
-Before sending a step, the scheduler records the exact request on the job. A step that a crashed or expired runner left in that state is never sent again: the next runner reads its outcomes from the idempotency claim, and targets with no saved outcome become `unknown`. Before a run sends anything, it prepares every pending step again and asks your `AuthorizationPolicy` with the stored context. If access was revoked, the job is `blocked` and nothing is sent.
+Before sending a step, the scheduler records the exact request on the job. A step that a crashed or expired runner left in that state is never sent again: the next runner reads its outcomes from the idempotency claim, and targets with no saved outcome become `unknown`. Before a run sends anything, it prepares every pending step again and asks your `AuthorizationPolicy` with the stored context. If access was revoked, the job is `blocked` and nothing is sent. Once access is restored, rescheduling revalidates pending work and clears the old block.
 
 Pass `jobRunner` to `createSocial` or override it in `SocialScheduler` to enqueue a `social-sdk.schedule.run-due` hint at each job's next run time. The store stays authoritative, so keep a periodic `runDue` call as well.
 
-The generic KV adapter scans authoritative job records, avoiding a separate index that could become inconsistent after a crash. It reads at most 10,000 records per call by default; `createKeyValueScheduleStore(kv, { maxScanEntries })` can raise that bound to 100,000. Exceeding the bound throws before any dispatch. For larger queues, implement `ScheduleStore.listDue` with an indexed database query.
+The generic KV adapter scans authoritative job records, avoiding a separate index that could become inconsistent after a crash. It reads at most 10,000 records per call by default; `createKeyValueScheduleStore(kv, { maxScanEntries })` can raise that bound to 100,000. Exceeding the bound throws before any dispatch. The bound includes completed and cancelled records. For larger queues, implement `ScheduleStore.listDue` with an indexed database query.
 
 Public scheduler reads and mutations reauthorize the current caller. Pass the authenticated authorization context on each call. Background dispatch also rechecks the context stored with the job. Each lease claim has a distinct token, so an expired worker cannot overwrite its replacement's progress.
 
@@ -283,6 +283,8 @@ For a single publication, routes whose manifest declares `posts.publish`, `posts
 ### Cancel and reschedule
 
 `cancel(id)` first stops every step that has not been sent, so no runner can send it later. It then calls `posts.cancelScheduled` for each provider-held post. The result is `cancelled` only when nothing can still publish. Otherwise it is `unresolved` and lists each destination with `cancel-failed`, `cancel-unsupported`, `not-cancellable-state`, or `in-flight`. Calling `cancel` again retries those. Posts that already published stay published.
+
+If cancellation returns `unresolved` because a runner crashed during submission, call `reconcile(job.id, options)` to recover any saved provider references, then call `cancel` again. Reconciliation preserves confirmed cancellations, keeps pending destinations cancelled, and does not resend the interrupted step. Provider cancellation uses the current caller's authorization context.
 
 `reschedule(id, at)` moves a job before any runtime step is sent. When native posts exist, it withdraws them first and moves the job only after every provider confirms. It refuses with `native-state-uncertain` when a provider-held post is no longer just scheduled. If any cancellation is uncertain, the job is stopped as `cancel-unresolved` instead of moved, so a reschedule never leaves two scheduled copies.
 

@@ -79,7 +79,7 @@ test("a due scan during job creation cannot orphan the scheduled job", async () 
   await paused;
 
   try {
-    assert.deepEqual(await store.listDue({ now, limit: 10 }), []);
+    assert.deepEqual(await store.listDue({ now: "2026-10-26T12:00:00.000Z", limit: 10 }), []);
   } finally {
     releaseWrite();
   }

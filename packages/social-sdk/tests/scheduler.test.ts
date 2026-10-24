@@ -175,6 +175,95 @@ test("the scheduler inherits JobRunner from createSocial configuration", async (
   assert.deepEqual(hints, ["social-sdk.schedule.run-due"]);
 });
 
+test("an overlapping run on the same instance after lease expiry cannot resend or overwrite", async () => {
+  const h = harness();
+  const posts = h.mock.posts;
+  assert.ok(posts !== undefined);
+  const publishTarget = posts.publishTarget.bind(posts);
+  let release: () => void = () => {};
+
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let entered: () => void = () => {};
+
+  const sending = new Promise<void>((resolve) => (entered = resolve));
+
+  posts.publishTarget = async (target, context) => {
+    entered();
+    await gate;
+
+    return publishTarget(target, context);
+  };
+
+  const job = await h.scheduler.schedule({
+    work: { kind: "publish", request: publication("overlap", xAccount) },
+    at: inOneHour,
+  });
+
+  const due = new Date("2026-03-01T11:00:00.000Z");
+  const slow = h.scheduler.runDue({ now: due });
+  await sending;
+
+  // The same instance runs again after the first claim's lease has expired.
+  const expired = new Date(due.getTime() + 300_001);
+  const second = await h.scheduler.runDue({ now: expired });
+  assert.equal(second.claimed, 1);
+  const recovered = (await h.scheduler.get(job.id))?.lanes[0]?.steps[0];
+  assert.equal(
+    recovered?.state === "dispatched" ? recovered.outcomes[0]?.state : undefined,
+    "unknown",
+  );
+
+  release();
+  await slow;
+  assert.equal(h.publishes().length, 1, "the step is sent once");
+
+  // The first run's late result is not written over the new claim, but it is in the
+  // idempotency claim, so reconciliation recovers it.
+  const after = (await h.scheduler.get(job.id))?.lanes[0]?.steps[0];
+  assert.equal(after?.state === "dispatched" ? after.outcomes[0]?.state : undefined, "unknown");
+  const reconciled = await h.scheduler.reconcile(job.id);
+  const step = reconciled?.lanes[0]?.steps[0];
+  assert.equal(step?.state === "dispatched" ? step.outcomes[0]?.state : undefined, "published");
+  assert.equal(h.publishes().length, 1);
+});
+
+test("provider cancellations act with the current caller's context", async () => {
+  const seen: { operation: string; principalId: string | undefined }[] = [];
+
+  const h = harness({
+    native: true,
+    authorization: {
+      async authorizeTargets({ operation, accounts, context }) {
+        seen.push({ operation, principalId: context.authorization?.principalId });
+
+        return accounts.map((account) => ({ account, allowed: true }));
+      },
+    },
+  });
+
+  const job = await h.scheduler.schedule({
+    work: { kind: "publish", request: publication("caller-cancel", xAccount) },
+    at: inOneHour,
+    authorization: { tenantId: "tenant", principalId: "author" },
+  });
+
+  await h.scheduler.runDue();
+  seen.length = 0;
+
+  const result = await h.scheduler.cancel(job.id, {
+    authorization: { tenantId: "tenant", principalId: "operator" },
+  });
+
+  assert.equal(result.state, "cancelled");
+  assert.deepEqual(
+    seen.filter((entry) => entry.operation === "posts.cancelScheduled"),
+    [
+      { operation: "posts.cancelScheduled", principalId: "operator" },
+      { operation: "posts.cancelScheduled", principalId: "operator" },
+    ],
+  );
+});
+
 describe("SocialScheduler", () => {
   test("stores work, dispatches it once when due, and records per-destination outcomes", async () => {
     const h = harness();
