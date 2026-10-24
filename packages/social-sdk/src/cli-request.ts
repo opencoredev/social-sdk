@@ -67,7 +67,7 @@ function versionAt(value: JsonField, path: string): 1 {
   return value;
 }
 
-function connectedAccount(value: JsonField, path: string): ConnectedAccountRef {
+export function decodeConnectedAccount(value: JsonField, path: string): ConnectedAccountRef {
   const input = objectAt(value, path);
 
   if (input["kind"] !== "connected-account") fail(`${path}.kind`, '"connected-account"');
@@ -94,7 +94,7 @@ function mediaRef(input: JsonObject, path: string): MediaRef {
   };
 }
 
-function replyReference(value: JsonField, path: string): CommentRef | PlatformPostRef {
+export function decodeReplyReference(value: JsonField, path: string): CommentRef | PlatformPostRef {
   const input = objectAt(value, path);
   const kind = input["kind"];
 
@@ -183,7 +183,7 @@ function link(value: JsonField, path: string): LinkMetadata {
   };
 }
 
-function content(value: JsonField, path: string): PublishContent {
+export function decodePublishContent(value: JsonField, path: string): PublishContent {
   const input = objectAt(value, path);
   const media = input["media"];
   const linkInput = input["link"];
@@ -197,17 +197,18 @@ function content(value: JsonField, path: string): PublishContent {
   });
 }
 
-function target(value: JsonField, path: string): PublishTarget {
+export function decodePublishTarget(value: JsonField, path: string): PublishTarget {
   const input = objectAt(value, path);
   const override = input["content"];
   const replyTo = input["replyTo"];
   const options = input["options"];
 
   return {
-    account: connectedAccount(input["account"], `${path}.account`),
+    account: decodeConnectedAccount(input["account"], `${path}.account`),
     ...definedFields({
-      content: override === undefined ? undefined : content(override, `${path}.content`),
-      replyTo: replyTo === undefined ? undefined : replyReference(replyTo, `${path}.replyTo`),
+      content:
+        override === undefined ? undefined : decodePublishContent(override, `${path}.content`),
+      replyTo: replyTo === undefined ? undefined : decodeReplyReference(replyTo, `${path}.replyTo`),
       // Each adapter validates its own option fields during `prepare`.
       options: options === undefined ? undefined : objectAt(options, `${path}.options`),
     }),
@@ -232,20 +233,28 @@ function schedule(value: JsonField, path: string): NonNullable<PublishRequest["s
 export function decodePublishRequest(text: string): PublishRequest {
   const parsed: unknown = JSON.parse(text);
 
-  if (!isJsonValue(parsed) || !isJsonObject(parsed) || !isJsonArray(parsed["targets"]))
+  if (!isJsonValue(parsed))
     throw new PublishRequestInputError("Expected a JSON publish request with a targets array.");
 
-  const scheduleInput = parsed["schedule"];
-  const replyTo = parsed["replyTo"];
+  return decodePublishRequestValue(parsed);
+}
+
+/** Decode an already parsed JSON value with the same rules as `decodePublishRequest`. */
+export function decodePublishRequestValue(value: JsonField): PublishRequest {
+  if (!isJsonObject(value) || !isJsonArray(value["targets"]))
+    throw new PublishRequestInputError("Expected a JSON publish request with a targets array.");
+
+  const scheduleInput = value["schedule"];
+  const replyTo = value["replyTo"];
 
   return {
-    targets: parsed["targets"].map((item, index) => target(item, `targets[${index}]`)),
-    content: content(parsed["content"], "content"),
+    targets: value["targets"].map((item, index) => decodePublishTarget(item, `targets[${index}]`)),
+    content: decodePublishContent(value["content"], "content"),
     ...definedFields({
-      idempotencyKey: optionalStringAt(parsed["idempotencyKey"], "idempotencyKey"),
-      correlationId: optionalStringAt(parsed["correlationId"], "correlationId"),
+      idempotencyKey: optionalStringAt(value["idempotencyKey"], "idempotencyKey"),
+      correlationId: optionalStringAt(value["correlationId"], "correlationId"),
       schedule: scheduleInput === undefined ? undefined : schedule(scheduleInput, "schedule"),
-      replyTo: replyTo === undefined ? undefined : replyReference(replyTo, "replyTo"),
+      replyTo: replyTo === undefined ? undefined : decodeReplyReference(replyTo, "replyTo"),
     }),
   };
 }

@@ -3,8 +3,11 @@ import { realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createSocial } from "./core/client.js";
+import { definedFields } from "./core/fields.js";
 import type { SocialAdapter } from "./core/index.js";
 import { decodePublishRequest, PublishRequestInputError } from "./cli-request.js";
+import { isJsonValue } from "./transport/json.js";
+import { isJsonObject, isString } from "./transport/validation.js";
 import { mockBackend } from "./testing/index.js";
 import { zernio } from "./cloud/zernio.js";
 import { postForMe } from "./cloud/post-for-me.js";
@@ -20,6 +23,9 @@ import { tiktok } from "./platforms/tiktok.js";
 import { instagram } from "./platforms/instagram.js";
 import { linkedin } from "./platforms/linkedin.js";
 import { facebook } from "./platforms/facebook.js";
+import { createSocialToolkit, type SocialToolName } from "./ai/toolkit.js";
+import { createMcpServer } from "./mcp/server.js";
+import { serveMcpStdio } from "./mcp/stdio.js";
 
 /** Adapters the diagnostic CLI can construct offline. */
 export const adapterNames = [
@@ -145,7 +151,19 @@ export interface CliIO {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly readInput: (path: string) => Promise<string>;
   readonly write: (text: string) => void;
+  /** Protocol input for `mcp`, such as `process.stdin`. */
+  readonly stdin?: AsyncIterable<Uint8Array | string>;
+  /** Reported to MCP clients as the server version. */
+  readonly version?: string | undefined;
 }
+
+/** The CLI MCP server stays offline: discovery, diagnostics and local validation only. */
+export const offlineMcpTools = [
+  "social_capabilities",
+  "social_doctor",
+  "social_validate",
+  "social_plan_publish",
+] as const satisfies readonly SocialToolName[];
 
 /** All commands are offline and return 0 (valid), 1 (diagnostic failure), or 2 (usage/input error). */
 export async function runCli(args: readonly string[], io: CliIO): Promise<number> {
@@ -182,7 +200,7 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   if (command === "help" || command === "--help")
     return finish(0, {
       usage:
-        "social-sdk <doctor|adapters|capabilities|validate|examples> [--adapter NAME] [--file PATH] [--json]",
+        "social-sdk <doctor|adapters|capabilities|validate|examples|mcp> [--adapter NAME] [--file PATH] [--json]",
       offline: true,
       exitCodes: { success: 0, diagnosticFailure: 1, invalidInput: 2 },
     });
@@ -198,9 +216,40 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
       verification: "Local contract tests; no live checks are performed by this CLI.",
     });
 
-  if (command === "doctor") {
-    const missing = environmentNames[name].filter((key) => !io.env[key]?.trim());
+  const missing = environmentNames[name].filter((key) => !io.env[key]?.trim());
 
+  if (command === "mcp") {
+    if (io.stdin === undefined) return finish(2, { error: "mcp requires a stdin stream." });
+
+    const toolkit = createSocialToolkit(createSocial({ backend: createDiagnosticAdapter(name) }), {
+      writes: "preview",
+      tools: offlineMcpTools,
+      checks: () => [
+        {
+          name: "environment",
+          ok: missing.length === 0,
+          detail: missing.length
+            ? `Missing on this machine: ${missing.join(", ")}. Values are never read or printed.`
+            : "Configuration names are present. Values were not read, printed or sent.",
+        },
+      ],
+    });
+
+    // Stdout carries protocol messages only from here on.
+    await serveMcpStdio(
+      createMcpServer(toolkit, {
+        name: "social-sdk-diagnostics",
+        ...definedFields({ version: io.version }),
+        instructions:
+          "Offline Social SDK diagnostics. Tools read declared adapter capabilities and validate publish requests locally; they never authenticate, call a provider or publish.",
+      }),
+      { input: io.stdin, write: io.write },
+    );
+
+    return 0;
+  }
+
+  if (command === "doctor") {
     return finish(missing.length ? 1 : 0, {
       adapter: name,
       offline: true,
@@ -281,6 +330,21 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   }
 }
 
+async function packageVersion(): Promise<string | undefined> {
+  try {
+    const manifest: unknown = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    );
+
+    if (!isJsonValue(manifest) || !isJsonObject(manifest)) return undefined;
+    const version = manifest["version"];
+
+    return isString(version) ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const invokedPath = process.argv[1];
 
 let invokedRealPath = invokedPath;
@@ -296,6 +360,8 @@ if (invokedPath) {
 if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) {
   process.exitCode = await runCli(process.argv.slice(2), {
     env: process.env,
+    stdin: process.stdin,
+    version: await packageVersion(),
     async readInput(path) {
       const info = await stat(path);
 
