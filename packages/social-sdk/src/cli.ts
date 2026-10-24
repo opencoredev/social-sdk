@@ -11,6 +11,7 @@ import { postForMe } from "./cloud/post-for-me.js";
 import { postfast } from "./cloud/postfast.js";
 import { postiz } from "./cloud/postiz.js";
 import { buffer } from "./cloud/buffer.js";
+import { uploadPost } from "./cloud/upload-post.js";
 import { bluesky } from "./platforms/bluesky.js";
 import { x } from "./platforms/x.js";
 import { threads } from "./platforms/threads.js";
@@ -18,6 +19,7 @@ import { youtube } from "./platforms/youtube.js";
 import { tiktok } from "./platforms/tiktok.js";
 import { instagram } from "./platforms/instagram.js";
 import { linkedin } from "./platforms/linkedin.js";
+import { facebook } from "./platforms/facebook.js";
 
 /** Adapters the diagnostic CLI can construct offline. */
 export const adapterNames = [
@@ -27,6 +29,7 @@ export const adapterNames = [
   "postfast",
   "postiz",
   "buffer",
+  "upload-post",
   "bluesky",
   "x",
   "threads",
@@ -34,6 +37,7 @@ export const adapterNames = [
   "tiktok",
   "instagram",
   "linkedin",
+  "facebook",
 ] as const;
 
 export type AdapterName = (typeof adapterNames)[number];
@@ -55,6 +59,7 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   postfast: ["POSTFAST_API_KEY"],
   postiz: ["POSTIZ_API_KEY"],
   buffer: ["BUFFER_API_KEY"],
+  "upload-post": ["UPLOAD_POST_API_KEY"],
   bluesky: ["BLUESKY_SERVICE", "BLUESKY_DID", "BLUESKY_ACCESS_JWT"],
   x: ["X_USER_ID", "X_ACCESS_TOKEN"],
   threads: ["THREADS_USER_ID", "THREADS_ACCESS_TOKEN"],
@@ -62,6 +67,7 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   tiktok: ["TIKTOK_OPEN_ID", "TIKTOK_ACCESS_TOKEN"],
   instagram: ["INSTAGRAM_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN"],
   linkedin: ["LINKEDIN_AUTHOR_URN", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_API_VERSION"],
+  facebook: ["FACEBOOK_PAGE_ID", "FACEBOOK_PAGE_ACCESS_TOKEN"],
 };
 
 const noNetwork: typeof globalThis.fetch = async () => {
@@ -85,6 +91,8 @@ export function createDiagnosticAdapter(
       return postiz({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "buffer":
       return buffer({ apiKey: "offline-placeholder", fetch: noNetwork });
+    case "upload-post":
+      return uploadPost({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "bluesky":
       return bluesky({
         auth: { service: "https://bsky.social", did: accountId, accessJwt: "offline-placeholder" },
@@ -123,6 +131,11 @@ export function createDiagnosticAdapter(
           accessToken: "offline-placeholder",
         },
         apiVersion: "202609",
+        fetch: noNetwork,
+      });
+    case "facebook":
+      return facebook({
+        auth: { pageId: accountId, accessToken: "offline-placeholder" },
         fetch: noNetwork,
       });
   }

@@ -8437,6 +8437,685 @@
     }
   },
   {
+    "adapter": "upload-post",
+    "manifest": {
+      "schemaVersion": 1,
+      "backend": "upload-post",
+      "apiRevision": "OpenAPI 1.0.0 (checked 2026-10-24)",
+      "runtime": [
+        "node22",
+        "node24",
+        "bun"
+      ],
+      "capabilities": [
+        {
+          "platform": "x",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Upload-Post strips URLs from X posts unless the account enables its link add-on. Replies use reply_to_id."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Upload-Post strips URLs from X posts unless the account enables its link add-on. Replies use reply_to_id."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Upload-Post strips URLs from X posts unless the account enables its link add-on. Replies use reply_to_id."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Upload-Post strips URLs from X posts unless the account enables its link add-on. Replies use reply_to_id."
+        },
+        {
+          "platform": "x",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Upload-Post strips URLs from X posts unless the account enables its link add-on. Replies use reply_to_id."
+        },
+        {
+          "platform": "threads",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Text replies use reply_to_id; Upload-Post documents no reply field for Bluesky media posts."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Text replies use reply_to_id; Upload-Post documents no reply field for Bluesky media posts."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Text replies use reply_to_id; Upload-Post documents no reply field for Bluesky media posts."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Text replies use reply_to_id; Upload-Post documents no reply field for Bluesky media posts."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Text replies use reply_to_id; Upload-Post documents no reply field for Bluesky media posts."
+        },
+        {
+          "platform": "youtube",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "video"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "image",
+            "video",
+            "carousel"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "image",
+            "video",
+            "carousel"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Document posts accept one PDF, PPT, PPTX, DOC or DOCX. Video and document posts default to PUBLIC visibility."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel",
+            "document"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Document posts accept one PDF, PPT, PPTX, DOC or DOCX. Video and document posts default to PUBLIC visibility."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Document posts accept one PDF, PPT, PPTX, DOC or DOCX. Video and document posts default to PUBLIC visibility."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Document posts accept one PDF, PPT, PPTX, DOC or DOCX. Video and document posts default to PUBLIC visibility."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Document posts accept one PDF, PPT, PPTX, DOC or DOCX. Video and document posts default to PUBLIC visibility."
+        },
+        {
+          "platform": "facebook",
+          "operation": "accounts.read",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Page-scoped. Upload-Post selects the Page automatically only when the profile has one connected Page."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.publish",
+          "availability": "available",
+          "surface": "normalized",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Page-scoped. Upload-Post selects the Page automatically only when the profile has one connected Page."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.status",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Page-scoped. Upload-Post selects the Page automatically only when the profile has one connected Page."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Page-scoped. Upload-Post selects the Page automatically only when the profile has one connected Page."
+        },
+        {
+          "platform": "facebook",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Page-scoped. Upload-Post selects the Page automatically only when the profile has one connected Page."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.removeFromPlatform",
+          "availability": "available",
+          "surface": "normalized"
+        },
+        {
+          "platform": "youtube",
+          "operation": "posts.removeFromPlatform",
+          "availability": "available",
+          "surface": "normalized"
+        },
+        {
+          "platform": "x",
+          "operation": "posts.removeFromPlatform",
+          "availability": "available",
+          "surface": "normalized"
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.removeFromPlatform",
+          "availability": "available",
+          "surface": "normalized"
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.removeFromPlatform",
+          "availability": "available",
+          "surface": "normalized"
+        },
+        {
+          "platform": "*",
+          "operation": "media.upload",
+          "availability": "unsupported-by-platform",
+          "notes": "Upload-Post has no standalone upload that returns a reusable handle. Pass a public HTTPS URL or a Blob to posts.publish."
+        }
+      ]
+    }
+  },
+  {
     "adapter": "bluesky",
     "manifest": {
       "schemaVersion": 1,
@@ -10506,6 +11185,237 @@
             "r_member_social"
           ],
           "notes": "Community Management product permissions and author post read access required. Member r_member_social is a closed grant unavailable to new apps. Analytics contains returned social-action counts only."
+        }
+      ]
+    }
+  },
+  {
+    "adapter": "facebook",
+    "manifest": {
+      "schemaVersion": 1,
+      "backend": "facebook",
+      "apiRevision": "Facebook Graph v25.0",
+      "runtime": [
+        "node22",
+        "node24",
+        "bun"
+      ],
+      "capabilities": [
+        {
+          "platform": "facebook",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
+            "text",
+            "image",
+            "video",
+            "carousel"
+          ],
+          "requiredScopes": [
+            "pages_manage_posts",
+            "pages_read_engagement",
+            "pages_show_list"
+          ],
+          "constraints": {
+            "eligibility": [
+              "A Page access token from a user who can perform CREATE_CONTENT."
+            ],
+            "mediaSources": [
+              "https-url",
+              "blob"
+            ]
+          },
+          "notes": "Page feed text and link posts, one photo, multi-photo posts (up to 10), Page videos, and Reels through the reel option. Videos and Reels return processing until posts.status reports them published."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_manage_posts",
+            "pages_read_engagement",
+            "pages_show_list"
+          ],
+          "notes": "Native scheduled_publish_time. Meta accepts times between 10 minutes and 30 days after the request."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.cancelScheduled",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_manage_posts",
+            "pages_read_engagement",
+            "pages_show_list"
+          ],
+          "notes": "Deletes the unpublished scheduled post or video."
+        },
+        {
+          "operation": "accounts.read",
+          "platform": "facebook",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement",
+            "pages_show_list"
+          ]
+        },
+        {
+          "operation": "posts.list",
+          "platform": "facebook",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement",
+            "pages_show_list"
+          ]
+        },
+        {
+          "operation": "posts.read",
+          "platform": "facebook",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement",
+            "pages_show_list"
+          ]
+        },
+        {
+          "operation": "posts.status",
+          "platform": "facebook",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement",
+            "pages_show_list"
+          ]
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.delete",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_manage_posts",
+            "pages_read_engagement",
+            "pages_show_list"
+          ],
+          "notes": "DELETE /{post-id}. Posts the Page did not create cannot be deleted."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.removeFromPlatform",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_manage_posts",
+            "pages_read_engagement",
+            "pages_show_list"
+          ],
+          "notes": "DELETE /{post-id}. Posts the Page did not create cannot be deleted."
+        },
+        {
+          "platform": "facebook",
+          "operation": "comments.read",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement",
+            "pages_read_user_content"
+          ]
+        },
+        {
+          "platform": "facebook",
+          "operation": "comments.replies.read",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement",
+            "pages_read_user_content"
+          ]
+        },
+        {
+          "platform": "facebook",
+          "operation": "comments.write",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_manage_engagement",
+            "pages_read_user_content"
+          ]
+        },
+        {
+          "platform": "facebook",
+          "operation": "comments.moderate",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_manage_engagement",
+            "pages_read_user_content"
+          ]
+        },
+        {
+          "platform": "facebook",
+          "operation": "comments.delete",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_manage_engagement",
+            "pages_read_user_content"
+          ]
+        },
+        {
+          "platform": "facebook",
+          "operation": "analytics.read",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement"
+          ],
+          "notes": "Lifetime reaction, comment, and share counts read from the post object."
+        },
+        {
+          "platform": "facebook",
+          "operation": "analytics.account.read",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_read_engagement"
+          ],
+          "notes": "Page followers_count and fan_count."
+        },
+        {
+          "platform": "facebook",
+          "operation": "analytics.report.read",
+          "availability": "available",
+          "requiredScopes": [
+            "read_insights",
+            "pages_read_engagement"
+          ],
+          "notes": "Daily Page Insights for caller-selected metric names, up to 90 days. Meta retires metrics over time; unknown names fail upstream."
+        },
+        {
+          "platform": "facebook",
+          "operation": "reels.publish",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "pages_manage_posts",
+            "pages_read_engagement",
+            "pages_show_list"
+          ],
+          "constraints": {
+            "mediaSources": [
+              "https-url"
+            ]
+          },
+          "notes": "Hosted 9:16 video, 3 to 90 seconds, through the three-phase Page Reels API."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.update",
+          "availability": "not-implemented-by-adapter",
+          "notes": "Editing published Page posts is not implemented."
+        },
+        {
+          "platform": "facebook",
+          "operation": "messages.read",
+          "availability": "not-implemented-by-adapter",
+          "notes": "Page messaging uses the Messenger Platform, which this adapter does not implement."
+        },
+        {
+          "platform": "facebook",
+          "operation": "webhooks.verify",
+          "availability": "available",
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=page deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
         }
       ]
     }

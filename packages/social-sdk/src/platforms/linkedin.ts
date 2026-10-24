@@ -28,19 +28,14 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { upload } from "../transport/upload.js";
-import { optionsObject, publicFields } from "../cloud/common.js";
+import {
+  documentMimeTypes as linkedInDocumentMimeTypes,
+  optionsObject,
+  publicFields,
+} from "../cloud/common.js";
 import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { verifyLinkedInWebhook } from "../server/webhooks.js";
 import { directWebhooks } from "./webhook-adapter.js";
-
-/** Documents API file types (PDF, PPT, PPTX, DOC, DOCX), checked 2026-09-24 against version 202609. */
-const linkedInDocumentMimeTypes: readonly string[] = [
-  "application/pdf",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-];
 
 /** LinkedIn documents "100MB"; the decimal reading is the conservative local bound. */
 const linkedInDocumentMaxBytes = 100_000_000;

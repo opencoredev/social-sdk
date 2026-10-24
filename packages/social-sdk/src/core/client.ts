@@ -1786,27 +1786,24 @@ export function createSocial(
         const chained = request.replyToPrevious === true && index > 0;
 
         if (chained) {
-          const account = item.targets[0]?.account;
-          const parent = request.items[index - 1]?.targets[0]?.account;
+          const parentKeys = new Set(
+            (request.items[index - 1]?.targets ?? []).map((target) => targetKey(target.account)),
+          );
 
-          // A chain replies to the single post the previous item created, so every link
-          // must publish to one target on the same account.
+          // Each destination replies to the post the same account created in the previous
+          // item, so every chained target needs a parent account and no reply of its own.
           if (
-            item.targets.length !== 1 ||
-            request.items[index - 1]?.targets.length !== 1 ||
             item.replyTo !== undefined ||
-            item.targets[0]?.replyTo !== undefined ||
-            account === undefined ||
-            parent === undefined ||
-            account.backend !== parent.backend ||
-            account.platform !== parent.platform ||
-            account.accountId !== parent.accountId
+            item.targets.some(
+              (target) =>
+                target.replyTo !== undefined || !parentKeys.has(targetKey(target.account)),
+            )
           )
             throw new SocialError({
               code: "invalid_input",
               operation: "posts.publishSequence",
               message:
-                "replyToPrevious requires every item to publish to the same single account without its own replyTo",
+                "replyToPrevious requires every target to publish to an account from the previous item, without its own replyTo",
             });
         }
 
@@ -1814,15 +1811,18 @@ export function createSocial(
           chained
             ? {
                 ...publishRequest,
-                // Placeholder parent so adapters validate reply support before anything is sent.
-                replyTo: {
-                  kind: "platform-post",
-                  version: 1,
-                  backend: item.targets[0]!.account.backend,
-                  platform: item.targets[0]!.account.platform,
-                  accountId: item.targets[0]!.account.accountId,
-                  postId: "preflight",
-                },
+                // Placeholder parents so adapters validate reply support before anything is sent.
+                targets: item.targets.map((target) => ({
+                  ...target,
+                  replyTo: {
+                    kind: "platform-post" as const,
+                    version: 1 as const,
+                    backend: target.account.backend,
+                    platform: target.account.platform,
+                    accountId: target.account.accountId,
+                    postId: "preflight",
+                  },
+                })),
               }
             : publishRequest,
         );
@@ -1847,21 +1847,34 @@ export function createSocial(
 
       const results: PublishResult[] = [];
       const failures: { index: number; code: string; message: string }[] = [];
-      let previous: PlatformPostRef | undefined;
+      // Published parent per destination account; each destination is an independent chain.
+      let parents = new Map<string, PlatformPostRef>();
 
       for (const [index, publishRequest] of prepared.entries()) {
         const chained = request.replyToPrevious === true && index > 0;
+        const original = publishRequest.targets;
 
-        // Without a published parent the item would post as an unrelated root post.
-        if (chained && previous === undefined) break;
+        // Without a published parent a target would post as an unrelated root post.
+        const submitted = chained
+          ? original.flatMap((target, targetIndex) => {
+              const parent = parents.get(targetKey(target.account));
 
-        const nextRequest =
-          chained && previous !== undefined
-            ? { ...publishRequest, replyTo: previous }
-            : publishRequest;
+              return parent === undefined
+                ? []
+                : [{ targetIndex, target: { ...target, replyTo: parent } }];
+            })
+          : original.map((target, targetIndex) => ({ targetIndex, target }));
+
+        if (submitted.length === 0) break;
+
+        const nextRequest: PublishRequest =
+          submitted.length === original.length && !chained
+            ? publishRequest
+            : { ...publishRequest, targets: submitted.map((entry) => entry.target) };
 
         let result: PublishResult;
-        previous = undefined;
+        const children = new Map<string, PlatformPostRef>();
+        parents = children;
 
         try {
           result = await publish(nextRequest, callOptions);
@@ -1876,11 +1889,52 @@ export function createSocial(
           throw error;
         }
 
+        if (submitted.length < original.length) {
+          const observedAt = clock().toISOString();
+          const sent = new Set(submitted.map((entry) => entry.targetIndex));
+
+          // Report every destination: remap submitted outcomes to the item's target order and
+          // mark destinations whose previous link was not published as never submitted.
+          const outcomes: DeliveryOutcome[] = [
+            ...result.outcomes.map((outcome) => ({
+              ...outcome,
+              targetIndex: submitted[outcome.targetIndex]?.targetIndex ?? outcome.targetIndex,
+            })),
+            ...original.flatMap((target, targetIndex): DeliveryOutcome[] =>
+              sent.has(targetIndex)
+                ? []
+                : [
+                    {
+                      state: "not-submitted",
+                      reason: "before-submission",
+                      targetIndex,
+                      account: target.account,
+                      observedAt,
+                      issues: [
+                        {
+                          code: "sequence.parent_unpublished",
+                          message:
+                            "The previous item did not publish a post for this account, so its reply was not sent",
+                          targetIndex,
+                          severity: "error",
+                        },
+                      ],
+                    },
+                  ],
+            ),
+          ].sort((left, right) => left.targetIndex - right.targetIndex);
+
+          result = { ...result, status: "partial", outcomes };
+        }
+
         results.push(result);
 
-        const published = result.outcomes.find((outcome) => outcome.state === "published");
+        for (const outcome of result.outcomes) {
+          const target = original[outcome.targetIndex];
 
-        if (published?.post !== undefined) previous = published.post;
+          if (outcome.state === "published" && target !== undefined)
+            children.set(targetKey(target.account), outcome.post);
+        }
 
         if (request.stopOnFailure !== false && result.status === "partial") break;
       }

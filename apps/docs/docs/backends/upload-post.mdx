@@ -1,0 +1,191 @@
+---
+title: Upload-Post
+description: Configure Upload-Post to publish text, photos, video, and LinkedIn documents, schedule posts, chain X and Bluesky replies, and verify webhooks.
+---
+
+[Upload-Post](https://www.upload-post.com) is an optional managed backend. Your Upload-Post account holds profiles, and each profile connects one account per platform. The adapter publishes through Upload-Post's REST API with one profile and one platform per request, so every destination keeps its own outcome.
+
+```ts
+import { readFile } from "node:fs/promises";
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { uploadPost } from "@opencoredev/social-sdk/cloud/upload-post";
+
+const adapter = uploadPost({
+  apiKey: process.env["UPLOAD_POST_API_KEY"]!,
+  webhookSecret: process.env["UPLOAD_POST_WEBHOOK_SECRET"],
+});
+const social = createSocial({ backend: adapter });
+
+// Get tenantId from your authenticated server session and enforce account grants.
+const authorization = { tenantId: "tenant-from-session" };
+const accounts = await social.accounts.list({ backend: "default", authorization });
+
+const x = connectedAccountRef({ backend: "default", platform: "x", accountId: "my-brand" });
+const linkedin = connectedAccountRef({
+  backend: "default",
+  platform: "linkedin",
+  accountId: "my-brand",
+});
+```
+
+The adapter sends the key as `Authorization: Apikey <key>`. Keep it on your server.
+
+## Accounts are profile and platform pairs
+
+`accounts.list` reads `/uploadposts/users` and returns one account for each connected platform on each profile. The account ID is the Upload-Post profile username, the `user` value in every Upload-Post call. Platform and profile together identify the destination. A slot that needs reauthentication is reported as `reconnect-required`. Platforms outside the SDK's selection, such as Pinterest or Reddit, are skipped.
+
+## Publish
+
+```ts
+const result = await social.posts.publish(
+  {
+    targets: [{ account: x }, { account: linkedin }],
+    content: { text: "Shipping today." },
+    idempotencyKey: "launch-2026-10-24",
+  },
+  { authorization },
+);
+```
+
+The adapter picks Upload-Post's route from the content:
+
+| Content                                                    | Route              | Platforms                               |
+| ---------------------------------------------------------- | ------------------ | --------------------------------------- |
+| Text only                                                  | `/upload_text`     | X, Threads, Bluesky, LinkedIn, Facebook |
+| Images (Instagram and Threads also accept mixed carousels) | `/upload_photos`   | All except YouTube                      |
+| One video                                                  | `/upload`          | All eight                               |
+| One PDF, PPT, PPTX, DOC, or DOCX                           | `/upload_document` | LinkedIn                                |
+
+Each request sends the SDK's derived target key as `Idempotency-Key`, which Upload-Post uses to return the existing job on a retry instead of creating a duplicate.
+
+A synchronous result with a native `post_id` becomes `published`. A success without a native post ID becomes `unknown`, because the SDK never reports accepted work as published. An async response (`request_id`) becomes `accepted` with a delivery reference.
+
+### Media
+
+Upload-Post has no standalone upload endpoint that returns a reusable handle, so `media.upload` is unsupported. Pass media in the publish request as a public HTTPS URL, which Upload-Post downloads, or a `Blob`, which the adapter sends as a multipart file:
+
+```ts
+const deck = new Blob([await readFile("./assets/deck.pdf")]);
+
+await social.posts.publish(
+  {
+    targets: [{ account: linkedin, options: { visibility: "public" } }],
+    content: {
+      text: "Our Q3 results",
+      media: [
+        {
+          kind: "document",
+          mimeType: "application/pdf",
+          filename: "q3-results.pdf",
+          source: { kind: "blob", blob: deck, fingerprint: "q3-results-v1" },
+        },
+      ],
+    },
+  },
+  { authorization },
+);
+```
+
+The document's `filename` is shown as its title, and `content.text` is the commentary. Upload-Post documents no scheduling for documents, so a scheduled document fails preparation with `upload_post.document_schedule` instead of publishing immediately. Streams, `media-ref` sources, alt text, per-attachment captions, and thumbnails are rejected at preparation because Upload-Post documents no mapping for them.
+
+### Options
+
+| Platform  | Supported options                                  | Upload-Post fields                                                                                         |
+| --------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| X         | `replySettings`                                    | `reply_settings` (`everyone` sends nothing)                                                                |
+| YouTube   | `title`, `visibility`, `madeForKids`, `categoryId` | `title`, `privacyStatus`, `selfDeclaredMadeForKids`, `categoryId`; `content.text` is the description       |
+| Instagram | `shareToFeed` (video)                              | `share_to_feed`                                                                                            |
+| LinkedIn  | `visibility`                                       | `visibility`; video and documents default to `PUBLIC`, connections-only works for video and documents only |
+| TikTok    | Every required choice, plus `photoCoverIndex`      | `privacy_level`, `post_mode` (`draft`), `disable_*`, brand toggles, AI disclosure                          |
+
+Any other option fails preparation with `options.unmapped`. Upload-Post strips URLs from X posts unless your account enables its link add-on. On Facebook, Upload-Post selects the Page automatically only when the profile has one connected Page.
+
+## Replies and thread chains
+
+Upload-Post documents `reply_to_id` for X on every route and for Bluesky on text posts. A target with a `platform-post` `replyTo` on those destinations is published as a reply. That makes `publishSequence` with `replyToPrevious` work across several destinations, each building its own chain:
+
+```ts
+const bluesky = connectedAccountRef({
+  backend: "default",
+  platform: "bluesky",
+  accountId: "my-brand",
+});
+
+await social.posts.publishSequence(
+  {
+    idempotencyKey: "launch-thread",
+    replyToPrevious: true,
+    items: [
+      { targets: [{ account: x }, { account: bluesky }], content: { text: "1/ We shipped." } },
+      {
+        targets: [{ account: x }, { account: bluesky }],
+        content: { text: "2/ Here's what changed." },
+      },
+    ],
+  },
+  { authorization },
+);
+```
+
+Other platforms, Bluesky media replies, and comment references are rejected with `reply.use_comments` before anything is sent.
+
+## Schedule, status, and cancel
+
+```ts
+const scheduled = await social.posts.publish(
+  {
+    targets: [{ account: x }],
+    content: { text: "See you Monday." },
+    schedule: { at: "2026-11-02T09:00:00Z", timeZone: "Europe/Madrid" },
+  },
+  { authorization },
+);
+
+const outcome = scheduled.outcomes[0];
+
+if (outcome?.state === "scheduled" && outcome.delivery) {
+  const status = await social.posts.getDelivery(outcome.delivery, { authorization });
+  await social.posts.cancelScheduled(outcome.job, { authorization });
+}
+```
+
+`schedule.at` is sent as `scheduled_date` and `timeZone` as `timezone`. The response's `job_id` becomes the scheduled job.
+
+`getDelivery` reads `/uploadposts/status`. Pending jobs stay `scheduled`; queued or running uploads are `processing`; failed or skipped platforms are `failed`. Upload-Post's status endpoint has no native post IDs, so for a completed upload the adapter looks up `platform_post_id` in the latest 100 entries of upload history. If it is not there, the outcome is `unknown`; check the Upload-Post dashboard before you publish again.
+
+`cancelScheduled` first reads the job and refuses one that does not belong to exactly this profile and platform. It then deletes the job, which Upload-Post documents as deleting its assets too, so the result's `backendRecord` is `deleted`.
+
+## Remove published posts
+
+`removeFromPlatform` calls `/uploadposts/posts/unpublish` for Facebook, YouTube, X, LinkedIn, and Threads. Upload-Post cannot delete Instagram or TikTok posts. A response without `success: true` is reported as `ambiguous_outcome`.
+
+## Webhooks
+
+Upload-Post signs each delivery with `X-Upload-Post-Signature: sha256=<hex>`, an HMAC-SHA256 of `<X-Upload-Post-Timestamp>.<raw body>` keyed with your account's `webhook_secret`. Pass that secret as `webhookSecret`. `adapter.webhooks.verify` checks the raw bytes in constant time and rejects timestamps more than five minutes away from its clock.
+
+```ts
+const context = {
+  backendInstance: "default",
+  correlationId: "upload-post-webhook",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+};
+
+export async function POST(request: Request) {
+  const body = new Uint8Array(await request.arrayBuffer());
+  const input = { headers: request.headers, body };
+
+  // Throws an `unauthorized` SocialError for a bad signature or stale timestamp.
+  await adapter.webhooks.verify(input);
+  const event = await adapter.webhooks.decode(input, context);
+  // Store `event` in your inbox, then acknowledge.
+
+  return new Response(null, { status: 204 });
+}
+```
+
+`upload_completed` decodes to `publication.updated` with the request or job ID as `backendRecordId`; account connection changes decode to `account.updated`; `comment_received` and `dm_received` decode to `comment.received` and `message.received`. `accountIds` holds the profile username. The owner's email address is removed from the decoded payload. Upload-Post sends no event ID, so the event's identity is a digest of the body.
+
+## Limits
+
+- Comments, messages, post reads, and analytics are not implemented for this backend.
+- Upload-Post's API reference is OpenAPI 1.0.0, checked 2026-10-24 at [docs.upload-post.com](https://docs.upload-post.com/api/reference/). No live Upload-Post account was used to verify this adapter.

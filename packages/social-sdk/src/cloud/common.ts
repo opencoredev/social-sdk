@@ -49,7 +49,13 @@ export interface ManagedOptions extends HttpOptions {
   readonly unknownPlatforms?: UnknownPlatforms;
 }
 
-export type ManagedProvider = "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer";
+export type ManagedProvider =
+  | "zernio"
+  | "post-for-me"
+  | "postfast"
+  | "postiz"
+  | "buffer"
+  | "upload-post";
 
 const corePlatforms = [
   "x",
@@ -74,6 +80,19 @@ const knownPlatformList = [
   "whatsapp",
   "twitch",
 ] as const satisfies readonly KnownPlatform[];
+
+/**
+ * Paged document types (PDF, PPT, PPTX, DOC, DOCX). LinkedIn's Documents API (checked
+ * 2026-09-24, version 202609) and Upload-Post's document route (checked 2026-10-24) list
+ * the same set.
+ */
+export const documentMimeTypes: readonly string[] = [
+  "application/pdf",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
 
 /**
  * Platforms each backend documents for publishing. Accounts on other known platforms are still
@@ -102,6 +121,8 @@ export const providerPlatforms: Readonly<Record<ManagedProvider, readonly KnownP
     "twitch",
   ],
   buffer: [...corePlatforms, "pinterest", "mastodon", "google-business"],
+  // Upload-Post also lists Pinterest and Reddit, but this adapter maps no board or subreddit yet.
+  "upload-post": [...corePlatforms],
 };
 
 export function isKnownPlatform(value: string): value is KnownPlatform {
@@ -203,6 +224,7 @@ export function managedHttp(
     body?: JsonObject | FormData,
     query: Record<string, string> = {},
     method: "GET" | "POST" | "PUT" | "DELETE" = body === undefined ? "GET" : "POST",
+    extraHeaders: Readonly<Record<string, string>> = {},
   ): Promise<JsonValue> => {
     const url = new URL(origin + path);
 
@@ -212,9 +234,14 @@ export function managedHttp(
     // Fetch sets the multipart boundary itself.
     const headers = new Headers(form ? {} : { "Content-Type": "application/json" });
 
+    for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
     headers.set(...authHeader(options.apiKey));
 
-    if (context.targetIdempotencyKey && origin.includes("zernio.com"))
+    // Both providers document Idempotency-Key replay protection for create requests.
+    if (
+      context.targetIdempotencyKey &&
+      (origin.includes("zernio.com") || origin.includes("api.upload-post.com"))
+    )
       headers.set("Idempotency-Key", context.targetIdempotencyKey);
 
     try {
@@ -394,6 +421,27 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
   return object(options);
 }
 
+/**
+ * Platforms where a provider documents publishing a reply to an existing native post.
+ * Zernio: `platformSpecificData.replyToTweetId` (docs.zernio.com/twitter-engagement/search-tweets).
+ * Upload-Post: `reply_to_id`, X on every upload route and Bluesky on text uploads
+ * (docs.upload-post.com/openapi.json, both checked 2026-10-24).
+ */
+export function managedReplySupported(
+  provider: ManagedProvider,
+  target: Pick<PreparedPublishTarget, "account" | "content">,
+): boolean {
+  if (provider === "zernio") return target.account.platform === "x";
+
+  if (provider === "upload-post")
+    return (
+      target.account.platform === "x" ||
+      (target.account.platform === "bluesky" && (target.content.media?.length ?? 0) === 0)
+    );
+
+  return false;
+}
+
 /** Every accepted normalized option has an intentional provider mapping. */
 export function managedOptionIssues(
   target: PreparedPublishTarget,
@@ -412,11 +460,12 @@ export function managedOptionIssues(
       "title",
       "visibility",
       "madeForKids",
-      ...(provider === "buffer" ? ["categoryId"] : []),
+      ...(provider === "buffer" || provider === "upload-post" ? ["categoryId"] : []),
       ...(provider === "postfast" ? ["isShort"] : []),
     ],
     instagram: ["shareToFeed"],
     x: provider === "buffer" ? [] : ["replySettings"],
+    linkedin: provider === "upload-post" ? ["visibility"] : [],
     tiktok:
       provider === "buffer"
         ? ["aiGenerated"]
@@ -434,7 +483,9 @@ export function managedOptionIssues(
               ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
               : provider === "postiz"
                 ? ["title"]
-                : []),
+                : provider === "upload-post"
+                  ? ["photoCoverIndex"]
+                  : []),
           ],
   };
 
@@ -678,10 +729,15 @@ export function managedPreparation(
   if (!providerPlatforms[provider].some((value) => value === target.account.platform))
     fail("platform.unsupported", "This platform is outside the selected adapter coverage.");
 
-  if (target.replyTo)
+  if (target.replyTo?.kind === "comment")
     fail(
       "reply.use_comments",
-      "Use the supported comment reply operation rather than publishing a reply through managed post creation.",
+      "Use the supported comment reply operation rather than publishing a comment reply through managed post creation.",
+    );
+  else if (target.replyTo && !managedReplySupported(provider, target))
+    fail(
+      "reply.use_comments",
+      "This managed provider documents no reply-to-post mapping for this destination and content. Use the comment reply operation or a backend that supports reply chains here.",
     );
   const media = target.content.media ?? [];
 
@@ -695,11 +751,16 @@ export function managedPreparation(
     );
 
   for (const item of media) {
+    // Each provider decides whether it maps documents; any document it does map is a paged type.
     if (
-      !item.mimeType ||
-      !item.mimeType.startsWith(item.kind === "document" ? "application/" : `${item.kind}/`)
+      item.kind === "document"
+        ? !documentMimeTypes.includes(item.mimeType ?? "")
+        : !item.mimeType || !item.mimeType.startsWith(`${item.kind}/`)
     )
-      fail("media.mime", "Provide the actual MIME type matching the attachment kind.");
+      fail(
+        "media.mime",
+        "Provide the actual MIME type matching the attachment kind: image/*, video/*, or a PDF, PPT, PPTX, DOC or DOCX document where the provider accepts documents.",
+      );
 
     if (item.source.kind === "https-url") {
       try {

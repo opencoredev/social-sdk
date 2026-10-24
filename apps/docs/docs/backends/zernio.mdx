@@ -88,7 +88,7 @@ const result = await social.posts.publish(
 );
 ```
 
-`result.outcomes` has one entry per target. Type each account as `ConnectedAccountRef<"youtube">` and so on so TypeScript checks the options. The adapter rejects LinkedIn `visibility: "connections"` and Threads `replyControl` at preparation.
+`result.outcomes` has one entry per target. Type each account as `ConnectedAccountRef<"youtube">` and so on so TypeScript checks the options. The adapter rejects LinkedIn `visibility: "connections"` and Threads `replyControl` at preparation. An X target with a `platform-post` `replyTo` is published as a reply through `platformSpecificData.replyToTweetId`, so `publishSequence` with `replyToPrevious` builds X threads. Other platforms reject publish-time replies with `reply.use_comments`.
 
 ## Schedule and check a delivery
 

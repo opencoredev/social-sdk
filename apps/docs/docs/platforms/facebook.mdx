@@ -1,0 +1,199 @@
+---
+title: Facebook
+description: Publish and schedule Facebook Page posts, photos, videos, and Reels with a Page access token, then read posts, comments, and Page Insights.
+---
+
+The direct Facebook adapter publishes to one Facebook Page through the Graph API (v25.0) with a Page access token. It covers feed posts, photos, videos, Reels, native scheduling, comments, and Page metrics. Personal profiles are not supported, because Meta's API does not publish to them. To publish to Facebook through a provider-owned app instead, use a [managed backend](/backends).
+
+## Setup
+
+<Steps>
+  <Step title="Complete Meta app setup">
+    Create a Meta app with Facebook Login and request `pages_show_list`, `pages_manage_posts`, and
+    `pages_read_engagement`. Add `pages_manage_engagement` and `pages_read_user_content` for
+    comments, and `read_insights` for Page reports. App review and Page roles remain your setup.
+  </Step>
+  <Step title="Find the Page access token">
+    After Facebook Login, call `discoverFacebookPages` on your server with the user access token. It
+    lists every Page the user manages, with its Page access token and whether the user can perform
+    `CREATE_CONTENT`, which publishing requires.
+  </Step>
+  <Step title="Store credentials server-side">
+    Persist only the Page your application selected. Set `FACEBOOK_PAGE_ID` and
+    `FACEBOOK_PAGE_ACCESS_TOKEN` in server configuration or your credential store.
+  </Step>
+</Steps>
+
+```ts
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { discoverFacebookPages, facebook } from "@opencoredev/social-sdk/facebook";
+
+// Run once after Facebook Login, on the server.
+declare const userAccessToken: string;
+const pages = await discoverFacebookPages({ userAccessToken });
+const selected = pages.items.find((page) => page.canPublish);
+if (!selected) throw new Error("The user cannot publish to any Page.");
+
+const social = createSocial({
+  backend: facebook({
+    auth: {
+      pageId: process.env["FACEBOOK_PAGE_ID"]!,
+      accessToken: process.env["FACEBOOK_PAGE_ACCESS_TOKEN"]!,
+    },
+    webhookSecret: process.env["META_APP_SECRET"],
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "facebook",
+  accountId: process.env["FACEBOOK_PAGE_ID"]!,
+});
+```
+
+Page access tokens are credentials. Never log them or send them to a browser. The adapter rejects any reference whose account ID is not the configured Page.
+
+## Examples
+
+### Publish a text or link post
+
+```ts
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: { text: "We just shipped.", link: { url: "https://example.com/changelog" } },
+});
+```
+
+The outcome is `published`, and `post.postId` is the Page post ID (`{page-id}_{post-id}`). A structured `link` becomes Facebook's link preview. It is accepted on text posts only; with media, put the link in the text.
+
+### Publish photos
+
+One image goes to `/{page-id}/photos`. Two to ten images are uploaded as unpublished photos and attached to one feed post.
+
+```ts
+await social.posts.publish({
+  targets: [{ account }],
+  content: {
+    text: "Launch day",
+    media: [
+      {
+        kind: "image",
+        mimeType: "image/jpeg",
+        altText: "The team on stage",
+        source: { kind: "https-url", url: "https://cdn.example.com/stage.jpg" },
+      },
+      {
+        kind: "image",
+        mimeType: "image/png",
+        filename: "booth.png",
+        source: { kind: "blob", blob: boothImage, fingerprint: "booth-v1" },
+      },
+    ],
+  },
+});
+```
+
+Media can be a public HTTPS URL or a `Blob`. Image `altText` is sent as `alt_text_custom`. If an upload fails part way through a multi-photo post, the error's `details.unpublishedPhotoIds` lists the photos already uploaded; they stay unpublished.
+
+### Publish a video or Reel
+
+```ts
+const video = {
+  kind: "video" as const,
+  mimeType: "video/mp4",
+  source: { kind: "https-url" as const, url: "https://cdn.example.com/reel.mp4" },
+};
+
+const feedVideo = await social.posts.publish({
+  targets: [{ account }],
+  content: { text: "Demo", media: [video] },
+});
+
+const reel = await social.posts.publish({
+  targets: [{ account, options: { reel: true } }],
+  content: { text: "Behind the scenes", media: [video] },
+});
+```
+
+A feed video goes to `graph-video.facebook.com` and accepts a URL or a `Blob` up to 1 GiB. A Reel uses Meta's three-phase Reels API and needs a hosted 9:16 video of 3 to 90 seconds. Both return `processing` with a delivery reference, because Facebook processes video after upload.
+
+### Reconcile video processing
+
+```ts
+const delivery = feedVideo.outcomes[0]?.delivery;
+if (!delivery) throw new Error("Reconcile the submission before retrying.");
+
+const outcome = await social.posts.getDelivery(delivery);
+```
+
+`getDelivery` reads the video's `status`. It returns `processing` until the publishing phase completes, then `published` with a post reference whose `native.objectType` is `"video"` once Facebook reports `publish_status: "published"`. A completed phase without that status, such as a draft, returns `unknown`. For feed and photo posts, `getDelivery` reports `published` only when `is_published` is true and `scheduled` only when the post has a publish time. A failed upload, processing, or publishing phase returns `failed` with code `media_error`.
+
+### Schedule and cancel
+
+```ts
+const scheduled = await social.posts.publish({
+  targets: [{ account }],
+  content: { text: "Doors open tomorrow." },
+  schedule: { at: "2026-11-01T09:00:00Z" },
+});
+
+const outcome = scheduled.outcomes[0];
+if (outcome?.state === "scheduled") await social.posts.cancelScheduled(outcome.job);
+```
+
+Scheduling uses Facebook's own `scheduled_publish_time`, so no job runner is required. Meta accepts times between 10 minutes and 30 days after the request; preparation reports `facebook.schedule_window` otherwise. Text, photos, videos, and Reels can all be scheduled. Cancelling deletes the unpublished post.
+
+### Read and remove posts
+
+```ts
+const page = await social.posts.list(account, { limit: 25 });
+await social.posts.removeFromPlatform(platformPostRef);
+```
+
+`posts.list` reads `/{page-id}/posts` with Graph cursors. `removeFromPlatform` deletes the post and fails as `ambiguous_outcome` if Facebook does not confirm the deletion.
+
+### Read comments and reply
+
+```ts
+const comments = await social.comments.list(post, { limit: 50 });
+await social.comments.reply(commentRef, { text: "Thanks for the feedback!" });
+```
+
+Comment rows include `id`, `message`, `created_time`, `like_count`, and `comment_count`. Commenter identities are not returned. To reply to a post rather than a comment, pass a comment reference whose `commentId` is the post ID.
+
+### Read metrics and reports
+
+```ts
+const postMetrics = await social.analytics.getPostMetrics(post);
+const pageMetrics = await social.analytics.getAccountMetrics(account);
+const report = await social.analytics.getReport(account, {
+  from: "2026-10-01",
+  to: "2026-10-31",
+  metrics: ["page_follows"],
+  dimensions: ["endTime"],
+});
+```
+
+Post metrics are lifetime `reactions`, `comments`, and `shares` read from the post object (videos have no `shares`). Page metrics are `followers_count` and `fan_count`. Reports read daily Page Insights for the metric names you pass, up to 90 days, keyed by Facebook's `end_time`. Meta retires Insights metrics over time, so an unknown name fails upstream rather than returning zeros.
+
+### Receive webhooks
+
+Subscribe your app to the Page's `feed` field. The adapter verifies `X-Hub-Signature-256` with your app secret and decodes `object: "page"` deliveries: new comments become `comment.received`, removed posts become `post.removed`, and Messenger messages become `message.received`. Answer Meta's GET handshake with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`.
+
+## Native operations
+
+| Operation                | Method                      | Notes                                                      |
+| ------------------------ | --------------------------- | ---------------------------------------------------------- |
+| Delete a post            | `native.deletePost`         | Same route as `removeFromPlatform`                         |
+| Delete a comment         | `native.deleteComment`      | Requires `pages_manage_engagement`                         |
+| Hide or unhide a comment | `native.moderateComment`    | Sends `is_hidden`                                          |
+| List comment replies     | `native.listCommentReplies` | Graph cursor pagination                                    |
+| Publish a Reel           | `native.publishReel`        | Same flow as the `reel` option, with optional `scheduleAt` |
+
+## Limits and requirements
+
+- One Page per adapter instance. Create one adapter per Page and register each under its own backend key.
+- Replies through `posts.publish` are rejected with `reply.use_comments`; use `comments.reply`.
+- Mixed image and video posts, documents, streams, per-attachment captions, custom thumbnails, and video alt text are rejected at preparation.
+- Editing published posts and Page messaging (Messenger Platform) are not implemented.
+- Sources, checked 2026-10-24: [Pages API posts](https://developers.facebook.com/docs/pages-api/posts), [Reels publishing](https://developers.facebook.com/docs/video-api/guides/reels-publishing), and [Page webhooks](https://developers.facebook.com/docs/graph-api/webhooks/reference/page). No live Page was used to verify this adapter.

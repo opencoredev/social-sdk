@@ -490,6 +490,10 @@ export function zernio(options: ManagedOptions) {
         )
           native["replySettings"] = string(config["replySettings"]);
 
+        // prepareTarget admits only platform-post replies on X (managedReplySupported).
+        if (target.account.platform === "x" && target.replyTo?.kind === "platform-post")
+          native["replyToTweetId"] = target.replyTo.postId;
+
         if (target.account.platform === "tiktok") {
           const video = media.length === 1 && media[0]?.["type"] === "video";
           const photo = media.length > 0 && media.every((item) => item["type"] === "image");
