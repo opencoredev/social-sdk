@@ -1,9 +1,11 @@
 import { decodeCursor, encodeCursor, iterateItems, type IterationOptions } from "./pagination.js";
 import { createConcurrencyLimiter } from "./concurrency.js";
-import type { AuthorizationPolicy, GraphAdapter, SocialAdapter } from "./adapter.js";
+import type { AuthorizationPolicy, GraphAdapter, JobRunner, SocialAdapter } from "./adapter.js";
 import { SocialError, type SocialErrorCode } from "./errors.js";
 import { definedFields } from "./fields.js";
 import { isString } from "../transport/validation.js";
+import { parseJson } from "../transport/json.js";
+import { decodeOutcome } from "./persisted-codec.js";
 import { httpsUrl } from "../transport/upload.js";
 import type { MediaStagingProvider } from "./media.js";
 import {
@@ -26,6 +28,7 @@ import { releaseLeases, stageContent, type StagingLease } from "./staging.js";
 import {
   deriveTargetIdempotencyKey,
   fingerprint,
+  stableSerialize,
   type IdempotencyClaim,
   type IdempotencyStore,
 } from "./idempotency.js";
@@ -177,7 +180,13 @@ function isInboxState(value: unknown): value is readonly InboxSourceState[] {
   );
 }
 
+export interface AuthorizeCallOptions extends PublishCallOptions {
+  readonly operation?: import("./types.js").OperationName;
+}
+
 export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
+  /** Optional application runner inherited by SocialScheduler unless overridden. */
+  readonly jobRunner?: JobRunner;
   readonly accounts: {
     list(
       options?: PublishCallOptions & {
@@ -232,6 +241,29 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
       request: PublishSequenceRequest,
       options?: PublishCallOptions,
     ): Promise<PublishSequenceResult>;
+    /** Runs the authorization `publish` would run for this request, without dispatching. */
+    authorize<const T extends PublishRequest>(
+      request: CheckedPublishRequest<T>,
+      options?: AuthorizeCallOptions,
+    ): Promise<void>;
+    /**
+     * Polls pending targets of a previous `publish` with the same full request and saves
+     * validated results into its original idempotency claim. Requires an
+     * `idempotencyStore` with `compareAndSetOutcome`.
+     */
+    reconcile<const T extends PublishRequest>(
+      request: CheckedPublishRequest<T>,
+      options?: PublishCallOptions,
+    ): Promise<ReconcileResult>;
+    /**
+     * Re-sends only targets whose saved outcome proves nothing is live: retryable
+     * failures, `not-submitted`, and pre-submission cancellations. Published and
+     * unresolved targets are never sent again.
+     */
+    retryFailed<const T extends PublishRequest>(
+      request: CheckedPublishRequest<T>,
+      options?: RetryCallOptions,
+    ): Promise<RetryResult>;
     get(ref: PlatformPostRef, options?: PublishCallOptions): Promise<JsonObject>;
     cancelScheduled(
       ref: ScheduledJobRef,
@@ -351,7 +383,34 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
   ): B[K]["native"];
 }
 
+export interface ReconcilePollError {
+  readonly targetIndex: number;
+  readonly code: string;
+  readonly message: string;
+}
+
+export interface ReconcileResult extends PublishResult {
+  /** Target indexes still scheduled, accepted, processing, or unknown after this pass. */
+  readonly unresolved: readonly number[];
+  /** Targets whose poll failed or returned an outcome for a different target. */
+  readonly pollErrors: readonly ReconcilePollError[];
+}
+
+export type RetrySkipReason = "not-retryable" | "retry-not-due" | "unresolved" | "concurrent-retry";
+
+export interface RetryCallOptions extends PublishCallOptions {
+  /** Restricts the retry to these original target indexes. */
+  readonly targetIndexes?: readonly number[];
+}
+
+export interface RetryResult extends PublishResult {
+  readonly retried: readonly number[];
+  /** Unpublished targets left alone, with the reason. Published targets are omitted. */
+  readonly skipped: readonly { readonly targetIndex: number; readonly reason: RetrySkipReason }[];
+}
+
 export interface SharedSocialConfig {
+  readonly jobRunner?: JobRunner;
   readonly authorization?: AuthorizationPolicy;
   /**
    * Stages `blob` and `stream` media as HTTPS URLs for targets whose
@@ -449,6 +508,13 @@ function publicationStatus(outcomes: readonly DeliveryOutcome[]): PublicationSta
 
   return "partial";
 }
+
+const terminalStates: ReadonlySet<DeliveryOutcome["state"]> = new Set([
+  "published",
+  "failed",
+  "cancelled",
+  "not-submitted",
+]);
 
 async function mapConcurrent<T>(
   count: number,
@@ -694,6 +760,10 @@ export function createSocial(
   let correlationSequence = 0;
 
   function prepare(request: PublishRequest): PublishPreparation {
+    return prepareWith(request, false);
+  }
+
+  function prepareWith(request: PublishRequest, allowPastSchedule: boolean): PublishPreparation {
     const issues: PreparationIssue[] = [];
     const targets: PreparedPublishTarget[] = [];
 
@@ -714,7 +784,7 @@ export function createSocial(
 
       if (!Number.isFinite(scheduledAt)) {
         issues.push(preparationIssue("schedule.invalid", "schedule.at must be an ISO timestamp"));
-      } else if (scheduledAt <= clock().getTime()) {
+      } else if (!allowPastSchedule && scheduledAt <= clock().getTime()) {
         issues.push(preparationIssue("schedule.in_past", "A scheduled time must be in the future"));
       }
     }
@@ -1065,52 +1135,71 @@ export function createSocial(
     }
   }
 
-  async function publish(
-    request: PublishRequest,
-    options?: PublishCallOptions,
-  ): Promise<PublishResult> {
-    const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
-    const executionOperation = request.schedule === undefined ? "posts.publish" : "posts.schedule";
-    const authContext = makeContext("*", correlationId, options);
+  function executionOperationFor(request: PublishRequest): "posts.publish" | "posts.schedule" {
+    return request.schedule === undefined ? "posts.publish" : "posts.schedule";
+  }
 
+  async function authorizeRequest(
+    request: PublishRequest,
+    operation: import("./types.js").OperationName,
+    options: PublishCallOptions | undefined,
+    correlationId: string,
+  ): Promise<void> {
     if (options?.signal?.aborted) {
       throw new SocialError({
         code: "cancelled",
-        operation: executionOperation,
+        operation,
         message: "Publishing was cancelled before authorization",
         correlationId,
       });
     }
 
-    const authorizationOperation = executionOperation;
+    if (config.authorization === undefined) return;
 
-    if (config.authorization !== undefined) {
-      const decisions = await config.authorization.authorizeTargets({
-        operation: authorizationOperation,
-        accounts: request.targets.map((target) => target.account),
-        context: authContext,
-      });
+    const decisions = await config.authorization.authorizeTargets({
+      operation,
+      accounts: request.targets.map((target) => target.account),
+      context: makeContext("*", correlationId, options),
+    });
 
-      for (const target of request.targets) {
-        const decision = decisions.find(
-          (candidate) => targetKey(candidate.account) === targetKey(target.account),
-        );
+    for (const target of request.targets) {
+      const decision = decisions.find(
+        (candidate) => targetKey(candidate.account) === targetKey(target.account),
+      );
 
-        if (decision?.allowed !== true) {
-          throw new SocialError({
-            code: "unauthorized",
-            operation: authorizationOperation,
-            message: decision?.reason ?? "A target is not authorized for this operation",
-            account: target.account,
-            correlationId,
-          });
-        }
+      if (decision?.allowed !== true) {
+        throw new SocialError({
+          code: "unauthorized",
+          operation,
+          message: decision?.reason ?? "A target is not authorized for this operation",
+          account: target.account,
+          correlationId,
+        });
       }
     }
+  }
 
-    const plan = prepare(request);
+  interface PublicationPlan {
+    readonly targets: readonly PreparedPublishTarget[];
+    readonly payloadFingerprint: string;
+    readonly scope: string;
+  }
 
-    if (!plan.ok) {
+  /**
+   * Prepares the request and derives the claim identity shared by publish, reconcile,
+   * and retry. `recovery` tolerates a schedule that has since passed and adapter issues
+   * introduced after submission, but still requires every original target.
+   */
+  async function planPublication(
+    request: PublishRequest,
+    options: PublishCallOptions | undefined,
+    correlationId: string,
+    mode: "execute" | "recovery",
+  ): Promise<PublicationPlan> {
+    const executionOperation = executionOperationFor(request);
+    const plan = prepareWith(request, mode === "recovery");
+
+    if (mode === "recovery" ? plan.targets.length !== request.targets.length : !plan.ok) {
       throw new SocialError({
         code: "invalid_input",
         operation: executionOperation,
@@ -1120,27 +1209,34 @@ export function createSocial(
       });
     }
 
-    for (const target of plan.targets) {
-      const adapter = registry[target.account.backend];
+    if (mode === "execute") {
+      for (const target of plan.targets) {
+        const adapter = registry[target.account.backend];
 
-      if (adapter === undefined) throw new Error("Prepared adapter disappeared");
+        if (adapter === undefined) throw new Error("Prepared adapter disappeared");
 
-      requireCapability(adapter, "posts.publish", target.account.platform, target.account.backend);
-
-      if (
-        target.schedule !== undefined &&
-        adapter.capabilities.capabilities.some(
-          (candidate) =>
-            candidate.operation === "posts.schedule" &&
-            (candidate.platform === "*" || candidate.platform === target.account.platform),
-        )
-      )
         requireCapability(
           adapter,
-          "posts.schedule",
+          "posts.publish",
           target.account.platform,
           target.account.backend,
         );
+
+        if (
+          target.schedule !== undefined &&
+          adapter.capabilities.capabilities.some(
+            (candidate) =>
+              candidate.operation === "posts.schedule" &&
+              (candidate.platform === "*" || candidate.platform === target.account.platform),
+          )
+        )
+          requireCapability(
+            adapter,
+            "posts.schedule",
+            target.account.platform,
+            target.account.backend,
+          );
+      }
     }
 
     const targetViews = plan.targets.map((target) => ({
@@ -1158,13 +1254,202 @@ export function createSocial(
       "posts.publish",
     ]);
 
+    return { targets: plan.targets, payloadFingerprint, scope };
+  }
+
+  async function publicationResult(
+    request: PublishRequest,
+    plan: PublicationPlan,
+    correlationId: string,
+    outcomes: DeliveryOutcome[],
+  ): Promise<PublishResult> {
+    outcomes.sort((left, right) => left.targetIndex - right.targetIndex);
+
+    const publicationBackend =
+      new Set(plan.targets.map((target) => target.account.backend)).size === 1
+        ? (plan.targets[0]?.account.backend ?? "unknown")
+        : "multiple";
+
+    const publicationId = await fingerprint({
+      scope: plan.scope,
+      key: request.idempotencyKey ?? correlationId,
+      payloadFingerprint: plan.payloadFingerprint,
+    });
+
+    const publication: PublicationRef = {
+      kind: "publication",
+      version: 1,
+      backend: publicationBackend,
+      publicationId,
+    };
+
+    return { status: publicationStatus(outcomes), publication, outcomes };
+  }
+
+  /**
+   * Sends one prepared target and maps every adapter failure into its outcome. Local media
+   * is staged inside the backend's concurrency slot, so retries stage it the same way.
+   */
+  async function dispatchTarget(
+    target: PreparedPublishTarget,
+    executionOperation: "posts.publish" | "posts.schedule",
+    correlationId: string,
+    options: PublishCallOptions | undefined,
+    targetIdempotencyKey: string | undefined,
+  ): Promise<DeliveryOutcome> {
+    const adapter = registry[target.account.backend];
+    const posts = adapter?.posts;
+
+    if (adapter === undefined || posts === undefined)
+      throw new Error("Prepared adapter disappeared");
+
+    const observedAt = (): string => clock().toISOString();
+    let enteredAdapter = false;
+
+    const constraints = selectPublishDeclaration(
+      adapter.capabilities.capabilities,
+      target.account.platform,
+      target.content,
+    )?.constraints;
+
+    const staging =
+      mediaStaging !== undefined &&
+      (target.content.media ?? []).some(
+        (item) =>
+          needsStaging(constraints, item.source, true) ||
+          (item.thumbnail !== undefined && needsStaging(constraints, item.thumbnail, true)),
+      )
+        ? mediaStaging
+        : undefined;
+
+    let leases: readonly StagingLease[] = [];
+
+    const outcome = await (async (): Promise<DeliveryOutcome> => {
+      try {
+        const candidate = await dispatch(
+          target.account.backend,
+          options?.signal,
+          executionOperation,
+          async () => {
+            let dispatched = target;
+
+            let context = makeContext(
+              target.account.backend,
+              correlationId,
+              options,
+              targetIdempotencyKey,
+            );
+
+            // Staging runs here: after authorization and the replay check, inside
+            // the backend's concurrency slot, and under the caller's signal.
+            if (staging !== undefined) {
+              const started = Date.now();
+
+              const staged = await stageContent({
+                content: target.content,
+                constraints,
+                provider: staging,
+                account: target.account,
+                signal: options?.signal,
+                maxElapsedMs: context.retryBudget.maxElapsedMs,
+              });
+
+              leases = staged.leases;
+
+              if (staged.kind === "failed") return stagingFailure(target, staged.reason);
+
+              const remaining = context.retryBudget.maxElapsedMs - (Date.now() - started);
+
+              if (remaining <= 0) return stagingFailure(target, "staging-failed");
+
+              context = {
+                ...context,
+                retryBudget: { ...context.retryBudget, maxElapsedMs: remaining },
+              };
+
+              dispatched = { ...target, content: staged.content };
+
+              const issues = preparedIssues(posts, dispatched);
+
+              if (issues.length > 0)
+                return {
+                  state: "not-submitted",
+                  targetIndex: target.targetIndex,
+                  account: target.account,
+                  observedAt: observedAt(),
+                  reason: "validation",
+                  issues,
+                } satisfies DeliveryOutcome;
+            }
+
+            enteredAdapter = true;
+
+            return posts.publishTarget(dispatched, context);
+          },
+        );
+
+        return assertValidOutcome(candidate, target)
+          ? candidate
+          : {
+              state: "unknown",
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt: observedAt(),
+              reason: "unmapped-state",
+              diagnostic: "Adapter returned an outcome for a different target",
+            };
+      } catch (error) {
+        return !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
+          ? {
+              state: "cancelled",
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt: observedAt(),
+              reason: "before-submission",
+            }
+          : !enteredAdapter && error instanceof SocialError && error.code === "rate_limited"
+            ? {
+                state: "not-submitted",
+                targetIndex: target.targetIndex,
+                account: target.account,
+                observedAt: observedAt(),
+                reason: "capacity",
+              }
+            : outcomeFromError(
+                error instanceof SocialError ? error : undefined,
+                target,
+                observedAt(),
+              );
+      }
+    })();
+
+    // Remove staged copies only when no platform can still fetch them. Accepted,
+    // processing, scheduled, failed and unknown outcomes keep them for the
+    // provider's asynchronous fetch or for reconciliation.
+    if (
+      leases.length > 0 &&
+      (!enteredAdapter || outcome.state === "published" || outcome.state === "not-submitted")
+    )
+      await releaseLeases(leases);
+
+    return outcome;
+  }
+
+  async function publish(
+    request: PublishRequest,
+    options?: PublishCallOptions,
+  ): Promise<PublishResult> {
+    const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
+    const executionOperation = executionOperationFor(request);
+    await authorizeRequest(request, executionOperation, options, correlationId);
+    const plan = await planPublication(request, options, correlationId, "execute");
     let claim: IdempotencyClaim | undefined;
 
     if (request.idempotencyKey !== undefined && config.idempotencyStore !== undefined) {
       claim = await config.idempotencyStore.claim({
-        scope,
+        scope: plan.scope,
         key: request.idempotencyKey,
-        fingerprint: payloadFingerprint,
+        fingerprint: plan.payloadFingerprint,
         targetKeys: plan.targets.map((target) => target.targetKey),
       });
 
@@ -1178,7 +1463,6 @@ export function createSocial(
       }
     }
 
-    const observedAt = (): string => clock().toISOString();
     const warnings: PublishWarning[] = [];
 
     const outcomes = await mapConcurrent(
@@ -1190,154 +1474,27 @@ export function createSocial(
         if (target === undefined) throw new Error("Prepared target index was lost");
 
         if (claim !== undefined && claim.kind === "existing") {
-          const saved = claim.outcomes[target.targetKey];
-
-          if (saved !== undefined) return saved;
-
-          return {
-            state: "unknown",
-            targetIndex: target.targetIndex,
-            account: target.account,
-            observedAt: observedAt(),
-            reason: "ambiguous-submission",
-            diagnostic: "A previous execution claimed this target without recording an outcome",
-          } satisfies DeliveryOutcome;
+          return claim.outcomes[target.targetKey] ?? unrecordedOutcome(target);
         }
-
-        const adapter = registry[target.account.backend];
-
-        if (adapter?.posts === undefined) throw new Error("Prepared adapter disappeared");
 
         const targetIdempotencyKey =
           request.idempotencyKey === undefined
             ? undefined
             : await deriveTargetIdempotencyKey({
                 logicalKey: request.idempotencyKey,
-                scope,
+                scope: plan.scope,
                 backend: target.account.backend,
                 targetKey: target.targetKey,
-                payloadFingerprint,
+                payloadFingerprint: plan.payloadFingerprint,
               });
 
-        let outcome: DeliveryOutcome;
-        let enteredAdapter = false;
-        const posts = adapter.posts;
-
-        const constraints = selectPublishDeclaration(
-          adapter.capabilities.capabilities,
-          target.account.platform,
-          target.content,
-        )?.constraints;
-
-        const staging =
-          mediaStaging !== undefined &&
-          (target.content.media ?? []).some(
-            (item) =>
-              needsStaging(constraints, item.source, true) ||
-              (item.thumbnail !== undefined && needsStaging(constraints, item.thumbnail, true)),
-          )
-            ? mediaStaging
-            : undefined;
-
-        let leases: readonly StagingLease[] = [];
-
-        try {
-          const candidate = await dispatch(
-            target.account.backend,
-            options?.signal,
-            executionOperation,
-            async () => {
-              let dispatched = target;
-
-              let context = makeContext(
-                target.account.backend,
-                correlationId,
-                options,
-                targetIdempotencyKey,
-              );
-
-              // Staging runs here: after authorization and the replay check, inside
-              // the backend's concurrency slot, and under the caller's signal.
-              if (staging !== undefined) {
-                const started = Date.now();
-
-                const staged = await stageContent({
-                  content: target.content,
-                  constraints,
-                  provider: staging,
-                  account: target.account,
-                  signal: options?.signal,
-                  maxElapsedMs: context.retryBudget.maxElapsedMs,
-                });
-
-                leases = staged.leases;
-
-                if (staged.kind === "failed") return stagingFailure(target, staged.reason);
-
-                const remaining = context.retryBudget.maxElapsedMs - (Date.now() - started);
-
-                if (remaining <= 0) return stagingFailure(target, "staging-failed");
-
-                context = {
-                  ...context,
-                  retryBudget: { ...context.retryBudget, maxElapsedMs: remaining },
-                };
-
-                dispatched = { ...target, content: staged.content };
-
-                const issues = preparedIssues(posts, dispatched);
-
-                if (issues.length > 0)
-                  return {
-                    state: "not-submitted",
-                    targetIndex: target.targetIndex,
-                    account: target.account,
-                    observedAt: clock().toISOString(),
-                    reason: "validation",
-                    issues,
-                  } satisfies DeliveryOutcome;
-              }
-
-              enteredAdapter = true;
-
-              return posts.publishTarget(dispatched, context);
-            },
-          );
-
-          outcome = assertValidOutcome(candidate, target)
-            ? candidate
-            : {
-                state: "unknown",
-                targetIndex: target.targetIndex,
-                account: target.account,
-                observedAt: observedAt(),
-                reason: "unmapped-state",
-                diagnostic: "Adapter returned an outcome for a different target",
-              };
-        } catch (error) {
-          outcome =
-            !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
-              ? {
-                  state: "cancelled",
-                  targetIndex: target.targetIndex,
-                  account: target.account,
-                  observedAt: observedAt(),
-                  reason: "before-submission",
-                }
-              : !enteredAdapter && error instanceof SocialError && error.code === "rate_limited"
-                ? {
-                    state: "not-submitted",
-                    targetIndex: target.targetIndex,
-                    account: target.account,
-                    observedAt: observedAt(),
-                    reason: "capacity",
-                  }
-                : outcomeFromError(
-                    error instanceof SocialError ? error : undefined,
-                    target,
-                    observedAt(),
-                  );
-        }
+        const outcome = await dispatchTarget(
+          target,
+          executionOperation,
+          correlationId,
+          options,
+          targetIdempotencyKey,
+        );
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
           try {
@@ -1361,46 +1518,429 @@ export function createSocial(
           }
         }
 
-        // Remove staged copies only when no platform can still fetch them. Accepted,
-        // processing, scheduled, failed and unknown outcomes keep them for the
-        // provider's asynchronous fetch or for reconciliation.
-        if (
-          leases.length > 0 &&
-          (!enteredAdapter || outcome.state === "published" || outcome.state === "not-submitted")
-        )
-          await releaseLeases(leases);
-
         return outcome;
       },
     );
 
-    outcomes.sort((left, right) => left.targetIndex - right.targetIndex);
-
-    const publicationBackend =
-      new Set(plan.targets.map((target) => target.account.backend)).size === 1
-        ? (plan.targets[0]?.account.backend ?? "unknown")
-        : "multiple";
-
-    const publicationId = await fingerprint({
-      scope,
-      key: request.idempotencyKey ?? correlationId,
-      payloadFingerprint,
-    });
-
-    const publication: PublicationRef = {
-      kind: "publication",
-      version: 1,
-      backend: publicationBackend,
-      publicationId,
-    };
+    const result = await publicationResult(request, plan, correlationId, outcomes);
 
     warnings.sort((left, right) => left.targetIndex - right.targetIndex);
-
-    const result: PublishResult = { status: publicationStatus(outcomes), publication, outcomes };
 
     if (warnings.length === 0) return result;
 
     return { ...result, warnings };
+  }
+
+  function unrecordedOutcome(target: PreparedPublishTarget): DeliveryOutcome {
+    return {
+      state: "unknown",
+      targetIndex: target.targetIndex,
+      account: target.account,
+      observedAt: clock().toISOString(),
+      reason: "ambiguous-submission",
+      diagnostic: "A previous execution claimed this target without recording an outcome",
+    };
+  }
+
+  interface RecoveryClaim {
+    readonly plan: PublicationPlan;
+    readonly claimId: string;
+    readonly outcomes: Readonly<Record<string, DeliveryOutcome>>;
+    readonly compareAndSet: (input: {
+      readonly targetKey: string;
+      readonly expected: DeliveryOutcome | undefined;
+      readonly outcome: DeliveryOutcome;
+    }) => Promise<boolean>;
+    readonly reload: () => Promise<Readonly<Record<string, DeliveryOutcome>>>;
+  }
+
+  /**
+   * Opens the original claim for recovery. Only a caller holding the full original
+   * request and an authorized context can reach it; no claim ID is accepted as input.
+   * A key that was never claimed is fenced with `not-submitted` so a late original
+   * execution cannot dispatch alongside recovery.
+   */
+  async function openRecoveryClaim(
+    request: PublishRequest,
+    options: PublishCallOptions | undefined,
+    operation: "posts.reconcile" | "posts.retryFailed",
+    correlationId: string,
+  ): Promise<RecoveryClaim> {
+    const store = config.idempotencyStore;
+
+    if (store?.compareAndSetOutcome === undefined)
+      throw new SocialError({
+        code: "invalid_config",
+        operation,
+        message:
+          "Recovery requires a durable idempotencyStore that implements compareAndSetOutcome",
+        correlationId,
+      });
+
+    const key = request.idempotencyKey;
+
+    if (!isNonBlankStringInput(key))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Recovery requires the original request's idempotencyKey",
+        correlationId,
+      });
+
+    await authorizeRequest(
+      request,
+      operation === "posts.reconcile" ? "posts.getDelivery" : executionOperationFor(request),
+      options,
+      correlationId,
+    );
+
+    const plan = await planPublication(
+      request,
+      options,
+      correlationId,
+      operation === "posts.reconcile" ? "recovery" : "execute",
+    );
+
+    const claimInput = {
+      scope: plan.scope,
+      key,
+      fingerprint: plan.payloadFingerprint,
+      targetKeys: plan.targets.map((target) => target.targetKey),
+    };
+
+    const readClaim = async () => {
+      const claim = await store.claim(claimInput);
+
+      if (claim.kind === "conflict")
+        throw new SocialError({
+          code: "idempotency_conflict",
+          operation,
+          message: "The idempotency key was already used with a different target or payload",
+          correlationId,
+        });
+
+      return claim;
+    };
+
+    const compareAndSetOutcome = store.compareAndSetOutcome.bind(store);
+    const claim = await readClaim();
+
+    const compareAndSet: RecoveryClaim["compareAndSet"] = (input) =>
+      compareAndSetOutcome({ claimId: claim.claimId, ...input });
+
+    if (claim.kind === "new") {
+      for (const target of plan.targets)
+        await compareAndSet({
+          targetKey: target.targetKey,
+          expected: undefined,
+          outcome: {
+            state: "not-submitted",
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: clock().toISOString(),
+            reason: "before-submission",
+          },
+        });
+    }
+
+    const reload = async () => (await readClaim()).outcomes;
+
+    return {
+      plan,
+      claimId: claim.claimId,
+      outcomes: claim.kind === "new" ? await reload() : claim.outcomes,
+      compareAndSet,
+      reload,
+    };
+  }
+
+  async function recoveredOutcomes(
+    claim: RecoveryClaim,
+  ): Promise<{ readonly outcomes: DeliveryOutcome[]; readonly unresolved: number[] }> {
+    const saved = await claim.reload();
+
+    const outcomes = claim.plan.targets.map(
+      (target) => saved[target.targetKey] ?? unrecordedOutcome(target),
+    );
+
+    const unresolved = outcomes
+      .filter((outcome) => !terminalStates.has(outcome.state))
+      .map((outcome) => outcome.targetIndex);
+
+    return { outcomes, unresolved };
+  }
+
+  /** Validates a polled outcome against the saved target before it can replace anything. */
+  function polledOutcome(
+    candidate: DeliveryOutcome,
+    target: PreparedPublishTarget,
+    ref: import("./types.js").DeliveryRef,
+  ): DeliveryOutcome | undefined {
+    let polled: DeliveryOutcome;
+
+    try {
+      polled = decodeOutcome(parseJson(stableSerialize(candidate)), "outcome");
+    } catch {
+      return undefined;
+    }
+
+    if (
+      !isObjectInput(polled) ||
+      !isObjectInput(polled.account) ||
+      targetKey(polled.account) !== target.targetKey ||
+      polled.state === "not-submitted" ||
+      !Number.isFinite(Date.parse(polled.observedAt)) ||
+      (polled.delivery !== undefined &&
+        (polled.delivery.deliveryId !== ref.deliveryId ||
+          polled.delivery.backend !== ref.backend ||
+          polled.delivery.platform !== ref.platform ||
+          polled.delivery.accountId !== ref.accountId)) ||
+      (polled.state === "published" &&
+        (!isObjectInput(polled.post) ||
+          polled.post.kind !== "platform-post" ||
+          polled.post.version !== 1 ||
+          polled.post.backend !== target.account.backend ||
+          polled.post.platform !== target.account.platform ||
+          polled.post.accountId !== target.account.accountId)) ||
+      (polled.state === "scheduled" &&
+        (!isObjectInput(polled.job) ||
+          polled.job.kind !== "scheduled-job" ||
+          polled.job.version !== 1 ||
+          polled.job.backend !== target.account.backend ||
+          polled.job.platform !== target.account.platform ||
+          polled.job.accountId !== target.account.accountId))
+    )
+      return undefined;
+
+    // Managed backends often report index 0; outcomes keep the original target index.
+    return { ...polled, targetIndex: target.targetIndex, account: target.account, delivery: ref };
+  }
+
+  async function reconcile(
+    request: PublishRequest,
+    options?: PublishCallOptions,
+  ): Promise<ReconcileResult> {
+    const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
+    const claim = await openRecoveryClaim(request, options, "posts.reconcile", correlationId);
+    const pollErrors: ReconcilePollError[] = [];
+
+    await mapConcurrent(claim.plan.targets.length, claim.plan.targets.length, async (index) => {
+      const target = claim.plan.targets[index];
+      const saved = target === undefined ? undefined : claim.outcomes[target.targetKey];
+
+      if (target === undefined || saved === undefined || terminalStates.has(saved.state)) return;
+
+      const ref = saved.delivery;
+
+      // Without a provider identifier there is nothing safe to look up; content search could
+      // match an unrelated post, so the outcome stays unresolved.
+      if (ref === undefined) return;
+
+      const adapter = registry[target.account.backend];
+
+      if (
+        ref.kind !== "delivery" ||
+        ref.version !== 1 ||
+        ref.backend !== target.account.backend ||
+        ref.platform !== target.account.platform ||
+        ref.accountId !== target.account.accountId
+      ) {
+        pollErrors.push({
+          targetIndex: target.targetIndex,
+          code: "identity_mismatch",
+          message: "The saved delivery reference belongs to a different target",
+        });
+
+        return;
+      }
+
+      const getDelivery = adapter?.posts?.getDelivery;
+
+      if (adapter === undefined || getDelivery === undefined) {
+        pollErrors.push({
+          targetIndex: target.targetIndex,
+          code: "unsupported_capability",
+          message: `${target.account.backend} does not implement posts.getDelivery`,
+        });
+
+        return;
+      }
+
+      let polled: DeliveryOutcome;
+
+      try {
+        requireCapability(
+          adapter,
+          "posts.getDelivery",
+          target.account.platform,
+          target.account.backend,
+        );
+        polled = await dispatch(target.account.backend, options?.signal, "posts.getDelivery", () =>
+          getDelivery(ref, makeContext(target.account.backend, correlationId, options)),
+        );
+      } catch (error) {
+        pollErrors.push({
+          targetIndex: target.targetIndex,
+          code: error instanceof SocialError ? error.code : "upstream_failure",
+          message:
+            error instanceof SocialError ? error.message : "The delivery could not be polled",
+        });
+
+        return;
+      }
+
+      const next = polledOutcome(polled, target, ref);
+
+      if (next === undefined) {
+        pollErrors.push({
+          targetIndex: target.targetIndex,
+          code: "identity_mismatch",
+          message: "The backend returned a delivery for a different target",
+        });
+
+        return;
+      }
+
+      // Compare-and-set fences this poll: a retry or newer poll that already replaced the
+      // saved outcome wins, and this stale observation is dropped.
+      await claim.compareAndSet({ targetKey: target.targetKey, expected: saved, outcome: next });
+    });
+
+    const { outcomes, unresolved } = await recoveredOutcomes(claim);
+    const result = await publicationResult(request, claim.plan, correlationId, outcomes);
+
+    pollErrors.sort((left, right) => left.targetIndex - right.targetIndex);
+
+    return { ...result, unresolved, pollErrors };
+  }
+
+  /** Why a target cannot be retried now, or undefined when a retry is safe. */
+  function retryBlocker(
+    saved: DeliveryOutcome | undefined,
+    now: number,
+  ): RetrySkipReason | "published" | undefined {
+    if (saved === undefined) return "unresolved";
+
+    switch (saved.state) {
+      case "published":
+        return "published";
+      case "not-submitted":
+        return undefined;
+      case "cancelled":
+        return saved.reason === "before-submission" ? undefined : "not-retryable";
+      case "failed": {
+        const disposition = saved.retryDisposition;
+
+        if (disposition.kind === "never" || disposition.kind === "reconcile-first")
+          return "not-retryable";
+
+        if (
+          disposition.kind === "after-delay" &&
+          Date.parse(saved.observedAt) + disposition.delayMs > now
+        )
+          return "retry-not-due";
+
+        return undefined;
+      }
+
+      case "scheduled":
+      case "accepted":
+      case "processing":
+      case "unknown":
+        return "unresolved";
+      default: {
+        const _exhaustive: never = saved;
+
+        return _exhaustive;
+      }
+    }
+  }
+
+  async function retryFailed(
+    request: PublishRequest,
+    options?: RetryCallOptions,
+  ): Promise<RetryResult> {
+    const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
+    const claim = await openRecoveryClaim(request, options, "posts.retryFailed", correlationId);
+    const executionOperation = executionOperationFor(request);
+    const key = request.idempotencyKey ?? "";
+    const retried: number[] = [];
+    const skipped: { targetIndex: number; reason: RetrySkipReason }[] = [];
+    const now = clock().getTime();
+
+    await mapConcurrent(claim.plan.targets.length, claim.plan.targets.length, async (index) => {
+      const target = claim.plan.targets[index];
+
+      if (target === undefined) return;
+
+      if (options?.targetIndexes !== undefined && !options.targetIndexes.includes(index)) return;
+
+      const saved = claim.outcomes[target.targetKey];
+      const blocker = retryBlocker(saved, now);
+
+      if (blocker === "published") return;
+
+      if (blocker !== undefined) {
+        skipped.push({ targetIndex: target.targetIndex, reason: blocker });
+
+        return;
+      }
+
+      const fence: DeliveryOutcome = {
+        state: "unknown",
+        retryAttemptId: crypto.randomUUID(),
+        targetIndex: target.targetIndex,
+        account: target.account,
+        observedAt: clock().toISOString(),
+        reason: "ambiguous-submission",
+        diagnostic: "A retry was dispatched without a recorded outcome; reconcile before retrying",
+      };
+
+      // Moving the failure to `unknown` before dispatch fences concurrent retries: only the
+      // writer whose compare-and-set wins may send, and a crash leaves an unresolved outcome.
+      if (
+        !(await claim.compareAndSet({
+          targetKey: target.targetKey,
+          expected: saved,
+          outcome: fence,
+        }))
+      ) {
+        skipped.push({ targetIndex: target.targetIndex, reason: "concurrent-retry" });
+
+        return;
+      }
+
+      const targetIdempotencyKey = await deriveTargetIdempotencyKey({
+        logicalKey: `${key}#retry:${fence.retryAttemptId}`,
+        scope: claim.plan.scope,
+        backend: target.account.backend,
+        targetKey: target.targetKey,
+        payloadFingerprint: claim.plan.payloadFingerprint,
+      });
+
+      const outcome = await dispatchTarget(
+        target,
+        executionOperation,
+        correlationId,
+        options,
+        targetIdempotencyKey,
+      );
+
+      await claim.compareAndSet({
+        targetKey: target.targetKey,
+        expected: fence,
+        outcome: { ...outcome, ...definedFields({ retryAttemptId: fence.retryAttemptId }) },
+      });
+      retried.push(target.targetIndex);
+    });
+
+    const { outcomes } = await recoveredOutcomes(claim);
+    const result = await publicationResult(request, claim.plan, correlationId, outcomes);
+
+    retried.sort((left, right) => left - right);
+    skipped.sort((left, right) => left.targetIndex - right.targetIndex);
+
+    return { ...result, retried, skipped };
   }
 
   const accountsFacade = {
@@ -1790,6 +2330,16 @@ export function createSocial(
     },
     prepare,
     publish,
+    reconcile,
+    retryFailed,
+    async authorize(request: PublishRequest, callOptions?: AuthorizeCallOptions): Promise<void> {
+      await authorizeRequest(
+        request,
+        callOptions?.operation ?? executionOperationFor(request),
+        callOptions,
+        request.correlationId ?? `social-${++correlationSequence}`,
+      );
+    },
     async publishSequence(
       request: PublishSequenceRequest,
       callOptions?: PublishCallOptions,
@@ -2766,6 +3316,7 @@ export function createSocial(
 
   return {
     accounts: accountsFacade,
+    ...definedFields({ jobRunner: config.jobRunner }),
     graph: graphFacade,
     posts: postsFacade,
     search: searchFacade,

@@ -38,7 +38,7 @@ The claim is scoped by `options.authorization.tenantId` from the call, so pass t
 
 ## Fingerprints detect changed intent
 
-The claim stores a fingerprint of every prepared target: account, content, options, reply reference, and schedule. Reusing a key with different content, options, or a different set of targets throws `idempotency_conflict` before any dispatch. A key therefore cannot be reused to retry a subset of the original targets.
+The claim stores a fingerprint of every prepared target: account, content, options, reply reference, and schedule. Reusing a key with different content, options, or a different set of targets throws `idempotency_conflict` before any dispatch. A key therefore cannot be reused with a subset of the original targets; `posts.retryFailed` takes the full original request instead.
 
 ## Retry budgets are bounded
 
@@ -71,6 +71,10 @@ A `failed` outcome carries a `retryDisposition`. `never` means do not retry, `af
 
 ## Retrying after a confirmed non-write
 
-Because a claimed key replays its saved outcomes, sending the same key again does not retry anything. To retry, use a new key, and include only the targets you have confirmed were not written. Keep the original key and outcomes for the targets that published.
+Because a claimed key replays its saved outcomes, sending the same key again with `posts.publish` does not retry anything.
+
+When the `idempotencyStore` implements `compareAndSetOutcome`, pass the full original request to `posts.reconcile` to poll pending targets, and to `posts.retryFailed` to re-send only targets whose saved outcome proves nothing is live. Both write into the original claim, so published targets are never sent twice. See [reconcile and retry](/publishing#reconcile-and-retry).
+
+Without that store support, use a new key and include only the targets you have confirmed were not written. Keep the original key and outcomes for the targets that published.
 
 Job runners with at-least-once semantics pair well with a durable store: the runner may re-execute, and the stored claim returns the recorded outcomes instead of dispatching again. See the [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), and [Restate](/integrations/restate) patterns.

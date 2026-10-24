@@ -355,6 +355,8 @@ interface OutcomeBase<S extends string> {
   readonly delivery?: DeliveryRef;
   readonly backendState?: string;
   readonly observedAt: string;
+  /** SDK recovery attempt identity, persisted to fence stale retries and observations. */
+  readonly retryAttemptId?: string;
 }
 
 export type DeliveryOutcome =
