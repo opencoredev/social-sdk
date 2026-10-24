@@ -21,6 +21,8 @@ import {
 import { definedFields } from "../src/core/fields.js";
 import { MemoryIdempotencyStore, mockBackend } from "../src/testing/index.js";
 import { x } from "../src/platforms/x.js";
+import { DatabaseSync } from "node:sqlite";
+import { createSqlStores, createSqliteExecutor } from "../src/server/sql-stores.js";
 
 const manifest: CapabilityManifest = {
   schemaVersion: 1,
@@ -177,6 +179,54 @@ function request(...accountIds: string[]): PublishRequest {
 }
 
 describe("core reconcile", () => {
+  test("settles a pending delivery through the durable SQL idempotency store", async () => {
+    const stores = createSqlStores({
+      executor: createSqliteExecutor(new DatabaseSync(":memory:")),
+      dialect: "sqlite",
+    });
+
+    await stores.driver.createSchema();
+    let polled = false;
+
+    const { adapter } = programmableAdapter({
+      publish: (target) => ({
+        state: "accepted",
+        targetIndex: target.targetIndex,
+        account: target.account,
+        observedAt,
+        delivery: deliveryRef("a", "delivery-a"),
+      }),
+      poll: (ref) => {
+        polled = true;
+
+        return {
+          state: "published",
+          targetIndex: 0,
+          account: account(ref.accountId),
+          observedAt,
+          delivery: ref,
+          post: platformPostRef({
+            backend: "default",
+            platform: "x",
+            accountId: ref.accountId,
+            postId: "post-a",
+          }),
+        };
+      },
+    });
+
+    const social = createSocial({ backend: adapter, idempotencyStore: stores.idempotency });
+
+    assert.equal((await social.posts.publish(request("a"))).outcomes[0]?.state, "accepted");
+
+    const settled = await social.posts.reconcile(request("a"));
+
+    assert.ok(polled);
+    assert.equal(settled.status, "complete");
+    assert.deepEqual(settled.unresolved, []);
+    assert.equal((await social.posts.publish(request("a"))).outcomes[0]?.state, "published");
+  });
+
   test("polls pending deliveries and saves terminal outcomes in the original claim", async () => {
     const store = new MemoryIdempotencyStore();
     let pollState: "processing" | "published" = "processing";

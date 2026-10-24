@@ -1014,32 +1014,62 @@ export class DurableIdempotencyStore implements IdempotencyStore {
     readonly targetKey: string;
     readonly outcome: DeliveryOutcome;
   }): Promise<void> {
+    return this.#replaceOutcome(input, "idempotency.saveOutcome", () => true).then(() => undefined);
+  }
+
+  /**
+   * Replaces one target outcome only while the stored outcome still equals `expected`,
+   * compared by `stableSerialize`. The revision check in the write makes it atomic.
+   */
+  compareAndSetOutcome(input: {
+    readonly claimId: string;
+    readonly targetKey: string;
+    readonly expected: DeliveryOutcome | undefined;
+    readonly outcome: DeliveryOutcome;
+  }): Promise<boolean> {
+    return this.#replaceOutcome(input, "idempotency.compareAndSetOutcome", (current) =>
+      current === undefined
+        ? input.expected === undefined
+        : input.expected !== undefined &&
+          stableSerialize(current) === stableSerialize(input.expected),
+    );
+  }
+
+  #replaceOutcome(
+    input: {
+      readonly claimId: string;
+      readonly targetKey: string;
+      readonly outcome: DeliveryOutcome;
+    },
+    operation: string,
+    accept: (current: DeliveryOutcome | undefined) => boolean,
+  ): Promise<boolean> {
     const documentKey =
       input.claimId.length > 37 && input.claimId[36] === CLAIM_ID_SEPARATOR
         ? input.claimId.slice(37)
         : undefined;
 
     if (documentKey === undefined)
-      return Promise.reject(
-        storeError("idempotency.saveOutcome", "Unknown idempotency claim", "not_found"),
-      );
+      return Promise.reject(storeError(operation, "Unknown idempotency claim", "not_found"));
 
-    return updateRecord({
+    return updateRecord<boolean>({
       driver: this.#driver,
       address: { namespace: "idempotency", key: documentKey },
-      operation: "idempotency.saveOutcome",
+      operation,
       decide: (current) => {
         const existing = current === undefined ? undefined : parseClaimRecord(current);
 
         if (existing === undefined || existing.claimId !== input.claimId)
-          throw storeError("idempotency.saveOutcome", "Unknown idempotency claim", "not_found");
+          throw storeError(operation, "Unknown idempotency claim", "not_found");
 
         if (!existing.targetKeys.includes(input.targetKey))
           throw storeError(
-            "idempotency.saveOutcome",
+            operation,
             "Target does not belong to this idempotency claim",
             "invalid_input",
           );
+
+        if (!accept(existing.outcomes[input.targetKey])) return { kind: "done", result: false };
 
         return {
           kind: "write",
@@ -1047,7 +1077,7 @@ export class DurableIdempotencyStore implements IdempotencyStore {
             ...existing,
             outcomes: { ...existing.outcomes, [input.targetKey]: input.outcome },
           }),
-          result: undefined,
+          result: true,
         };
       },
     });

@@ -487,6 +487,77 @@ describe("idempotency on SQLite", () => {
   });
 });
 
+describe("idempotency compare-and-set on SQLite", () => {
+  it("replaces an outcome only while it still equals the expected one", async () => {
+    const stores = openSqlite(sqliteFile());
+    await stores.driver.createSchema();
+
+    const claimed = await stores.idempotency.claim({
+      scope: "s",
+      key: "k",
+      fingerprint: "f",
+      targetKeys: ["a"],
+    });
+
+    if (claimed.kind !== "new") throw new Error("Expected a new claim");
+
+    const first = published(0, "acct-a");
+    const second = published(1, "acct-a");
+    const target = { claimId: claimed.claimId, targetKey: "a" };
+
+    assert.equal(
+      await stores.idempotency.compareAndSetOutcome({
+        ...target,
+        expected: second,
+        outcome: first,
+      }),
+      false,
+    );
+    assert.equal(
+      await stores.idempotency.compareAndSetOutcome({
+        ...target,
+        expected: undefined,
+        outcome: first,
+      }),
+      true,
+    );
+    assert.equal(
+      await stores.idempotency.compareAndSetOutcome({
+        ...target,
+        expected: undefined,
+        outcome: second,
+      }),
+      false,
+    );
+
+    const racing = [0, 1, 2].map(
+      () => new DurableIdempotencyStore({ driver: interleaving(stores.driver) }),
+    );
+
+    const wins = await Promise.all(
+      racing.map((store, index) =>
+        store.compareAndSetOutcome({
+          ...target,
+          expected: first,
+          outcome: published(index + 10, "acct-a"),
+        }),
+      ),
+    );
+
+    assert.equal(wins.filter(Boolean).length, 1);
+
+    await assert.rejects(
+      stores.idempotency.compareAndSetOutcome({
+        ...target,
+        targetKey: "z",
+        expected: undefined,
+        outcome: first,
+      }),
+      rejectsWith("invalid_input"),
+    );
+  });
+});
+
 describe("connections on SQLite", () => {
   it("claims discovery permanently and completes atomically into lasting grants", async () => {
     const clock = new Clock();
