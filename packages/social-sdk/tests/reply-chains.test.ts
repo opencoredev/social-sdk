@@ -72,6 +72,17 @@ function chainAdapter(fails: (target: PreparedPublishTarget) => boolean = () => 
   return { adapter, sent };
 }
 
+/** Each destination's sends in order. Destinations publish concurrently, so only per-account order holds. */
+function chains(
+  sent: readonly { account: string; text: string | undefined; parent: string | undefined }[],
+) {
+  const byAccount: Record<string, [string | undefined, string | undefined][]> = {};
+
+  for (const entry of sent) (byAccount[entry.account] ??= []).push([entry.text, entry.parent]);
+
+  return byAccount;
+}
+
 const item = (text: string, accounts = [alice, bob]) => ({
   targets: accounts.map((account) => ({ account })),
   content: { text },
@@ -90,17 +101,18 @@ describe("multi-destination reply chains", () => {
 
     assert.equal(result.status, "complete");
     assert.equal(result.items.length, 3);
-    assert.deepEqual(
-      sent.map((entry) => [entry.account, entry.text, entry.parent]),
-      [
-        ["alice", "1", undefined],
-        ["bob", "1", undefined],
-        ["alice", "2", "alice:1"],
-        ["bob", "2", "bob:1"],
-        ["alice", "3", "alice:2"],
-        ["bob", "3", "bob:2"],
+    assert.deepEqual(chains(sent), {
+      alice: [
+        ["1", undefined],
+        ["2", "alice:1"],
+        ["3", "alice:2"],
       ],
-    );
+      bob: [
+        ["1", undefined],
+        ["2", "bob:1"],
+        ["3", "bob:2"],
+      ],
+    });
   });
 
   test("a broken chain stops only that destination and reports it as not submitted", async () => {
@@ -118,14 +130,13 @@ describe("multi-destination reply chains", () => {
     });
 
     assert.equal(result.status, "partial");
-    assert.deepEqual(
-      sent.map((entry) => [entry.account, entry.text, entry.parent]),
-      [
-        ["alice", "1", undefined],
-        ["bob", "1", undefined],
-        ["alice", "2", "alice:1"],
+    assert.deepEqual(chains(sent), {
+      alice: [
+        ["1", undefined],
+        ["2", "alice:1"],
       ],
-    );
+      bob: [["1", undefined]],
+    });
 
     const second = result.items[1];
 

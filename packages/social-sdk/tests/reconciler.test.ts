@@ -500,12 +500,12 @@ describe("core retryFailed", () => {
     assert.equal(retried.outcomes[1]?.state, "published");
 
     const publishes = calls.filter((call) => call.operation === "publish");
-    assert.deepEqual(
-      publishes.map((call) => call.accountId),
-      ["a", "b", "c", "b"],
-    );
+    // Destinations publish concurrently, so only the retry's position is ordered.
+    const initial = publishes.slice(0, 3);
+    assert.deepEqual(initial.map((call) => call.accountId).sort(), ["a", "b", "c"]);
+    assert.equal(publishes[3]?.accountId, "b");
     // The retry uses a new provider idempotency key so a provider-side dedupe cannot replay the failure.
-    assert.notEqual(publishes[1]?.key, publishes[3]?.key);
+    assert.notEqual(initial.find((call) => call.accountId === "b")?.key, publishes[3]?.key);
 
     const again = await social.posts.retryFailed(request("a", "b", "c"));
     assert.deepEqual(again.retried, []);
