@@ -394,8 +394,26 @@ export interface SearchPostsInput {
   readonly scope?: "recent" | "all";
 }
 
+/**
+ * Provider-neutral metric names. Adapters keep the provider's own `name` and
+ * add `canonicalName` only when the provider metric means the same thing.
+ */
+export type CanonicalMetricName =
+  | "views"
+  | "likes"
+  | "comments"
+  | "shares"
+  | "impressions"
+  | "reach"
+  | "saves"
+  | "clicks"
+  | "followers"
+  | "profile_views";
+
 export interface MetricValue {
   readonly name: string;
+  /** Present only when `name` maps to a provider-neutral metric. */
+  readonly canonicalName?: CanonicalMetricName;
   readonly value: number;
   readonly unit: "count" | "milliseconds" | "percentage" | "seconds";
   readonly period: "lifetime" | "unknown" | { readonly from: string; readonly to: string };
@@ -449,6 +467,16 @@ export interface CapabilityConstraints {
   readonly approval?: readonly string[];
   readonly scopes?: readonly string[];
   readonly mediaSources?: readonly CapabilityMediaSource[];
+  /** Largest accepted attachment, in bytes. */
+  readonly maxBytes?: number;
+  /** Most attachments accepted in one post. */
+  readonly maxItems?: number;
+  /** Exact MIME types, or `type/*` wildcards such as `image/*`. */
+  readonly allowedMimeTypes?: readonly string[];
+  /** Inclusive width/height range for images and videos, such as `[0.8, 1.91]`. */
+  readonly aspectRatioRange?: readonly [min: number, max: number];
+  /** Longest accepted video, in seconds. */
+  readonly maxDurationSeconds?: number;
 }
 
 export interface CapabilityDeclaration {

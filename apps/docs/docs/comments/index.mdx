@@ -9,32 +9,18 @@ assume one `social` client built with the platform's adapter, an `account` from
 
 ## Comments
 
-Comment items are provider-shaped `JsonObject`s, so the field that identifies a
-comment differs by platform. Read it with a check rather than assuming a
-top-level `id`:
+Comment and message items expose `id`, `authorId`, `authorHandle`, `authorName`,
+`text`, `createdAt`, and `parentId` when the provider supplies them. Provider
+fields remain available, and `native` retains the provider record used for the
+projection. Missing fields stay absent rather than becoming invented values.
+
+Use `id` as the comment identity across platforms. Bluesky exposes the reply's
+AT-URI there; LinkedIn exposes the full comment URN needed for replies. Its raw
+numeric ID remains in `native.id`.
 
 ```ts
-import type { JsonObject, JsonValue } from "@opencoredev/social-sdk";
-
-function isObject(value: JsonValue | undefined): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function commentIdOf(platform: string, item: JsonObject): string | undefined {
-  if (platform === "bluesky") {
-    // Bluesky returns thread views: { post: { uri, cid, ... }, replies? }.
-    const post = item["post"];
-    const uri = isObject(post) ? post["uri"] : undefined;
-    return typeof uri === "string" ? uri : undefined;
-  }
-  // LinkedIn replies need the full comment URN, not the numeric id.
-  const value = platform === "linkedin" ? item["commentUrn"] : item["id"];
-  return typeof value === "string" ? value : undefined;
-}
-
 const comments = await social.comments.list(post, { limit: 20 });
-const first = comments.items[0];
-const commentId = first === undefined ? undefined : commentIdOf(post.platform, first);
+const commentId = comments.items[0]?.id;
 
 if (commentId !== undefined) {
   await social.comments.reply({ ...post, kind: "comment", commentId }, { text: "Thanks." });
@@ -73,6 +59,7 @@ const conversations = await social.messages.listConversations(account, { limit: 
 Normalized messages run on two kinds of route:
 
 - The direct X adapter.
+- The direct Instagram adapter with Instagram Login and messaging permission.
 - The managed Zernio backend for X, Bluesky, Instagram, and Facebook accounts
   connected through Zernio. Recipient permissions and reply windows still apply
   upstream.
@@ -80,6 +67,31 @@ Normalized messages run on two kinds of route:
 The direct Bluesky adapter exposes chat only through its native module, shown
 below. Calling `social.messages` on a direct Bluesky account raises
 `unsupported_capability`.
+
+## Read an inbox across accounts
+
+`inbox.list` reads a conversation page for each supplied account and a comment
+page for each supplied post. Supply up to 50 sources across backends:
+
+```ts
+const inbox = await social.inbox.list({ accounts: [account], posts: [post], limit: 20 });
+const records = inbox.entries.map((entry) => entry.record);
+```
+
+Each entry carries its source account or post and a normalized `record`.
+`sources` reports each source's read, exhausted, or failed state. A failed source
+does not discard successful reads. Every source is authorized on every call,
+including sources that finished on an earlier page.
+
+`limit` applies to each source, so the combined page can contain more items.
+Entries stay grouped by source and are never truncated or sorted by timestamp.
+Pass the returned `nextCursor` with the same sources, order, limit, and tenant
+to continue; exhausted sources stay exhausted, while failed sources retry from
+their previous position. Comment aggregation requires post references because
+providers do not expose a common account-wide comments endpoint.
+
+The aggregate cursor retains bounded provider cursors for up to 50 sources.
+Store it as an opaque value; it can be larger than a single-account cursor.
 
 ## Platform support
 
@@ -146,8 +158,8 @@ await native.hideReply({ account, replyId, hidden: true, context });
 `transition:chat.bsky`; see [connect accounts](/authentication).
 
 Configure `bluesky({ auth: { service, did, accessJwt } })`. Comment items are
-thread views; the reply's AT-URI is `item.post.uri`. Use that URI as the
-`commentId` when replying.
+thread views with the reply's AT-URI in normalized `item.id` and the original
+view in `item.native`. Use `item.id` as the `commentId` when replying.
 
 Chat runs through the native module, not `social.messages`. Each method takes
 the acting account and returns the provider-shaped `chat.bsky.convo` response:
@@ -241,14 +253,18 @@ Source: [comments.setModerationStatus](https://developers.google.com/youtube/v3/
 </PlatformTab>
 <PlatformTab platform="instagram">
 
-**Comments** list and reply. **Messages:** not implemented by this adapter.
-**Access:** a professional account with comment-management permission.
+**Comments** list and reply. **Messages:** conversation and message reads, plus
+text replies with Instagram Login. **Access:** a professional account with the
+matching comment-management or messaging permission.
 
 Configure `instagram({ auth: { accessToken, accountId, flavor } })`. `flavor`
 defaults to `instagram-login`; use `facebook-login` where the adapter requires
-Facebook Login. Meta offers Instagram messaging, but this adapter does not
-implement it, so message calls raise `unsupported_capability`. Zernio exposes
-Instagram messages as a managed backend.
+Facebook Login. Direct messaging requires Instagram Login. Conversation reads
+include participants, and message reads include bodies, senders, recipients,
+timestamps, and attachments. `messages.send` looks up the conversation
+participants and sends only when it finds one other recipient. Facebook Login
+messaging requires the separate Messenger Platform and a Page token. Zernio
+also exposes Instagram messages as a managed backend.
 
 Native moderation covers hiding and deleting comments, listing replies to one
 comment, and turning comments on or off for a media object:
@@ -275,8 +291,8 @@ Configure `linkedin({ auth: { accessToken, author }, apiVersion })`. `author` is
 a `urn:li:person:<id>` or `urn:li:organization:<id>`; organization actions need
 administrator access.
 
-LinkedIn comments use Social Actions. Reply with the item's full `commentUrn`
-(`urn:li:comment:(urn:li:activity:…,…)`), not its numeric `id`; any other value
+LinkedIn comments use Social Actions. Reply with the normalized `id`, which contains the full comment URN
+(`urn:li:comment:(urn:li:activity:…,…)`); any other value
 raises `invalid_input`. If a write is accepted without a returned URN, the SDK
 can raise `ambiguous_outcome`. LinkedIn messages raise
 `unsupported_capability`. Hiding comments is `unsupported-by-platform`: the
@@ -284,7 +300,7 @@ Comments API has no hide or moderation-status operation.
 
 ```ts
 const comments = await social.comments.list(post, { limit: 20 });
-const commentUrn = comments.items[0]?.["commentUrn"];
+const commentUrn = comments.items[0]?.id;
 
 if (typeof commentUrn === "string") {
   await social.comments.reply(

@@ -489,6 +489,10 @@ it("PostFast reads analytics around the publish time and parses bigint counters"
   };
 
   const metrics = await adapter.analytics.getPostMetrics(ref, context);
+  assert.deepEqual(
+    metrics.map((metric) => metric.canonicalName),
+    ["likes", "comments", "views", undefined],
+  );
 
   assert.deepEqual(
     metrics.map((metric) => [metric.name, metric.value, metric.unit]),

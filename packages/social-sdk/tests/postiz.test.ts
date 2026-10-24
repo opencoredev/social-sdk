@@ -654,6 +654,10 @@ it("Postiz reads post analytics and creates OAuth connect links", async () => {
   };
 
   const metrics = await adapter.analytics.getPostMetrics(post, context);
+  assert.deepEqual(
+    metrics.map((metric) => metric.canonicalName),
+    ["impressions", "clicks"],
+  );
 
   assert.deepEqual(
     metrics.map((metric) => [metric.name, metric.value, metric.measuredAt, metric.source]),

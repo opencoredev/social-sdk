@@ -26,6 +26,12 @@ import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { verifyXWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { providerErrorDecoder } from "../transport/provider-errors.js";
+import {
+  normalizeComment,
+  normalizeConversation,
+  normalizeMessage,
+  normalizeMetrics,
+} from "../core/projections.js";
 import { createHttp, HttpError } from "../transport/http.js";
 import { isJsonValue } from "../transport/json.js";
 import {
@@ -286,8 +292,12 @@ export interface XNative {
     readonly durationMinutes: number;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /** One page of bookmarks. Pass `meta.next_token` from the response back as `cursor`. */
   readonly bookmarks: (input: {
     readonly account: ConnectedAccountRef;
+    readonly cursor?: string;
+    /** 1 through 100. */
+    readonly maxResults?: number;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
   readonly bookmark: (input: {
@@ -935,7 +945,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       const picked: Record<string, JsonValue> = {};
 
       // A Set keeps first-seen order, so "id" and "text" lead and repeated fields appear once.
-      for (const field of new Set(["id", "text", ...requestedFields])) {
+      for (const field of new Set(["id", "text", "edit_history_tweet_ids", ...requestedFields])) {
         const value = row[field];
 
         if (value !== undefined) picked[field] = value;
@@ -1158,7 +1168,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const fields = ["followers_count", "following_count", "tweet_count", "listed_count"] as const;
 
-    return fields.flatMap((name) => {
+    const metrics: readonly MetricValue[] = fields.flatMap((name) => {
       const value = optionalNumber(
         name === "tweet_count" ? (counts["post_count"] ?? counts[name]) : counts[name],
       );
@@ -1177,6 +1187,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             },
           ];
     });
+
+    return normalizeMetrics(metrics);
   }
 
   async function validateReplyParent(
@@ -1281,6 +1293,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   const xMaxVideoBytes = 17_179_869_184;
 
   const xMaxGifBytes = 15 * 1024 * 1024;
+
+  const xMaxAltTextLength = 1000;
 
   const xMaxStatusPolls = 30;
 
@@ -1669,6 +1683,50 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     });
   }
 
+  // POST /2/media/metadata attaches alt text to uploaded images and GIFs. Source, accessed
+  // 2026-10-24: https://docs.x.com/x-api/media/create-media-metadata
+  async function setAltText(
+    mediaId: string,
+    altText: string,
+    context: AdapterOperationContext,
+  ): Promise<void> {
+    if ([...altText].length > xMaxAltTextLength)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.metadata",
+        message: `X alt text is limited to ${xMaxAltTextLength} characters.`,
+      });
+
+    try {
+      object(
+        await requireUserToken("media.metadata")("/2/media/metadata", context, {
+          id: mediaId,
+          metadata: { alt_text: { text: altText } },
+        }),
+      );
+    } catch (error) {
+      throw new SocialError({
+        code:
+          error instanceof SocialError && error.code !== "ambiguous_outcome"
+            ? error.code
+            : "media_error",
+        operation: "media.metadata",
+        message:
+          "X did not confirm the image alt text, so no post was created. The uploaded media was not attached to a post.",
+        ...definedFields({
+          backend: error instanceof SocialError ? error.backend : undefined,
+          correlationId: error instanceof SocialError ? error.correlationId : undefined,
+          upstreamStatus: error instanceof SocialError ? error.upstreamStatus : undefined,
+        }),
+        retryDisposition:
+          error instanceof SocialError && error.code !== "ambiguous_outcome"
+            ? error.retryDisposition
+            : { kind: "never" },
+        cause: error,
+      });
+    }
+  }
+
   async function uploadXMedia(
     media: MediaAttachment,
     context: AdapterOperationContext,
@@ -1739,6 +1797,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           availability: "available" as const,
           formats: ["text" as const, "image" as const, "video" as const],
           requiredScopes: ["tweet.read", "tweet.write", "users.read", "media.write"],
+          // Mirrors prepareTarget. Per-kind byte limits (5 MiB image, 15 MiB GIF) stay in prepare.
+          constraints: {
+            mediaSources: ["blob" as const],
+            maxItems: 4,
+            maxBytes: xMaxVideoBytes,
+            allowedMimeTypes: ["image/jpeg", "image/png", "image/gif", "video/mp4"],
+          },
           notes:
             "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to the 16 GiB upload ceiling (account size/duration eligibility may be lower) / one GIF up to 15 MiB via 4 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. Self-serve replies require a parent-author mention or quote summoning this account; Enterprise is exempt (February 2026 changelog).",
         },
@@ -2225,11 +2290,10 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           else if (item.source.blob.size > 5 * 1024 * 1024)
             fail("x.image_size", "Image exceeds the 5 MiB limit.");
 
-          if (item.altText !== undefined)
-            fail(
-              "x.alt_text",
-              "This slice has no verified media metadata mapping. Use a backend that supports alt text.",
-            );
+          if (item.altText !== undefined && item.kind !== "image")
+            fail("x.alt_text", "X alt text applies to images and GIFs only.");
+          else if (item.altText !== undefined && [...item.altText].length > xMaxAltTextLength)
+            fail("x.alt_text", `X alt text is limited to ${xMaxAltTextLength} characters.`);
         }
 
         return issues;
@@ -2239,8 +2303,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         const ids: string[] = [];
 
-        for (const media of target.content.media ?? [])
-          ids.push(await uploadXMedia(media, context));
+        for (const media of target.content.media ?? []) {
+          const mediaId = await uploadXMedia(media, context);
+
+          // Alt text must be attached before the post is created; a failure stops publication.
+          if (media.altText !== undefined && media.altText !== "")
+            await setAltText(mediaId, media.altText, context);
+          ids.push(mediaId);
+        }
 
         const replySettings = optionsObject(target)["replySettings"];
 
@@ -2314,7 +2384,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         input: { readonly cursor?: string; readonly limit?: number },
         context: AdapterOperationContext,
       ): Promise<Page<JsonObject>> {
-        return listReplies(ref, input, context);
+        const page = await listReplies(ref, input, context);
+
+        return { ...page, items: page.items.map(normalizeComment) };
       },
       async reply(
         ref: CommentRef,
@@ -2433,7 +2505,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             if (items.length === target) return pageFrom(eventCursor);
             seenSet.add(hash);
             seen.push(hash);
-            items.push(event);
+            items.push(normalizeConversation(event));
           }
 
           if (page.nextCursor === undefined) return { items };
@@ -2451,7 +2523,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       ): Promise<Page<JsonObject>> {
         requireUserToken("messages.read");
 
-        return nativeAdapter.listDirectMessages({
+        const page = await nativeAdapter.listDirectMessages({
           account: connectedAccountRef({
             backend: conversation.backend,
             platform: "x",
@@ -2461,6 +2533,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ...definedFields({ cursor: input.cursor, limit: input.limit }),
           context,
         });
+
+        return { ...page, items: page.items.map(normalizeMessage) };
       },
       async send(
         conversation: ConversationRef,
@@ -2498,7 +2572,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         const counts = row["public_metrics"] ? object(row["public_metrics"]) : {};
 
-        return [
+        const metrics: readonly MetricValue[] = [
           ["likes", "like_count"],
           ["reposts", "retweet_count"],
           ["replies", "reply_count"],
@@ -2526,6 +2600,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 },
               ];
         });
+
+        return normalizeMetrics(metrics);
       },
     },
     webhooks: directWebhooks(
@@ -2686,13 +2762,37 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }),
         );
       },
-      async bookmarks({ account, context }) {
+      // GET /2/users/:id/bookmarks takes max_results 1-100 and pagination_token from
+      // meta.next_token. Source, accessed 2026-10-24: https://docs.x.com/x-api/users/get-bookmarks
+      async bookmarks({ account, cursor, maxResults, context }) {
         authorize(account, context);
+
+        if (
+          maxResults !== undefined &&
+          (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > 100)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "x.bookmarks",
+            message: "X bookmark maxResults must be an integer from 1 through 100.",
+          });
+
+        if (cursor !== undefined && !/^[A-Za-z0-9_-]{1,1024}$/.test(cursor))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "x.bookmarks",
+            message: "Use the meta.next_token value returned by a previous bookmarks page.",
+          });
 
         return object(
           await requireUserToken("x.bookmarks")(
             `/2/users/${encodeURIComponent(account.accountId)}/bookmarks`,
             context,
+            undefined,
+            definedFields({
+              max_results: maxResults?.toString(),
+              pagination_token: cursor,
+            }),
           ),
         );
       },

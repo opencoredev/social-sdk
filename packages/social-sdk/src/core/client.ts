@@ -1,9 +1,28 @@
 import { decodeCursor, encodeCursor, iterateItems, type IterationOptions } from "./pagination.js";
 import { createConcurrencyLimiter } from "./concurrency.js";
 import type { AuthorizationPolicy, GraphAdapter, SocialAdapter } from "./adapter.js";
-import { SocialError } from "./errors.js";
+import { SocialError, type SocialErrorCode } from "./errors.js";
 import { definedFields } from "./fields.js";
 import { isString } from "../transport/validation.js";
+import { httpsUrl } from "../transport/upload.js";
+import type { MediaStagingProvider } from "./media.js";
+import {
+  DEFAULT_STAGING_ORIGIN,
+  mediaConstraintIssues,
+  needsStaging,
+  selectPublishDeclaration,
+  withStagingPlaceholders,
+} from "./media-validation.js";
+import {
+  normalizeComment,
+  normalizeConversation,
+  normalizeMessage,
+  normalizeMetrics,
+  type CommentRecord,
+  type ConversationRecord,
+  type MessageRecord,
+} from "./projections.js";
+import { releaseLeases, stageContent, type StagingLease } from "./staging.js";
 import {
   deriveTargetIdempotencyKey,
   fingerprint,
@@ -45,6 +64,7 @@ import type {
   ProfileRecord,
   ProfileRef,
   RelationshipRecord,
+  RetryDisposition,
 } from "./types.js";
 
 export type BackendRegistry = Readonly<Record<string, SocialAdapter<unknown>>>;
@@ -53,6 +73,106 @@ export interface PublishCallOptions {
   readonly signal?: AbortSignal;
   readonly authorization?: AuthorizationContext;
   readonly retryBudget?: RetryBudget;
+}
+
+/** One place `inbox.list` reads from. */
+export type InboxSource =
+  | { readonly kind: "conversations"; readonly account: ConnectedAccountRef }
+  | { readonly kind: "comments"; readonly post: PlatformPostRef };
+
+/**
+ * Sources for one inbox read. Conversations are read per account. Comments are
+ * read per post because providers expose them per post, not per account.
+ */
+export interface InboxListInput {
+  /** Accounts whose direct-message conversations to read. */
+  readonly accounts?: readonly ConnectedAccountRef[];
+  /** Posts whose comments to read. */
+  readonly posts?: readonly PlatformPostRef[];
+  /** Page size requested from each source, 1 through 100. Defaults to 20. */
+  readonly limit?: number;
+  /** `nextCursor` from a previous call with the same accounts, posts, order, limit and tenant. */
+  readonly cursor?: string;
+}
+
+export type InboxEntry =
+  | {
+      readonly kind: "conversation";
+      /** Position of the source in `InboxPage.sources`. */
+      readonly sourceIndex: number;
+      readonly account: ConnectedAccountRef;
+      readonly record: ConversationRecord;
+    }
+  | {
+      readonly kind: "comment";
+      readonly sourceIndex: number;
+      readonly post: PlatformPostRef;
+      readonly record: CommentRecord;
+    };
+
+export type InboxSourceOutcome =
+  | {
+      readonly state: "read";
+      readonly source: InboxSource;
+      readonly itemCount: number;
+      /** False when this page was the source's last. */
+      readonly hasMore: boolean;
+    }
+  /** Finished on an earlier page; reauthorized but not read again. */
+  | { readonly state: "exhausted"; readonly source: InboxSource }
+  /** The source keeps its position, so the next call with `nextCursor` retries it. */
+  | {
+      readonly state: "failed";
+      readonly source: InboxSource;
+      readonly code: SocialErrorCode;
+      readonly message: string;
+      readonly retryDisposition: RetryDisposition;
+    };
+
+export interface InboxPage {
+  /** Every item from each source's page, grouped by source in `sources` order. Never truncated or re-sorted. */
+  readonly entries: readonly InboxEntry[];
+  /** One outcome per source: accounts in input order, then posts in input order. */
+  readonly sources: readonly InboxSourceOutcome[];
+  /** Absent once every source is exhausted. Present while any source has more pages or failed. */
+  readonly nextCursor?: string;
+}
+
+/** Per-source cursor state: `null` not yet read, `false` exhausted, a string resumes the source. */
+type InboxSourceState = null | false | string;
+
+// At most 50 raw provider cursors, each capped at 16 KiB by the source facade.
+// JSON escaping can expand a code unit sixfold; URI escaping is bounded too.
+const inboxCursorLimits = { maxValueLength: 5_000_000, maxEncodedLength: 12_000_000 };
+
+function inboxSourceScope(
+  source: InboxSource,
+  tenantId: string | null,
+  limit: number | null,
+): string {
+  const ref = source.kind === "comments" ? source.post : source.account;
+
+  return JSON.stringify([
+    ref.backend,
+    source.kind === "comments" ? "comments.read" : "messages.read",
+    tenantId,
+    ref.platform,
+    ref.accountId,
+    source.kind === "comments" ? source.post.postId : "conversations",
+    limit,
+  ]);
+}
+
+function isInboxState(value: unknown): value is readonly InboxSourceState[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        entry === null ||
+        entry === false ||
+        (isString(entry) && entry.length > 0 && entry.length <= 16_384),
+    )
+  );
 }
 
 export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
@@ -160,11 +280,11 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
     list(
       ref: PlatformPostRef,
       options?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>>;
+    ): Promise<Page<CommentRecord>>;
     iterate(
       ref: PlatformPostRef,
       options?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject>;
+    ): AsyncIterable<CommentRecord>;
     reply(
       ref: CommentRef,
       content: { readonly text: string },
@@ -175,24 +295,33 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
     listConversations(
       account: ConnectedAccountRef,
       options?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>>;
+    ): Promise<Page<ConversationRecord>>;
     iterateConversations(
       account: ConnectedAccountRef,
       options?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject>;
+    ): AsyncIterable<ConversationRecord>;
     listMessages(
       ref: ConversationRef,
       options?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>>;
+    ): Promise<Page<MessageRecord>>;
     iterateMessages(
       ref: ConversationRef,
       options?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject>;
+    ): AsyncIterable<MessageRecord>;
     send(
       ref: ConversationRef,
       content: { readonly text: string },
       options?: PublishCallOptions,
     ): Promise<JsonObject>;
+  };
+  readonly inbox: {
+    /**
+     * Reads one page from every source concurrently. Each source is authorized
+     * on every call through the same checks as `messages.listConversations`
+     * and `comments.list`, and a failing source is reported in `sources`
+     * without failing the others.
+     */
+    list(input: InboxListInput, options?: PublishCallOptions): Promise<InboxPage>;
   };
   readonly notifications: {
     list(
@@ -222,6 +351,13 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
 
 export interface SharedSocialConfig {
   readonly authorization?: AuthorizationPolicy;
+  /**
+   * Stages `blob` and `stream` media as HTTPS URLs for targets whose
+   * `posts.publish` capability declares `mediaSources` without them, such as
+   * direct Instagram and Threads. See {@link MediaStagingProvider} for when
+   * staged copies are removed and when they are kept.
+   */
+  readonly mediaStaging?: MediaStagingProvider;
   readonly idempotencyStore?: IdempotencyStore;
   readonly concurrency?: number;
   readonly maxQueued?: number;
@@ -481,6 +617,36 @@ export function createSocial(
     });
   }
 
+  const mediaStaging = config.mediaStaging;
+  let stagingOrigin = DEFAULT_STAGING_ORIGIN;
+
+  if (mediaStaging !== undefined) {
+    if (!isObjectInput(mediaStaging) || !("stageMedia" in mediaStaging))
+      throw new SocialError({
+        code: "invalid_config",
+        operation: "createSocial",
+        message: "mediaStaging must provide a stageMedia function",
+      });
+
+    if (mediaStaging.origin !== undefined) {
+      let origin: URL | undefined;
+
+      try {
+        origin = httpsUrl(mediaStaging.origin);
+      } catch {
+        origin = undefined;
+      }
+
+      if (origin === undefined || origin.href !== `${origin.origin}/` || origin.search !== "")
+        throw new SocialError({
+          code: "invalid_config",
+          operation: "createSocial",
+          message: "mediaStaging.origin must be a public HTTPS origin without a path",
+        });
+      stagingOrigin = origin.origin;
+    }
+  }
+
   const limiters = new Map<string, ReturnType<typeof createConcurrencyLimiter>>(
     entries.map(([backend]) => [
       backend,
@@ -596,10 +762,12 @@ export function createSocial(
         continue;
       }
 
-      const declaration = adapter.capabilities.capabilities.find(
-        (candidate) =>
-          candidate.operation === "posts.publish" &&
-          (candidate.platform === "*" || candidate.platform === target.account.platform),
+      const content = mergeContent(request.content, target.content);
+
+      const declaration = selectPublishDeclaration(
+        adapter.capabilities.capabilities,
+        target.account.platform,
+        content,
       );
 
       if (declaration === undefined || declaration.availability !== "available") {
@@ -655,7 +823,7 @@ export function createSocial(
         targetIndex,
         targetKey: key,
         account: target.account,
-        content: mergeContent(request.content, target.content),
+        content,
       };
 
       if (target.options !== undefined) Object.assign(prepared, { options: target.options });
@@ -665,8 +833,29 @@ export function createSocial(
       if (replyTo !== undefined) Object.assign(prepared, { replyTo });
       targets.push(prepared);
 
+      const constraints = declaration.constraints;
+
+      issues.push(
+        ...mediaConstraintIssues({
+          media: content.media ?? [],
+          constraints,
+          targetIndex,
+          stagingEnabled: mediaStaging !== undefined,
+        }),
+      );
+
+      // The adapter validates the URLs staging will produce; the plan keeps the
+      // caller's media so idempotency fingerprints use the original content.
+      const adapterView: PreparedPublishTarget =
+        mediaStaging === undefined
+          ? prepared
+          : {
+              ...prepared,
+              content: withStagingPlaceholders(content, constraints, stagingOrigin),
+            };
+
       try {
-        issues.push(...adapter.posts.prepareTarget(prepared));
+        issues.push(...adapter.posts.prepareTarget(adapterView));
       } catch (error) {
         issues.push(
           preparationIssue(
@@ -805,6 +994,57 @@ export function createSocial(
       );
 
     if (declaration?.availability !== "available") unsupported(operation, backend);
+  }
+
+  /** Errors the adapter reports for a target whose staged URLs replaced local media. */
+  function preparedIssues(
+    posts: NonNullable<SocialAdapter<unknown>["posts"]>,
+    target: PreparedPublishTarget,
+  ): readonly PreparationIssue[] {
+    try {
+      return posts.prepareTarget(target).filter((issue) => issue.severity === "error");
+    } catch {
+      return [
+        preparationIssue(
+          "adapter.prepare_failed",
+          "The adapter could not validate the staged media",
+          target.targetIndex,
+        ),
+      ];
+    }
+  }
+
+  /** A sanitized outcome for staging that stopped before anything reached the platform. */
+  function stagingFailure(
+    target: PreparedPublishTarget,
+    reason: "cancelled" | "staging-failed" | "invalid-url",
+  ): DeliveryOutcome {
+    const base = {
+      targetIndex: target.targetIndex,
+      account: target.account,
+      observedAt: clock().toISOString(),
+    };
+
+    if (reason === "cancelled") return { ...base, state: "cancelled", reason: "before-submission" };
+
+    return {
+      ...base,
+      state: "not-submitted",
+      reason: "before-submission",
+      issues: [
+        reason === "invalid-url"
+          ? preparationIssue(
+              "media.staging_url_invalid",
+              "Media staging returned a URL that is not public HTTPS",
+              target.targetIndex,
+            )
+          : preparationIssue(
+              "media.staging_failed",
+              "Media staging failed before submission",
+              target.targetIndex,
+            ),
+      ],
+    };
   }
 
   async function publish(
@@ -962,19 +1202,86 @@ export function createSocial(
 
         let outcome: DeliveryOutcome;
         let enteredAdapter = false;
+        const posts = adapter.posts;
+
+        const constraints = selectPublishDeclaration(
+          adapter.capabilities.capabilities,
+          target.account.platform,
+          target.content,
+        )?.constraints;
+
+        const staging =
+          mediaStaging !== undefined &&
+          (target.content.media ?? []).some(
+            (item) =>
+              needsStaging(constraints, item.source, true) ||
+              (item.thumbnail !== undefined && needsStaging(constraints, item.thumbnail, true)),
+          )
+            ? mediaStaging
+            : undefined;
+
+        let leases: readonly StagingLease[] = [];
 
         try {
           const candidate = await dispatch(
             target.account.backend,
             options?.signal,
             executionOperation,
-            () => {
+            async () => {
+              let dispatched = target;
+
+              let context = makeContext(
+                target.account.backend,
+                correlationId,
+                options,
+                targetIdempotencyKey,
+              );
+
+              // Staging runs here: after authorization and the replay check, inside
+              // the backend's concurrency slot, and under the caller's signal.
+              if (staging !== undefined) {
+                const started = Date.now();
+
+                const staged = await stageContent({
+                  content: target.content,
+                  constraints,
+                  provider: staging,
+                  account: target.account,
+                  signal: options?.signal,
+                  maxElapsedMs: context.retryBudget.maxElapsedMs,
+                });
+
+                leases = staged.leases;
+
+                if (staged.kind === "failed") return stagingFailure(target, staged.reason);
+
+                const remaining = context.retryBudget.maxElapsedMs - (Date.now() - started);
+
+                if (remaining <= 0) return stagingFailure(target, "staging-failed");
+
+                context = {
+                  ...context,
+                  retryBudget: { ...context.retryBudget, maxElapsedMs: remaining },
+                };
+
+                dispatched = { ...target, content: staged.content };
+
+                const issues = preparedIssues(posts, dispatched);
+
+                if (issues.length > 0)
+                  return {
+                    state: "not-submitted",
+                    targetIndex: target.targetIndex,
+                    account: target.account,
+                    observedAt: clock().toISOString(),
+                    reason: "validation",
+                    issues,
+                  } satisfies DeliveryOutcome;
+              }
+
               enteredAdapter = true;
 
-              return adapter.posts!.publishTarget(
-                target,
-                makeContext(target.account.backend, correlationId, options, targetIdempotencyKey),
-              );
+              return posts.publishTarget(dispatched, context);
             },
           );
 
@@ -1024,6 +1331,15 @@ export function createSocial(
             // Return the complete in-memory result even if durable persistence is unavailable.
           }
         }
+
+        // Remove staged copies only when no platform can still fetch them. Accepted,
+        // processing, scheduled, failed and unknown outcomes keep them for the
+        // provider's asynchronous fetch or for reconciliation.
+        if (
+          leases.length > 0 &&
+          (!enteredAdapter || outcome.state === "published" || outcome.state === "not-submitted")
+        )
+          await releaseLeases(leases);
 
         return outcome;
       },
@@ -1756,10 +2072,12 @@ export function createSocial(
 
       if (!adapter.analytics?.getAccountMetrics) unsupported("analytics.account.read", ref.backend);
 
-      return dispatch(ref.backend, callOptions?.signal, "analytics.account.read", () =>
-        adapter.analytics!.getAccountMetrics!(
-          ref,
-          makeContext(ref.backend, correlationId, callOptions),
+      return normalizeMetrics(
+        await dispatch(ref.backend, callOptions?.signal, "analytics.account.read", () =>
+          adapter.analytics!.getAccountMetrics!(
+            ref,
+            makeContext(ref.backend, correlationId, callOptions),
+          ),
         ),
       );
     },
@@ -1783,10 +2101,12 @@ export function createSocial(
 
       if (adapter.analytics === undefined) unsupported("analytics.read", ref.backend);
 
-      return dispatch(ref.backend, callOptions?.signal, "analytics.read", () =>
-        adapter.analytics!.getPostMetrics(
-          ref,
-          makeContext(ref.backend, correlationId, callOptions),
+      return normalizeMetrics(
+        await dispatch(ref.backend, callOptions?.signal, "analytics.read", () =>
+          adapter.analytics!.getPostMetrics(
+            ref,
+            makeContext(ref.backend, correlationId, callOptions),
+          ),
         ),
       );
     },
@@ -1837,7 +2157,7 @@ export function createSocial(
     async list(
       ref: PlatformPostRef,
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>> {
+    ): Promise<Page<CommentRecord>> {
       const correlationId = `social-${++correlationSequence}`;
 
       if (
@@ -1864,15 +2184,11 @@ export function createSocial(
 
       if (adapter.comments === undefined) unsupported("comments.read", ref.backend);
 
-      const cursorScope = JSON.stringify([
-        ref.backend,
-        "comments.read",
+      const cursorScope = inboxSourceScope(
+        { kind: "comments", post: ref },
         callOptions?.authorization?.tenantId ?? null,
-        ref.platform,
-        ref.accountId,
-        ref.postId,
         callOptions?.limit ?? null,
-      ]);
+      );
 
       const received = await dispatch(ref.backend, callOptions?.signal, "comments.read", () =>
         adapter.comments!.list(
@@ -1882,12 +2198,12 @@ export function createSocial(
         ),
       );
 
-      return encodePage(cursorScope, received);
+      return mapItems(encodePage(cursorScope, received), normalizeComment);
     },
     iterate(
       ref: PlatformPostRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject> {
+    ): AsyncIterable<CommentRecord> {
       return iterateItems(
         (cursor) => commentsFacade.list(ref, iterationPageOptions(callOptions, cursor)),
         callOptions,
@@ -1924,7 +2240,7 @@ export function createSocial(
     async listConversations(
       account: ConnectedAccountRef,
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>> {
+    ): Promise<Page<ConversationRecord>> {
       const correlationId = `social-${++correlationSequence}`;
 
       if (
@@ -1942,15 +2258,11 @@ export function createSocial(
 
       if (adapter.messages === undefined) unsupported("messages.read", account.backend);
 
-      const cursorScope = JSON.stringify([
-        account.backend,
-        "messages.read",
+      const cursorScope = inboxSourceScope(
+        { kind: "conversations", account },
         callOptions?.authorization?.tenantId ?? null,
-        account.platform,
-        account.accountId,
-        "conversations",
         callOptions?.limit ?? null,
-      ]);
+      );
 
       const received = await dispatch(account.backend, callOptions?.signal, "messages.read", () =>
         adapter.messages!.listConversations(
@@ -1960,12 +2272,12 @@ export function createSocial(
         ),
       );
 
-      return encodePage(cursorScope, received);
+      return mapItems(encodePage(cursorScope, received), normalizeConversation);
     },
     iterateConversations(
       account: ConnectedAccountRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject> {
+    ): AsyncIterable<ConversationRecord> {
       return iterateItems(
         (cursor) =>
           messagesFacade.listConversations(account, iterationPageOptions(callOptions, cursor)),
@@ -1975,7 +2287,7 @@ export function createSocial(
     async listMessages(
       ref: ConversationRef,
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>> {
+    ): Promise<Page<MessageRecord>> {
       const correlationId = `social-${++correlationSequence}`;
 
       if (
@@ -2020,12 +2332,12 @@ export function createSocial(
         ),
       );
 
-      return encodePage(cursorScope, received);
+      return mapItems(encodePage(cursorScope, received), normalizeMessage);
     },
     iterateMessages(
       ref: ConversationRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject> {
+    ): AsyncIterable<MessageRecord> {
       return iterateItems(
         (cursor) => messagesFacade.listMessages(ref, iterationPageOptions(callOptions, cursor)),
         callOptions,
@@ -2055,6 +2367,226 @@ export function createSocial(
       return dispatch(ref.backend, callOptions?.signal, "messages.write", () =>
         adapter.messages!.send(ref, content, makeContext(ref.backend, correlationId, callOptions)),
       );
+    },
+  };
+
+  const inboxFacade = {
+    async list(input: InboxListInput, callOptions?: PublishCallOptions): Promise<InboxPage> {
+      const invalid = (message: string): never => {
+        throw new SocialError({ code: "invalid_input", operation: "inbox.list", message });
+      };
+
+      if (!isObjectInput(input)) invalid("Inbox input must be an object");
+
+      const accounts = input.accounts ?? [];
+      const posts = input.posts ?? [];
+
+      if (!Array.isArray(accounts) || !Array.isArray(posts))
+        invalid("accounts and posts must be arrays");
+
+      const sources: InboxSource[] = [
+        ...accounts.map((account): InboxSource => ({ kind: "conversations", account })),
+        ...posts.map((post): InboxSource => ({ kind: "comments", post })),
+      ];
+
+      if (sources.length === 0 || sources.length > 50) invalid("Select 1 through 50 inbox sources");
+
+      const limit = input.limit ?? 20;
+
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+        invalid("Inbox page limit must be an integer from 1 through 100");
+
+      const keys = sources.map((source) => {
+        if (source.kind === "conversations") {
+          validateAccountRef(source.account, "inbox.list");
+
+          return JSON.stringify(["conversations", targetKey(source.account)]);
+        }
+
+        const post = source.post;
+
+        if (
+          !isObjectInput(post) ||
+          post.kind !== "platform-post" ||
+          post.version !== 1 ||
+          !isNonBlankStringInput(post.backend) ||
+          !isNonBlankStringInput(post.platform) ||
+          !isNonBlankStringInput(post.accountId) ||
+          !isNonBlankStringInput(post.postId)
+        )
+          invalid("Inbox posts must be version 1 platform-post references");
+
+        return JSON.stringify([
+          "comments",
+          JSON.stringify([post.backend, post.platform, post.accountId]),
+          post.postId,
+        ]);
+      });
+
+      if (new Set(keys).size !== keys.length) invalid("Inbox sources must not repeat");
+
+      const scope = await fingerprint([
+        "inbox.list",
+        callOptions?.authorization?.tenantId ?? null,
+        keys,
+        limit,
+      ]);
+
+      let states: readonly InboxSourceState[] = sources.map(() => null);
+
+      if (input.cursor !== undefined) {
+        let parsed: unknown;
+
+        try {
+          parsed = JSON.parse(decodeCursor(scope, input.cursor, inboxCursorLimits));
+        } catch (error) {
+          if (error instanceof SocialError) throw error;
+          parsed = undefined;
+        }
+
+        if (!isInboxState(parsed) || parsed.length !== sources.length)
+          invalid("Cursor does not belong to these inbox sources");
+        else states = parsed;
+      }
+
+      const sourceOptions: PublishCallOptions = definedFields({
+        signal: callOptions?.signal,
+        authorization: callOptions?.authorization,
+        retryBudget: callOptions?.retryBudget,
+      });
+
+      const read = async (
+        index: number,
+      ): Promise<{
+        readonly outcome: InboxSourceOutcome;
+        readonly entries: readonly InboxEntry[];
+        readonly state: InboxSourceState;
+      }> => {
+        const source = sources[index];
+        const state = states[index] ?? null;
+
+        if (source === undefined) throw new Error("Inbox source index was lost");
+
+        const sourceScope = inboxSourceScope(
+          source,
+          callOptions?.authorization?.tenantId ?? null,
+          limit,
+        );
+
+        const pageOptions: PublishCallOptions & { limit: number; cursor?: string } = {
+          ...sourceOptions,
+          limit,
+        };
+
+        if (state !== null && state !== false)
+          pageOptions.cursor = encodeCursor(sourceScope, state);
+
+        try {
+          if (source.kind === "conversations") {
+            if (state === false) {
+              await authorizeRef(
+                "messages.read",
+                source.account,
+                sourceOptions,
+                `social-${++correlationSequence}`,
+              );
+
+              return { outcome: { state: "exhausted", source }, entries: [], state };
+            }
+
+            const page = await messagesFacade.listConversations(source.account, pageOptions);
+
+            return {
+              outcome: {
+                state: "read",
+                source,
+                itemCount: page.items.length,
+                hasMore: page.nextCursor !== undefined,
+              },
+              entries: page.items.map((record) => ({
+                kind: "conversation",
+                sourceIndex: index,
+                account: source.account,
+                record,
+              })),
+              state:
+                page.nextCursor === undefined ? false : decodeCursor(sourceScope, page.nextCursor),
+            };
+          }
+
+          if (state === false) {
+            await authorizeRef(
+              "comments.read",
+              {
+                kind: "connected-account",
+                version: 1,
+                backend: source.post.backend,
+                platform: source.post.platform,
+                accountId: source.post.accountId,
+              },
+              sourceOptions,
+              `social-${++correlationSequence}`,
+            );
+
+            return { outcome: { state: "exhausted", source }, entries: [], state };
+          }
+
+          const page = await commentsFacade.list(source.post, pageOptions);
+
+          return {
+            outcome: {
+              state: "read",
+              source,
+              itemCount: page.items.length,
+              hasMore: page.nextCursor !== undefined,
+            },
+            entries: page.items.map((record) => ({
+              kind: "comment",
+              sourceIndex: index,
+              post: source.post,
+              record,
+            })),
+            state:
+              page.nextCursor === undefined ? false : decodeCursor(sourceScope, page.nextCursor),
+          };
+        } catch (error) {
+          const failure =
+            error instanceof SocialError
+              ? error
+              : new SocialError({
+                  code: "upstream_failure",
+                  operation: "inbox.list",
+                  message: "The inbox source could not be read",
+                });
+
+          return {
+            outcome: {
+              state: "failed",
+              source,
+              code: failure.code,
+              message: failure.message,
+              retryDisposition: failure.retryDisposition,
+            },
+            entries: [],
+            state,
+          };
+        }
+      };
+
+      const results = await mapConcurrent(sources.length, concurrency, read);
+      const nextStates = results.map((result) => result.state);
+
+      const page: InboxPage = {
+        entries: results.flatMap((result) => result.entries),
+        sources: results.map((result) => result.outcome),
+      };
+
+      return nextStates.every((state) => state === false)
+        ? page
+        : {
+            ...page,
+            nextCursor: encodeCursor(scope, JSON.stringify(nextStates), inboxCursorLimits),
+          };
     },
   };
 
@@ -2152,6 +2684,7 @@ export function createSocial(
     analytics: analyticsFacade,
     comments: commentsFacade,
     messages: messagesFacade,
+    inbox: inboxFacade,
     notifications: notificationsFacade,
     capabilities: () =>
       Object.fromEntries(entries.map(([key, adapter]) => [key, adapter.capabilities])),
@@ -2211,6 +2744,10 @@ function encodePage<T>(scope: string, page: Page<T>): Page<T> {
   if (page.nextCursor !== undefined) result.nextCursor = encodeCursor(scope, page.nextCursor);
 
   return result;
+}
+
+function mapItems<T, U>(page: Page<T>, project: (item: T) => U): Page<U> {
+  return { ...page, items: page.items.map(project) };
 }
 
 function iterationPageOptions<T extends object>(

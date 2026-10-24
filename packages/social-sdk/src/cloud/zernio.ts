@@ -1,3 +1,9 @@
+import {
+  normalizeMetrics,
+  normalizeComment,
+  normalizeMessage,
+  normalizeConversation,
+} from "../core/projections.js";
 import { managedLifecycle } from "./lifecycle.js";
 import { managedMedia } from "./media.js";
 
@@ -48,6 +54,41 @@ import {
   type ManagedOptions,
 } from "./common.js";
 import { zernioOutcome } from "./outcomes.js";
+
+function inboxFields(value: JsonValue, fields: readonly string[]): JsonObject {
+  const row = object(value);
+  const result = { ...publicFields(row, fields) };
+  const authorFields = ["id", "did", "name", "displayName", "username", "handle"];
+
+  for (const key of ["from", "author", "sender"]) {
+    if (fields.includes(key) && isJsonObject(row[key]))
+      result[key] = publicFields(row[key], authorFields);
+  }
+
+  const participants = row["participants"];
+
+  const members = isJsonArray(participants)
+    ? participants
+    : isJsonObject(participants) && isJsonArray(participants["data"])
+      ? participants["data"]
+      : undefined;
+
+  if (fields.includes("participants") && members)
+    result["participants"] = members.map((member) => publicFields(member, authorFields));
+
+  if (fields.includes("lastMessage") && isJsonObject(row["lastMessage"]))
+    result["lastMessage"] = publicFields(row["lastMessage"], [
+      "id",
+      "text",
+      "message",
+      "senderId",
+      "senderName",
+      "createdAt",
+      "createdTime",
+    ]);
+
+  return result;
+}
 
 export interface ZernioConnectionOptions {
   platform: string;
@@ -609,7 +650,7 @@ export function zernio(options: ManagedOptions) {
         if (followers === undefined) return [];
         const measuredAt = optionalString(row["followersLastUpdated"]);
 
-        return [
+        return normalizeMetrics([
           {
             name: "followers",
             value: followers,
@@ -621,7 +662,7 @@ export function zernio(options: ManagedOptions) {
             fetchedAt: now(),
             source: `zernio:${ref.platform}:account`,
           },
-        ];
+        ]);
       },
       async getPostMetrics(
         ref: PlatformPostRef,
@@ -661,7 +702,7 @@ export function zernio(options: ManagedOptions) {
             });
         }
 
-        return metrics;
+        return normalizeMetrics(metrics);
       },
     },
     comments: {
@@ -699,20 +740,27 @@ export function zernio(options: ManagedOptions) {
 
         return {
           items: array(result["comments"]).map((entry) =>
-            publicFields(entry, [
-              "id",
-              "message",
-              "createdTime",
-              "likeCount",
-              "replyCount",
-              "parentId",
-              "rootUri",
-              "rootCid",
-              "cid",
-              "canReply",
-              "canDelete",
-              "canHide",
-            ]),
+            normalizeComment(
+              inboxFields(entry, [
+                "id",
+                "message",
+                "from",
+                "author",
+                "authorId",
+                "authorHandle",
+                "authorName",
+                "createdTime",
+                "likeCount",
+                "replyCount",
+                "parentId",
+                "rootUri",
+                "rootCid",
+                "cid",
+                "canReply",
+                "canDelete",
+                "canHide",
+              ]),
+            ),
           ),
           ...definedFields({ nextCursor: hasMore === false || !cursor ? undefined : cursor }),
         };
@@ -772,16 +820,20 @@ export function zernio(options: ManagedOptions) {
 
         return {
           items: array(result["data"]).map((entry) =>
-            publicFields(entry, [
-              "id",
-              "platform",
-              "accountId",
-              "participantId",
-              "participantName",
-              "lastMessage",
-              "updatedTime",
-              "unreadCount",
-            ]),
+            normalizeConversation(
+              inboxFields(entry, [
+                "id",
+                "platform",
+                "accountId",
+                "participantId",
+                "participantName",
+                "participantHandle",
+                "participants",
+                "lastMessage",
+                "updatedTime",
+                "unreadCount",
+              ]),
+            ),
           ),
           ...definedFields({ nextCursor: cursor || undefined }),
         };
@@ -819,15 +871,20 @@ export function zernio(options: ManagedOptions) {
 
         return {
           items: array(result["messages"]).map((entry) =>
-            publicFields(entry, [
-              "id",
-              "message",
-              "senderId",
-              "senderName",
-              "direction",
-              "createdAt",
-              "deliveryStatus",
-            ]),
+            normalizeMessage(
+              inboxFields(entry, [
+                "id",
+                "message",
+                "from",
+                "sender",
+                "senderId",
+                "senderName",
+                "senderHandle",
+                "direction",
+                "createdAt",
+                "deliveryStatus",
+              ]),
+            ),
           ),
           ...definedFields({ nextCursor: cursor || undefined }),
         };

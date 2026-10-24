@@ -22,6 +22,7 @@ import type {
   SearchPostsInput,
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { definedFields } from "../core/fields.js";
 import { verifyYouTubeWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
@@ -675,6 +676,12 @@ export function youtube(
           availability: "available" as const,
           formats: ["video" as const],
           requiredScopes: ["https://www.googleapis.com/auth/youtube.upload"],
+          // Mirrors prepareTarget: one Blob or sized stream with a declared video MIME type.
+          constraints: {
+            mediaSources: ["blob" as const, "stream" as const],
+            maxItems: 1,
+            allowedMimeTypes: ["video/*"],
+          },
           notes:
             "Unaudited projects may be restricted to private visibility. Upload completion and video processing are separate.",
         },
@@ -1020,6 +1027,13 @@ export function youtube(
         if (!isBoolean(config["madeForKids"]))
           fail("youtube.audience", "Explicit made-for-kids declaration is required.");
 
+        // videoCategories IDs are numeric strings, such as "22" for People & Blogs.
+        if (
+          config["categoryId"] !== undefined &&
+          (!isString(config["categoryId"]) || !/^[0-9]{1,4}$/.test(config["categoryId"]))
+        )
+          fail("youtube.category", "categoryId must be a numeric YouTube video category ID.");
+
         if (
           target.content.text !== undefined &&
           (new TextEncoder().encode(target.content.text).byteLength > 5000 ||
@@ -1071,6 +1085,8 @@ export function youtube(
 
         const selfDeclaredMadeForKids = config["madeForKids"] === true;
 
+        const categoryId = optionalString(config["categoryId"]);
+
         // A schedule forces private visibility until YouTube publishes at `publishAt`.
         const status =
           target.schedule === undefined
@@ -1087,7 +1103,11 @@ export function youtube(
             size,
             mimeType,
             metadata: {
-              snippet: { title, description: target.content.text ?? "" },
+              snippet: {
+                title,
+                description: target.content.text ?? "",
+                ...definedFields({ categoryId }),
+              },
               status,
             },
           },
@@ -1349,7 +1369,7 @@ export function youtube(
           });
         }
 
-        return metrics;
+        return normalizeMetrics(metrics);
       },
       async getAccountMetrics(accountRef, context): Promise<readonly MetricValue[]> {
         // https://developers.google.com/youtube/v3/docs/channels/list
@@ -1377,7 +1397,9 @@ export function youtube(
 
         const fetchedAt = now();
 
-        return (["viewCount", "subscriberCount", "videoCount"] as const).flatMap((name) => {
+        const metrics: readonly MetricValue[] = (
+          ["viewCount", "subscriberCount", "videoCount"] as const
+        ).flatMap((name) => {
           if (name === "subscriberCount" && stats["hiddenSubscriberCount"] === true) return [];
 
           const raw = stats[name];
@@ -1396,6 +1418,8 @@ export function youtube(
               ]
             : [];
         });
+
+        return normalizeMetrics(metrics);
       },
       async getReport(
         accountRef: ConnectedAccountRef,
@@ -1519,9 +1543,12 @@ export function youtube(
           items: array(result["items"]).map((value) => {
             const row = object(value);
 
-            const comment = object(object(row["snippet"])["topLevelComment"]);
+            const snippet = object(row["snippet"]);
 
-            return {
+            const comment = object(snippet["topLevelComment"]);
+
+            // The thread snippet keeps topLevelComment, author channel, reply count, and edit time.
+            return normalizeComment({
               id: string(comment["id"]),
               ...publicFields(comment["snippet"], [
                 "textDisplay",
@@ -1529,7 +1556,8 @@ export function youtube(
                 "publishedAt",
                 "likeCount",
               ]),
-            };
+              snippet,
+            });
           }),
           ...definedFields({ nextCursor: nonEmpty(cursor) }),
         };
