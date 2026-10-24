@@ -3,7 +3,7 @@
 ---
 
 Add `SocialScheduler`, `ScheduleStore`, `MemoryScheduleStore`, and key-value store adapters for
-durable scheduled publications and sequences, exported from the root and `/server`. Jobs resolve
+durable scheduled publications and sequences, exported from `/server`. Jobs resolve
 UTC instants, IANA local times, and queue slots, reject skipped daylight-saving times, and avoid
 duplicate slots. `runDue` claims jobs with compare-and-set leases, submits early to routes that
 declare native scheduling, runs per-destination reply chains only under published parents, and
@@ -11,7 +11,9 @@ recovers interrupted steps from their idempotency claim instead of resending the
 rescheduling require provider confirmation before native posts count as withdrawn.
 
 Add `posts.reconcile`, `posts.retryFailed`, and `posts.authorize` to the client, plus
-`OutcomeReconciler`. Recovery takes the full original request, saves validated poll results into
+`OutcomeReconciler`. Reconcile and retry are opt-in: create the client with
+`recovery: outcomeRecovery()` from `/server`, which the scheduler and `OutcomeReconciler` also
+need. Clients without it do not bundle recovery, and both methods reject with `invalid_config`. Recovery takes the full original request, saves validated poll results into
 the original idempotency claim, and re-sends only destinations whose outcome proves nothing is live.
 
 `IdempotencyStore` gains an optional `compareAndSetOutcome`. Existing stores still compile;

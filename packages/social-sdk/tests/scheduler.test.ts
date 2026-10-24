@@ -3,21 +3,24 @@ import assert from "node:assert/strict";
 import * as root from "../src/index.js";
 import * as server from "../src/server/index.js";
 import {
-  MemoryKeyValueStore,
-  MemoryScheduleStore,
   SocialError,
-  SocialScheduler,
   connectedAccountRef,
-  createKeyValueIdempotencyStore,
-  createKeyValueScheduleStore,
   createSocial,
-  resolveLocalTime,
-  scheduledOutcomes,
   type CapabilityManifest,
   type PublishRequest,
-  type ScheduledJob,
   type SocialAdapter,
 } from "../src/index.js";
+import {
+  MemoryKeyValueStore,
+  MemoryScheduleStore,
+  SocialScheduler,
+  createKeyValueIdempotencyStore,
+  createKeyValueScheduleStore,
+  resolveLocalTime,
+  scheduledOutcomes,
+  type ScheduledJob,
+  outcomeRecovery,
+} from "../src/server/index.js";
 import { definedFields } from "../src/core/fields.js";
 import { MemoryIdempotencyStore, mockBackend } from "../src/testing/index.js";
 
@@ -66,6 +69,7 @@ function harness(
     : mock;
 
   const social = createSocial({
+    recovery: outcomeRecovery(),
     backend,
     idempotencyStore: options.idempotencyStore ?? new MemoryIdempotencyStore(),
     clock,
@@ -149,6 +153,7 @@ test("the scheduler inherits JobRunner from createSocial configuration", async (
   const hints: string[] = [];
 
   const social = createSocial({
+    recovery: outcomeRecovery(),
     backend: mockBackend({ clock: () => start }),
     idempotencyStore: new MemoryIdempotencyStore(),
     clock: () => start,
@@ -937,6 +942,7 @@ describe("key-value schedule store", () => {
     const request = publication("kv-claim", xAccount);
 
     const first = createSocial({
+      recovery: outcomeRecovery(),
       backend: mock,
       idempotencyStore: createKeyValueIdempotencyStore(kv),
     });
@@ -946,6 +952,7 @@ describe("key-value schedule store", () => {
     mock.testing.advanceProcessing();
 
     const second = createSocial({
+      recovery: outcomeRecovery(),
       backend: mock,
       idempotencyStore: createKeyValueIdempotencyStore(kv),
     });
@@ -956,12 +963,18 @@ describe("key-value schedule store", () => {
   });
 });
 
-test("consumers can import the scheduler from the root and /server entry points", async () => {
-  assert.equal(root.SocialScheduler, server.SocialScheduler);
-  assert.equal(root.OutcomeReconciler, server.OutcomeReconciler);
-  assert.equal(root.MemoryScheduleStore, server.MemoryScheduleStore);
+test("the scheduler ships from /server and stays out of the root entry point", async () => {
+  // The root stays small: the scheduler, its stores, and recovery load only from /server.
+  for (const name of [
+    "SocialScheduler",
+    "OutcomeReconciler",
+    "MemoryScheduleStore",
+    "outcomeRecovery",
+  ])
+    assert.equal(name in root, false);
 
   const social = root.createSocial({
+    recovery: outcomeRecovery(),
     backend: mockBackend(),
     idempotencyStore: new MemoryIdempotencyStore(),
   });

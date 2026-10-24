@@ -71,9 +71,15 @@ below. Calling `social.messages` on a direct Bluesky account raises
 ## Read an inbox across accounts
 
 `inbox.list` reads a conversation page for each supplied account and a comment
-page for each supplied post. Supply up to 50 sources across backends:
+page for each supplied post. Supply up to 50 sources across backends. Enable it
+with `inboxAggregation()` from `@opencoredev/social-sdk/inbox`, so clients that
+never aggregate an inbox do not bundle it:
 
 ```ts
+import { createSocial } from "@opencoredev/social-sdk";
+import { inboxAggregation } from "@opencoredev/social-sdk/inbox";
+
+const social = createSocial({ backends, inbox: inboxAggregation() });
 const inbox = await social.inbox.list({ accounts: [account], posts: [post], limit: 20 });
 const records = inbox.entries.map((entry) => entry.record);
 ```

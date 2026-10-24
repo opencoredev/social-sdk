@@ -36,3 +36,5 @@ export * from "./sql-stores.js";
 export * from "./redis-stores.js";
 
 export * from "./scheduler.js";
+
+export { outcomeRecovery } from "./recovery.js";

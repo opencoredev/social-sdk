@@ -18,6 +18,8 @@ import {
 } from "../src/index.js";
 import { MemoryIdempotencyStore } from "../src/testing/index.js";
 import { tiktok } from "../src/platforms/tiktok.js";
+import { localMediaStaging } from "../src/media-staging.js";
+import { inboxAggregation } from "../src/inbox.js";
 
 const account = connectedAccountRef({ backend: "default", platform: "instagram", accountId: "a1" });
 
@@ -259,7 +261,7 @@ describe("capability media constraints in posts.prepare", () => {
 
     const social = createSocial({
       backend: publishAdapter({ declarations: [urlOnly], prepared }),
-      mediaStaging: stagingFixture().provider,
+      mediaStaging: localMediaStaging(stagingFixture().provider),
     });
 
     const media = image(1);
@@ -278,10 +280,10 @@ describe("capability media constraints in posts.prepare", () => {
       () =>
         createSocial({
           backend: publishAdapter({ declarations: [urlOnly] }),
-          mediaStaging: {
+          mediaStaging: localMediaStaging({
             origin: "http://media.example.com/path",
             stageMedia: async () => ({ url: "" }),
-          },
+          }),
         }),
       (error) => error instanceof SocialError && error.code === "invalid_config",
     );
@@ -295,7 +297,7 @@ describe("media staging during publish", () => {
 
     const social = createSocial({
       backend: publishAdapter({ declarations: [urlOnly], published }),
-      mediaStaging: staging.provider,
+      mediaStaging: localMediaStaging(staging.provider),
     });
 
     const media = [image(1), image(2)];
@@ -337,7 +339,7 @@ describe("media staging during publish", () => {
                   observedAt: "t",
                 },
         }),
-        mediaStaging: staging.provider,
+        mediaStaging: localMediaStaging(staging.provider),
       });
 
       const result = await social.posts.publish({
@@ -357,7 +359,7 @@ describe("media staging during publish", () => {
 
     const social = createSocial({
       backend: publishAdapter({ declarations: [urlOnly], published }),
-      mediaStaging: staging.provider,
+      mediaStaging: localMediaStaging(staging.provider),
     });
 
     const result = await social.posts.publish({
@@ -380,7 +382,7 @@ describe("media staging during publish", () => {
 
     const social = createSocial({
       backend: publishAdapter({ declarations: [urlOnly], published }),
-      mediaStaging: staging.provider,
+      mediaStaging: localMediaStaging(staging.provider),
     });
 
     const result = await social.posts.publish({
@@ -398,14 +400,14 @@ describe("media staging during publish", () => {
   test("a rejected cleanup does not change the outcome", async () => {
     const social = createSocial({
       backend: publishAdapter({ declarations: [urlOnly] }),
-      mediaStaging: {
+      mediaStaging: localMediaStaging({
         stageMedia: async () => ({
           url: "https://media.example.com/1",
           cleanup: async () => {
             throw new Error("storage offline");
           },
         }),
-      },
+      }),
     });
 
     const result = await social.posts.publish({
@@ -426,7 +428,7 @@ describe("media staging during publish", () => {
 
     const blocked = createSocial({
       backend: publishAdapter({ declarations: [urlOnly] }),
-      mediaStaging: staging.provider,
+      mediaStaging: localMediaStaging(staging.provider),
       authorization: denied,
     });
 
@@ -440,7 +442,7 @@ describe("media staging during publish", () => {
 
     const social = createSocial({
       backend: publishAdapter({ declarations: [urlOnly] }),
-      mediaStaging: staging.provider,
+      mediaStaging: localMediaStaging(staging.provider),
       idempotencyStore: store,
     });
 
@@ -484,7 +486,7 @@ describe("media staging during publish", () => {
           },
         },
       }),
-      mediaStaging: staging.provider,
+      mediaStaging: localMediaStaging(staging.provider),
     });
 
     await social.posts.publish({ targets: [{ account }], content: { media: [image(1)] } });
@@ -593,7 +595,10 @@ describe("inbox.list", () => {
   });
 
   test("reads every source, keeps failures per source, and pages each source independently", async () => {
-    const social = createSocial({ backend: readAdapter(new Set(["a2"])) });
+    const social = createSocial({
+      inbox: inboxAggregation(),
+      backend: readAdapter(new Set(["a2"])),
+    });
 
     const first = await social.inbox.list({ accounts: [account, second], posts: [post], limit: 5 });
 
@@ -628,7 +633,7 @@ describe("inbox.list", () => {
     );
     assert.ok(next.nextCursor, "the failed source keeps its initial position");
 
-    const recovered = createSocial({ backend: readAdapter() });
+    const recovered = createSocial({ inbox: inboxAggregation(), backend: readAdapter() });
 
     const last = await recovered.inbox.list({
       accounts: [account, second],
@@ -648,7 +653,7 @@ describe("inbox.list", () => {
   });
 
   test("omits nextCursor once every source is exhausted", async () => {
-    const social = createSocial({ backend: readAdapter() });
+    const social = createSocial({ inbox: inboxAggregation(), backend: readAdapter() });
     const input = { accounts: [account] };
     const first = await social.inbox.list(input);
     const second = await social.inbox.list({ ...input, cursor: cursorOf(first) });
@@ -658,7 +663,7 @@ describe("inbox.list", () => {
   });
 
   test("binds cursors to sources, order, limit and tenant", async () => {
-    const social = createSocial({ backend: readAdapter() });
+    const social = createSocial({ inbox: inboxAggregation(), backend: readAdapter() });
     const first = await social.inbox.list({ accounts: [account, second] });
 
     for (const input of [
@@ -694,6 +699,7 @@ describe("inbox.list", () => {
     };
 
     const social = createSocial({
+      inbox: inboxAggregation(),
       backend: readAdapter(new Set(), new Set(["a1"])),
       authorization: policy,
     });
@@ -714,7 +720,7 @@ describe("inbox.list", () => {
   });
 
   test("rejects empty, duplicate and oversized source lists", async () => {
-    const social = createSocial({ backend: readAdapter() });
+    const social = createSocial({ inbox: inboxAggregation(), backend: readAdapter() });
 
     for (const input of [{}, { accounts: [account, account] }, { accounts: [account], limit: 101 }])
       await assert.rejects(
@@ -790,7 +796,10 @@ describe("TikTok local photos through media staging", () => {
 
     const social = createSocial({
       backend: adapter,
-      mediaStaging: { ...staging.provider, origin: "https://media.example.test" },
+      mediaStaging: localMediaStaging({
+        ...staging.provider,
+        origin: "https://media.example.test",
+      }),
     });
 
     assert.deepEqual(social.posts.prepare(request).issues, []);
@@ -823,7 +832,7 @@ describe("TikTok local photos through media staging", () => {
         verifiedMediaOrigins: ["https://media.example.test"],
         fetch: async () => assert.fail("no request expected"),
       }),
-      mediaStaging: staging.provider,
+      mediaStaging: localMediaStaging(staging.provider),
     });
 
     const plan = social.posts.prepare(request);

@@ -73,7 +73,7 @@ A `failed` outcome carries a `retryDisposition`. `never` means do not retry, `af
 
 Because a claimed key replays its saved outcomes, sending the same key again with `posts.publish` does not retry anything.
 
-When the `idempotencyStore` implements `compareAndSetOutcome`, pass the full original request to `posts.reconcile` to poll pending targets, and to `posts.retryFailed` to re-send only targets whose saved outcome proves nothing is live. Both write into the original claim, so published targets are never sent twice. See [reconcile and retry](/publishing#reconcile-and-retry).
+When the `idempotencyStore` implements `compareAndSetOutcome` and the client is created with `recovery: outcomeRecovery()` from `@opencoredev/social-sdk/server`, pass the full original request to `posts.reconcile` to poll pending targets, and to `posts.retryFailed` to re-send only targets whose saved outcome proves nothing is live. Both write into the original claim, so published targets are never sent twice. See [reconcile and retry](/publishing#reconcile-and-retry).
 
 Without that store support, use a new key and include only the targets you have confirmed were not written. Keep the original key and outcomes for the targets that published.
 

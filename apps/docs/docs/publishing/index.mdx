@@ -188,21 +188,23 @@ These sources were checked on 2026-09-24. Because these adapters never create a 
 
 `SocialScheduler` stores publications and sequences and sends them when they are due. It runs in your server process against two stores you provide: a `ScheduleStore` for jobs and the client's `idempotencyStore` for delivery outcomes. It needs no hosted service.
 
-Both stores must be shared and durable in production, and the idempotency store must implement `compareAndSetOutcome`. `createKeyValueScheduleStore` and `createKeyValueIdempotencyStore` build both on one `VersionedKeyValueStore`: `get`, `compareAndSet` on a version, `delete` on a version, and ordered `list` by key prefix. In SQL that is one table with `key text primary key, value text, version bigint`, where a compare-and-set is `UPDATE ... WHERE key = ? AND version = ?` and an insert uses `ON CONFLICT DO NOTHING`. `MemoryScheduleStore` and `MemoryKeyValueStore` are for tests and single-process development.
+Both stores must be shared and durable in production, and the idempotency store must implement `compareAndSetOutcome`. The scheduler reconciles and retries through the client, so create it with `recovery: outcomeRecovery()`. The scheduler, its stores, and `outcomeRecovery` all come from `@opencoredev/social-sdk/server`. `createKeyValueScheduleStore` and `createKeyValueIdempotencyStore` build both on one `VersionedKeyValueStore`: `get`, `compareAndSet` on a version, `delete` on a version, and ordered `list` by key prefix. In SQL that is one table with `key text primary key, value text, version bigint`, where a compare-and-set is `UPDATE ... WHERE key = ? AND version = ?` and an insert uses `ON CONFLICT DO NOTHING`. `MemoryScheduleStore` and `MemoryKeyValueStore` are for tests and single-process development.
 
 ```ts
+import { createSocial } from "@opencoredev/social-sdk";
 import {
   SocialScheduler,
   createKeyValueIdempotencyStore,
   createKeyValueScheduleStore,
-  createSocial,
-} from "@opencoredev/social-sdk";
+  outcomeRecovery,
+} from "@opencoredev/social-sdk/server";
 import { kv } from "./kv"; // your VersionedKeyValueStore over a SQL table or KV service
 
 const social = createSocial({
   backends,
   authorization: tenantPolicy,
   idempotencyStore: createKeyValueIdempotencyStore(kv),
+  recovery: outcomeRecovery(),
 });
 
 const scheduler = new SocialScheduler({ social, store: createKeyValueScheduleStore(kv) });
@@ -294,7 +296,7 @@ If cancellation returns `unresolved` because a runner crashed during submission,
 
 `runDue` polls `scheduled`, `accepted`, `processing`, and `unknown` outcomes through `posts.reconcile` every `pollIntervalMs` (default one minute) for up to `maxPolls` polls per step (default 30). After that, the job is `blocked`. `scheduler.reconcile(id)` polls once more on demand. `scheduler.retryFailed(id)` re-sends only destinations whose saved outcome proves nothing is live, then continues any chain the failure stopped.
 
-The same operations are available without the scheduler. `posts.reconcile(request)` and `posts.retryFailed(request)` take the full original request, check its fingerprint against the original claim, and authorize every target before any network call. `OutcomeReconciler.settle(request, { maxPasses, intervalMs })` polls in a bounded loop.
+The same operations are available without the scheduler on any client created with `recovery: outcomeRecovery()`. Recovery code lives in `/server`, so clients that never reconcile do not bundle it; without it, both methods reject with `invalid_config`. `posts.reconcile(request)` and `posts.retryFailed(request)` take the full original request, check its fingerprint against the original claim, and authorize every target before any network call. `OutcomeReconciler.settle(request, { maxPasses, intervalMs })` polls in a bounded loop.
 
 - A poll result replaces the saved outcome only if it names the same account and delivery, and only if no retry or newer poll changed the outcome first. Index-0 results from managed backends are mapped back to the original target.
 - `retryFailed` sends `failed` targets whose `retryDisposition` is `after-delay` (once the delay has passed) or `after-reconnect`, plus `not-submitted` targets and targets cancelled before submission. It never sends `published`, `scheduled`, `accepted`, `processing`, or `unknown` targets, or failures marked `never` or `reconcile-first`. Each target is fenced to `unknown` before it is sent, so concurrent retries send it once.

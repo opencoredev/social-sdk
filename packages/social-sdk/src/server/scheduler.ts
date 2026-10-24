@@ -77,6 +77,7 @@ export { ScheduleDecodeError } from "../core/persisted-codec.js";
 export type SchedulerClient = Pick<SocialClient, "posts" | "capabilities" | "jobRunner">;
 
 export interface SocialSchedulerConfig {
+  /** A client created with `recovery: outcomeRecovery()`; recovery runs through it. */
   readonly social: SchedulerClient;
   readonly store: ScheduleStore;
   readonly clock?: () => Date;

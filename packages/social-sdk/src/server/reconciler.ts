@@ -12,6 +12,7 @@ import type { PublishRequest } from "../core/types.js";
 export type RecoveryClient = Pick<SocialClient, "posts">;
 
 export interface OutcomeReconcilerConfig {
+  /** A client created with `recovery: outcomeRecovery()`. */
   readonly social: RecoveryClient;
   /** Waits between passes. Defaults to a timer that rejects when the signal aborts. */
   readonly wait?: (input: { readonly ms: number; readonly signal?: AbortSignal }) => Promise<void>;

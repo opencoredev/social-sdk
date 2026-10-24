@@ -69,6 +69,14 @@
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js"
     },
+    "./inbox": {
+      "types": "./dist/inbox.d.ts",
+      "import": "./dist/inbox.js"
+    },
+    "./media-staging": {
+      "types": "./dist/media-staging.d.ts",
+      "import": "./dist/media-staging.js"
+    },
     "./package.json": "./package.json",
     "./bluesky": {
       "types": "./dist/platforms/bluesky.d.ts",

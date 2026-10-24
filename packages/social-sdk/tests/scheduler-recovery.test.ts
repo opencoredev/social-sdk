@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { connectedAccountRef, createSocial } from "../src/index.js";
 import {
   MemoryScheduleStore,
   SocialScheduler,
-  connectedAccountRef,
-  createSocial,
   scheduledOutcomes,
-} from "../src/index.js";
+  outcomeRecovery,
+} from "../src/server/index.js";
 import { MemoryIdempotencyStore, mockBackend } from "../src/testing/index.js";
 
 const at = { kind: "instant", at: "2026-03-01T11:00:00Z" } satisfies Parameters<
@@ -23,6 +23,7 @@ test("rescheduling revalidates and clears a previous execution authorization blo
   const store = new MemoryScheduleStore();
 
   const social = createSocial({
+    recovery: outcomeRecovery(),
     backend,
     clock,
     idempotencyStore: new MemoryIdempotencyStore(),
@@ -81,6 +82,7 @@ test("cancelled in-flight work recovers its durable provider reference without s
   const backend = mockBackend({ clock });
 
   const social = createSocial({
+    recovery: outcomeRecovery(),
     backend: {
       ...backend,
       capabilities: {
@@ -172,6 +174,7 @@ test("reconciliation preserves a confirmed cancellation when another native dest
   const { getDelivery: _unavailable, ...unpollablePosts } = posts;
 
   const social = createSocial({
+    recovery: outcomeRecovery(),
     backend: {
       ...backend,
       posts: unpollablePosts,

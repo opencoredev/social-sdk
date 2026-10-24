@@ -40,20 +40,25 @@ Blobs. Later changes to the input buffer do not change the source.
 
 ## Stage local media for URL-only destinations
 
-Configure `mediaStaging` on `createSocial` to publish local media to Instagram,
+Pass `localMediaStaging(provider)` from `@opencoredev/social-sdk/media-staging`
+as `mediaStaging` on `createSocial` to publish local media to Instagram,
 Threads, or TikTok photo posts. The provider implements
 `stageMedia(source, context)` and returns `{ url, cleanup? }`. Storage belongs to
 your application; the SDK includes no S3 or R2 dependency.
 
 ```ts
-import { createSocial, type MediaStagingProvider } from "@opencoredev/social-sdk";
+import { createSocial } from "@opencoredev/social-sdk";
 import { instagram } from "@opencoredev/social-sdk/instagram";
+import {
+  localMediaStaging,
+  type MediaStagingProvider,
+} from "@opencoredev/social-sdk/media-staging";
 
 export function instagramWithStorage(
   auth: { accessToken: string; accountId: string },
-  mediaStaging: MediaStagingProvider,
+  provider: MediaStagingProvider,
 ) {
-  return createSocial({ backend: instagram({ auth }), mediaStaging });
+  return createSocial({ backend: instagram({ auth }), mediaStaging: localMediaStaging(provider) });
 }
 ```
 

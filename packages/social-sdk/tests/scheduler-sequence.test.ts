@@ -1,14 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  MemoryScheduleStore,
   SocialError,
-  SocialScheduler,
   connectedAccountRef,
   createSocial,
   defineAdapter,
   platformPostRef,
-  scheduledOutcomes,
   type CapabilityManifest,
   type ConnectedAccountRef,
   type DeliveryOutcome,
@@ -16,6 +13,12 @@ import {
   type PreparedPublishTarget,
   type PublishSequenceRequest,
 } from "../src/index.js";
+import {
+  MemoryScheduleStore,
+  SocialScheduler,
+  scheduledOutcomes,
+  outcomeRecovery,
+} from "../src/server/index.js";
 import { linkedin } from "../src/platforms/linkedin.js";
 import { MemoryIdempotencyStore } from "../src/testing/index.js";
 
@@ -155,6 +158,7 @@ function chainHarness(behavior: Behavior = () => "publish") {
   const clock = () => now;
 
   const social = createSocial({
+    recovery: outcomeRecovery(),
     backend: adapter,
     idempotencyStore: new MemoryIdempotencyStore(),
     clock,
@@ -396,6 +400,7 @@ describe("scheduled reply chains", () => {
     });
 
     const social = createSocial({
+      recovery: outcomeRecovery(),
       backend: adapter,
       idempotencyStore: new MemoryIdempotencyStore(),
       clock: () => start,

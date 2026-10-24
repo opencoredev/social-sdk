@@ -16,6 +16,8 @@ import { instagram } from "../src/platforms/instagram.js";
 import { tiktok } from "../src/platforms/tiktok.js";
 import { parseJson } from "../src/transport/json.js";
 import { array, object } from "../src/transport/validation.js";
+import { localMediaStaging } from "../src/media-staging.js";
+import { inboxAggregation } from "../src/inbox.js";
 
 function urlAdapter() {
   return defineAdapter({
@@ -50,14 +52,14 @@ function urlAdapter() {
 it("a synchronously throwing storage cleanup cannot replace a published outcome", async () => {
   const social = createSocial({
     backend: urlAdapter(),
-    mediaStaging: {
+    mediaStaging: localMediaStaging({
       stageMedia: async () => ({
         url: "https://media.example.test/image.jpg",
         cleanup: () => {
           throw new Error("storage unavailable");
         },
       }),
-    },
+    }),
   });
 
   const result = await social.posts.publish({
@@ -85,12 +87,12 @@ it("a stalled cleanup cannot hold a confirmed publication beyond its cleanup gra
 
   const social = createSocial({
     backend: urlAdapter(),
-    mediaStaging: {
+    mediaStaging: localMediaStaging({
       stageMedia: async () => ({
         url: "https://media.example.test/image.jpg",
         cleanup: async () => cleanup,
       }),
-    },
+    }),
   });
 
   const publish = social.posts.publish({
@@ -141,7 +143,7 @@ it("staging respects the publish budget and cleans a late result without submitt
 
   const social = createSocial({
     backend: urlAdapter(),
-    mediaStaging: { stageMedia: async () => pending },
+    mediaStaging: localMediaStaging({ stageMedia: async () => pending }),
   });
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -209,7 +211,7 @@ it("aggregate inbox pagination retains pages when several sources have long curs
     },
   });
 
-  const social = createSocial({ backend: adapter });
+  const social = createSocial({ inbox: inboxAggregation(), backend: adapter });
 
   const accounts = ["a", "b", "c"].map((accountId) =>
     connectedAccountRef({ backend: "default", platform: "instagram", accountId }),
@@ -281,7 +283,7 @@ it("cross-posts one local image through staging to Instagram and TikTok photo pu
         },
       }),
     },
-    mediaStaging: {
+    mediaStaging: localMediaStaging({
       origin: "https://media.example.test",
       async stageMedia(source, { account }) {
         assert.equal(source.kind, "blob");
@@ -294,7 +296,7 @@ it("cross-posts one local image through staging to Instagram and TikTok photo pu
           },
         };
       },
-    },
+    }),
   });
 
   const request = {

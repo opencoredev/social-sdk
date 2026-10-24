@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { connectedAccountRef } from "../src/index.js";
 import {
   MemoryKeyValueStore,
-  connectedAccountRef,
   createKeyValueScheduleStore,
   type ScheduledJob,
   type VersionedKeyValueStore,
-} from "../src/index.js";
+} from "../src/server/index.js";
 
 test("a due scan during job creation cannot orphan the scheduled job", async () => {
   const memory = new MemoryKeyValueStore();

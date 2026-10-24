@@ -2,7 +2,6 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
 import {
-  OutcomeReconciler,
   SocialError,
   connectedAccountRef,
   createSocial,
@@ -18,6 +17,7 @@ import {
   type PreparedPublishTarget,
   type PublishRequest,
 } from "../src/index.js";
+import { OutcomeReconciler, outcomeRecovery } from "../src/server/index.js";
 import { definedFields } from "../src/core/fields.js";
 import { MemoryIdempotencyStore, mockBackend } from "../src/testing/index.js";
 import { x } from "../src/platforms/x.js";
@@ -65,7 +65,12 @@ test("identical failures get distinct persisted retry attempts and provider keys
     }),
   });
 
-  const social = createSocial({ backend: adapter, idempotencyStore: new MemoryIdempotencyStore() });
+  const social = createSocial({
+    recovery: outcomeRecovery(),
+    backend: adapter,
+    idempotencyStore: new MemoryIdempotencyStore(),
+  });
+
   await social.posts.publish(request("a"));
   const first = await social.posts.retryFailed(request("a"));
   const second = await social.posts.retryFailed(request("a"));
@@ -90,7 +95,13 @@ test("conflicting delivery identity and malformed poll results preserve the save
   };
 
   const { adapter } = programmableAdapter({ publish: () => accepted, poll: () => candidate });
-  const social = createSocial({ backend: adapter, idempotencyStore: new MemoryIdempotencyStore() });
+
+  const social = createSocial({
+    recovery: outcomeRecovery(),
+    backend: adapter,
+    idempotencyStore: new MemoryIdempotencyStore(),
+  });
+
   await social.posts.publish(request("a"));
 
   for (const malformed of [false, true]) {
@@ -113,7 +124,13 @@ test("settling removes abort handlers after each completed wait", async () => {
   };
 
   const { adapter } = programmableAdapter({ publish: () => pending, poll: () => pending });
-  const social = createSocial({ backend: adapter, idempotencyStore: new MemoryIdempotencyStore() });
+
+  const social = createSocial({
+    recovery: outcomeRecovery(),
+    backend: adapter,
+    idempotencyStore: new MemoryIdempotencyStore(),
+  });
+
   await social.posts.publish(request("a"));
   const controller = new AbortController();
   const reconciler = new OutcomeReconciler({ social });
@@ -215,7 +232,11 @@ describe("core reconcile", () => {
       },
     });
 
-    const social = createSocial({ backend: adapter, idempotencyStore: stores.idempotency });
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: stores.idempotency,
+    });
 
     assert.equal((await social.posts.publish(request("a"))).outcomes[0]?.state, "accepted");
 
@@ -267,7 +288,12 @@ describe("core reconcile", () => {
             },
     });
 
-    const social = createSocial({ backend: adapter, idempotencyStore: store });
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: store,
+    });
+
     const first = await social.posts.publish(request("a", "b"));
     assert.equal(first.outcomes[1]?.state, "accepted");
 
@@ -318,7 +344,12 @@ describe("core reconcile", () => {
       }),
     });
 
-    const social = createSocial({ backend: adapter, idempotencyStore: store });
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: store,
+    });
+
     await social.posts.publish(request("a"));
     const result = await social.posts.reconcile(request("a"));
     assert.equal(result.outcomes[0]?.state, "accepted");
@@ -374,7 +405,12 @@ describe("core reconcile", () => {
       },
     });
 
-    const social = createSocial({ backend: adapter, idempotencyStore: store });
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: store,
+    });
+
     await social.posts.publish(request("a"));
     const stale = social.posts.reconcile(request("a"));
     await polling;
@@ -411,7 +447,13 @@ describe("core reconcile", () => {
     };
 
     const { adapter } = programmableAdapter({ publish: (target) => published(target, "p") });
-    const social = createSocial({ backend: adapter, idempotencyStore: legacy });
+
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: legacy,
+    });
+
     await assert.rejects(
       social.posts.reconcile(request("a")),
       (error: unknown): error is SocialError =>
@@ -440,7 +482,11 @@ describe("core reconcile", () => {
       },
     });
 
-    const social = createSocial({ backend: adapter, idempotencyStore: store });
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: store,
+    });
 
     const xRequest: PublishRequest = {
       targets: [
@@ -484,7 +530,14 @@ describe("core retryFailed", () => {
     });
 
     let now = new Date("2026-01-01T00:00:00.000Z");
-    const social = createSocial({ backend: adapter, idempotencyStore: store, clock: () => now });
+
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: store,
+      clock: () => now,
+    });
+
     const first = await social.posts.publish(request("a", "b", "c"));
     assert.equal(first.status, "partial");
 
@@ -527,7 +580,12 @@ describe("core retryFailed", () => {
       }),
     });
 
-    const social = createSocial({ backend: adapter, idempotencyStore: store });
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: store,
+    });
+
     await social.posts.publish(request("a", "b"));
     await assert.rejects(
       social.posts.retryFailed(request("b")),
@@ -543,7 +601,12 @@ describe("core retryFailed", () => {
 
   test("does not retry never, reconcile-first, or unknown outcomes", async () => {
     const mock = mockBackend({ scenario: "mixed-success-failure" });
-    const social = createSocial({ backend: mock, idempotencyStore: new MemoryIdempotencyStore() });
+
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: mock,
+      idempotencyStore: new MemoryIdempotencyStore(),
+    });
 
     const mixed: PublishRequest = {
       targets: [
@@ -593,7 +656,12 @@ describe("core retryFailed", () => {
           : published(target, "post-a"),
     });
 
-    const social = createSocial({ backend: adapter, idempotencyStore: store });
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: store,
+    });
+
     await social.posts.publish(request("a"));
 
     const [left, right] = await Promise.all([
@@ -622,6 +690,7 @@ describe("core retryFailed", () => {
     });
 
     const social = createSocial({
+      recovery: outcomeRecovery(),
       backend: adapter,
       idempotencyStore: store,
       authorization: {
@@ -651,7 +720,12 @@ describe("core retryFailed", () => {
 describe("OutcomeReconciler", () => {
   test("polls until settled within a bounded number of passes", async () => {
     const mock = mockBackend({ scenario: "media-processing-then-success" });
-    const social = createSocial({ backend: mock, idempotencyStore: new MemoryIdempotencyStore() });
+
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: mock,
+      idempotencyStore: new MemoryIdempotencyStore(),
+    });
 
     const reconciler = new OutcomeReconciler({
       social,
