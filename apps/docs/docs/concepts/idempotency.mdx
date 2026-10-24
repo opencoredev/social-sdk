@@ -26,6 +26,10 @@ The client deduplicates only when both `idempotencyKey` and `createSocial({ idem
 
 `MemoryIdempotencyStore` from `@opencoredev/social-sdk/testing` is for tests and local development. It loses every claim when the process exits. Production needs a store whose `claim` and `saveOutcome` are atomic in shared durable storage.
 
+The server package's SQL and Redis stores implement this contract without automatic claim expiry. Retain unresolved claims until you can reconcile them; deleting one can turn a later retry into a new provider write.
+
+If saving a target's outcome fails, the publish call preserves the provider's known outcome and adds a `warnings` entry with code `idempotency-outcome-not-persisted` and the target index. Configure `onPersistenceDiagnostic` on `createSocial` to receive the same signal with the operation name. The callback receives no storage error, credential, caller key, or account identity, and a callback failure does not change delivery outcomes. Reconcile the durable record before expecting another call to replay the known result.
+
 ## What a claimed key does
 
 The first call with a key claims it and records each target's outcome as it finishes. A later call with the same key and the same payload does not dispatch. It returns the saved outcome for each target. A target that was claimed but has no saved outcome, for example because the process crashed mid-dispatch, comes back as `unknown` with reason `ambiguous-submission`.

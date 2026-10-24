@@ -226,6 +226,12 @@ export interface CredentialStore<TCredential = unknown> {
     readonly value: TCredential;
   }): Promise<{ readonly updated: boolean; readonly revision?: string }>;
   delete(key: string): Promise<void>;
+  /**
+   * Deletes the record only while its revision still equals `expectedRevision`,
+   * atomically. Returns false when the record changed or is absent. Optional;
+   * `CredentialManager.revoke` requires it.
+   */
+  deleteIfRevision?(key: string, expectedRevision: string): Promise<boolean>;
 }
 
 export interface JobRunner<TJob extends JsonObject = JsonObject> {
