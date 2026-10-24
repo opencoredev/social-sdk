@@ -9,3 +9,12 @@ Add an optional application-owned media staging bridge for URL-only destinations
 Correct Instagram inbox field requests and recipient lookup, X bookmark pagination, edit history and image alt text, Threads link attachments, YouTube category metadata, LinkedIn comment pagination, and Meta expired-token reconnect classification.
 
 Migration: use normalized comment `id` when building a reply reference. LinkedIn's original numeric ID remains in `native.id`; its normalized `id` is the full comment URN. For staged media, configure storage expiry long enough for provider fetching and processing. No storage provider is required or bundled.
+
+X conversation records now expose the stable conversation ID in `id`. If you
+previously used that field as a DM event ID, read `native.id` instead. Build
+`ConversationRef.conversationId` from the normalized `id` for message reads and
+replies.
+
+Staged-media cleanup waits at most one second per batch and preserves the
+delivery result when storage cleanup stalls. Configure storage expiry to remove
+copies left by incomplete cleanup.

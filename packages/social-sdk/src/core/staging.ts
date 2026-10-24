@@ -175,7 +175,20 @@ export async function stageContent(input: {
   }
 }
 
-/** Runs every cleanup; a rejected cleanup is ignored so it never changes a delivery outcome. */
+/** Attempts every cleanup with an independent one-second grace for the whole batch. */
 export async function releaseLeases(leases: readonly StagingLease[]): Promise<void> {
-  await Promise.allSettled(leases.map(async (lease) => lease()));
+  if (leases.length === 0) return;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    await Promise.race([
+      Promise.allSettled(leases.map(async (lease) => lease())),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 1000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

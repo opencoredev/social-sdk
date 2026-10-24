@@ -72,6 +72,9 @@ on `feat/track-6-normalized-inbox-media`; no remote writes or provider mutations
   fields in `native`. Instagram requests message bodies, participants and timestamps,
   and resolves recipients through an authorized conversation read. Evidence:
   `track6-adapters.test.ts`, `track6-projections.test.ts`, `instagram.test.ts`.
+  X conversations use `dm_conversation_id` as their normalized `id`, retain the
+  message ID in `native.id`, and support reads/replies using the returned ID.
+  Evidence: `x-messages.test.ts`.
 - PASS: cross-account inbox reads preserve independent source failures, exhaustion,
   pagination and tenant authorization on every call. Long provider cursors resume
   without losing fetched pages. Evidence: `track6-core.test.ts`,
@@ -81,6 +84,7 @@ on `feat/track-6-normalized-inbox-media`; no remote writes or provider mutations
   idempotency checks, revalidates actual URLs, observes cancellation and the publish
   budget, and cleans copies only after publication or before submission. Late
   staging results are cleaned; cleanup failures preserve delivery outcomes.
+  Cleanup waits at most one second per batch, including callbacks that never settle.
   Accepted, processing, scheduled, failed and unknown deliveries retain copies
   for application-owned expiry. Evidence: `track6-core.test.ts`,
   `track6-consumer.test.ts`; public-client Instagram/TikTok photo cross-post.
@@ -94,6 +98,11 @@ on `feat/track-6-normalized-inbox-media`; no remote writes or provider mutations
   Threads link attachments; YouTube category metadata; LinkedIn comment cursor
   advancement; Meta OAuth 190 reconnect classification. Evidence:
   `track6-adapters.test.ts` and targeted existing adapter regressions.
+- PASS: independent integration review findings addressed: stable X conversation
+  IDs, aggregate cursor capacity, staging deadlines and bounded cleanup waits.
+  The conversation-ID and stalled-cleanup regressions failed before their fixes
+  and pass afterward. The final targeted rerun covers 35 tests across core,
+  public consumer and X messaging files; the overall selected set totals 350.
 - PASS: source, test and type-test TypeScript configurations; touched-file lint and
   formatting checks. Capability declarations regenerated from source (634),
   including media constraints and Instagram messaging.
