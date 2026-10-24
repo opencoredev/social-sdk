@@ -106,7 +106,7 @@ function channelsFetch(init?: RequestInit): Response {
             id: "channel_pin_example",
             name: "pins",
             displayName: "Pins",
-            service: "pinterest",
+            service: "startPage",
           }),
           channel({
             id: "channel_yt_example",

@@ -42,9 +42,12 @@ import {
   managedHttp,
   managedPreparation,
   managedOptionIssues,
+  normalizePlatform,
   optionsObject,
   platform,
   publicFields,
+  subredditName,
+  zernioPlatform as wirePlatform,
   type ManagedOptions,
 } from "./common.js";
 import { zernioOutcome } from "./outcomes.js";
@@ -73,7 +76,7 @@ export function zernio(options: ManagedOptions) {
         kind: "connected-account",
         version: 1,
         backend,
-        platform: platform(row["platform"]),
+        platform: platform(row["platform"], options),
         accountId: string(row["_id"]),
       },
       displayName: optionalString(row["displayName"]) ?? handle ?? string(row["_id"]),
@@ -96,6 +99,41 @@ export function zernio(options: ManagedOptions) {
     }
   };
 
+  /** The list endpoint is paginated, so keep reading until the account appears. */
+  const findAccount = async (
+    ref: Pick<ConnectedAccountRef, "platform" | "accountId">,
+    context: AdapterOperationContext,
+  ): Promise<JsonObject | undefined> => {
+    for (let page = 1; page <= 100; page++) {
+      const response = object(
+        await request("/v1/accounts", context, undefined, {
+          platform: wirePlatform(ref.platform),
+          page: String(page),
+          limit: "100",
+        }),
+      );
+
+      const found = array(response["accounts"])
+        .map(object)
+        .find(
+          (item) =>
+            item["_id"] === ref.accountId &&
+            isString(item["platform"]) &&
+            normalizePlatform(item["platform"]) === ref.platform,
+        );
+
+      if (found) return found;
+
+      const pagination = response["pagination"] ? object(response["pagination"]) : {};
+
+      const pages = optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
+
+      if (pages === undefined || page >= pages) return undefined;
+    }
+
+    return undefined;
+  };
+
   const analytics = async (ref: PlatformPostRef, context: AdapterOperationContext) => {
     accountMatches(ref, context);
 
@@ -103,7 +141,7 @@ export function zernio(options: ManagedOptions) {
       await request("/v1/analytics", context, undefined, {
         postId: ref.postId,
         accountId: ref.accountId,
-        platform: ref.platform === "x" ? "twitter" : ref.platform,
+        platform: wirePlatform(ref.platform),
       }),
     );
   };
@@ -230,34 +268,7 @@ export function zernio(options: ManagedOptions) {
       async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
         accountMatches(ref, context);
 
-        const platform = ref.platform === "x" ? "twitter" : ref.platform;
-        let raw: ReturnType<typeof object> | undefined;
-
-        // The list endpoint is paginated, so keep reading until the account appears.
-        for (let page = 1; page <= 100 && !raw; page++) {
-          const response = object(
-            await request("/v1/accounts", context, undefined, {
-              platform,
-              page: String(page),
-              limit: "100",
-            }),
-          );
-
-          raw = array(response["accounts"])
-            .map(object)
-            .find(
-              (item) =>
-                item["_id"] === ref.accountId &&
-                (item["platform"] === ref.platform || item["platform"] === platform),
-            );
-
-          const pagination = response["pagination"] ? object(response["pagination"]) : {};
-
-          const pages =
-            optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
-
-          if (pages === undefined || page >= pages) break;
-        }
+        const raw = await findAccount(ref, context);
 
         if (!raw)
           throw new SocialError({
@@ -308,7 +319,7 @@ export function zernio(options: ManagedOptions) {
             limit: String(limit),
             source: "external",
             accountId: account.accountId,
-            platform: account.platform === "x" ? "twitter" : account.platform,
+            platform: wirePlatform(account.platform),
           }),
         );
 
@@ -331,7 +342,7 @@ export function zernio(options: ManagedOptions) {
               return (
                 id === account.accountId &&
                 (item["platform"] === account.platform ||
-                  item["platform"] === (account.platform === "x" ? "twitter" : account.platform))
+                  item["platform"] === wirePlatform(account.platform))
               );
             });
 
@@ -480,6 +491,40 @@ export function zernio(options: ManagedOptions) {
           if (photo && mediaType === "photo") native["mediaType"] = "photo";
         }
 
+        if (target.account.platform === "pinterest")
+          for (const key of ["boardId", "title", "link"] as const) {
+            const value = optionalString(config[key]);
+
+            if (value !== undefined) native[key] = value;
+          }
+
+        if (target.account.platform === "reddit") {
+          native["subreddit"] = subredditName(string(config["subreddit"]));
+
+          for (const key of ["title", "flairId"] as const) {
+            const value = optionalString(config[key]);
+
+            if (value !== undefined) native[key] = value;
+          }
+
+          if (isBoolean(config["nsfw"])) native["nsfw"] = config["nsfw"];
+        }
+
+        if (target.account.platform === "discord")
+          native["channelId"] = string(config["channelId"]);
+
+        if (target.account.platform === "google-business") {
+          const locationId = optionalString(config["locationId"]);
+
+          if (locationId !== undefined) native["locationId"] = locationId;
+        }
+
+        if (target.account.platform === "snapchat") {
+          const contentType = optionalString(config["contentType"]);
+
+          if (contentType !== undefined) native["contentType"] = contentType;
+        }
+
         const tiktokPhoto =
           target.account.platform === "tiktok" &&
           media.length > 0 &&
@@ -493,7 +538,7 @@ export function zernio(options: ManagedOptions) {
             mediaItems: media,
             platforms: [
               {
-                platform: target.account.platform === "x" ? "twitter" : target.account.platform,
+                platform: wirePlatform(target.account.platform),
                 accountId: target.account.accountId,
                 ...definedFields({
                   platformSpecificData: Object.keys(native).length ? native : undefined,
@@ -584,19 +629,7 @@ export function zernio(options: ManagedOptions) {
 
         // Zernio documents followersCount on GET /v1/accounts (when the
         // analytics add-on is enabled); there is no accountId-specific GET.
-        const result = object(
-          await request("/v1/accounts", context, undefined, {
-            platform: ref.platform === "x" ? "twitter" : ref.platform,
-          }),
-        );
-
-        const row = array(result["accounts"])
-          .map(object)
-          .find(
-            (item) =>
-              item["_id"] === ref.accountId &&
-              item["platform"] === (ref.platform === "x" ? "twitter" : ref.platform),
-          );
+        const row = await findAccount(ref, context);
 
         if (!row)
           throw new SocialError({
@@ -882,11 +915,11 @@ export function zernio(options: ManagedOptions) {
     },
     native: {
       async createConnection(input: ZernioConnectionOptions, context: AdapterOperationContext) {
-        platform(input.platform);
+        const slug = platform(input.platform, options);
 
         const response = object(
           await request(
-            `/v1/connect/${input.platform === "x" ? "twitter" : encodeURIComponent(input.platform)}`,
+            `/v1/connect/${encodeURIComponent(wirePlatform(slug))}`,
             context,
             undefined,
             { profileId: input.profileId, redirect_url: input.redirectUrl },
