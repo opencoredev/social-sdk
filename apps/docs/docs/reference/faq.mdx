@@ -50,3 +50,7 @@ Use the deterministic mock backend from the testing entrypoint. It supports expl
 ## Can I access platform features the shared model doesn't cover?
 
 Yes, through typed native modules and the explicitly unsafe native escape hatch. Those paths bypass normalized middleware, so your application must supply tenant authorization around them. See [native access](/concepts/native-access).
+
+## What should I include in a bug report?
+
+Run `social-sdk version --json` and `social-sdk doctor --adapter <name> --json`, then paste both outputs into the issue. `version` reports the installed package version. `doctor` lists the names of missing enviroment variables for the selected adapter and never prints their values, so its output is safe to share. See the [diagnostic CLI](/reference/cli-tools) for every command.
