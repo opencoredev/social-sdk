@@ -88,7 +88,7 @@ export function postForMe(options: ManagedOptions) {
         kind: "connected-account",
         version: 1,
         backend,
-        platform: platform(row["platform"]),
+        platform: platform(row["platform"], options),
         accountId: string(row["id"]),
       },
       displayName: handle ?? string(row["user_id"]),
@@ -382,6 +382,18 @@ export function postForMe(options: ManagedOptions) {
             platformConfig["disclose_branded_content"] = brandedContent;
         }
 
+        if (target.account.platform === "pinterest") {
+          const boardId = optionalString(config["boardId"]);
+          const title = optionalString(config["title"]);
+          const link = optionalString(config["link"]);
+
+          if (boardId !== undefined) platformConfig["board_ids"] = [boardId];
+
+          if (title !== undefined) platformConfig["title"] = title;
+
+          if (link !== undefined) platformConfig["link"] = link;
+        }
+
         // Uploaded refs are single-submission assets: publication or schedule deletion
         // can remove them. Invalidate before dispatch, including uncertain writes.
         await mediaPipeline.consume(target.content.media ?? []);
@@ -570,7 +582,7 @@ export function postForMe(options: ManagedOptions) {
     },
     native: {
       async createConnection(input: PostForMeConnectionOptions, context: AdapterOperationContext) {
-        platform(input.platform);
+        platform(input.platform, options);
 
         const result = object(
           await request("/v1/social-accounts/auth-url", context, {

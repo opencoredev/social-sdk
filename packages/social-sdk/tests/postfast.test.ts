@@ -68,7 +68,7 @@ it("PostFast sends its API key header and maps supported accounts", async () => 
           displayName: "Demo",
           connectionStatus: "CONNECTED",
         },
-        { id: "sm3", platform: "PINTEREST", platformUsername: "pins" },
+        { id: "sm3", platform: "SUBSTACK", platformUsername: "letters" },
         {
           id: "sm2",
           platform: "YOUTUBE",
@@ -521,7 +521,7 @@ it("PostFast connect links validate platforms and return the hosted URL", async 
     { url: "https://app.postfa.st/connect/abc" },
   );
   await assert.rejects(
-    adapter.native.createConnectLink({ platforms: ["PINTEREST"] }, context),
+    adapter.native.createConnectLink({ platforms: ["SUBSTACK"] }, context),
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
 });

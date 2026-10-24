@@ -10,6 +10,7 @@ import type {
   ConnectedAccountRef,
   JsonObject,
   JsonValue,
+  KnownPlatform,
   MediaAttachment,
   Platform,
   PreparationIssue,
@@ -30,15 +31,27 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 
+/**
+ * What to do with a connected account on a network Social SDK has no `KnownPlatform` for.
+ * `skip` leaves it out of account listings. `include` lists it under the provider's own
+ * identifier, lowercased, so it can be read and referenced. Publishing still needs a platform
+ * the backend documents.
+ */
+export type UnknownPlatforms = "skip" | "include";
+
 export interface ManagedOptions extends HttpOptions {
   readonly apiKey: string;
   readonly mediaStore?: ManagedMediaStore;
   readonly webhookSecret?: string;
   readonly clock?: () => Date;
   readonly uploadHostAllowed?: (hostname: string) => boolean;
+  /** Defaults to `skip`, which leaves accounts on unrecognized networks out of listings. */
+  readonly unknownPlatforms?: UnknownPlatforms;
 }
 
-export const selectedPlatforms = [
+export type ManagedProvider = "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer";
+
+const corePlatforms = [
   "x",
   "threads",
   "bluesky",
@@ -47,19 +60,123 @@ export const selectedPlatforms = [
   "instagram",
   "linkedin",
   "facebook",
-] as const;
+] as const satisfies readonly KnownPlatform[];
 
-export function platform(value: JsonField): Platform {
-  const slug = value === "twitter" ? "x" : value;
+const knownPlatformList = [
+  ...corePlatforms,
+  "pinterest",
+  "reddit",
+  "mastodon",
+  "telegram",
+  "discord",
+  "google-business",
+  "snapchat",
+  "whatsapp",
+  "twitch",
+] as const satisfies readonly KnownPlatform[];
 
-  if (!isString(slug) || !selectedPlatforms.some((item) => item === slug))
-    throw new SocialError({
-      code: "unsupported_capability",
-      operation: "accounts.read",
-      message: "The provider returned a platform outside this adapter's selected support.",
-    });
+/**
+ * Platforms each backend documents for publishing. Accounts on other known platforms are still
+ * listed, but `prepareTarget` rejects them.
+ */
+export const providerPlatforms: Readonly<Record<ManagedProvider, readonly KnownPlatform[]>> = {
+  zernio: [
+    ...corePlatforms,
+    "pinterest",
+    "reddit",
+    "telegram",
+    "discord",
+    "google-business",
+    "snapchat",
+  ],
+  "post-for-me": [...corePlatforms, "pinterest"],
+  postfast: [...corePlatforms, "pinterest", "telegram", "google-business"],
+  postiz: [
+    ...corePlatforms,
+    "pinterest",
+    "reddit",
+    "mastodon",
+    "telegram",
+    "discord",
+    "google-business",
+    "twitch",
+  ],
+  buffer: [...corePlatforms, "pinterest", "mastodon", "google-business"],
+};
 
-  return slug;
+export function isKnownPlatform(value: string): value is KnownPlatform {
+  return knownPlatformList.some((item) => item === value);
+}
+
+const platformAliases = new Map<string, KnownPlatform>([
+  ["twitter", "x"],
+  ["gmb", "google-business"],
+  ["googlebusiness", "google-business"],
+  ["google_business", "google-business"],
+  ["google_business_profile", "google-business"],
+  ["google-business-profile", "google-business"],
+  ["googlebusinessprofile", "google-business"],
+]);
+
+/** Lowercase a provider's platform identifier and resolve its aliases to the SDK slug. */
+export function normalizePlatform(value: string): Platform {
+  const slug = value.trim().toLowerCase();
+
+  return platformAliases.get(slug) ?? slug;
+}
+
+/**
+ * Resolve a provider identifier through the backend's own table first, so a backend can name its
+ * variants (`tiktok-business`). Anything else is skipped, or kept under its own name when the
+ * caller opted in with `unknownPlatforms: "include"`.
+ */
+export function mappedPlatform(
+  table: ReadonlyMap<string, Platform>,
+  identifier: string,
+  options: Pick<ManagedOptions, "unknownPlatforms">,
+): Platform | undefined {
+  const mapped = table.get(identifier);
+
+  if (mapped !== undefined) return mapped;
+
+  const slug = normalizePlatform(identifier);
+
+  if (slug === "") return undefined;
+
+  return isKnownPlatform(slug) || options.unknownPlatforms === "include" ? slug : undefined;
+}
+
+export function platform(
+  value: JsonField,
+  options: Pick<ManagedOptions, "unknownPlatforms"> = {},
+): Platform {
+  const slug = isString(value) ? normalizePlatform(value) : "";
+
+  if (slug !== "" && (isKnownPlatform(slug) || options.unknownPlatforms === "include")) return slug;
+
+  throw new SocialError({
+    code: "unsupported_capability",
+    operation: "accounts.read",
+    message: "The provider returned a platform outside this adapter's selected support.",
+  });
+}
+
+/** True when a provider's platform identifier names this SDK platform. */
+export function samePlatform(identifier: JsonField, slug: Platform): boolean {
+  return isString(identifier) && normalizePlatform(identifier) === slug;
+}
+
+/** Zernio names X "twitter" and Google Business Profile "googlebusiness". */
+export function zernioPlatform(value: string): string {
+  return value === "x" ? "twitter" : value === "google-business" ? "googlebusiness" : value;
+}
+
+/** `r/name`, `/r/name/` and `name` all name the same subreddit. */
+export function subredditName(value: string): string {
+  return value
+    .trim()
+    .replace(/^\/?r\//i, "")
+    .replace(/\/+$/, "");
 }
 
 /** How a provider expects its server-side API key. Defaults to a bearer token. */
@@ -185,14 +302,15 @@ export function managedHttp(
   };
 }
 
-export type PublishFormats = (
-  platform: (typeof selectedPlatforms)[number],
-) => CapabilityDeclaration["formats"];
+export type PublishFormats = (platform: KnownPlatform) => CapabilityDeclaration["formats"];
 
 export const publishFormats: PublishFormats = (platform) => {
-  if (platform === "youtube") return ["video"];
+  if (platform === "youtube" || platform === "snapchat") return ["video"];
 
-  if (platform === "instagram" || platform === "tiktok") return ["image", "video", "carousel"];
+  if (platform === "instagram" || platform === "tiktok" || platform === "pinterest")
+    return ["image", "video", "carousel"];
+
+  if (platform === "twitch") return ["text"];
 
   return ["text", "image", "video", "carousel"];
 };
@@ -225,12 +343,12 @@ export function managedConstraints(
 }
 
 export type CapabilityConstraintsFor = (
-  platform: (typeof selectedPlatforms)[number],
+  platform: KnownPlatform,
   operation: string,
 ) => CapabilityConstraints;
 
 export function capabilityManifest(
-  backend: string,
+  backend: ManagedProvider,
   apiRevision: string,
   operations: readonly string[],
   formats: PublishFormats = publishFormats,
@@ -243,7 +361,7 @@ export function capabilityManifest(
     backend,
     apiRevision,
     runtime: ["node22", "node24", "bun"],
-    capabilities: selectedPlatforms.flatMap((platform) =>
+    capabilities: providerPlatforms[backend].flatMap((platform) =>
       operations.map((operation) => ({
         platform,
         operation,
@@ -279,16 +397,23 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
 /** Every accepted normalized option has an intentional provider mapping. */
 export function managedOptionIssues(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer",
+  provider: ManagedProvider,
 ): PreparationIssue[] {
   const config = optionsObject(target);
 
   const keys: Partial<Record<Platform, readonly string[]>> = {
+    pinterest: provider === "postfast" ? ["boardId", "link"] : ["boardId", "title", "link"],
+    reddit:
+      provider === "zernio" ? ["subreddit", "title", "flairId", "nsfw"] : ["subreddit", "title"],
+    discord: ["channelId"],
+    snapchat: ["contentType"],
+    "google-business": provider === "zernio" || provider === "postfast" ? ["locationId"] : [],
     youtube: [
       "title",
       "visibility",
       "madeForKids",
       ...(provider === "buffer" ? ["categoryId"] : []),
+      ...(provider === "postfast" ? ["isShort"] : []),
     ],
     instagram: ["shareToFeed"],
     x: provider === "buffer" ? [] : ["replySettings"],
@@ -307,7 +432,9 @@ export function managedOptionIssues(
             "draft",
             ...(provider === "zernio"
               ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
-              : []),
+              : provider === "postiz"
+                ? ["title"]
+                : []),
           ],
   };
 
@@ -333,6 +460,8 @@ export function managedOptionIssues(
     "ownBrand",
     "aiGenerated",
     "draft",
+    "nsfw",
+    "isShort",
   ]) {
     if (config[key] !== undefined && !isBoolean(config[key]))
       fail(
@@ -346,6 +475,93 @@ export function managedOptionIssues(
     !["everyone", "following", "mentionedUsers"].includes(String(config["replySettings"]))
   )
     fail("x.reply_settings", "Select a supported reply setting explicitly.");
+
+  const text = (key: string) => {
+    const value = config[key];
+
+    return isString(value) && value.trim() !== "" ? value : undefined;
+  };
+
+  const optionalText = (key: string, code: string) => {
+    if (config[key] !== undefined && text(key) === undefined)
+      fail(code, `${key} must be a non-empty string when set.`);
+  };
+
+  const publicLink = (key: string, code: string) => {
+    const value = text(key);
+
+    if (value === undefined) return;
+
+    try {
+      httpsUrl(value);
+    } catch {
+      fail(code, `${key} must be a public HTTPS URL.`);
+    }
+  };
+
+  if (target.account.platform === "pinterest") {
+    const board = text("boardId");
+
+    if (provider === "postfast" || provider === "postiz" || provider === "buffer") {
+      if (board === undefined)
+        fail("pinterest.board", "Select the Pinterest board by its ID before publishing.");
+      else if (provider === "postiz" && !/^\d+$/.test(board))
+        fail("pinterest.board", "Postiz needs the numeric Pinterest board ID, not the board name.");
+    } else optionalText("boardId", "pinterest.board");
+
+    optionalText("title", "pinterest.title");
+
+    if ((text("title")?.length ?? 0) > 100)
+      fail("pinterest.title", "Pinterest pin titles are limited to 100 characters.");
+    publicLink("link", "pinterest.link");
+  }
+
+  if (target.account.platform === "reddit") {
+    if (text("subreddit") === undefined)
+      fail("reddit.subreddit", "Select the subreddit to post to.");
+
+    if (provider === "postiz" && (text("title")?.length ?? 0) < 2)
+      fail("reddit.title", "Postiz requires a Reddit post title of at least two characters.");
+    else optionalText("title", "reddit.title");
+
+    if ((text("title")?.length ?? 0) > 300)
+      fail("reddit.title", "Reddit titles are limited to 300 characters.");
+    optionalText("flairId", "reddit.flair");
+  }
+
+  if (target.account.platform === "discord" && text("channelId") === undefined)
+    fail("discord.channel", "Select the Discord channel ID to post to.");
+
+  if (target.account.platform === "google-business") {
+    if (provider === "postfast" && text("locationId") === undefined)
+      fail("google_business.location", "PostFast needs the Google Business Profile location ID.");
+    else optionalText("locationId", "google_business.location");
+  }
+
+  if (
+    target.account.platform === "snapchat" &&
+    config["contentType"] !== undefined &&
+    !["story", "saved_story", "spotlight"].includes(String(config["contentType"]))
+  )
+    fail("snapchat.content_type", "Select story, saved_story, or spotlight.");
+
+  if (
+    provider === "postiz" &&
+    target.account.platform === "tiktok" &&
+    config["title"] !== undefined
+  ) {
+    if (config["draft"] !== true)
+      fail(
+        "tiktok.title",
+        "Postiz only keeps a TikTok title on an inbox draft; set draft to true.",
+      );
+    else if (
+      !isString(config["title"]) ||
+      config["title"].length === 0 ||
+      config["title"].length > 90
+    )
+      fail("tiktok.title", "TikTok titles are limited to 90 characters.");
+  }
 
   if (target.account.platform === "tiktok") {
     if (provider !== "buffer") {
@@ -452,14 +668,14 @@ export function managedOptionIssues(
 
 export function managedPreparation(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer",
+  provider: ManagedProvider,
 ): PreparationIssue[] {
   const issues: PreparationIssue[] = [];
 
   const fail = (code: string, message: string) =>
     issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
 
-  if (!selectedPlatforms.some((value) => value === target.account.platform))
+  if (!providerPlatforms[provider].some((value) => value === target.account.platform))
     fail("platform.unsupported", "This platform is outside the selected adapter coverage.");
 
   if (target.replyTo)
@@ -479,8 +695,11 @@ export function managedPreparation(
     );
 
   for (const item of media) {
-    if (!item.mimeType || !item.mimeType.startsWith(`${item.kind}/`))
-      fail("media.mime", "Provide the actual image/video MIME type matching the attachment kind.");
+    if (
+      !item.mimeType ||
+      !item.mimeType.startsWith(item.kind === "document" ? "application/" : `${item.kind}/`)
+    )
+      fail("media.mime", "Provide the actual MIME type matching the attachment kind.");
 
     if (item.source.kind === "https-url") {
       try {
@@ -519,7 +738,10 @@ export function managedPreparation(
       fail("youtube.audience", "Declare whether the video is made for kids.");
   }
 
-  if (["instagram", "tiktok"].includes(target.account.platform) && media.length === 0)
+  if (
+    ["instagram", "tiktok", "pinterest", "snapchat"].includes(target.account.platform) &&
+    media.length === 0
+  )
     fail("media.required", "This destination requires image or video media.");
 
   if (target.account.platform === "tiktok" && provider !== "buffer") {

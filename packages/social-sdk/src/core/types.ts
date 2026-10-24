@@ -8,11 +8,20 @@ export interface JsonObject {
 
 export type KnownPlatform =
   | "bluesky"
+  | "discord"
   | "facebook"
+  | "google-business"
   | "instagram"
   | "linkedin"
+  | "mastodon"
+  | "pinterest"
+  | "reddit"
+  | "snapchat"
+  | "telegram"
   | "threads"
   | "tiktok"
+  | "twitch"
+  | "whatsapp"
   | "x"
   | "youtube";
 
@@ -192,6 +201,8 @@ export interface YouTubePublishOptions {
   readonly categoryId?: string;
   readonly visibility: "private" | "unlisted" | "public";
   readonly madeForKids: boolean;
+  /** Managed PostFast only: publish as a YouTube Short. Defaults to `false`. */
+  readonly isShort?: boolean;
 }
 
 export interface TikTokPublishOptions {
@@ -208,7 +219,10 @@ export interface TikTokPublishOptions {
   readonly aiGenerated: boolean;
   readonly draft: boolean;
   readonly photoCoverIndex?: number;
-  /** Photo-post title (≤90). Zernio maps this onto `content` when set. */
+  /**
+   * Photo-post title (≤90). Zernio maps this onto `content` when set. Postiz keeps it only on an
+   * inbox draft (`draft: true`).
+   */
   readonly title?: string;
   /** Photo-post caption/description (≤4000). Zernio `platformSpecificData.description`. */
   readonly description?: string;

@@ -55,7 +55,7 @@ it("Postiz sends the raw API key and maps supported channels", async () => {
 
       return Response.json([
         { id: "int1", name: "Demo", identifier: "x", profile: "demo", disabled: false },
-        { id: "int9", name: "Pins", identifier: "pinterest", profile: "pins", disabled: false },
+        { id: "int9", name: "Lemmy", identifier: "lemmy", profile: "forum", disabled: false },
         {
           id: "int2",
           name: "Page",

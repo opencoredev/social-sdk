@@ -9,7 +9,7 @@ import type {
   ScheduledJobRef,
 } from "../core/types.js";
 import { array, isString, object, string } from "../transport/validation.js";
-import { accountMatches, type managedHttp } from "./common.js";
+import { accountMatches, samePlatform, zernioPlatform, type managedHttp } from "./common.js";
 
 type ScopedRef = BackendPostRef | ScheduledJobRef | PlatformPostRef;
 
@@ -60,9 +60,8 @@ export function managedLifecycle(
     const entry = entries[0]!;
     const rawId = provider === "zernio" ? entry["accountId"] : entry["id"];
     const accountId = isString(rawId) ? rawId : object(rawId)["_id"];
-    const platform = entry["platform"] === "twitter" ? "x" : entry["platform"];
 
-    if (accountId !== ref.accountId || platform !== ref.platform)
+    if (accountId !== ref.accountId || !samePlatform(entry["platform"], ref.platform))
       throw new SocialError({
         code: "unauthorized",
         operation: "posts.lifecycle",
@@ -98,7 +97,7 @@ export function managedLifecycle(
 
     const result = object(
       await request(`${path(id)}/unpublish`, context, {
-        platform: ref.platform === "x" ? "twitter" : ref.platform,
+        platform: zernioPlatform(ref.platform),
       }),
     );
 
