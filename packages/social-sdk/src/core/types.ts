@@ -391,10 +391,26 @@ export type DeliveryOutcome =
 
 export type PublicationStatus = "pending" | "complete" | "partial";
 
+/** A publish warning that does not change any delivery outcome. */
+export interface PublishWarning {
+  /** The idempotency store could not save this target's outcome, so a retry may not replay it. */
+  readonly code: "idempotency-outcome-not-persisted";
+  readonly targetIndex: number;
+}
+
+/** Sanitized persistence diagnostic. It never carries storage errors, keys, or account identity. */
+export interface PersistenceDiagnostic {
+  readonly code: PublishWarning["code"];
+  readonly operation: "posts.publish" | "posts.schedule";
+  readonly targetIndex: number;
+}
+
 export interface PublishResult {
   readonly status: PublicationStatus;
   readonly publication: PublicationRef;
   readonly outcomes: readonly DeliveryOutcome[];
+  /** Present only when at least one warning was recorded. */
+  readonly warnings?: readonly PublishWarning[];
 }
 
 export type RetryDisposition =

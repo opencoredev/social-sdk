@@ -44,12 +44,14 @@ import type {
   DeliveryOutcome,
   PreparationIssue,
   PreparedPublishTarget,
+  PersistenceDiagnostic,
   PublicationRef,
   PublicationStatus,
   PublishContent,
   PublishPreparation,
   PublishRequest,
   PublishResult,
+  PublishWarning,
   PublishSequenceRequest,
   PublishSequenceResult,
   Page,
@@ -359,6 +361,12 @@ export interface SharedSocialConfig {
    */
   readonly mediaStaging?: MediaStagingProvider;
   readonly idempotencyStore?: IdempotencyStore;
+  /**
+   * Called when a delivery outcome could not be saved to the idempotency store.
+   * The publish result still reports the outcome and carries a matching warning.
+   * Errors thrown here are ignored.
+   */
+  readonly onPersistenceDiagnostic?: (diagnostic: PersistenceDiagnostic) => void | Promise<void>;
   readonly concurrency?: number;
   readonly maxQueued?: number;
   readonly clock?: () => Date;
@@ -1047,6 +1055,16 @@ export function createSocial(
     };
   }
 
+  async function notifyPersistenceDiagnostic(diagnostic: PersistenceDiagnostic): Promise<void> {
+    if (config.onPersistenceDiagnostic === undefined) return;
+
+    try {
+      await config.onPersistenceDiagnostic(diagnostic);
+    } catch {
+      // A diagnostic sink must not change the publication result.
+    }
+  }
+
   async function publish(
     request: PublishRequest,
     options?: PublishCallOptions,
@@ -1161,6 +1179,7 @@ export function createSocial(
     }
 
     const observedAt = (): string => clock().toISOString();
+    const warnings: PublishWarning[] = [];
 
     const outcomes = await mapConcurrent(
       plan.targets.length,
@@ -1329,6 +1348,16 @@ export function createSocial(
             });
           } catch {
             // Return the complete in-memory result even if durable persistence is unavailable.
+            // The storage error is dropped because it may name keys, claims, or identities.
+            warnings.push({
+              code: "idempotency-outcome-not-persisted",
+              targetIndex: target.targetIndex,
+            });
+            await notifyPersistenceDiagnostic({
+              code: "idempotency-outcome-not-persisted",
+              operation: executionOperation,
+              targetIndex: target.targetIndex,
+            });
           }
         }
 
@@ -1365,7 +1394,13 @@ export function createSocial(
       publicationId,
     };
 
-    return { status: publicationStatus(outcomes), publication, outcomes };
+    warnings.sort((left, right) => left.targetIndex - right.targetIndex);
+
+    const result: PublishResult = { status: publicationStatus(outcomes), publication, outcomes };
+
+    if (warnings.length === 0) return result;
+
+    return { ...result, warnings };
   }
 
   const accountsFacade = {

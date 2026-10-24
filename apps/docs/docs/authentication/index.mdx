@@ -17,7 +17,7 @@ Adapters report permission and reconnect failures as structured errors and outco
 
 - **Unlink** removes one tenant's grant. Delete the grant row; other tenants and the stored token are unaffected.
 - **Disconnect** removes your stored credential. The provider grant still exists, and the user can reconnect without new consent on most providers.
-- **Revoke** invalidates the token at the provider. The SDK has no general revoke operation, so call the provider's endpoint yourself and then delete the stored credential. Google, X, and TikTok document revocation endpoints: [Google](https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke), [X](https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/user-access-token), and [TikTok](https://developers.tiktok.com/doc/oauth-user-access-token-management). For other providers, check the provider's own documentation; some only let the user remove the app from their account settings.
+- **Revoke** invalidates the token at the provider. Supply a provider revocation hook to `CredentialManager` or the Web connect handlers; the SDK does not choose a revocation endpoint for you. Google, X, and TikTok document revocation endpoints: [Google](https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke), [X](https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/user-access-token), and [TikTok](https://developers.tiktok.com/doc/oauth-user-access-token-management). For other providers, check the provider's own documentation; some only let the user remove the app from their account settings.
 
 See [tenant authorization](/concepts/tenant-authorization) and the [account ownership diagram](/concepts/architecture#account-connection-and-ownership) for the request boundary.
 
@@ -38,6 +38,84 @@ A production `ConnectionStore` must persist attempts and discovered accounts, at
 Repeated callbacks can read a saved discovery result without exchanging the code again. If a code exchange is still running, or the process lost its response before saving discovery, the manager reports `reconnect_required`. Let an in-flight exchange finish or start a fresh connection. Replaying a one-use authorization code cannot safely recover missing credentials.
 
 Connection attempts expire after ten minutes by default. Account selection must finish before expiry. The PKCE verifier stays in the store, and `begin` never returns it. `begin` returns `providerState` unless the provider's `start` result sets `providerStateSecret: true`, in which case that value also stays in the store. The Bluesky provider sets it because its provider state holds the DPoP private key. Keep them private in server storage, encrypt stored credentials separately, and use compare-and-set token revisions when refreshing.
+
+## Durable storage
+
+The server entry point includes SQL and Redis adapters for connection attempts and grants, credentials, refresh locks, and publication idempotency. They accept injected drivers and do not install a database client or contact a service when imported. SQL values use parameters; the SQL dialect determines placeholder syntax. Run schema initialization explicitly before serving requests.
+
+Access-token expiry does not delete a credential record: its refresh token may still be needed. Connection grants also survive the callback attempt's expiry. Idempotency records do not expire automatically, because losing an unresolved claim would allow a retry to dispatch the same publication again. Set an application retention policy that preserves records needed for authorization and reconciliation.
+
+The drivers persist plaintext unless you provide encryption. Connection records can contain PKCE verifiers and private provider state, so protect those records as well as credential rows. Keep SQL and Redis access restricted to your server, and use a storage namespace and credential key that isolate each tenant, principal, backend, platform, and account.
+
+Use `createEncryptedCredentialStore` to encrypt credential values with AES-256-GCM before they reach a backing store. The application supplies encryption keys and key identifiers. Keep old keys available while records encrypted with them still exist; changing the active key affects subsequent writes. Encryption authenticates the storage key as well as the ciphertext, so moving an encrypted value to a different key fails authentication.
+
+Encryption does not authorize a credential lookup. Check the authenticated tenant's grant before resolving a token, even when the token store is encrypted.
+
+For example, inject a Node SQLite database and an application key resolver:
+
+```ts
+import type { DatabaseSync } from "node:sqlite";
+import {
+  createEncryptedCredentialStore,
+  createSqliteExecutor,
+  createSqlStores,
+  DurableCredentialStore,
+  parseEncryptedCredentialEnvelope,
+  type EncryptedCredentialStoreOptions,
+} from "@opencoredev/social-sdk/server";
+
+async function openAuthStores(
+  database: DatabaseSync,
+  currentKeyId: string,
+  resolveKey: EncryptedCredentialStoreOptions["resolveKey"],
+) {
+  const stores = createSqlStores({
+    executor: createSqliteExecutor(database),
+    dialect: "sqlite",
+  });
+  await stores.driver.createSchema();
+  const envelopes = new DurableCredentialStore({
+    driver: stores.driver,
+    codec: {
+      encode: JSON.stringify,
+      decode(text) {
+        const value: unknown = JSON.parse(text);
+        return parseEncryptedCredentialEnvelope(value);
+      },
+    },
+  });
+  const credentials = createEncryptedCredentialStore({
+    store: envelopes,
+    namespace: "my-app-credentials",
+    currentKeyId,
+    resolveKey,
+  });
+  return { ...stores, credentials };
+}
+```
+
+The database and key resolver must survive application restarts. This example encrypts credential values; protect the connection records separately. `createPostgresExecutor` adapts a `pg`-compatible query client, and `SqlExecutor` accepts a custom wrapper for other SQL clients. `createRedisStores` accepts a `RedisScriptRunner` whose `eval` forwards the script, key array, and argument array to your Redis client, including Upstash. Each script uses one key, which avoids cross-slot operations on Redis Cluster. Use a persistence configuration and eviction policy that retain claims and grants.
+
+## Web OAuth routes
+
+`createOAuthConnectHandlers` returns four handlers that each accept a Web `Request` and return a Web `Response`. Register your providers in its server-owned `connections` map, with one callback origin and path per connection.
+
+- `begin`: POST JSON `{ connection, loginHint? }`. Returns an authorization URL and expiry, and remembers the attempt in a Secure, HttpOnly, SameSite=Lax cookie.
+- `callback`: GET at the registered redirect URI, with the provider's code and state. Checks the authenticated principal and stored attempt before exchanging the code and returning discovered accounts.
+- `select`: POST JSON `{ accountIds }`. Creates grants only for persisted discovered accounts, consumes the attempt, and activates the selected credentials.
+- `disconnect`: POST JSON `{ grantId }`. Looks up an authorized grant through the application, calls its revocation hook, then removes the local grant and credential.
+
+Supply `authenticate` to resolve your server session and `authorizeMutation` to validate CSRF and other mutation policy. Neither tenant nor principal comes from browser JSON. The application session cookie must survive the provider's top-level redirect. The default attempt cookie holds one active flow per browser; supply `correlation` backed by your server session when you need different tracking. Behind a proxy, derive `publicUrl` from trusted deployment configuration.
+
+Configure the provider's credential sink to stage encrypted credentials under the attempt ID during discovery. `credentials.activate` receives the committed grants and must promote only those credentials, discard the rest, and arrange cleanup of abandoned staging records. Grant creation and credential activation are separate steps. An `activation_failed` response means grants were committed but activation needs application reconciliation or a new connection. The handlers do not replay the authorization code.
+
+The `grants.find`, `grants.revoke`, and `grants.remove` hooks own disconnect policy. They must account for credentials shared by several grants so disconnecting one principal does not invalidate another principal's access. A failed revocation keeps local state available for retry. Every response uses `Cache-Control: no-store`, and error bodies omit provider text and connection secrets.
+
+## Meta account callbacks
+
+Use `createMetaDeauthorizeHandler` and `createMetaDataDeletionHandler` for Meta's form-encoded `signed_request` callbacks. These requests authenticate with the app secret, independently of browser sessions. The verifier checks HMAC-SHA256 over the original encoded payload, requires the supported algorithm and a bounded `issued_at`, and returns an app-scoped `userId` and stable `requestId`.
+
+Map the user to your own accounts on the server. Make `onDeauthorize` and `onDataDeletion` durable and idempotent by `requestId` before resolving them. The deletion hook returns `{ statusUrl, confirmationCode }`; the route sends Meta's `{ url, confirmation_code }` response only after that hook succeeds. The HTTPS status page must distinguish accepted work from completed deletion. Deploying the routes and deleting application data remain the host application's responsibility.
 
 ## Direct OAuth providers
 
@@ -336,6 +414,12 @@ The `backend` passed to `begin` becomes the `backend` field of every discovered 
 ## Refresh and persist
 
 The refresh helpers make one request and return the new token set. They do not store anything and do not run on a schedule. Your code decides when to refresh and must replace the stored credential atomically, because a provider that rotates refresh tokens invalidates the old one. Two workers refreshing the same account at once can otherwise overwrite each other.
+
+For expiry-aware resolution, construct `CredentialManager` with a `refresh` hook and call `resolve(key)`. It refreshes when the stored access token is within `refreshSkewMs` of expiry, then returns the value and its current revision. `get(key)` remains a raw storage read. A missing expiry means the token does not expire; a malformed expiry is rejected.
+
+The manager re-reads freshness after acquiring the shared lock. Before calling the provider, it persists a refresh marker. A timeout or uncertain response blocks another automatic refresh of that credential, including after the lock lease expires. Reconcile or save a newly authorized credential to recover. Configure `onRefreshFailure` and `onReconnectRequired` to update your application's reconnect state; callback failures do not replace the refresh result.
+
+Manual `rotate` calls use the same marker and deadline. Custom credential codecs must preserve `refreshState`. `CredentialManager.revoke` calls your provider hook before deleting the revision it read; a replacement saved during revocation is preserved and reported as a conflict. Custom stores must implement `deleteIfRevision` to use this operation. If they do not, the manager refuses before contacting the provider.
 
 Acquire a shared lock before reading and refreshing the credential, then save against the revision you read. `CredentialManager.rotate` does this ordering; compare-and-set alone cannot prevent two workers from sending the same rotating token to the provider.
 

@@ -11,9 +11,9 @@ Platform access tokens, managed-provider API keys, OAuth client secrets, refresh
 
 ## Store credentials durably and encrypted
 
-`MemoryCredentialStore`, `MemoryConnectionStore`, and the other memory stores keep plaintext values in process memory and lose them on exit. Use them only in tests. In production, implement `CredentialStore` over encrypted storage keyed by tenant, principal, backend, platform, and account, so one tenant's lookup cannot read another's token.
+`MemoryCredentialStore`, `MemoryConnectionStore`, and the other memory stores keep plaintext values in process memory and lose them on exit. Use them only in tests. The server package includes injected SQL and Redis stores and `createEncryptedCredentialStore` for AES-256-GCM credential encryption. Key records by tenant, principal, backend, platform, and account, and enforce grants before reading them. Encrypt connection records too: they can hold PKCE verifiers and private provider state.
 
-Token refresh is explicit. The SDK does not refresh tokens in the background; your code calls `refreshOAuthToken` (or `refreshBlueskyOAuthSession`) when a token nears expiry. Replace the stored credential with `compareAndSet` against the revision you read, so two concurrent refreshes cannot overwrite each other's rotated refresh token. See [connect accounts](/authentication).
+Token refresh runs when your application requests it. Configure a refresh hook on `CredentialManager` and call `resolve` to check expiry, or call `refreshOAuthToken` (or `refreshBlueskyOAuthSession`) explicitly. Use a shared refresh lock and credential revisions together. Compare-and-set alone cannot prevent two provider requests with the same rotating refresh token. Keep credentials whose access tokens have expired so the refresh token remains available. See [connect accounts](/authentication).
 
 ## Two separate authorization questions
 

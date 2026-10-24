@@ -567,6 +567,14 @@ describe("credential CAS lifecycle", () => {
     );
     assert.equal((await manager.get("account-b"))?.value.accessToken, "old");
 
+    const afterFailure = await manager.get("account-b");
+
+    assert.ok(afterFailure);
+    assert.equal(afterFailure.value.refreshState?.state, "uncertain");
+
+    // A new authorization replaces the uncertain credential before another refresh.
+    await manager.save("account-b", { accessToken: "reconnected" }, afterFailure.revision);
+
     const first = manager.rotate("account-b", async (current) => {
       await new Promise((resolve) => setTimeout(resolve, 2));
 
