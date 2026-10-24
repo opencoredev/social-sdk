@@ -126,7 +126,7 @@ if (!delivery) throw new Error("Reconcile the submission before retrying.");
 const outcome = await social.posts.getDelivery(delivery);
 ```
 
-`getDelivery` reads the video's `status`. It returns `processing` until the publishing phase completes, then `published` with a post reference whose `native.objectType` is `"video"`. A failed upload, processing, or publishing phase returns `failed` with code `media_error`.
+`getDelivery` reads the video's `status`. It returns `processing` until the publishing phase completes, then `published` with a post reference whose `native.objectType` is `"video"` once Facebook reports `publish_status: "published"`. A completed phase without that status, such as a draft, returns `unknown`. For feed and photo posts, `getDelivery` reports `published` only when `is_published` is true and `scheduled` only when the post has a publish time. A failed upload, processing, or publishing phase returns `failed` with code `media_error`.
 
 ### Schedule and cancel
 

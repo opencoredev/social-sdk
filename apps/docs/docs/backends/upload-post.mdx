@@ -86,7 +86,7 @@ await social.posts.publish(
 );
 ```
 
-The document's `filename` is shown as its title, and `content.text` is the commentary. Streams, `media-ref` sources, alt text, per-attachment captions, and thumbnails are rejected at preparation because Upload-Post documents no mapping for them.
+The document's `filename` is shown as its title, and `content.text` is the commentary. Upload-Post documents no scheduling for documents, so a scheduled document fails preparation with `upload_post.document_schedule` instead of publishing immediately. Streams, `media-ref` sources, alt text, per-attachment captions, and thumbnails are rejected at preparation because Upload-Post documents no mapping for them.
 
 ### Options
 

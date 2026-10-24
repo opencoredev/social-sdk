@@ -733,9 +733,21 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         }),
       );
 
-      return post["is_published"] === false
-        ? scheduled(account, 0, ref.deliveryId)
-        : published(account, 0, string(post["id"]));
+      // Require affirmative evidence: an unpublished post without a time may be a draft.
+      if (post["is_published"] === true) return published(account, 0, string(post["id"]));
+
+      if (post["is_published"] === false && post["scheduled_publish_time"] !== undefined)
+        return scheduled(account, 0, ref.deliveryId);
+
+      return {
+        state: "unknown",
+        targetIndex: 0,
+        account,
+        observedAt: now(),
+        delivery: delivery(account, ref.deliveryId),
+        reason: "unmapped-state",
+        diagnostic: "Facebook returned no publication state for this post.",
+      };
     }
 
     const video = object(
@@ -775,10 +787,23 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     if (publishing["publish_status"] === "scheduled") return scheduled(account, 0, ref.deliveryId);
 
-    if (publishing["status"] === "complete" && publishing["publish_status"] !== "draft")
+    if (publishing["status"] !== "complete")
+      return processing(account, 0, ref.deliveryId, videoStatus);
+
+    if (publishing["publish_status"] === "published")
       return published(account, 0, string(video["id"]), "video");
 
-    return processing(account, 0, ref.deliveryId, videoStatus);
+    // A completed phase without a published status may be a draft; do not call it published.
+    return {
+      state: "unknown",
+      targetIndex: 0,
+      account,
+      observedAt: now(),
+      delivery: delivery(account, ref.deliveryId),
+      backendState: optionalString(publishing["publish_status"]) ?? videoStatus,
+      reason: "unmapped-state",
+      diagnostic: "Facebook finished the video without reporting it as published.",
+    };
   };
 
   const listCommentReplies: FacebookNative["listCommentReplies"] = async (input) => {

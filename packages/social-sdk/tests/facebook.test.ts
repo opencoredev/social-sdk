@@ -265,6 +265,46 @@ describe("facebook pages adapter", () => {
     });
   });
 
+  it("requires affirmative publication evidence before reporting published", async () => {
+    const { adapter: fb } = adapter([
+      { id: "123_1", is_published: true },
+      { id: "123_2", is_published: false, scheduled_publish_time: 1793520000 },
+      { id: "123_3" },
+      { id: "123_4", is_published: false },
+      { id: "vid9", status: { video_status: "ready", publishing_phase: { status: "complete" } } },
+      {
+        id: "vid9",
+        status: {
+          video_status: "ready",
+          publishing_phase: { status: "complete", publish_status: "draft" },
+        },
+      },
+    ]);
+
+    const ref = (deliveryId: string) => ({
+      kind: "delivery" as const,
+      version: 1 as const,
+      backend: "default",
+      platform: "facebook",
+      accountId: "123",
+      deliveryId,
+    });
+
+    const states = [];
+
+    for (const id of ["123_1", "123_2", "123_3", "123_4", "vid9", "vid9"])
+      states.push((await fb.posts!.getDelivery!(ref(id), context)).state);
+
+    assert.deepEqual(states, [
+      "published",
+      "scheduled",
+      "unknown",
+      "unknown",
+      "unknown",
+      "unknown",
+    ]);
+  });
+
   it("publishes a Reel through start, hosted upload, and finish phases", async () => {
     const { calls, adapter: fb } = adapter([
       { video_id: "reel1", upload_url: "https://rupload.facebook.com/video-upload/v25.0/reel1" },

@@ -310,6 +310,13 @@ export function uploadPost(options: ManagedOptions) {
           "upload_post.document_title",
           "Name the document with a filename; Upload-Post shows it as the title.",
         );
+
+      // /upload_document documents no scheduled_date, so a schedule would publish immediately.
+      if (target.schedule !== undefined)
+        fail(
+          "upload_post.document_schedule",
+          "Upload-Post documents no scheduling for document posts; publish them without a schedule.",
+        );
     }
 
     if (

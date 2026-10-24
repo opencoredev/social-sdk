@@ -423,6 +423,47 @@ describe("upload-post managed backend", () => {
     assert.ok(codes.includes("options.unmapped"));
   });
 
+  it("rejects scheduled documents because the document route documents no schedule", async () => {
+    let calls = 0;
+
+    const social = createSocial({
+      backend: uploadPost({
+        apiKey: "key",
+        clock,
+        fetch: async () => {
+          calls += 1;
+
+          return Response.json({});
+        },
+      }),
+      clock,
+    });
+
+    const request = {
+      targets: [{ account: linkedin }],
+      content: {
+        text: "Deck",
+        media: [
+          {
+            kind: "document" as const,
+            mimeType: "application/pdf",
+            filename: "deck.pdf",
+            source: { kind: "https-url" as const, url: "https://cdn.example.com/deck.pdf" },
+          },
+        ],
+      },
+      schedule: { at: "2026-10-30T09:00:00.000Z" },
+    };
+
+    assert.ok(
+      social.posts
+        .prepare(request)
+        .issues.some((item) => item.code === "upload_post.document_schedule"),
+    );
+    await assert.rejects(social.posts.publish(request), { code: "invalid_input" });
+    assert.equal(calls, 0);
+  });
+
   it("removes published posts only on platforms Upload-Post can unpublish", async () => {
     const { calls, fetch } = recorder([{ success: true, message: "deleted" }]);
     const adapter = uploadPost({ apiKey: "key", fetch, clock });
