@@ -8,6 +8,7 @@ import type {
   ConnectedAccountRef,
   DeliveryOutcome,
   JsonObject,
+  JsonValue,
   MetricValue,
   PlatformPostRef,
   PreparedPublishTarget,
@@ -16,13 +17,21 @@ import type {
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { HttpError } from "../transport/http.js";
+import { metaOAuthReconnect } from "../transport/provider-errors.js";
 import { definedFields } from "../core/fields.js";
+import {
+  normalizeComment,
+  normalizeConversation,
+  normalizeMessage,
+  normalizeMetrics,
+} from "../core/projections.js";
 import {
   array,
   isBoolean,
   isJsonObject,
   isString,
   object,
+  optionalArray,
   optionalNumber,
   optionalString,
   string,
@@ -229,10 +238,20 @@ export function instagram(
       ? `https://graph.facebook.com/${apiVersion}`
       : `https://graph.instagram.com/${apiVersion}`;
 
-  const request = managedHttp(origin, {
+  const graphRequest = managedHttp(origin, {
     apiKey: options.auth.accessToken,
     ...definedFields({ fetch: options.fetch }),
   });
+
+  const request: typeof graphRequest = async (...args) => {
+    try {
+      return await graphRequest(...args);
+    } catch (error) {
+      if (error instanceof SocialError) throw metaOAuthReconnect(error);
+
+      throw error;
+    }
+  };
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
   const workflows = options.workflowStore ?? new MemoryInstagramWorkflowStore();
@@ -352,6 +371,31 @@ export function instagram(
     return { items, ...definedFields({ nextCursor }) };
   };
 
+  /** Keep the requested fields, including nested author, participant, and attachment records. */
+  const recordPage = (
+    result: JsonObject,
+    fields: readonly string[],
+    normalize: (record: JsonObject) => JsonObject,
+    cursorOnly = true,
+  ): Page<JsonObject> => {
+    const listed = page(result, [], cursorOnly);
+
+    const items = array(result["data"]).map((entry) => {
+      const data = object(entry);
+      const record: Record<string, JsonValue> = {};
+
+      for (const field of fields) {
+        const value = data[field];
+
+        if (value !== undefined) record[field] = value;
+      }
+
+      return normalize(record);
+    });
+
+    return { items, ...definedFields({ nextCursor: listed.nextCursor }) };
+  };
+
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
     context: AdapterOperationContext,
@@ -456,23 +500,27 @@ export function instagram(
         message: "Instagram returned metrics for a different account.",
       });
 
-    return (["followers_count", "media_count"] as const).flatMap((name) => {
-      const value = optionalNumber(result[name]);
+    const metrics: readonly MetricValue[] = (["followers_count", "media_count"] as const).flatMap(
+      (name) => {
+        const value = optionalNumber(result[name]);
 
-      return value === undefined
-        ? []
-        : [
-            {
-              name,
-              value,
-              unit: "count" as const,
-              period: "lifetime" as const,
-              fetchedAt: now(),
-              freshness: "unknown" as const,
-              source: `${flavor === "facebook-login" ? "Facebook Login" : "Instagram Login"} Graph v25.0`,
-            },
-          ];
-    });
+        return value === undefined
+          ? []
+          : [
+              {
+                name,
+                value,
+                unit: "count" as const,
+                period: "lifetime" as const,
+                fetchedAt: now(),
+                freshness: "unknown" as const,
+                source: `${flavor === "facebook-login" ? "Facebook Login" : "Instagram Login"} Graph v25.0`,
+              },
+            ];
+      },
+    );
+
+    return normalizeMetrics(metrics);
   };
 
   const publishContainer = async (
@@ -780,6 +828,37 @@ export function instagram(
     return page(result, tagFields, true);
   };
 
+  // Field lists from the IG Comment, Conversation, and Message references (Graph v25.0,
+  // accessed 2026-10-24):
+  // https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-comment
+  // https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/conversations-api
+  const commentFields = [
+    "id",
+    "text",
+    "timestamp",
+    "username",
+    "from",
+    "parent_id",
+    "like_count",
+  ] as const;
+
+  const conversationFields = ["id", "participants", "updated_time"] as const;
+
+  const messageFields = ["id", "message", "from", "to", "created_time", "attachments"] as const;
+
+  /** Cursors are interpolated into a field expansion, so only opaque cursor characters pass. */
+  const expansionCursor = (cursor: string) => {
+    if (!/^[A-Za-z0-9_\-=+/%.]{1,2048}$/.test(cursor))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "instagram.messages.read",
+        message: "Instagram message cursor is malformed.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return cursor;
+  };
+
   const requireInstagramLoginMessaging = (operation: string) => {
     if (flavor !== "instagram-login")
       throw new SocialError({
@@ -803,12 +882,13 @@ export function instagram(
     const result = validatedObject(
       await request(`/${encodeURIComponent(account.accountId)}/conversations`, context, undefined, {
         platform: "instagram",
+        fields: conversationFields.join(","),
         ...definedFields({ after: input.cursor, limit: limit?.toString() }),
       }),
       "instagram.messages.read",
     );
 
-    return page(result, ["id", "updated_time"], true);
+    return recordPage(result, conversationFields, normalizeConversation);
   };
 
   const listMessages = async (
@@ -819,10 +899,11 @@ export function instagram(
     authorize(conversation, context);
     requireInstagramLoginMessaging("instagram.messages.read");
     const limit = input.limit === undefined ? undefined : pageLimit(input.limit, 100);
+    const cursor = input.cursor === undefined ? undefined : expansionCursor(input.cursor);
 
     const result = validatedObject(
       await request(`/${encodeURIComponent(conversation.conversationId)}`, context, undefined, {
-        fields: `messages${limit === undefined ? "" : `.limit(${limit})`}${input.cursor === undefined ? "" : `.after(${input.cursor})`}`,
+        fields: `messages${limit === undefined ? "" : `.limit(${limit})`}${cursor === undefined ? "" : `.after(${cursor})`}{${messageFields.join(",")}}`,
       }),
       "instagram.messages.read",
     );
@@ -836,7 +917,63 @@ export function instagram(
         message: "Instagram returned no messages connection for the conversation.",
       });
 
-    return page(object(messages), ["id", "created_time"], true);
+    return recordPage(object(messages), messageFields, normalizeMessage);
+  };
+
+  /**
+   * Resolve the single other participant of an authorized conversation. A
+   * conversation ID is never a recipient ID, so group, self-only, and
+   * unidentifiable conversations are rejected instead of guessed.
+   */
+  const conversationRecipient = async (
+    conversation: ConversationRef,
+    context: AdapterOperationContext,
+  ): Promise<string> => {
+    const result = validatedObject(
+      await request(`/${encodeURIComponent(conversation.conversationId)}`, context, undefined, {
+        fields: "participants",
+      }),
+      "instagram.messages.write",
+    );
+
+    const participants = result["participants"];
+
+    const entries = isJsonObject(participants)
+      ? (optionalArray(participants["data"]) ?? [])
+      : (optionalArray(participants) ?? []);
+
+    const ids = entries.flatMap((entry) => {
+      const id = isJsonObject(entry) ? optionalString(entry["id"]) : undefined;
+
+      return id === undefined || id === "" ? [] : [id];
+    });
+
+    const others = [...new Set(ids)].filter((id) => id !== conversation.accountId);
+
+    if (
+      ids.length !== entries.length ||
+      !ids.includes(conversation.accountId) ||
+      others.length !== 1
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "instagram.messages.write",
+        message:
+          "The Instagram conversation must have exactly one identifiable participant besides this account. Use native.sendMessage with an explicit recipient ID.",
+        retryDisposition: { kind: "never" },
+      });
+
+    const [recipient] = others;
+
+    if (recipient === undefined)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "instagram.messages.write",
+        message: "The Instagram conversation has no recipient.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return recipient;
   };
 
   const sendMessage = async ({
@@ -905,6 +1042,12 @@ export function instagram(
             flavor === "facebook-login"
               ? ["instagram_basic", "instagram_content_publish", "pages_read_engagement"]
               : ["instagram_business_basic", "instagram_business_content_publish"],
+          // Mirrors prepareTarget: 1-10 public HTTPS items, JPEG images, MP4 or MOV video.
+          constraints: {
+            mediaSources: ["https-url" as const],
+            maxItems: 10,
+            allowedMimeTypes: ["image/jpeg", "video/mp4", "video/quicktime"],
+          },
           notes:
             "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping.",
         },
@@ -1061,16 +1204,21 @@ export function instagram(
               : ["instagram_basic", "instagram_manage_messages", "pages_manage_metadata"],
           notes:
             flavor === "instagram-login"
-              ? "Reads conversations and their recent message IDs through the Instagram Conversations API. The account must be a qualifying professional account and the app must have the required access level."
+              ? "Reads conversations with participants and messages with sender, recipients, text, timestamps, and attachments through the Instagram Conversations API. The account must be a qualifying professional account and the app must have the required access level."
               : "Facebook Login messaging is exposed through Messenger Platform with a linked Page access token; this adapter accepts an Instagram account token only.",
         },
         {
           platform: "instagram",
           operation: "messages.write",
-          availability: "not-implemented-by-adapter" as const,
+          availability:
+            flavor === "instagram-login"
+              ? ("available" as const)
+              : ("not-implemented-by-adapter" as const),
           requiredScopes: ["instagram_business_basic", "instagram_business_manage_messages"],
           notes:
-            "The normalized conversation reference does not carry the Instagram-scoped recipient ID required by POST /{ig-user-id}/messages. Use native.sendMessage with the recipient ID from a messaging webhook. Facebook Login remains on Messenger Platform with a linked Page access token.",
+            flavor === "instagram-login"
+              ? "Reads the conversation participants and sends to the single participant other than this account through POST /{ig-user-id}/messages. Group, self-only, and unidentifiable conversations are rejected; use native.sendMessage with an explicit recipient ID for those."
+              : "Facebook Login messaging is exposed through Messenger Platform with a linked Page access token; this adapter accepts an Instagram account token only.",
         },
         webhookCapability(
           "instagram",
@@ -1228,6 +1376,17 @@ export function instagram(
             await workflows.update(workflow.id, { childIds: [...children], stage: "children" });
           }
         } catch (error) {
+          // Code 190 rejects the token before any container is created; earlier children stay recorded.
+          if (error instanceof SocialError && error.code === "reconnect_required")
+            throw new SocialError({
+              code: "reconnect_required",
+              operation: "instagram.posts.publish",
+              message: error.message,
+              details: { createdContainerIds: children, workflowId: workflow.id },
+              retryDisposition: { kind: "after-reconnect" },
+              cause: error,
+            });
+
           if (error instanceof SocialError)
             throw new SocialError({
               code: "ambiguous_outcome",
@@ -1376,7 +1535,7 @@ export function instagram(
         authorize(ref, context);
 
         const query = {
-          fields: "id,text,timestamp,username",
+          fields: commentFields.join(","),
           limit: String(pageLimit(input.limit)),
           ...definedFields({ after: input.cursor }),
         };
@@ -1386,7 +1545,7 @@ export function instagram(
           "instagram.comments.read",
         );
 
-        return page(result, ["id", "text", "timestamp", "username"]);
+        return recordPage(result, commentFields, normalizeComment, false);
       },
       async reply(
         ref: CommentRef,
@@ -1407,13 +1566,23 @@ export function instagram(
     messages: {
       listConversations,
       listMessages,
-      send: async () => {
-        throw new SocialError({
-          code: "unsupported_capability",
-          operation: "messages.write",
-          message:
-            "Use Instagram native.sendMessage with the recipient's Instagram-scoped ID; a conversation reference does not contain that recipient ID.",
-          retryDisposition: { kind: "never" },
+      async send(conversation: ConversationRef, content: { readonly text: string }, context) {
+        authorize(conversation, context);
+        requireInstagramLoginMessaging("instagram.messages.write");
+
+        const recipientId = await conversationRecipient(conversation, context);
+
+        return sendMessage({
+          account: {
+            kind: "connected-account",
+            version: 1,
+            backend: conversation.backend,
+            platform: conversation.platform,
+            accountId: conversation.accountId,
+          },
+          recipientId,
+          text: content.text,
+          context,
         });
       },
     },
@@ -1442,7 +1611,7 @@ export function instagram(
           "instagram.analytics.read",
         );
 
-        return array(result["data"]).flatMap((entry) => {
+        const metrics: readonly MetricValue[] = array(result["data"]).flatMap((entry) => {
           const row = object(entry);
           const value = array(row["values"])[0];
 
@@ -1463,6 +1632,8 @@ export function instagram(
                 },
               ];
         });
+
+        return normalizeMetrics(metrics);
       },
     },
     graph: {

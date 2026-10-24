@@ -1,3 +1,4 @@
+import { normalizeMetrics } from "../core/projections.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
 
 export {
@@ -994,7 +995,7 @@ export function postiz(options: PostizOptions) {
           });
         }
 
-        return values;
+        return normalizeMetrics(values);
       },
     },
     native: {

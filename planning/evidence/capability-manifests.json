@@ -8468,6 +8468,13 @@
             "image",
             "video"
           ],
+          "constraints": {
+            "maxItems": 4,
+            "allowedMimeTypes": [
+              "image/*",
+              "video/mp4"
+            ]
+          },
           "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
@@ -8771,6 +8778,19 @@
             "users.read",
             "media.write"
           ],
+          "constraints": {
+            "mediaSources": [
+              "blob"
+            ],
+            "maxItems": 4,
+            "maxBytes": 17179869184,
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png",
+              "image/gif",
+              "video/mp4"
+            ]
+          },
           "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to the 16 GiB upload ceiling (account size/duration eligibility may be lower) / one GIF up to 15 MiB via 4 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. Self-serve replies require a parent-author mention or quote summoning this account; Enterprise is exempt (February 2026 changelog)."
         },
         {
@@ -9237,7 +9257,20 @@
           "requiredScopes": [
             "threads_basic",
             "threads_content_publish"
-          ]
+          ],
+          "constraints": {
+            "mediaSources": [
+              "https-url"
+            ],
+            "maxItems": 20,
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/png",
+              "video/mp4",
+              "video/quicktime"
+            ]
+          },
+          "notes": "content.link.url is sent as link_attachment on text posts; posts with media reject a link."
         },
         {
           "operation": "posts.schedule",
@@ -9511,6 +9544,16 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube.upload"
           ],
+          "constraints": {
+            "mediaSources": [
+              "blob",
+              "stream"
+            ],
+            "maxItems": 1,
+            "allowedMimeTypes": [
+              "video/*"
+            ]
+          },
           "notes": "Unaudited projects may be restricted to private visibility. Upload completion and video processing are separate."
         },
         {
@@ -9786,14 +9829,49 @@
           "operation": "posts.publish",
           "availability": "available",
           "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "video.publish"
+          ],
+          "constraints": {
+            "mediaSources": [
+              "https-url",
+              "blob",
+              "stream"
+            ],
+            "maxItems": 1,
+            "maxBytes": 4294967296,
+            "allowedMimeTypes": [
+              "video/mp4",
+              "video/quicktime",
+              "video/webm"
+            ]
+          },
+          "notes": "Videos use a verified URL (PULL_FROM_URL) or a Blob or sized stream (chunked FILE_UPLOAD); photos use verified URLs only. Explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload."
+        },
+        {
+          "platform": "tiktok",
+          "operation": "posts.publish",
+          "availability": "available",
+          "formats": [
             "image",
-            "video",
             "carousel"
           ],
           "requiredScopes": [
             "video.publish"
           ],
-          "notes": "Verified URL source; explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload."
+          "constraints": {
+            "mediaSources": [
+              "https-url"
+            ],
+            "maxItems": 35,
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "image/webp"
+            ]
+          },
+          "notes": "Photos require PULL_FROM_URL on an origin verified for the TikTok app. Local photos require mediaStaging."
         },
         {
           "platform": "tiktok",
@@ -9836,9 +9914,26 @@
           "platform": "tiktok",
           "operation": "posts.draft",
           "availability": "available",
+          "formats": [
+            "video"
+          ],
           "requiredScopes": [
             "video.upload"
-          ]
+          ],
+          "constraints": {
+            "mediaSources": [
+              "https-url",
+              "blob",
+              "stream"
+            ],
+            "maxItems": 1,
+            "maxBytes": 4294967296,
+            "allowedMimeTypes": [
+              "video/mp4",
+              "video/quicktime",
+              "video/webm"
+            ]
+          }
         },
         {
           "platform": "tiktok",
@@ -9927,6 +10022,17 @@
             "instagram_business_basic",
             "instagram_business_content_publish"
           ],
+          "constraints": {
+            "mediaSources": [
+              "https-url"
+            ],
+            "maxItems": 10,
+            "allowedMimeTypes": [
+              "image/jpeg",
+              "video/mp4",
+              "video/quicktime"
+            ]
+          },
           "notes": "Professional accounts, public HTTPS media, explicit native continuation for processing containers. Carousels must have matching aspect ratios to avoid upstream cropping."
         },
         {
@@ -10089,17 +10195,17 @@
             "instagram_business_basic",
             "instagram_business_manage_messages"
           ],
-          "notes": "Reads conversations and their recent message IDs through the Instagram Conversations API. The account must be a qualifying professional account and the app must have the required access level."
+          "notes": "Reads conversations with participants and messages with sender, recipients, text, timestamps, and attachments through the Instagram Conversations API. The account must be a qualifying professional account and the app must have the required access level."
         },
         {
           "platform": "instagram",
           "operation": "messages.write",
-          "availability": "not-implemented-by-adapter",
+          "availability": "available",
           "requiredScopes": [
             "instagram_business_basic",
             "instagram_business_manage_messages"
           ],
-          "notes": "The normalized conversation reference does not carry the Instagram-scoped recipient ID required by POST /{ig-user-id}/messages. Use native.sendMessage with the recipient ID from a messaging webhook. Facebook Login remains on Messenger Platform with a linked Page access token."
+          "notes": "Reads the conversation participants and sends to the single participant other than this account through POST /{ig-user-id}/messages. Group, self-only, and unidentifiable conversations are rejected; use native.sendMessage with an explicit recipient ID for those."
         },
         {
           "platform": "instagram",
@@ -10142,6 +10248,12 @@
           "requiredScopes": [
             "w_member_social"
           ],
+          "constraints": {
+            "mediaSources": [
+              "media-ref"
+            ],
+            "maxItems": 20
+          },
           "notes": "Explicit member author and public visibility. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts."
         },
         {

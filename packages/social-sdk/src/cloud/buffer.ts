@@ -1,3 +1,4 @@
+import { normalizeMetrics } from "../core/projections.js";
 import { createHash, randomBytes } from "node:crypto";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
@@ -1345,7 +1346,7 @@ export function buffer(options: BufferOptions) {
             message: "Buffer reports metrics only after a post is sent.",
           });
 
-        return postMetrics(row, ref.platform);
+        return normalizeMetrics(postMetrics(row, ref.platform));
       },
     },
   });

@@ -52,3 +52,49 @@ Fetched on 2026-10-18; local source copies: `/tmp/pr-reviews/linkedin-{images,vi
 `tests/linkedin-audit.test.ts` checks both author types, the image restriction, and scope guidance;
 generated capability reference and manifest are regenerated from the built adapter. This is
 documented and contract-tested, not live-verified or released. No provider calls were authorized.
+
+
+## Track 6: normalized inbox, analytics and local media (2026-10-24)
+
+SOC-10, with SOC-11 (core), SOC-12 (adapters) and SOC-13 (TikTok). Implemented
+on `feat/track-6-normalized-inbox-media`; no remote writes or provider mutations.
+
+- PASS: canonical metric names preserve existing names, units, periods and unknown
+  counters across all seven direct adapters and five managed backends. Evidence:
+  `packages/social-sdk/tests/track6-projections.test.ts`, `track6-adapters.test.ts`,
+  `track6-tiktok-upload.test.ts`, managed and direct account-metric regressions.
+- PASS: normalized comments, messages and conversations retain selected provider
+  fields in `native`. Instagram requests message bodies, participants and timestamps,
+  and resolves recipients through an authorized conversation read. Evidence:
+  `track6-adapters.test.ts`, `track6-projections.test.ts`, `instagram.test.ts`.
+- PASS: cross-account inbox reads preserve independent source failures, exhaustion,
+  pagination and tenant authorization on every call. Long provider cursors resume
+  without losing fetched pages. Evidence: `track6-core.test.ts`,
+  `track6-consumer.test.ts`. The page limit applies per source; at most 50 sources
+  are aggregated. Cursors contain bounded raw provider cursors and can be large.
+- PASS: optional application-owned media staging runs after authorization and
+  idempotency checks, revalidates actual URLs, observes cancellation and the publish
+  budget, and cleans copies only after publication or before submission. Late
+  staging results are cleaned; cleanup failures preserve delivery outcomes.
+  Accepted, processing, scheduled, failed and unknown deliveries retain copies
+  for application-owned expiry. Evidence: `track6-core.test.ts`,
+  `track6-consumer.test.ts`; public-client Instagram/TikTok photo cross-post.
+- PASS: `bytes` copies in-memory data and computes a Web Crypto SHA-256 identity.
+  TikTok FILE_UPLOAD transfers local videos in bounded chunks with exact sizes and
+  preserves uncertain outcomes and delivery IDs. Evidence: `track6-core.test.ts`,
+  `track6-tiktok-upload.test.ts`, `tiktok.test.ts`.
+- PASS: machine-readable media constraints are checked during preparation and by
+  the real CLI process. Evidence: `track6-core.test.ts`, `track6-consumer.test.ts`.
+- PASS: X bookmark pagination, edit-history projection and image alt metadata;
+  Threads link attachments; YouTube category metadata; LinkedIn comment cursor
+  advancement; Meta OAuth 190 reconnect classification. Evidence:
+  `track6-adapters.test.ts` and targeted existing adapter regressions.
+- PASS: source, test and type-test TypeScript configurations; touched-file lint and
+  formatting checks. Capability declarations regenerated from source (634),
+  including media constraints and Instagram messaging.
+- NOT CHECKED: live providers, account eligibility, app approval, real storage
+  staging and live TikTok upload host responses. No live calls were authorized.
+- NOT PERFORMED: full-repository suites, release checks, push, PR, merge or npm
+  publication. The task restricts verification to bounded targeted checks and
+  requires a local commit for review. A minor Changeset records the public API
+  additions and LinkedIn comment-ID migration.

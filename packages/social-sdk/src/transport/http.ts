@@ -25,7 +25,8 @@ export interface HttpErrorData {
     | "idempotency_conflict"
     | "quotaExceeded"
     | "usage-capped"
-    | "media-duration-exceeded";
+    | "media-duration-exceeded"
+    | "oauth-token-invalid";
   readonly existingPostId?: string;
 }
 

@@ -1,3 +1,4 @@
+import { normalizeMetrics } from "../core/projections.js";
 import { managedLifecycle } from "./lifecycle.js";
 import { managedMedia } from "./media.js";
 
@@ -557,7 +558,7 @@ export function postForMe(options: ManagedOptions) {
           });
         }
 
-        return result;
+        return normalizeMetrics(result);
       },
     },
     webhooks: {

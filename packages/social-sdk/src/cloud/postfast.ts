@@ -1,3 +1,4 @@
+import { normalizeMetrics } from "../core/projections.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
 
 export {
@@ -817,7 +818,7 @@ export function postfast(options: ManagedOptions) {
         push("totalWatchTime", optionalNumber(metrics["totalWatchTimeSeconds"]), "seconds");
         push("saveRate", optionalNumber(metrics["saveRate"]), "percentage");
 
-        return values;
+        return normalizeMetrics(values);
       },
     },
     native: {
