@@ -9,7 +9,9 @@ export interface StagedMedia {
    * fetch the URL: after a `published` outcome, or when the target never reached
    * the platform. Every other outcome (`accepted`, `processing`, `scheduled`,
    * `failed`, `unknown`) keeps the copy, so storage should also expire on a TTL
-   * the application controls. A rejected cleanup never changes the outcome.
+   * the application controls. Cleanup failures never change the outcome. The SDK
+   * waits at most one second for a cleanup batch, independently of the publish
+   * budget or cancellation. Unsettled callbacks may continue after it returns.
    */
   readonly cleanup?: () => Promise<void>;
 }

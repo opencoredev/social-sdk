@@ -69,8 +69,11 @@ media; publishing stages only authorized targets after checking idempotency.
 submitted. Accepted, processing, scheduled, failed, and uncertain deliveries
 retain their staged copies because the provider may still fetch them. Configure
 storage expiry long enough for processing and reconciliation. Cleanup failures
-do not change a delivery result. Retrieving delivery status does not run cleanup
-for copies retained by an earlier call.
+do not change a delivery result. The SDK waits at most one second for all cleanup
+callbacks in a batch, independently of the publish budget or cancellation.
+Callbacks may continue after the result returns, so storage expiry remains
+necessary. Retrieving delivery status does not run cleanup for copies retained
+by an earlier call.
 
 ## Streams are bounded and replayable
 

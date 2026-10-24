@@ -2505,7 +2505,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             if (items.length === target) return pageFrom(eventCursor);
             seenSet.add(hash);
             seen.push(hash);
-            items.push(normalizeConversation(event));
+            items.push(normalizeConversation({ ...event, id: conversationId, native: event }));
           }
 
           if (page.nextCursor === undefined) return { items };

@@ -76,6 +76,58 @@ it("a synchronously throwing storage cleanup cannot replace a published outcome"
   assert.equal(result.outcomes[0]?.state, "published");
 });
 
+it("a stalled cleanup cannot hold a confirmed publication beyond its cleanup grace", async () => {
+  let finishCleanup = () => {};
+
+  const cleanup = new Promise<void>((resolve) => {
+    finishCleanup = resolve;
+  });
+
+  const social = createSocial({
+    backend: urlAdapter(),
+    mediaStaging: {
+      stageMedia: async () => ({
+        url: "https://media.example.test/image.jpg",
+        cleanup: async () => cleanup,
+      }),
+    },
+  });
+
+  const publish = social.posts.publish({
+    targets: [
+      {
+        account: connectedAccountRef({
+          backend: "default",
+          platform: "instagram",
+          accountId: "ig1",
+        }),
+      },
+    ],
+    content: { media: [{ kind: "image", source: await bytes(new Uint8Array([1])) }] },
+  });
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const result = await Promise.race([
+      publish,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), 5000);
+      }),
+    ]);
+
+    assert.ok(
+      result !== undefined,
+      "stalled cleanup must not prevent returning the delivery result",
+    );
+    assert.equal(result.outcomes[0]?.state, "published");
+  } finally {
+    clearTimeout(timer);
+    finishCleanup();
+    await publish;
+  }
+});
+
 it("staging respects the publish budget and cleans a late result without submitting it", async () => {
   let finish: (value: StagedMedia) => void = () => {
     throw new Error("stage did not start");
