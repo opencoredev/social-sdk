@@ -1,6 +1,7 @@
 // About, contact, and privacy pages. They share one hand-drawn shell with the
 // brand page's look; each page supplies its copy here.
 import shell from "./info.html?raw";
+import { withOpenCoreSites } from "../../opencore-footer";
 
 type InfoPage = {
   path: string;
@@ -220,9 +221,11 @@ export function renderShell(page: Shell): string {
     ["<!-- @content -->", page.content],
   ]);
 
-  return shell.replace(
-    /<!-- @(?:meta|content) -->|@(?:kicker|heading|lede)\b/g,
-    (token) => fields.get(token) ?? token,
+  return withOpenCoreSites(
+    shell.replace(
+      /<!-- @(?:meta|content) -->|@(?:kicker|heading|lede)\b/g,
+      (token) => fields.get(token) ?? token,
+    ),
   );
 }
 
@@ -239,6 +242,11 @@ export function siteMeta(page: { path: string; title: string; description: strin
     <meta property="og:title" content="${page.title}" />
     <meta property="og:description" content="${page.description}" />
     <meta property="og:image" content="https://social-sdk.dev/og-home.png" />
+    <meta property="og:video" content="https://social-sdk.dev/og/og-video.mp4" />
+    <meta property="og:video:secure_url" content="https://social-sdk.dev/og/og-video.mp4" />
+    <meta property="og:video:type" content="video/mp4" />
+    <meta property="og:video:width" content="2400" />
+    <meta property="og:video:height" content="1260" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@leodev" />`;
 }
