@@ -184,6 +184,8 @@ export default defineConfig({
               icon: "puzzle",
             },
             { label: "Integrate with an agent", root: "/agents/integrate-social-sdk", icon: "bot" },
+            { label: "AI agent tools", root: "/agents/ai-tools", icon: "wrench" },
+            { label: "MCP server", root: "/agents/mcp-server", icon: "plug" },
             {
               label: "Integration checklist",
               root: "/agents/integration-checklist",
