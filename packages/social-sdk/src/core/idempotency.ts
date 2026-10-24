@@ -24,6 +24,19 @@ export interface IdempotencyStore {
     readonly targetKey: string;
     readonly outcome: DeliveryOutcome;
   }): Promise<void>;
+  /**
+   * Atomically replaces one target outcome only when the stored outcome still equals
+   * `expected` (compared by {@link stableSerialize}; `undefined` means none was recorded).
+   * Returns false without writing when another writer changed it first. Optional so
+   * existing stores stay source-compatible; `posts.reconcile` and `posts.retryFailed`
+   * require it.
+   */
+  compareAndSetOutcome?(input: {
+    readonly claimId: string;
+    readonly targetKey: string;
+    readonly expected: DeliveryOutcome | undefined;
+    readonly outcome: DeliveryOutcome;
+  }): Promise<boolean>;
 }
 
 type JsonScalar = string | boolean | null;

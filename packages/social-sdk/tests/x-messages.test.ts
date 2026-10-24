@@ -16,6 +16,7 @@ const conversation = {
 
 it("lists X conversations and messages and sends through social.messages", async () => {
   const requests: { url: URL; method: string; body: string | undefined }[] = [];
+  let latestMessageId = "e3";
 
   const social = createSocial({
     backend: x({
@@ -40,7 +41,7 @@ it("lists X conversations and messages and sends through social.messages", async
         if (url.pathname === "/2/dm_events")
           return Response.json({
             data: [
-              { id: "e3", text: "latest", dm_conversation_id: "c1" },
+              { id: latestMessageId, text: "latest", dm_conversation_id: "c1" },
               { id: "e2", text: "older", dm_conversation_id: "c1" },
               { id: "e1", text: "other", dm_conversation_id: "c2" },
             ],
@@ -61,7 +62,7 @@ it("lists X conversations and messages and sends through social.messages", async
   const conversations = await social.messages.listConversations(account, { limit: 2 });
   assert.deepEqual(
     conversations.items.map((item) => item["id"]),
-    ["e3", "e1"],
+    ["c1", "c2"],
   );
   assert.ok(conversations.nextCursor !== undefined);
   assert.equal(requests[0]?.url.searchParams.get("max_results"), "2");
@@ -80,19 +81,31 @@ it("lists X conversations and messages and sends through social.messages", async
   // c2 was already returned, so the second page only yields the new conversation.
   assert.deepEqual(
     more.items.map((item) => item["id"]),
-    ["e0"],
+    ["c3"],
   );
   assert.equal(more.nextCursor, undefined);
 
-  const messages = await social.messages.listMessages(conversation);
+  const first = conversations.items[0];
+  assert.ok(first !== undefined);
+  assert.ok(first.id !== undefined);
+  assert.equal(first.native["id"], "e3");
+  assert.equal(first.native["dm_conversation_id"], "c1");
+
+  const listedConversation = { ...conversation, conversationId: first.id };
+  const messages = await social.messages.listMessages(listedConversation);
   assert.equal(messages.items[0]?.["text"], "latest");
   assert.equal(messages.nextCursor, undefined);
 
-  const sent = await social.messages.send(conversation, { text: "hi" });
+  const sent = await social.messages.send(listedConversation, { text: "hi" });
   assert.deepEqual(sent, { data: { dm_event_id: "e4", dm_conversation_id: "c1" } });
   const send = requests.at(-1);
   assert.equal(send?.method, "POST");
   assert.deepEqual(JSON.parse(send?.body ?? "{}"), { text: "hi" });
+
+  latestMessageId = "e5";
+  const refreshed = await social.messages.listConversations(account, { limit: 2 });
+  assert.equal(refreshed.items[0]?.id, "c1");
+  assert.equal(refreshed.items[0]?.native["id"], "e5");
 
   const available = social
     .capabilities()

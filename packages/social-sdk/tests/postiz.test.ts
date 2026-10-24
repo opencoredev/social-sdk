@@ -55,7 +55,7 @@ it("Postiz sends the raw API key and maps supported channels", async () => {
 
       return Response.json([
         { id: "int1", name: "Demo", identifier: "x", profile: "demo", disabled: false },
-        { id: "int9", name: "Pins", identifier: "pinterest", profile: "pins", disabled: false },
+        { id: "int9", name: "Lemmy", identifier: "lemmy", profile: "forum", disabled: false },
         {
           id: "int2",
           name: "Page",
@@ -654,6 +654,10 @@ it("Postiz reads post analytics and creates OAuth connect links", async () => {
   };
 
   const metrics = await adapter.analytics.getPostMetrics(post, context);
+  assert.deepEqual(
+    metrics.map((metric) => metric.canonicalName),
+    ["impressions", "clicks"],
+  );
 
   assert.deepEqual(
     metrics.map((metric) => [metric.name, metric.value, metric.measuredAt, metric.source]),

@@ -25,8 +25,20 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { remainingBudget } from "../transport/budget.js";
 import { verifyTikTokWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
+import { normalizeMetrics } from "../core/projections.js";
+import {
+  isTikTokChunkBytes,
+  localTikTokVideo,
+  tiktokDefaultChunkBytes,
+  tiktokMaxVideoBytes,
+  tiktokVideoMimeTypes,
+  tiktokUploadUrl,
+  transferTikTokVideo,
+  type TikTokLocalVideo,
+} from "./tiktok-upload.js";
 
 export interface TikTokOptions {
   readonly auth: { readonly accessToken: string; readonly openId: string };
@@ -38,6 +50,8 @@ export interface TikTokOptions {
   readonly webhookSecret?: string;
   /** Accepted age of a signed webhook timestamp, in seconds. Defaults to 300. */
   readonly webhookToleranceSeconds?: number;
+  /** Preferred FILE_UPLOAD chunk size, 5 to 64 MiB. Defaults to 10 MiB. */
+  readonly uploadChunkBytes?: number;
 }
 
 export interface TikTokNative {
@@ -142,6 +156,15 @@ export function tiktok(
       code: "invalid_config",
       operation: "createAdapter",
       message: "Configure the selected provider's server-side API key.",
+    });
+
+  const chunkBytes = options.uploadChunkBytes ?? tiktokDefaultChunkBytes;
+
+  if (!isTikTokChunkBytes(chunkBytes))
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "createAdapter",
+      message: "TikTok uploadChunkBytes must be an integer from 5 MiB through 64 MiB.",
     });
 
   const request: ReturnType<typeof managedHttp> = async (...args) => {
@@ -366,10 +389,34 @@ export function tiktok(
       fail("tiktok.cover", "Select a photo cover index within the attached images.");
 
     for (const item of media) {
+      if (
+        item.kind === "video" &&
+        (!Number.isFinite(item.durationSeconds) || (item.durationSeconds ?? 0) <= 0)
+      )
+        fail(
+          "tiktok.duration",
+          "Provide known video duration to check the creator's duration limit.",
+        );
+
+      if (item.source.kind === "blob" || item.source.kind === "stream") {
+        if (item.kind !== "video") {
+          fail(
+            "tiktok.source",
+            "TikTok photos use PULL_FROM_URL. Stage local photos to your TikTok-verified origin first.",
+          );
+          continue;
+        }
+
+        const local = localTikTokVideo(item, item.source, chunkBytes);
+
+        if (local.kind === "invalid") fail(local.code, local.message);
+        continue;
+      }
+
       if (item.source.kind !== "https-url") {
         fail(
           "tiktok.source",
-          "This slice uses verified PULL_FROM_URL media. Supply a URL on your TikTok-verified origin.",
+          "Supply a URL on your TikTok-verified origin, or a Blob or stream video for FILE_UPLOAD.",
         );
         continue;
       }
@@ -392,15 +439,6 @@ export function tiktok(
         ).includes(mime)
       )
         fail("tiktok.mime", "Unsupported media MIME type for TikTok publishing.");
-
-      if (
-        item.kind === "video" &&
-        (!Number.isFinite(item.durationSeconds) || (item.durationSeconds ?? 0) <= 0)
-      )
-        fail(
-          "tiktok.duration",
-          "Provide known video duration to check the creator's duration limit.",
-        );
     }
 
     if (target.schedule || target.replyTo || target.content.link)
@@ -428,10 +466,30 @@ export function tiktok(
           platform: "tiktok",
           operation: "posts.publish",
           availability: "available" as const,
-          formats: ["image" as const, "video" as const, "carousel" as const],
+          formats: ["video" as const],
           requiredScopes: ["video.publish"],
+          constraints: {
+            mediaSources: ["https-url", "blob", "stream"],
+            maxItems: 1,
+            maxBytes: tiktokMaxVideoBytes,
+            allowedMimeTypes: tiktokVideoMimeTypes,
+          },
           notes:
-            "Verified URL source; explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload.",
+            "Videos use a verified URL (PULL_FROM_URL) or a Blob or sized stream (chunked FILE_UPLOAD); photos use verified URLs only. Explicit creator choices/consent. Public posting requires app audit. Draft mode uses video.upload.",
+        },
+        {
+          platform: "tiktok",
+          operation: "posts.publish",
+          availability: "available" as const,
+          formats: ["image" as const, "carousel" as const],
+          requiredScopes: ["video.publish"],
+          constraints: {
+            mediaSources: ["https-url"],
+            maxItems: 35,
+            allowedMimeTypes: ["image/jpeg", "image/webp"],
+          },
+          notes:
+            "Photos require PULL_FROM_URL on an origin verified for the TikTok app. Local photos require mediaStaging.",
         },
         {
           platform: "tiktok",
@@ -469,7 +527,14 @@ export function tiktok(
           platform: "tiktok",
           operation: "posts.draft",
           availability: "available" as const,
+          formats: ["video"],
           requiredScopes: ["video.upload"],
+          constraints: {
+            mediaSources: ["https-url", "blob", "stream"],
+            maxItems: 1,
+            maxBytes: tiktokMaxVideoBytes,
+            allowedMimeTypes: tiktokVideoMimeTypes,
+          },
         },
         {
           platform: "tiktok",
@@ -682,9 +747,34 @@ export function tiktok(
             message: "TikTok branded content cannot use private visibility.",
           });
 
-        const latest = draft ? undefined : await creatorInfo(target.account, context);
         const media = target.content.media ?? [];
         const first = media[0];
+        let local: TikTokLocalVideo | undefined;
+
+        // Check every source before any provider request.
+        if (first?.source.kind === "blob" || first?.source.kind === "stream") {
+          const resolved =
+            first.kind === "video" && media.length === 1
+              ? localTikTokVideo(first, first.source, chunkBytes)
+              : undefined;
+
+          if (resolved?.kind !== "valid")
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "posts.publish",
+              message:
+                resolved?.message ??
+                "TikTok photos use PULL_FROM_URL. Stage local photos to a verified origin first.",
+            });
+          local = resolved.video;
+        } else if (!first || media.some((item) => item.source.kind !== "https-url"))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.publish",
+            message: "Verified media URL required.",
+          });
+
+        const latest = draft ? undefined : await creatorInfo(target.account, context);
 
         const privacy = config["privacy"];
 
@@ -715,13 +805,6 @@ export function tiktok(
               message:
                 "Creator interaction restrictions changed. Refresh the preview before publishing.",
             });
-
-        if (!first || first.source.kind !== "https-url")
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "posts.publish",
-            message: "Verified media URL required.",
-          });
 
         const maxDuration = latest?.["maxVideoDurationSeconds"];
 
@@ -762,7 +845,17 @@ export function tiktok(
                         is_aigc: config["aiGenerated"] === true,
                       },
                 }),
-                source_info: { source: "PULL_FROM_URL", video_url: first.source.url },
+                source_info: local
+                  ? {
+                      source: "FILE_UPLOAD",
+                      video_size: local.plan.videoSize,
+                      chunk_size: local.plan.chunkSize,
+                      total_chunk_count: local.plan.totalChunkCount,
+                    }
+                  : {
+                      source: "PULL_FROM_URL",
+                      video_url: first.source.kind === "https-url" ? first.source.url : "",
+                    },
               },
             ),
           );
@@ -788,21 +881,94 @@ export function tiktok(
             }),
           );
 
-        return {
-          state: "accepted",
+        const accepted = {
           account: target.account,
           targetIndex: target.targetIndex,
-          observedAt: now(),
-          backendState: "INITIALIZED",
           delivery: {
-            kind: "delivery",
-            version: 1,
+            kind: "delivery" as const,
+            version: 1 as const,
             backend: target.account.backend,
             platform: "tiktok",
             accountId: target.account.accountId,
             deliveryId: string(result["publish_id"]),
           },
         };
+
+        if (!local)
+          return { ...accepted, state: "accepted", observedAt: now(), backendState: "INITIALIZED" };
+
+        // From here TikTok holds an initialized post: every outcome keeps its publish_id.
+        const issuedUrl = optionalString(result["upload_url"]);
+        const uploadUrl = issuedUrl === undefined ? undefined : tiktokUploadUrl(issuedUrl);
+
+        if (!uploadUrl)
+          return {
+            ...accepted,
+            state: "failed",
+            observedAt: now(),
+            backendState: "INITIALIZED",
+            code: "upstream_failure",
+            message:
+              "TikTok returned an upload URL outside its known upload hosts. No video bytes were sent.",
+            retryDisposition: { kind: "reconcile-first" },
+          };
+
+        let timeoutMs = 0;
+
+        try {
+          timeoutMs = remainingBudget(context);
+        } catch {
+          // An exhausted budget fails the transfer below without discarding the publish_id.
+        }
+
+        const transfer = await transferTikTokVideo({
+          uploadUrl,
+          video: local,
+          fetch: options.fetch ?? globalThis.fetch,
+          signal: context.signal,
+          timeoutMs,
+        });
+
+        switch (transfer.kind) {
+          case "complete":
+            return {
+              ...accepted,
+              state: "processing",
+              observedAt: now(),
+              backendState: "PROCESSING_UPLOAD",
+            };
+          case "failed":
+            return {
+              ...accepted,
+              state: "failed",
+              observedAt: now(),
+              backendState: "INITIALIZED",
+              code: transfer.code,
+              message: transfer.message,
+              retryDisposition: { kind: "reconcile-first" },
+            };
+          case "uncertain":
+            return {
+              ...accepted,
+              state: "unknown",
+              observedAt: now(),
+              reason: "ambiguous-submission",
+              diagnostic: transfer.message,
+            };
+          case "cancelled":
+            return {
+              ...accepted,
+              state: "cancelled",
+              observedAt: now(),
+              backendState: "INITIALIZED",
+              reason: "The TikTok upload was cancelled before its final chunk.",
+            };
+          default: {
+            const _exhaustive: never = transfer;
+
+            return _exhaustive;
+          }
+        }
       },
       async getDelivery(
         ref: { backend: string; platform: string; accountId: string; deliveryId: string },
@@ -913,24 +1079,26 @@ export function tiktok(
           });
         const fetchedAt = now();
 
-        return (["like_count", "comment_count", "share_count", "view_count"] as const).flatMap(
-          (field) => {
-            const value = row[field];
+        return normalizeMetrics(
+          (["like_count", "comment_count", "share_count", "view_count"] as const).flatMap(
+            (field) => {
+              const value = row[field];
 
-            return isFiniteNumber(value)
-              ? [
-                  {
-                    name: field,
-                    value,
-                    unit: "count" as const,
-                    period: "lifetime" as const,
-                    fetchedAt,
-                    freshness: "unknown" as const,
-                    source: "tiktok:video.query",
-                  },
-                ]
-              : [];
-          },
+              return isFiniteNumber(value)
+                ? [
+                    {
+                      name: field,
+                      value,
+                      unit: "count" as const,
+                      period: "lifetime" as const,
+                      fetchedAt,
+                      freshness: "unknown" as const,
+                      source: "tiktok:video.query",
+                    },
+                  ]
+                : [];
+            },
+          ),
         );
       },
       async getAccountMetrics(
@@ -956,25 +1124,28 @@ export function tiktok(
           });
         const fetchedAt = now();
 
-        return (
-          ["follower_count", "following_count", "likes_count", "video_count"] as const
-        ).flatMap((field) => {
-          const value = user[field];
+        // likes_count counts likes received across all videos, so it has no canonical counter.
+        return normalizeMetrics(
+          (["follower_count", "following_count", "likes_count", "video_count"] as const).flatMap(
+            (field) => {
+              const value = user[field];
 
-          return isFiniteNumber(value)
-            ? [
-                {
-                  name: field,
-                  value,
-                  unit: "count" as const,
-                  period: "lifetime" as const,
-                  fetchedAt,
-                  freshness: "unknown" as const,
-                  source: "tiktok:user.info.stats",
-                },
-              ]
-            : [];
-        });
+              return isFiniteNumber(value)
+                ? [
+                    {
+                      name: field,
+                      value,
+                      unit: "count" as const,
+                      period: "lifetime" as const,
+                      fetchedAt,
+                      freshness: "unknown" as const,
+                      source: "tiktok:user.info.stats",
+                    },
+                  ]
+                : [];
+            },
+          ),
+        );
       },
     },
     native: {

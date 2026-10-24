@@ -91,6 +91,10 @@ console.log(result.outcomes[0]?.state);
 
 The normalized adapter accepts static JPEG/PNG images, MP4 video, and GIF images as Blobs. Static images are at most 5 MiB each, with up to four per post. A post can instead attach one video or one GIF. The capability manifest lists `text`, `image`, and `video`; GIF is represented by the native image shape and is not a separate normalized format.
 
+Set an image attachment's `altText` to upload accessibility metadata before
+creating the post. The adapter accepts up to 1,000 Unicode characters and stops
+publication if the metadata upload fails.
+
 ```ts
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";

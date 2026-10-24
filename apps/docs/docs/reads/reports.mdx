@@ -14,7 +14,7 @@ const report = await social.analytics.getReport(account, {
 });
 ```
 
-`getAccountMetrics` returns `MetricValue[]`. Items contain `name`, numeric `value`,
+`getAccountMetrics` and `getPostMetrics` return `MetricValue[]`. Items contain `name`, numeric `value`,
 `unit`, `period`, `fetchedAt`, `freshness`, and `source`.
 `getReport` returns `{ query, rows, fetchedAt, source }`; each row contains
 `dimensions` and numeric `metrics`. The query also accepts `dimensions`, such as
@@ -22,10 +22,23 @@ const report = await social.analytics.getReport(account, {
 `YYYY-MM-DD` dates, at least one metric, and nonempty names. Invalid input
 raises `invalid_input`.
 
-Metric names are not normalized across platforms. Each adapter emits its own
-names, and some rename provider fields, so the tabs below list the exact names
-and periods each route returns. A name missing from the result means the
-provider did not return it, not zero.
+Each metric keeps its existing provider `name` and adds `canonicalName` when
+the counter has a portable equivalent: `views`, `likes`, `comments`, `shares`,
+`impressions`, `reach`, `saves`, `clicks`, `followers`, or `profile_views`.
+For example, YouTube's `viewCount` maps to `views`, X's `replies` maps to
+`comments`, and `bookmarks` maps to `saves`. Direct adapters and managed
+backends use the same projection. Unknown metrics retain their name without
+a canonical name; rates and watch time are not relabeled as counters.
+
+```ts
+const metrics = await social.analytics.getPostMetrics(post);
+const views = metrics.find((metric) => metric.canonicalName === "views")?.value;
+```
+
+Units and reporting periods remain provider-specific. Match the period and
+source before comparing or adding values, since multiple provider counters can
+share a canonical name. A missing counter means the provider did not return it,
+not zero. The tabs below list each route's existing names and periods.
 
 The examples assume one `social` client built with the platform's adapter and an
 `account` from `connectedAccountRef`, using the platform's own account ID.

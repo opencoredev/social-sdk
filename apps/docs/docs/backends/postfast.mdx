@@ -170,7 +170,7 @@ if (outcome.state === "published") {
 }
 ```
 
-PostFast also supports Pinterest, Telegram, and Google Business Profile. The adapter skips those accounts because they are outside Social SDK's platform list. Comments, messages, and post feeds are not part of this adapter.
+Pinterest, Telegram, and Google Business Profile accounts are listed as `pinterest`, `telegram`, and `google-business`. Pinterest needs `boardId` (and accepts `link`), Google Business Profile needs `locationId`, and Telegram takes no options. PostFast accepts uploaded media only, so pins need uploaded bytes rather than a URL. Accounts on other networks are left out unless you set `unknownPlatforms: "include"`, which lists them for reading only. Comments, messages, and post feeds are not part of this adapter.
 
 ## Platform options
 

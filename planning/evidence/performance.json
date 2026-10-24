@@ -1,10 +1,10 @@
 {
-  "recordedAt": "2026-10-18T17:29:40.557Z",
+  "recordedAt": "2026-10-24T13:27:58.991Z",
   "runner": {
     "platform": "linux",
     "architecture": "x64",
     "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
-    "bun": "1.4.2"
+    "bun": "1.4.4"
   },
   "methodology": {
     "prepareTargets": 20,
@@ -16,29 +16,29 @@
   },
   "bundles": {
     "core": {
-      "minifiedBytes": 34125,
-      "gzipBytes": 8883
+      "minifiedBytes": 45415,
+      "gzipBytes": 12590
     },
     "managed": {
-      "minifiedBytes": 80751,
-      "gzipBytes": 23546
+      "minifiedBytes": 97475,
+      "gzipBytes": 29031
     }
   },
   "preparation": {
-    "coldMs": 0.27231099999999486,
-    "p50Ms": 0.005471000000000004,
-    "p95Ms": 0.009548000000002332,
+    "coldMs": 0.6169399999999996,
+    "p50Ms": 0.008254999999998347,
+    "p95Ms": 0.012954999999998051,
     "samples": 1000
   },
   "dispatch": {
-    "p50Ms": 0.03621799999999098,
-    "p95Ms": 0.05528400000000033,
+    "p50Ms": 0.0343250000000026,
+    "p95Ms": 0.0501339999999999,
     "samples": 200
   },
   "baseline": {
-    "p50Ms": 0.00010000000000331966,
-    "p95Ms": 0.0002599999999972624,
+    "p50Ms": 0.00008000000000407681,
+    "p95Ms": 0.00016099999999852344,
     "samples": 200
   },
-  "dispatchOverheadP95Ms": 0.05502400000000307
+  "dispatchOverheadP95Ms": 0.04997300000000138
 }

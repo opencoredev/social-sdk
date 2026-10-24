@@ -65,15 +65,35 @@ export async function* iterateItems<T>(
 }
 
 /** Cursors bind navigation to its query scope; they are never authorization grants. */
-export function encodeCursor(scope: string, value: string): string {
-  if (!value || value.length > 16_384)
+export interface CursorLimits {
+  readonly maxValueLength: number;
+  readonly maxEncodedLength: number;
+}
+
+const defaultLimits: CursorLimits = { maxValueLength: 16_384, maxEncodedLength: 100_000 };
+
+export function encodeCursor(
+  scope: string,
+  value: string,
+  limits: CursorLimits = defaultLimits,
+): string {
+  if (!value || value.length > limits.maxValueLength)
     throw new SocialError({
       code: "upstream_failure",
       operation: "pagination",
       message: "Backend returned an invalid cursor",
     });
 
-  return `social-v1.${encodeURIComponent(JSON.stringify([scope, value]))}`;
+  const encoded = `social-v1.${encodeURIComponent(JSON.stringify([scope, value]))}`;
+
+  if (encoded.length > limits.maxEncodedLength)
+    throw new SocialError({
+      code: "upstream_failure",
+      operation: "pagination",
+      message: "Backend returned an invalid cursor",
+    });
+
+  return encoded;
 }
 
 /** A decoded cursor body: `[scope, upstreamCursor]`. */
@@ -86,12 +106,22 @@ function isCursorPayload(value: unknown): value is readonly [string, string] {
   );
 }
 
-export function decodeCursor(scope: string, cursor: string): string {
+export function decodeCursor(
+  scope: string,
+  cursor: string,
+  limits: CursorLimits = defaultLimits,
+): string {
   try {
-    if (!cursor.startsWith("social-v1.") || cursor.length > 100_000) throw new Error();
+    if (!cursor.startsWith("social-v1.") || cursor.length > limits.maxEncodedLength)
+      throw new Error();
     const parsed: unknown = JSON.parse(decodeURIComponent(cursor.slice(10)));
 
-    if (!isCursorPayload(parsed) || parsed[0] !== scope || !parsed[1] || parsed[1].length > 16_384)
+    if (
+      !isCursorPayload(parsed) ||
+      parsed[0] !== scope ||
+      !parsed[1] ||
+      parsed[1].length > limits.maxValueLength
+    )
       throw new Error();
 
     return parsed[1];

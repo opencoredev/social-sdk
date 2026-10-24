@@ -61,16 +61,24 @@ it("X comments.list searches the conversation, drops the root, and pages with ne
 
   assert.equal(request?.searchParams.get("next_token"), null);
 
+  const reply = {
+    id: "1700000000000000002",
+    text: "Nested reply",
+    author_id: "u3",
+    created_at: "2026-09-23T10:00:00.000Z",
+    conversation_id: "1700000000000000000",
+    in_reply_to_user_id: "u2",
+    referenced_tweets: [{ type: "replied_to", id: "1700000000000000001" }],
+    public_metrics: { like_count: 1, reply_count: 0 },
+  };
+
   assert.deepEqual(first.items, [
     {
-      id: "1700000000000000002",
-      text: "Nested reply",
-      author_id: "u3",
-      created_at: "2026-09-23T10:00:00.000Z",
-      conversation_id: "1700000000000000000",
-      in_reply_to_user_id: "u2",
-      referenced_tweets: [{ type: "replied_to", id: "1700000000000000001" }],
-      public_metrics: { like_count: 1, reply_count: 0 },
+      ...reply,
+      authorId: "u3",
+      createdAt: "2026-09-23T10:00:00.000Z",
+      parentId: "1700000000000000001",
+      native: reply,
     },
   ]);
 

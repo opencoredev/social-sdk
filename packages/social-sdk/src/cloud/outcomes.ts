@@ -14,6 +14,7 @@ import {
   string,
   type JsonField,
 } from "../transport/validation.js";
+import { samePlatform } from "./common.js";
 
 export interface OutcomeContext {
   account: ConnectedAccountRef;
@@ -37,7 +38,6 @@ export function zernioOutcome(value: JsonValue, context: OutcomeContext): Delive
   const response = object(value);
   const post = object(response["post"] ?? response["existingPost"] ?? response);
   const postId = string(post["_id"]);
-  const platform = context.account.platform === "x" ? "twitter" : context.account.platform;
   const entries = array(post["platforms"]).map(object);
 
   const matches = entries.filter((entry) => {
@@ -49,7 +49,10 @@ export function zernioOutcome(value: JsonValue, context: OutcomeContext): Delive
         ? optionalString(object(rawAccountId)["_id"])
         : undefined;
 
-    return entry["platform"] === platform && accountId === context.account.accountId;
+    return (
+      samePlatform(entry["platform"], context.account.platform) &&
+      accountId === context.account.accountId
+    );
   });
 
   const base = { ...context, delivery: delivery(context, postId) };
@@ -222,8 +225,7 @@ export function postForMeOutcome(
         return (
           entry["id"] === context.account.accountId &&
           (entry["platform"] === undefined ||
-            entry["platform"] === context.account.platform ||
-            (context.account.platform === "x" && entry["platform"] === "twitter"))
+            samePlatform(entry["platform"], context.account.platform))
         );
       })
     : [];

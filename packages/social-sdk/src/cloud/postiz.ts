@@ -1,3 +1,4 @@
+import { normalizeMetrics } from "../core/projections.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
 
 export {
@@ -46,7 +47,9 @@ import {
   managedOptionIssues,
   managedPreparation,
   optionsObject,
-  selectedPlatforms,
+  mappedPlatform,
+  providerPlatforms,
+  subredditName,
   type ManagedOptions,
 } from "./common.js";
 
@@ -115,10 +118,29 @@ const nativePlatforms = new Map<string, Platform>([
   ["linkedin", "linkedin"],
   ["linkedin-page", "linkedin"],
   ["facebook", "facebook"],
+  ["pinterest", "pinterest"],
+  ["reddit", "reddit"],
+  ["gmb", "google-business"],
+  ["mastodon", "mastodon"],
+  ["telegram", "telegram"],
+  ["discord", "discord"],
+  ["twitch", "twitch"],
 ]);
 
+// Connect links are offered for the original provider set; the others connect in Postiz itself.
 // Bluesky connects with an app password entered in Postiz, so it has no OAuth link.
-const oauthProviders = [...nativePlatforms.keys()].filter((value) => value !== "bluesky");
+const oauthProviders = [
+  "x",
+  "threads",
+  "youtube",
+  "tiktok",
+  "tiktok-business",
+  "instagram",
+  "instagram-standalone",
+  "linkedin",
+  "linkedin-page",
+  "facebook",
+];
 
 const mimeTypes = ["image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4"] as const;
 
@@ -263,7 +285,7 @@ export function postiz(options: PostizOptions) {
 
   const account = (value: JsonValue, backend: string): AccountRecord | undefined => {
     const row = object(value);
-    const slug = nativePlatforms.get(string(row["identifier"]));
+    const slug = mappedPlatform(nativePlatforms, string(row["identifier"]), options);
 
     if (!slug) return undefined;
     const handle = optionalString(row["profile"]);
@@ -325,7 +347,8 @@ export function postiz(options: PostizOptions) {
 
     if (
       integration["id"] !== ref.accountId ||
-      nativePlatforms.get(string(integration["providerIdentifier"])) !== ref.platform
+      mappedPlatform(nativePlatforms, string(integration["providerIdentifier"]), options) !==
+        ref.platform
     )
       throw new SocialError({
         code: "unauthorized",
@@ -542,7 +565,32 @@ export function postiz(options: PostizOptions) {
           brand_organic_toggle: config["ownBrand"] === true,
           video_made_with_ai: config["aiGenerated"] === true,
           content_posting_method: config["draft"] === true ? "UPLOAD" : "DIRECT_POST",
+          ...definedFields({ title: optionalString(config["title"]) }),
         };
+      case "pinterest":
+        return {
+          board: string(config["boardId"]),
+          ...definedFields({
+            title: optionalString(config["title"]),
+            link: optionalString(config["link"]),
+          }),
+        };
+      case "reddit":
+        return {
+          subreddit: [
+            {
+              value: {
+                subreddit: `/r/${subredditName(string(config["subreddit"]))}`,
+                title: string(config["title"]),
+                // Postiz uploads the first attached image or video for a media post.
+                type: (target.content.media ?? []).length > 0 ? "media" : "self",
+                is_flair_required: false,
+              },
+            },
+          ],
+        };
+      case "discord":
+        return { channel: string(config["channelId"]) };
       default:
         return {};
     }
@@ -729,7 +777,7 @@ export function postiz(options: PostizOptions) {
         if (target.account.platform === "tiktok" && config["draft"] === true)
           fail(
             "tiktok.draft_settings_ignored",
-            "Postiz TikTok UPLOAD ignores settings except its title, which this adapter does not map. Publish the inbox item within 24 hours; no caption or privacy guarantee is made.",
+            "Postiz TikTok UPLOAD ignores settings except its title. Publish the inbox item within 24 hours; no caption or privacy guarantee is made.",
             "warning",
           );
 
@@ -838,7 +886,7 @@ export function postiz(options: PostizOptions) {
         ref: { deliveryId: string; accountId: string; platform: string; backend: string },
         context: AdapterOperationContext,
       ) {
-        const slug = selectedPlatforms.find((value) => value === ref.platform);
+        const slug = providerPlatforms.postiz.find((value) => value === ref.platform);
 
         if (!slug) return reject("posts.status", "This platform is outside Postiz coverage.");
 
@@ -947,7 +995,7 @@ export function postiz(options: PostizOptions) {
           });
         }
 
-        return values;
+        return normalizeMetrics(values);
       },
     },
     native: {

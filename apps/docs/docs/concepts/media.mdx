@@ -25,6 +25,61 @@ Every attachment names a `kind` (image, video, or document) and a `source`. Docu
 
 Blob and stream sources require a content fingerprint, which feeds idempotency so a retried request reuses the same upload identity. Optional fields `mimeType`, `filename`, `byteSize`, `width`, `height`, `durationSeconds`, `altText`, `caption`, and `thumbnail` travel with the attachment where platforms accept them. See [Instagram image alt text](/platforms/instagram#publish-an-image) for its field mapping and limit.
 
+Use `bytes` for an in-memory `Uint8Array` or `ArrayBuffer`. It copies the data
+into a Blob and computes a SHA-256 fingerprint unless you supply one:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { bytes } from "@opencoredev/social-sdk";
+
+const source = await bytes(await readFile("./photo.jpg"), { mimeType: "image/jpeg" });
+```
+
+The result is a regular `blob` source, accepted wherever the adapter accepts
+Blobs. Later changes to the input buffer do not change the source.
+
+## Stage local media for URL-only destinations
+
+Pass `localMediaStaging(provider)` from `@opencoredev/social-sdk/media-staging`
+as `mediaStaging` on `createSocial` to publish local media to Instagram,
+Threads, or TikTok photo posts. The provider implements
+`stageMedia(source, context)` and returns `{ url, cleanup? }`. Storage belongs to
+your application; the SDK includes no S3 or R2 dependency.
+
+```ts
+import { createSocial } from "@opencoredev/social-sdk";
+import { instagram } from "@opencoredev/social-sdk/instagram";
+import {
+  localMediaStaging,
+  type MediaStagingProvider,
+} from "@opencoredev/social-sdk/media-staging";
+
+export function instagramWithStorage(
+  auth: { accessToken: string; accountId: string },
+  provider: MediaStagingProvider,
+) {
+  return createSocial({ backend: instagram({ auth }), mediaStaging: localMediaStaging(provider) });
+}
+```
+
+Return a public HTTPS URL or a signed HTTPS URL the platform can fetch. The
+context contains the destination account, attachment metadata, and a cancellation
+signal. Staging shares the publish retry budget; honor the signal to stop uploads
+when the caller cancels or the budget expires. Set the provider's `origin` to your storage origin when the
+destination checks verified domains, particularly TikTok. The SDK validates
+the staged URL before submitting it. Preparation stays offline and never stages
+media; publishing stages only authorized targets after checking idempotency.
+
+`cleanup` runs after confirmed publication or when the target was never
+submitted. Accepted, processing, scheduled, failed, and uncertain deliveries
+retain their staged copies because the provider may still fetch them. Configure
+storage expiry long enough for processing and reconciliation. Cleanup failures
+do not change a delivery result. The SDK waits at most one second for all cleanup
+callbacks in a batch, independently of the publish budget or cancellation.
+Callbacks may continue after the result returns, so storage expiry remains
+necessary. Retrieving delivery status does not run cleanup for copies retained
+by an earlier call.
+
 ## Streams are bounded and replayable
 
 Uploads read streams with bounded buffering, so a large video does not sit fully in memory. The source must be replayable: the adapter may need a fresh stream for a retry, which is why the stream source is a factory function rather than a consumed stream.
@@ -33,13 +88,18 @@ Uploads read streams with bounded buffering, so a large video does not sit fully
 
 Each adapter validates media against the rules it implements during local preparation: which sources it accepts, size ceilings, item counts, required fields. These are the current adapter limits, not a full list of what each platform API allows:
 
-- TikTok uses `PULL_FROM_URL`, so it accepts only `https-url` media on an origin you list in `verifiedMediaOrigins` and have verified in your TikTok app.
+- TikTok accepts verified HTTPS URLs through `PULL_FROM_URL`, and local Blob or sized-stream videos through chunked `FILE_UPLOAD`. Photos require verified URLs or a staging provider whose origin you list in `verifiedMediaOrigins` and have verified in your TikTok app.
 - X takes up to four JPEG or PNG image Blobs of up to 5 MiB each, or one MP4 video Blob up to the 16 GiB upload ceiling (account size and duration eligibility may be lower), or one GIF Blob up to 15 MiB.
 - LinkedIn accepts one MP4 video per post, uploaded from a Blob of 75 KB to 500 MB, and publishes it only after LinkedIn reports it `AVAILABLE`. It also accepts one uploaded PDF, PPT, PPTX, DOC, or DOCX document per post, up to 100 MB and 300 pages. LinkedIn requires a document title, which the adapter takes from the attachment's `caption`, then its `filename`.
 - Bluesky posts take up to four images or one MP4 video that was uploaded first with `media.upload`.
 - YouTube requires exactly one video, plus `title`, `visibility`, and `madeForKids` in the target options.
 
 Nothing is silently cropped, converted, or dropped; unsupported input fails preparation with a structured issue. The platform pages document each rule set.
+
+Capability declarations can expose `maxBytes`, `maxItems`, `allowedMimeTypes`,
+`aspectRatioRange` (width divided by height), and `maxDurationSeconds`. Local
+preparation and `social-sdk validate` check these limits against known metadata.
+They do not download remote media to infer missing size, dimensions, or duration.
 
 ## Upload once, reference later
 

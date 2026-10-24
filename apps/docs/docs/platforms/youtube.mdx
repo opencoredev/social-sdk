@@ -126,6 +126,9 @@ Native access bypasses client middleware. Enforce tenant access in your server b
 
 Preparation requires exactly one video as a Blob or replayable stream, an actual `video/*` MIME type, explicit `visibility`, and explicit `madeForKids`. A stream needs its exact positive `byteSize` and an `open()` function that returns the same bytes each time. Remote URLs are rejected. Titles must contain 1 to 100 characters with no `<` or `>`; descriptions must contain no `<` or `>` and fit within 5000 UTF-8 bytes, not just 5000 characters.
 
+Set target option `categoryId` to include the category in the upload's snippet
+metadata. Omitting it retains the provider's default behavior.
+
 ```ts
 const blob = new Blob([await readFile("./video.mp4")], { type: "video/mp4" });
 const media: MediaAttachment = {

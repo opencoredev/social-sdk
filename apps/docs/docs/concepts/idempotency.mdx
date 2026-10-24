@@ -26,6 +26,10 @@ The client deduplicates only when both `idempotencyKey` and `createSocial({ idem
 
 `MemoryIdempotencyStore` from `@opencoredev/social-sdk/testing` is for tests and local development. It loses every claim when the process exits. Production needs a store whose `claim` and `saveOutcome` are atomic in shared durable storage.
 
+The server package's SQL and Redis stores implement this contract without automatic claim expiry. Retain unresolved claims until you can reconcile them; deleting one can turn a later retry into a new provider write.
+
+If saving a target's outcome fails, the publish call preserves the provider's known outcome and adds a `warnings` entry with code `idempotency-outcome-not-persisted` and the target index. Configure `onPersistenceDiagnostic` on `createSocial` to receive the same signal with the operation name. The callback receives no storage error, credential, caller key, or account identity, and a callback failure does not change delivery outcomes. Reconcile the durable record before expecting another call to replay the known result.
+
 ## What a claimed key does
 
 The first call with a key claims it and records each target's outcome as it finishes. A later call with the same key and the same payload does not dispatch. It returns the saved outcome for each target. A target that was claimed but has no saved outcome, for example because the process crashed mid-dispatch, comes back as `unknown` with reason `ambiguous-submission`.
@@ -34,7 +38,7 @@ The claim is scoped by `options.authorization.tenantId` from the call, so pass t
 
 ## Fingerprints detect changed intent
 
-The claim stores a fingerprint of every prepared target: account, content, options, reply reference, and schedule. Reusing a key with different content, options, or a different set of targets throws `idempotency_conflict` before any dispatch. A key therefore cannot be reused to retry a subset of the original targets.
+The claim stores a fingerprint of every prepared target: account, content, options, reply reference, and schedule. Reusing a key with different content, options, or a different set of targets throws `idempotency_conflict` before any dispatch. A key therefore cannot be reused with a subset of the original targets; `posts.retryFailed` takes the full original request instead.
 
 ## Retry budgets are bounded
 
@@ -67,6 +71,10 @@ A `failed` outcome carries a `retryDisposition`. `never` means do not retry, `af
 
 ## Retrying after a confirmed non-write
 
-Because a claimed key replays its saved outcomes, sending the same key again does not retry anything. To retry, use a new key, and include only the targets you have confirmed were not written. Keep the original key and outcomes for the targets that published.
+Because a claimed key replays its saved outcomes, sending the same key again with `posts.publish` does not retry anything.
+
+When the `idempotencyStore` implements `compareAndSetOutcome` and the client is created with `recovery: outcomeRecovery()` from `@opencoredev/social-sdk/server`, pass the full original request to `posts.reconcile` to poll pending targets, and to `posts.retryFailed` to re-send only targets whose saved outcome proves nothing is live. Both write into the original claim, so published targets are never sent twice. See [reconcile and retry](/publishing#reconcile-and-retry).
+
+Without that store support, use a new key and include only the targets you have confirmed were not written. Keep the original key and outcomes for the targets that published.
 
 Job runners with at-least-once semantics pair well with a durable store: the runner may re-execute, and the stored claim returns the recorded outcomes instead of dispatching again. See the [Trigger.dev](/integrations/trigger-dev), [Inngest](/integrations/inngest), and [Restate](/integrations/restate) patterns.

@@ -1,3 +1,4 @@
+import { normalizeMetrics } from "../core/projections.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
 
 export {
@@ -48,7 +49,8 @@ import {
   managedPreparation,
   optionsObject,
   publishFormats,
-  selectedPlatforms,
+  mappedPlatform,
+  providerPlatforms,
   type ManagedOptions,
   type PublishFormats,
 } from "./common.js";
@@ -72,6 +74,9 @@ const nativePlatforms = new Map<string, Platform>([
   ["INSTAGRAM", "instagram"],
   ["LINKEDIN", "linkedin"],
   ["FACEBOOK", "facebook"],
+  ["PINTEREST", "pinterest"],
+  ["TELEGRAM", "telegram"],
+  ["GOOGLE_BUSINESS_PROFILE", "google-business"],
 ]);
 
 const mimeTypes = [
@@ -121,7 +126,7 @@ export function postfast(options: ManagedOptions) {
 
   const account = (value: JsonValue, backend: string): AccountRecord | undefined => {
     const row = object(value);
-    const slug = nativePlatforms.get(string(row["platform"]));
+    const slug = mappedPlatform(nativePlatforms, string(row["platform"]), options);
 
     if (!slug) return undefined;
     const handle = optionalString(row["platformUsername"]);
@@ -583,13 +588,24 @@ export function postfast(options: ManagedOptions) {
 
         if (target.account.platform === "youtube") {
           controls["youtubeTitle"] = string(config["title"]);
-          controls["youtubeIsShort"] = false;
+          controls["youtubeIsShort"] = config["isShort"] === true;
           controls["youtubePrivacy"] = string(config["visibility"]).toUpperCase();
 
           const madeForKids = config["madeForKids"];
 
           if (isBoolean(madeForKids)) controls["youtubeMadeForKids"] = madeForKids;
         }
+
+        if (target.account.platform === "pinterest") {
+          controls["pinterestBoardId"] = string(config["boardId"]);
+
+          const link = optionalString(config["link"]);
+
+          if (link !== undefined) controls["pinterestLink"] = link;
+        }
+
+        if (target.account.platform === "google-business")
+          controls["gbpLocationId"] = string(config["locationId"]);
 
         if (target.account.platform === "instagram" && isBoolean(config["shareToFeed"]))
           controls["instagramPostToGrid"] = config["shareToFeed"];
@@ -684,7 +700,7 @@ export function postfast(options: ManagedOptions) {
         ref: { deliveryId: string; accountId: string; platform: string; backend: string },
         context: AdapterOperationContext,
       ) {
-        const slug = selectedPlatforms.find((value) => value === ref.platform);
+        const slug = providerPlatforms.postfast.find((value) => value === ref.platform);
 
         if (!slug) return reject("posts.status", "This platform is outside PostFast coverage.");
 
@@ -802,7 +818,7 @@ export function postfast(options: ManagedOptions) {
         push("totalWatchTime", optionalNumber(metrics["totalWatchTimeSeconds"]), "seconds");
         push("saveRate", optionalNumber(metrics["saveRate"]), "percentage");
 
-        return values;
+        return normalizeMetrics(values);
       },
     },
     native: {

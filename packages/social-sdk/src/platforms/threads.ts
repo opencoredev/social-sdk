@@ -18,6 +18,8 @@ import {
   type SearchPostsInput,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
+import { metaOAuthReconnect } from "../transport/provider-errors.js";
+import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { definedFields } from "../core/fields.js";
 import {
@@ -265,7 +267,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         ),
       );
     } catch (e) {
-      if (e instanceof SocialError) throw e;
+      if (e instanceof SocialError) throw metaOAuthReconnect(e);
       fail(operation, "Threads API request failed.");
     }
   }
@@ -390,7 +392,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     const allowed = new Set<string>(metricNames);
 
-    return array(result["data"]).flatMap((entry) => {
+    const metrics: readonly MetricValue[] = array(result["data"]).flatMap((entry) => {
       const row = object(entry);
 
       const name = optionalString(row["name"]);
@@ -458,6 +460,8 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         },
       ];
     });
+
+    return normalizeMetrics(metrics);
   }
 
   async function status(id: string, c: AdapterOperationContext) {
@@ -623,6 +627,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           text: cur.caption === "" ? undefined : cur.caption,
           reply_control: replyControl === undefined ? undefined : replyControlParam(replyControl),
           reply_to_id: optionalString(cur.options["_replyToId"]),
+          link_attachment: optionalString(cur.options["_linkAttachment"]),
         }),
       });
 
@@ -689,6 +694,13 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       return published(a, cur.id, nativeId);
     } catch (e) {
+      // Code 190 rejects the token before publication, so the container stays publishable.
+      if (e instanceof SocialError && e.code === "reconnect_required") {
+        await store.update(cur.id, { stage: "parent", backendState: "RECONNECT_REQUIRED" });
+
+        throw e;
+      }
+
       await store.update(cur.id, { stage: "unknown", backendState: "AMBIGUOUS" });
 
       if (e instanceof SocialError) return ambiguous(a, cur.id, "AMBIGUOUS", e.message);
@@ -714,6 +726,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         availability: "available",
         formats: ["text", "image", "video", "carousel"],
         requiredScopes: ["threads_basic", "threads_content_publish"],
+        // Mirrors prepareTarget: up to 20 public HTTPS items; JPEG/PNG images, MP4/MOV video.
+        constraints: {
+          mediaSources: ["https-url"],
+          maxItems: 20,
+          allowedMimeTypes: ["image/jpeg", "image/png", "video/mp4", "video/quicktime"],
+        },
+        notes:
+          "content.link.url is sent as link_attachment on text posts; posts with media reject a link.",
       },
       {
         operation: "posts.schedule",
@@ -1254,6 +1274,24 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         if (!media.length && !target.content.text)
           add("content.empty", "Threads requires text or media.");
 
+        // link_attachment is accepted on TEXT containers only. Source, accessed 2026-10-24:
+        // https://developers.facebook.com/docs/threads/posts#link-attachments
+        const link = target.content.link;
+
+        if (link !== undefined) {
+          if (media.length)
+            add(
+              "link.media_conflict",
+              "Threads link attachments are supported on text posts only.",
+            );
+
+          try {
+            httpsUrl(link.url);
+          } catch {
+            add("link.url_invalid", "Threads link attachments require a public HTTPS URL.");
+          }
+        }
+
         for (const item of media) {
           if (item.source.kind !== "https-url")
             add("media.url_required", "Threads requires public HTTPS media URLs.");
@@ -1334,6 +1372,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           ...optionsObject(target),
           ...definedFields({
             _replyToId: target.replyTo?.postId,
+            _linkAttachment: target.content.link?.url,
             _mediaItems: mediaItems,
             _mediaKind: singleSource === undefined ? undefined : item?.kind,
             _mediaUrl: singleSource?.url,
@@ -1418,13 +1457,27 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         authorize(post, "threads.comments.list");
 
         const result = await request(
-          `${encodeURIComponent(post.postId)}/replies?fields=id,text,username,timestamp${input.cursor ? `&after=${encodeURIComponent(input.cursor)}` : ""}`,
+          `${encodeURIComponent(post.postId)}/replies?fields=id,text,username,timestamp,permalink,replied_to,root_post,hide_status${input.cursor ? `&after=${encodeURIComponent(input.cursor)}` : ""}`,
           { method: "GET" },
           "threads.comments.list",
           context,
         );
 
-        return pageFrom(result);
+        const listed = pageFrom(result);
+
+        return {
+          ...listed,
+          items: listed.items.map((row) => {
+            const parent = row["replied_to"];
+
+            return normalizeComment({
+              ...row,
+              ...definedFields({
+                parentId: isJsonObject(parent) ? optionalString(parent["id"]) : undefined,
+              }),
+            });
+          }),
+        };
       },
       async reply(comment: CommentRef, content: { text: string }, context): Promise<CommentRef> {
         authorize(comment, "threads.comments.reply");
@@ -1476,7 +1529,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           c,
         );
 
-        return array(r["data"]).flatMap((x) => {
+        const metrics: readonly MetricValue[] = array(r["data"]).flatMap((x) => {
           const row = object(x);
 
           const first = optionalArray(row["values"])?.[0];
@@ -1502,6 +1555,8 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
                 },
               ];
         });
+
+        return normalizeMetrics(metrics);
       },
     },
   });

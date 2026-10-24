@@ -8,11 +8,20 @@ export interface JsonObject {
 
 export type KnownPlatform =
   | "bluesky"
+  | "discord"
   | "facebook"
+  | "google-business"
   | "instagram"
   | "linkedin"
+  | "mastodon"
+  | "pinterest"
+  | "reddit"
+  | "snapchat"
+  | "telegram"
   | "threads"
   | "tiktok"
+  | "twitch"
+  | "whatsapp"
   | "x"
   | "youtube";
 
@@ -192,6 +201,8 @@ export interface YouTubePublishOptions {
   readonly categoryId?: string;
   readonly visibility: "private" | "unlisted" | "public";
   readonly madeForKids: boolean;
+  /** Managed PostFast only: publish as a YouTube Short. Defaults to `false`. */
+  readonly isShort?: boolean;
 }
 
 export interface TikTokPublishOptions {
@@ -208,7 +219,10 @@ export interface TikTokPublishOptions {
   readonly aiGenerated: boolean;
   readonly draft: boolean;
   readonly photoCoverIndex?: number;
-  /** Photo-post title (≤90). Zernio maps this onto `content` when set. */
+  /**
+   * Photo-post title (≤90). Zernio maps this onto `content` when set. Postiz keeps it only on an
+   * inbox draft (`draft: true`).
+   */
   readonly title?: string;
   /** Photo-post caption/description (≤4000). Zernio `platformSpecificData.description`. */
   readonly description?: string;
@@ -228,6 +242,11 @@ export interface LinkedInPublishOptions {
   readonly visibility?: "connections" | "public";
 }
 
+export interface FacebookPublishOptions {
+  /** Publish one hosted vertical video through the Page Reels API instead of the Page video feed. */
+  readonly reel?: boolean;
+}
+
 export type PublishOptionsFor<P extends Platform> = P extends "x"
   ? XPublishOptions
   : P extends "bluesky"
@@ -242,7 +261,9 @@ export type PublishOptionsFor<P extends Platform> = P extends "x"
             ? InstagramPublishOptions
             : P extends "linkedin"
               ? LinkedInPublishOptions
-              : JsonObject;
+              : P extends "facebook"
+                ? FacebookPublishOptions
+                : JsonObject;
 
 export interface PublishTarget<P extends Platform = Platform> {
   readonly account: ConnectedAccountRef<P>;
@@ -279,6 +300,11 @@ export interface PublishSequenceRequest {
   }[];
   readonly idempotencyKey: string;
   readonly stopOnFailure?: boolean;
+  /**
+   * Reply each item to the previous item's post on the same account. Several
+   * destinations form independent chains: a destination whose previous link was not
+   * published gets a `not-submitted` outcome while the other chains continue.
+   */
   readonly replyToPrevious?: boolean;
 }
 
@@ -329,6 +355,8 @@ interface OutcomeBase<S extends string> {
   readonly delivery?: DeliveryRef;
   readonly backendState?: string;
   readonly observedAt: string;
+  /** SDK recovery attempt identity, persisted to fence stale retries and observations. */
+  readonly retryAttemptId?: string;
 }
 
 export type DeliveryOutcome =
@@ -365,10 +393,26 @@ export type DeliveryOutcome =
 
 export type PublicationStatus = "pending" | "complete" | "partial";
 
+/** A publish warning that does not change any delivery outcome. */
+export interface PublishWarning {
+  /** The idempotency store could not save this target's outcome, so a retry may not replay it. */
+  readonly code: "idempotency-outcome-not-persisted";
+  readonly targetIndex: number;
+}
+
+/** Sanitized persistence diagnostic. It never carries storage errors, keys, or account identity. */
+export interface PersistenceDiagnostic {
+  readonly code: PublishWarning["code"];
+  readonly operation: "posts.publish" | "posts.schedule";
+  readonly targetIndex: number;
+}
+
 export interface PublishResult {
   readonly status: PublicationStatus;
   readonly publication: PublicationRef;
   readonly outcomes: readonly DeliveryOutcome[];
+  /** Present only when at least one warning was recorded. */
+  readonly warnings?: readonly PublishWarning[];
 }
 
 export type RetryDisposition =
@@ -394,8 +438,26 @@ export interface SearchPostsInput {
   readonly scope?: "recent" | "all";
 }
 
+/**
+ * Provider-neutral metric names. Adapters keep the provider's own `name` and
+ * add `canonicalName` only when the provider metric means the same thing.
+ */
+export type CanonicalMetricName =
+  | "views"
+  | "likes"
+  | "comments"
+  | "shares"
+  | "impressions"
+  | "reach"
+  | "saves"
+  | "clicks"
+  | "followers"
+  | "profile_views";
+
 export interface MetricValue {
   readonly name: string;
+  /** Present only when `name` maps to a provider-neutral metric. */
+  readonly canonicalName?: CanonicalMetricName;
   readonly value: number;
   readonly unit: "count" | "milliseconds" | "percentage" | "seconds";
   readonly period: "lifetime" | "unknown" | { readonly from: string; readonly to: string };
@@ -449,6 +511,16 @@ export interface CapabilityConstraints {
   readonly approval?: readonly string[];
   readonly scopes?: readonly string[];
   readonly mediaSources?: readonly CapabilityMediaSource[];
+  /** Largest accepted attachment, in bytes. */
+  readonly maxBytes?: number;
+  /** Most attachments accepted in one post. */
+  readonly maxItems?: number;
+  /** Exact MIME types, or `type/*` wildcards such as `image/*`. */
+  readonly allowedMimeTypes?: readonly string[];
+  /** Inclusive width/height range for images and videos, such as `[0.8, 1.91]`. */
+  readonly aspectRatioRange?: readonly [min: number, max: number];
+  /** Longest accepted video, in seconds. */
+  readonly maxDurationSeconds?: number;
 }
 
 export interface CapabilityDeclaration {

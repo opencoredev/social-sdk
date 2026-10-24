@@ -65,7 +65,7 @@ it("managed account lists skip provider platforms outside SDK support", async ()
       {
         accounts: [
           { _id: "a1", platform: "twitter", username: "x" },
-          { _id: "p1", platform: "pinterest", username: "p" },
+          { _id: "p1", platform: "slack", username: "p" },
         ],
       },
     ],
@@ -74,7 +74,7 @@ it("managed account lists skip provider platforms outside SDK support", async ()
       {
         data: [
           { id: "a1", platform: "x", user_id: "u1" },
-          { id: "p1", platform: "pinterest", user_id: "u2" },
+          { id: "p1", platform: "slack", user_id: "u2" },
         ],
         meta: { next: null },
       },

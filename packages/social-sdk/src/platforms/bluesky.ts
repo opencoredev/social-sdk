@@ -25,6 +25,7 @@ import {
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
+import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { abortable, createHttp, HttpError } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
@@ -1132,6 +1133,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         platform: "bluesky",
         availability: "available",
         formats: ["text", "image", "video"],
+        // Mirrors prepareTarget: up to four images (2,000,000 bytes each) or one uploaded MP4.
+        constraints: { maxItems: MAX_IMAGES, allowedMimeTypes: ["image/*", "video/mp4"] },
         notes:
           "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant.",
       },
@@ -3398,7 +3401,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const replies = array(object(thread["thread"])["replies"] ?? []);
 
-        return { items: replies.map((reply) => object(reply)) };
+        // Each thread view keeps post.author, post.record, and record.reply.parent for normalization.
+        return { items: replies.map((reply) => normalizeComment(object(reply))) };
       },
       async reply(comment, content, context): Promise<CommentRef> {
         const outcome = await adapter.posts?.publishTarget(
@@ -3469,7 +3473,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             });
         }
 
-        return metrics;
+        return normalizeMetrics(metrics);
       },
       async getAccountMetrics(accountRef, context): Promise<readonly MetricValue[]> {
         // https://docs.bsky.app/docs/api/app-bsky-actor-get-profile
@@ -3493,7 +3497,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const fetchedAt = new Date().toISOString();
 
-        return (
+        const metrics: readonly MetricValue[] = (
           [
             ["followers", profile["followersCount"]],
             ["following", profile["followsCount"]],
@@ -3514,6 +3518,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               ]
             : [],
         );
+
+        return normalizeMetrics(metrics);
       },
     },
   });
