@@ -228,6 +228,11 @@ export interface LinkedInPublishOptions {
   readonly visibility?: "connections" | "public";
 }
 
+export interface FacebookPublishOptions {
+  /** Publish one hosted vertical video through the Page Reels API instead of the Page video feed. */
+  readonly reel?: boolean;
+}
+
 export type PublishOptionsFor<P extends Platform> = P extends "x"
   ? XPublishOptions
   : P extends "bluesky"
@@ -242,7 +247,9 @@ export type PublishOptionsFor<P extends Platform> = P extends "x"
             ? InstagramPublishOptions
             : P extends "linkedin"
               ? LinkedInPublishOptions
-              : JsonObject;
+              : P extends "facebook"
+                ? FacebookPublishOptions
+                : JsonObject;
 
 export interface PublishTarget<P extends Platform = Platform> {
   readonly account: ConnectedAccountRef<P>;
@@ -279,6 +286,11 @@ export interface PublishSequenceRequest {
   }[];
   readonly idempotencyKey: string;
   readonly stopOnFailure?: boolean;
+  /**
+   * Reply each item to the previous item's post on the same account. Several
+   * destinations form independent chains: a destination whose previous link was not
+   * published gets a `not-submitted` outcome while the other chains continue.
+   */
   readonly replyToPrevious?: boolean;
 }
 

@@ -49,6 +49,19 @@ export const selectedPlatforms = [
   "facebook",
 ] as const;
 
+/**
+ * Paged document types (PDF, PPT, PPTX, DOC, DOCX). LinkedIn's Documents API (checked
+ * 2026-09-24, version 202609) and Upload-Post's document route (checked 2026-10-24) list
+ * the same set.
+ */
+export const documentMimeTypes: readonly string[] = [
+  "application/pdf",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
 export function platform(value: JsonField): Platform {
   const slug = value === "twitter" ? "x" : value;
 
@@ -86,6 +99,7 @@ export function managedHttp(
     body?: JsonObject | FormData,
     query: Record<string, string> = {},
     method: "GET" | "POST" | "PUT" | "DELETE" = body === undefined ? "GET" : "POST",
+    extraHeaders: Readonly<Record<string, string>> = {},
   ): Promise<JsonValue> => {
     const url = new URL(origin + path);
 
@@ -95,9 +109,14 @@ export function managedHttp(
     // Fetch sets the multipart boundary itself.
     const headers = new Headers(form ? {} : { "Content-Type": "application/json" });
 
+    for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
     headers.set(...authHeader(options.apiKey));
 
-    if (context.targetIdempotencyKey && origin.includes("zernio.com"))
+    // Both providers document Idempotency-Key replay protection for create requests.
+    if (
+      context.targetIdempotencyKey &&
+      (origin.includes("zernio.com") || origin.includes("api.upload-post.com"))
+    )
       headers.set("Idempotency-Key", context.targetIdempotencyKey);
 
     try {
@@ -276,10 +295,39 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
   return object(options);
 }
 
+export type ManagedProvider =
+  | "zernio"
+  | "post-for-me"
+  | "postfast"
+  | "postiz"
+  | "buffer"
+  | "upload-post";
+
+/**
+ * Platforms where a provider documents publishing a reply to an existing native post.
+ * Zernio: `platformSpecificData.replyToTweetId` (docs.zernio.com/twitter-engagement/search-tweets).
+ * Upload-Post: `reply_to_id`, X on every upload route and Bluesky on text uploads
+ * (docs.upload-post.com/openapi.json, both checked 2026-10-24).
+ */
+export function managedReplySupported(
+  provider: ManagedProvider,
+  target: Pick<PreparedPublishTarget, "account" | "content">,
+): boolean {
+  if (provider === "zernio") return target.account.platform === "x";
+
+  if (provider === "upload-post")
+    return (
+      target.account.platform === "x" ||
+      (target.account.platform === "bluesky" && (target.content.media?.length ?? 0) === 0)
+    );
+
+  return false;
+}
+
 /** Every accepted normalized option has an intentional provider mapping. */
 export function managedOptionIssues(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer",
+  provider: ManagedProvider,
 ): PreparationIssue[] {
   const config = optionsObject(target);
 
@@ -288,10 +336,11 @@ export function managedOptionIssues(
       "title",
       "visibility",
       "madeForKids",
-      ...(provider === "buffer" ? ["categoryId"] : []),
+      ...(provider === "buffer" || provider === "upload-post" ? ["categoryId"] : []),
     ],
     instagram: ["shareToFeed"],
     x: provider === "buffer" ? [] : ["replySettings"],
+    linkedin: provider === "upload-post" ? ["visibility"] : [],
     tiktok:
       provider === "buffer"
         ? ["aiGenerated"]
@@ -307,7 +356,9 @@ export function managedOptionIssues(
             "draft",
             ...(provider === "zernio"
               ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
-              : []),
+              : provider === "upload-post"
+                ? ["photoCoverIndex"]
+                : []),
           ],
   };
 
@@ -452,7 +503,7 @@ export function managedOptionIssues(
 
 export function managedPreparation(
   target: PreparedPublishTarget,
-  provider: "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer",
+  provider: ManagedProvider,
 ): PreparationIssue[] {
   const issues: PreparationIssue[] = [];
 
@@ -462,10 +513,15 @@ export function managedPreparation(
   if (!selectedPlatforms.some((value) => value === target.account.platform))
     fail("platform.unsupported", "This platform is outside the selected adapter coverage.");
 
-  if (target.replyTo)
+  if (target.replyTo?.kind === "comment")
     fail(
       "reply.use_comments",
-      "Use the supported comment reply operation rather than publishing a reply through managed post creation.",
+      "Use the supported comment reply operation rather than publishing a comment reply through managed post creation.",
+    );
+  else if (target.replyTo && !managedReplySupported(provider, target))
+    fail(
+      "reply.use_comments",
+      "This managed provider documents no reply-to-post mapping for this destination and content. Use the comment reply operation or a backend that supports reply chains here.",
     );
   const media = target.content.media ?? [];
 
@@ -479,8 +535,16 @@ export function managedPreparation(
     );
 
   for (const item of media) {
-    if (!item.mimeType || !item.mimeType.startsWith(`${item.kind}/`))
-      fail("media.mime", "Provide the actual image/video MIME type matching the attachment kind.");
+    // Only Upload-Post maps managed document posts; other providers keep rejecting them here.
+    if (
+      item.kind === "document" && provider === "upload-post"
+        ? !documentMimeTypes.includes(item.mimeType ?? "")
+        : !item.mimeType || !item.mimeType.startsWith(`${item.kind}/`)
+    )
+      fail(
+        "media.mime",
+        "Provide the actual MIME type matching the attachment kind: image/*, video/*, or a PDF, PPT, PPTX, DOC or DOCX document where the provider accepts documents.",
+      );
 
     if (item.source.kind === "https-url") {
       try {
