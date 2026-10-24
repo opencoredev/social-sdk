@@ -95,11 +95,12 @@ export class SocialError extends Error {
   }
 
   /**
-   * Rebuilds an error from parsed `toJSON()` output, such as one passed back from a queue worker.
-   * The value is untrusted: anything that is not a serialized `SocialError` throws `invalid_input`.
+   * Rebuilds an error from `toJSON()` output, either directly or after it was parsed back from JSON,
+   * such as one passed back from a queue worker. The value is untrusted: anything that is not a
+   * serialized `SocialError` throws `invalid_input`.
    */
-  static fromJSON(value: JsonValue): SocialError {
-    if (!isJsonObject(value) || value["name"] !== "SocialError")
+  static fromJSON(value: JsonValue | SerializedSocialError): SocialError {
+    if (!isSerializedErrorObject(value) || value["name"] !== "SocialError")
       return invalidSerializedError("value");
 
     const { code, operation, message, retryDisposition } = value;
@@ -161,6 +162,12 @@ function invalidSerializedError(field: string): never {
     operation: "SocialError.fromJSON",
     message: `Serialized SocialError has an invalid ${field}.`,
   });
+}
+
+// Every value of a SerializedSocialError is JSON, so an object of either input shape is a JsonObject;
+// its fields are still decoded one by one below.
+function isSerializedErrorObject(value: JsonValue | SerializedSocialError): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isSocialErrorCode(value: JsonField): value is SocialErrorCode {

@@ -1,4 +1,5 @@
 import {
+  SocialError,
   connectedAccountRef,
   createSocial,
   type AuthorizationPolicy,
@@ -84,3 +85,14 @@ social.posts.prepare({
   ],
   content: { text: "Different destination options" },
 });
+
+// fromJSON accepts its serializer's own output without a cast.
+const restoredError: SocialError = SocialError.fromJSON(
+  new SocialError({
+    code: "timeout",
+    operation: "media.upload",
+    message: "Took too long",
+  }).toJSON(),
+);
+
+void restoredError;

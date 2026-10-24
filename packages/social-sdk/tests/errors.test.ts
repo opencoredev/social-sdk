@@ -16,6 +16,20 @@ function roundTrip(error: SocialError): SocialError {
 }
 
 describe("SocialError.fromJSON", () => {
+  test("accepts toJSON() output directly, without a JSON round trip", () => {
+    const original = new SocialError({
+      code: "timeout",
+      operation: "media.upload",
+      message: "Took too long",
+      retryDisposition: { kind: "after-delay", delayMs: 500 },
+    });
+
+    const restored = SocialError.fromJSON(original.toJSON());
+
+    assert.ok(restored instanceof SocialError);
+    assert.deepEqual(restored.toJSON(), original.toJSON());
+  });
+
   test("restores every serialized field", () => {
     const original = new SocialError({
       code: "rate_limited",
