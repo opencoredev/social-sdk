@@ -13,6 +13,10 @@ Social SDK targets server-side TypeScript applications on Node.js 22.12 or later
 
 Import the core client from the package root. Import each direct integration or managed backend from its documented subpath so unrelated adapters do not enter the application bundle.
 
+## Check your setup
+
+Run `social-sdk doctor --adapter <name>` after installing to confirm that the selected adapter's credentials are configured. It checks your local enviroment only, lists the names of missing variables without printing their values, and makes no network requests. `social-sdk version` prints the installed version. See the [diagnostic CLI](/reference/diagnostics) for every command.
+
 ## Choose the first route
 
 - Start with the deterministic testing backend when you are building the application flow or running CI.
