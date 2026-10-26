@@ -1067,11 +1067,14 @@ describe("scheduled times are checked as they will be sent", () => {
 
     assert.equal(result.state, "not-reschedulable");
 
-    // The withdrawal is not left reported as scheduled, and the job cannot complete
-    // unpublished: the step is pending again and the job is blocked until rescheduled.
+    // The withdrawal is recorded, and the job cannot complete unpublished: it stays blocked
+    // until it is rescheduled.
     const kept = await h.scheduler.get(job.id);
     assert.equal(kept?.blocked?.code, "reschedule_interrupted");
-    assert.equal(kept?.lanes.find((lane) => lane.id === "native")?.steps[0]?.state, "pending");
+    assert.equal(
+      kept === undefined ? undefined : scheduledOutcomes(kept)[0]?.outcomes[0]?.state,
+      "cancelled",
+    );
 
     h.advance(2 * 3_600_000);
     await h.scheduler.runDue();
@@ -1085,6 +1088,47 @@ describe("scheduled times are checked as they will be sent", () => {
 
     assert.equal(moved.state, "rescheduled");
     assert.equal((await h.scheduler.get(job.id))?.blocked, undefined);
+  });
+
+  test("a worker that takes over during a withdrawal cannot complete the job", async () => {
+    const h = harness({ native: true });
+
+    const job = await h.scheduler.schedule({
+      work: { kind: "publish", request: publication("native-takeover", xAccount) },
+      at: inOneHour,
+    });
+
+    await h.scheduler.runDue();
+
+    // While the provider cancels, the lease is revoked, the job falls due, and a worker
+    // claims it, polls it, and releases it before the reschedule resumes.
+    const scheduler = new SocialScheduler({
+      social: {
+        ...h.social,
+        posts: {
+          ...h.social.posts,
+          async cancelScheduled(ref, options) {
+            const cancelled = await h.social.posts.cancelScheduled(ref, options);
+            const saved = await h.store.get({ scope: job.scope, id: job.id });
+            assert.ok(saved !== undefined);
+            const { lease: _revoked, ...rest } = saved.job;
+            await h.store.compareAndSet({ expectedRevision: saved.revision, job: rest });
+            h.advance(2 * 3_600_000);
+            await h.scheduler.runDue();
+
+            return cancelled;
+          },
+        },
+      },
+      store: h.store,
+      clock: () => start,
+    });
+
+    await scheduler.reschedule(job.id, { kind: "instant", at: "2026-03-01T14:00:00Z" });
+
+    const kept = await h.scheduler.get(job.id);
+    assert.notEqual(kept?.status, "completed");
+    assert.equal(kept?.blocked?.code, "reschedule_interrupted");
   });
 
   test("a reschedule that loses its lease during preflight cancels nothing", async () => {
