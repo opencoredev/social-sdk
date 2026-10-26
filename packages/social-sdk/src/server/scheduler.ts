@@ -1283,7 +1283,13 @@ export class SocialScheduler {
     readonly unresolved: readonly UnresolvedCancellation[];
   }> {
     const unresolved: UnresolvedCancellation[] = [];
-    const confirmed = new Map<string, DeliveryOutcome>();
+
+    /** Withdrawals the provider confirmed, keyed by lane/step/target, with the job they cancelled. */
+    const confirmed = new Map<
+      string,
+      { readonly outcome: DeliveryOutcome; readonly jobId: string }
+    >();
+
     const observedAt = this.#clock().toISOString();
     const options = definedFields({ authorization: input.authorization });
 
@@ -1310,12 +1316,15 @@ export class SocialScheduler {
           try {
             await this.#social.posts.cancelScheduled(outcome.job, options);
             confirmed.set(`${lane.id}/${stepIndex}/${outcome.targetIndex}`, {
-              state: "cancelled",
-              targetIndex: outcome.targetIndex,
-              account: outcome.account,
-              observedAt,
-              reason: "schedule-cancelled",
-              ...definedFields({ delivery: outcome.delivery }),
+              jobId: outcome.job.jobId,
+              outcome: {
+                state: "cancelled",
+                targetIndex: outcome.targetIndex,
+                account: outcome.account,
+                observedAt,
+                reason: "schedule-cancelled",
+                ...definedFields({ delivery: outcome.delivery }),
+              },
             });
           } catch (error) {
             unresolved.push({
@@ -1329,24 +1338,47 @@ export class SocialScheduler {
         }
       }
 
-    const updated = await this.#mutate(input.key, (current) => {
-      if (input.leaseOwner !== undefined && current.lease?.owner !== input.leaseOwner)
-        return undefined;
+    const revisions = new Map(input.job.lanes.map((lane) => [lane.id, lane.revision]));
 
-      const lanes = current.lanes.map((lane) => ({
-        ...lane,
-        steps: lane.steps.map((step, stepIndex) =>
-          step.state === "dispatched"
-            ? {
-                ...step,
-                outcomes: step.outcomes.map(
-                  (outcome) =>
-                    confirmed.get(`${lane.id}/${stepIndex}/${outcome.targetIndex}`) ?? outcome,
-                ),
-              }
-            : step,
-        ),
-      }));
+    const updated = await this.#mutate(input.key, (current) => {
+      let saved = false;
+
+      // A confirmed withdrawal is a provider fact, so it is saved even if this operation lost
+      // its lease, but only onto the exact outcome it cancelled: same lane revision, still
+      // scheduled, same provider job. Replacement work is never overwritten.
+      const lanes = current.lanes.map((lane) =>
+        lane.revision !== revisions.get(lane.id)
+          ? lane
+          : {
+              ...lane,
+              steps: lane.steps.map((step, stepIndex) =>
+                step.state === "dispatched"
+                  ? {
+                      ...step,
+                      outcomes: step.outcomes.map((outcome) => {
+                        const withdrawn = confirmed.get(
+                          `${lane.id}/${stepIndex}/${outcome.targetIndex}`,
+                        );
+
+                        if (
+                          withdrawn === undefined ||
+                          outcome.state !== "scheduled" ||
+                          outcome.job.jobId !== withdrawn.jobId
+                        )
+                          return outcome;
+
+                        saved = true;
+
+                        return withdrawn.outcome;
+                      }),
+                    }
+                  : step,
+              ),
+            },
+      );
+
+      if (input.leaseOwner !== undefined && current.lease?.owner !== input.leaseOwner)
+        return saved ? { ...current, lanes, updatedAt: observedAt } : undefined;
 
       if (!input.finalize) return { ...current, lanes, updatedAt: observedAt };
 

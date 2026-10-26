@@ -1030,6 +1030,51 @@ describe("scheduled times are checked as they will be sent", () => {
     assert.equal(cancellations(h).length, 1);
   });
 
+  test("a provider withdrawal is saved even when the reschedule loses its lease meanwhile", async () => {
+    const h = harness({ native: true });
+
+    const job = await h.scheduler.schedule({
+      work: { kind: "publish", request: publication("native-revoked", xAccount) },
+      at: inOneHour,
+    });
+
+    await h.scheduler.runDue();
+
+    // While the provider cancels, the reschedule's lease is revoked, as a takeover does.
+    const scheduler = new SocialScheduler({
+      social: {
+        ...h.social,
+        posts: {
+          ...h.social.posts,
+          async cancelScheduled(ref, options) {
+            const saved = await h.store.get({ scope: job.scope, id: job.id });
+            assert.ok(saved !== undefined);
+            const { lease: _revoked, ...rest } = saved.job;
+            await h.store.compareAndSet({ expectedRevision: saved.revision, job: rest });
+
+            return h.social.posts.cancelScheduled(ref, options);
+          },
+        },
+      },
+      store: h.store,
+      clock: () => start,
+    });
+
+    const result = await scheduler.reschedule(job.id, {
+      kind: "instant",
+      at: "2026-03-01T12:00:00Z",
+    });
+
+    assert.equal(result.state, "not-reschedulable");
+
+    const kept = await h.scheduler.get(job.id);
+    assert.equal(
+      kept === undefined ? undefined : scheduledOutcomes(kept)[0]?.outcomes[0]?.state,
+      "cancelled",
+      "the confirmed withdrawal is recorded, not left as scheduled",
+    );
+  });
+
   test("a queue checks the slot it reserves and frees it when the check fails", async () => {
     const h = harness({ native: true, noticeMs: 600_000 });
 
