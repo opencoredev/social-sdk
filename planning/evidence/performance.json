@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-10-24T13:27:58.991Z",
+  "recordedAt": "2026-10-26T04:28:52.879Z",
   "runner": {
     "platform": "linux",
     "architecture": "x64",
@@ -16,29 +16,29 @@
   },
   "bundles": {
     "core": {
-      "minifiedBytes": 45415,
-      "gzipBytes": 12590
+      "minifiedBytes": 48113,
+      "gzipBytes": 13334
     },
     "managed": {
-      "minifiedBytes": 97475,
-      "gzipBytes": 29031
+      "minifiedBytes": 100051,
+      "gzipBytes": 29770
     }
   },
   "preparation": {
-    "coldMs": 0.6169399999999996,
-    "p50Ms": 0.008254999999998347,
-    "p95Ms": 0.012954999999998051,
+    "coldMs": 0.5076439999999991,
+    "p50Ms": 0.008677000000005819,
+    "p95Ms": 0.01805399999999935,
     "samples": 1000
   },
   "dispatch": {
-    "p50Ms": 0.0343250000000026,
-    "p95Ms": 0.0501339999999999,
+    "p50Ms": 0.04271999999999565,
+    "p95Ms": 0.06631500000000301,
     "samples": 200
   },
   "baseline": {
-    "p50Ms": 0.00008000000000407681,
-    "p95Ms": 0.00016099999999852344,
+    "p50Ms": 0.00009000000000014552,
+    "p95Ms": 0.00017000000000422233,
     "samples": 200
   },
-  "dispatchOverheadP95Ms": 0.04997300000000138
+  "dispatchOverheadP95Ms": 0.06614499999999879
 }
