@@ -129,9 +129,9 @@ export function surrealIdempotencyStore(db: Surreal): IdempotencyStore {
       if (inserted[0]) return { kind: "new", claimId: inserted[0].id.id, outcomes: {} };
 
       const [rows] = await db
-        .query<
-          [ClaimRow[]]
-        >(surql`SELECT * FROM idempotency_claim WHERE scope = ${scope} AND key = ${key}`)
+        .query<[ClaimRow[]]>(
+          surql`SELECT * FROM idempotency_claim WHERE scope = ${scope} AND key = ${key}`,
+        )
         .collect();
       const row = rows[0]!;
       if (
@@ -167,9 +167,9 @@ export function surrealThreadsWorkflowStore(db: Surreal): ThreadsWorkflowStore {
     },
     async update(id, update) {
       const [rows] = await db
-        .query<
-          [{ workflow: ThreadsWorkflow }[]]
-        >(surql`UPDATE ${record(id)} MERGE { workflow: ${update} }`)
+        .query<[{ workflow: ThreadsWorkflow }[]]>(
+          surql`UPDATE ${record(id)} MERGE { workflow: ${update} }`,
+        )
         .collect();
       if (!rows[0]) throw new Error("Threads workflow not found");
       return rows[0].workflow;
