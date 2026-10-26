@@ -19,6 +19,7 @@ import {
   resolveLocalTime,
   scheduledOutcomes,
   type ScheduledJob,
+  type ScheduleStore,
   outcomeRecovery,
 } from "../src/server/index.js";
 import { definedFields } from "../src/core/fields.js";
@@ -150,6 +151,71 @@ function publication(key: string, ...accounts: root.ConnectedAccountRef[]): Publ
 }
 
 const inOneHour = { kind: "instant" as const, at: "2026-03-01T11:00:00Z" };
+
+test("a reschedule whose lease is revoked before it commits reports in-flight and frees its slot", async () => {
+  let now = start;
+  const clock = () => now;
+  const inner = new MemoryScheduleStore();
+
+  const queue = {
+    kind: "queue" as const,
+    queueId: "daily",
+    timeZone: "UTC",
+    slots: [{ time: "12:00" }],
+  };
+
+  let reserved: Parameters<MemoryScheduleStore["reserveSlot"]>[0] | undefined;
+
+  // After the reschedule reserves its slot, its lease expires and another job's takeover
+  // revokes it, as reserveSlot does for an expired holder.
+  const store: ScheduleStore = {
+    create: (job) => inner.create(job),
+    get: (input) => inner.get(input),
+    compareAndSet: (input) => inner.compareAndSet(input),
+    listDue: (input) => inner.listDue(input),
+    releaseSlot: (input) => inner.releaseSlot(input),
+    async reserveSlot(input) {
+      const ok = await inner.reserveSlot(input);
+
+      if (ok && input.token.startsWith("reschedule:")) {
+        reserved = input;
+        const saved = await inner.get({ scope: input.scope, id: input.jobId });
+        assert.ok(saved !== undefined);
+        const { lease: _revoked, ...job } = saved.job;
+        await inner.compareAndSet({ expectedRevision: saved.revision, job });
+      }
+
+      return ok;
+    },
+  };
+
+  const scheduler = new SocialScheduler({
+    social: createSocial({
+      recovery: outcomeRecovery(),
+      backend: mockBackend({ clock }),
+      idempotencyStore: new MemoryIdempotencyStore(),
+      clock,
+    }),
+    store,
+    clock,
+  });
+
+  const job = await scheduler.schedule({
+    work: { kind: "publish", request: publication("revoked", xAccount) },
+    at: inOneHour,
+  });
+
+  now = new Date(start.getTime() + 1_000);
+  const result = await scheduler.reschedule(job.id, queue);
+
+  assert.equal(result.state, "not-reschedulable");
+  assert.equal(result.state === "not-reschedulable" ? result.reason : undefined, "in-flight");
+  assert.equal((await scheduler.get(job.id))?.runAt, job.runAt);
+
+  // The aborted operation's reservation was released, so another job can take the slot.
+  assert.ok(reserved !== undefined);
+  assert.equal(await inner.reserveSlot({ ...reserved, jobId: "other", token: "other" }), true);
+});
 
 test("scheduler reads and mutations authorize the current caller before changing state", async () => {
   const h = harness({

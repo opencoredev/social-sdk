@@ -860,13 +860,21 @@ export class SocialScheduler {
 
     const updatedAt = this.#clock().toISOString();
 
+    // #mutate returns the unchanged record when the mutation declines, so track whether
+    // the final attempt applied the move: a revoked lease must not read as success.
+    let applied = false;
+
     const moved = await this.#mutate(key, (current) => {
+      applied = false;
+
       if (
         current.lease?.owner !== fenceOwner ||
         current.status === "cancelled" ||
         current.status === "cancel-unresolved"
       )
         return undefined;
+
+      applied = true;
 
       const lanes = rescheduledLanes(current);
 
@@ -892,7 +900,12 @@ export class SocialScheduler {
       };
     });
 
-    if (moved === undefined || moved.job.lease !== undefined || moved.job.status !== "scheduled") {
+    if (
+      !applied ||
+      moved === undefined ||
+      moved.job.lease !== undefined ||
+      moved.job.status !== "scheduled"
+    ) {
       await release();
 
       return { state: "not-reschedulable", reason: "in-flight", job };
