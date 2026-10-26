@@ -58,17 +58,6 @@ export const posthogScript = `(() => {
     if (started) track(path);
     else if (pending.at(-1)?.[0] !== path) pending.push([path, window.location.origin + path]);
   };
-  // Cross-promo banners (launch-banner.ts) report clicks and closes with a
-  // "cross-promo" DOM event, so only this file talks to the analytics service.
-  const promos = [];
-  const promo = (detail) =>
-    window.posthog.capture("cross_promo_" + detail.action, {
-      project: detail.project,
-      placement: "banner",
-    });
-  document.addEventListener("cross-promo", (event) =>
-    started ? promo(event.detail) : promos.push(event.detail),
-  );
   const start = () => {
     ${POSTHOG_LOADER}
     window.posthog.init(${JSON.stringify(POSTHOG_KEY)}, {
@@ -90,7 +79,6 @@ export const posthogScript = `(() => {
     });
     started = true;
     pending.forEach(([path, url]) => track(path, url));
-    promos.forEach(promo);
   };
   // astro:page-load fires on the first load and after every client-router swap.
   visit();
