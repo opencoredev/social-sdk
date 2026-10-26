@@ -1,7 +1,61 @@
 ---
 title: YouTube
 description: Upload a video to a selected YouTube channel with explicit audience, visibility, media processing, and reconciliation fields.
+seo:
+  title: Upload to YouTube from Node.js and TypeScript
+  description: Upload videos to YouTube from Node.js or Bun with resumable uploads, explicit visibility and made-for-kids settings, processing checks and typed results.
 ---
+
+To upload a video to YouTube from a server, start a resumable upload with the Data API's `videos.insert` method, send the file to the upload URL it returns, and authorize both calls with an OAuth access token that has the `youtube.upload` scope. The Social SDK YouTube adapter does this through `social.posts.publish`: you pass the video, a title, a visibility and the made-for-kids declaration, and it returns `processing` while YouTube processes the upload, or `published` with the video ID once processing is done.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+```ts
+import { readFile } from "node:fs/promises";
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { youtube } from "@opencoredev/social-sdk/youtube";
+
+const social = createSocial({
+  backend: youtube({
+    auth: {
+      accessToken: process.env["YOUTUBE_ACCESS_TOKEN"]!,
+      channelId: process.env["YOUTUBE_CHANNEL_ID"]!,
+    },
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "youtube",
+  accountId: process.env["YOUTUBE_CHANNEL_ID"]!,
+});
+
+const video = new Blob([await readFile("./video.mp4")], { type: "video/mp4" });
+
+const result = await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: { title: "Release notes", visibility: "private", madeForKids: false },
+    },
+  ],
+  content: {
+    text: "Video description",
+    media: [
+      {
+        kind: "video",
+        source: { kind: "blob", blob: video, fingerprint: "release-notes-v1" },
+        mimeType: "video/mp4",
+        byteSize: video.size,
+      },
+    ],
+  },
+});
+```
+
+This sample uploads the video as private. On a server, also pass `saveUploadSession` as in the setup below, so an interrupted upload can be resumed instead of starting a second video.
 
 The direct YouTube adapter accepts an existing OAuth access token and channel ID. The server package also provides `youtubeOAuth` for Google authorization-code connections and channel discovery; use `ConnectionManager` to keep the attempt server-side, present discovered channels for selection, and persist credentials through an encrypted `credentialSink`.
 
