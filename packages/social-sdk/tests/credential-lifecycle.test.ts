@@ -104,6 +104,21 @@ function assertNoSecrets(
   assert.ok(!text.includes("secret"), text);
 }
 
+/** An uncertain refresh throws a new error that carries nothing from the provider or store. */
+function isSanitized(code: SocialErrorCode) {
+  return (error: unknown): error is SocialError => {
+    assert.ok(error instanceof SocialError);
+    assert.equal(error.code, code);
+    assert.equal(error.cause, undefined);
+    assert.deepEqual(error.retryDisposition, { kind: "after-reconnect" });
+    const text = [error.message, error.stack, JSON.stringify(error), JSON.stringify(error.details)];
+
+    for (const part of text) assert.ok(!part?.includes("secret"), part);
+
+    return true;
+  };
+}
+
 describe("credential manager options", () => {
   test("keeps the positional constructor and raw get", async () => {
     const store = new MemoryCredentialStore();
@@ -284,7 +299,20 @@ describe("expiry-aware resolve", () => {
   });
 
   test("token expiry never deletes the stored record", async () => {
-    const h = harness();
+    const h = harness({
+      // Mirrors a provider that refreshes only with a refresh token.
+      refresh: async (request) => {
+        if (request.credential.refreshToken === undefined)
+          throw new SocialError({
+            code: "reconnect_required",
+            operation: "x.oauth.refresh",
+            message: "No refresh token is available; reconnect the account",
+          });
+
+        return request.credential;
+      },
+    });
+
     const manager = h.manager();
     const value = { accessToken: secretAccess, expiresAt: iso(start - 1) };
     await manager.save("a", value);
@@ -293,9 +321,22 @@ describe("expiry-aware resolve", () => {
     assert.deepEqual((await h.store.get("a"))?.value, value);
     assert.deepEqual(
       h.reconnects.map((event) => event.reason),
-      ["missing-refresh-token"],
+      ["refresh-rejected"],
     );
-    assert.equal(h.requests.length, 0);
+  });
+
+  test("a refresh hook can refresh with the access token when no refresh token is stored", async () => {
+    const h = harness();
+    const manager = h.manager();
+    await manager.save("a", { accessToken: secretAccess, expiresAt: iso(start + 30_000) });
+
+    const resolved = await manager.resolve("a");
+
+    assert.equal(resolved.freshness, "refreshed");
+    assert.equal(resolved.value.accessToken, "access-2");
+    assert.equal(resolved.value.refreshToken, undefined);
+    assert.equal(h.requests[0]?.credential.accessToken, secretAccess);
+    assert.deepEqual(h.reconnects, []);
   });
 
   test("requires reconnect when no refresher is configured or nothing is stored", async () => {
@@ -309,13 +350,16 @@ describe("expiry-aware resolve", () => {
     });
 
     await manager.save("a", expiring);
+    await manager.save("b", { accessToken: secretAccess, expiresAt: iso(start + 30_000) });
 
     await assert.rejects(manager.resolve("a"), isCode("reconnect_required"));
+    await assert.rejects(manager.resolve("b"), isCode("reconnect_required"));
     await assert.rejects(manager.resolve("missing"), isCode("reconnect_required"));
     assert.deepEqual(
       h.reconnects.map((event) => [event.key, event.reason]),
       [
         ["a", "refresh-unavailable"],
+        ["b", "missing-refresh-token"],
         ["missing", "missing-credential"],
       ],
     );
@@ -391,7 +435,7 @@ describe("refresh failures", () => {
     const manager = h.manager();
     await manager.save("a", expiring);
 
-    await assert.rejects(manager.resolve("a"), (error) => error === original);
+    await assert.rejects(manager.resolve("a"), isSanitized("ambiguous_outcome"));
     assert.deepEqual((await h.store.get("a"))?.value.refreshState, {
       state: "uncertain",
       since: iso(start),
@@ -700,7 +744,7 @@ describe("fenced rotate", () => {
     const h = harness();
     const manager = h.manager();
     await manager.save("a", expiring);
-    const original = new Error("connection reset");
+    const original = new Error(`connection reset after ${secretRefresh}`);
     let rotations = 0;
 
     await assert.rejects(
@@ -708,7 +752,7 @@ describe("fenced rotate", () => {
         rotations++;
         throw original;
       }),
-      (error) => error === original,
+      isSanitized("ambiguous_outcome"),
     );
     assert.equal((await h.store.get("a"))?.value.refreshState?.state, "uncertain");
     assert.deepEqual(
@@ -759,6 +803,44 @@ describe("fenced rotate", () => {
     assert.equal((await h.store.get("a"))?.value.accessToken, secretAccess);
     assert.equal((await h.store.get("a"))?.value.refreshState?.state, "uncertain");
   });
+
+  test("resolve does not return a fresh or non-expiring token after an uncertain rotation", async () => {
+    const late = deferred<StoredCredential>();
+    const h = harness({ lockTtlMs: 50, refreshTimeoutMs: 10 });
+    const manager = h.manager();
+    await manager.save("a", { accessToken: secretAccess });
+    await manager.save("b", { accessToken: secretAccess, expiresAt: iso(start + 3_600_000) });
+
+    for (const key of ["a", "b"]) {
+      await assert.rejects(
+        manager.rotate(key, async () => late.promise),
+        isCode("timeout"),
+      );
+      await assert.rejects(manager.resolve(key), isCode("reconnect_required"));
+    }
+
+    late.resolve({ accessToken: "late" });
+  });
+
+  test("resolve does not return a fresh or non-expiring token during a forced rotation", async () => {
+    const h = harness();
+    const manager = h.manager();
+    await manager.save("a", { accessToken: secretAccess });
+    await manager.save("b", { accessToken: secretAccess, expiresAt: iso(start + 3_600_000) });
+
+    for (const key of ["a", "b"]) {
+      const gate = deferred<StoredCredential>();
+      const pending = manager.rotate(key, async () => gate.promise);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // The persisted in-flight marker fences the old token.
+      await assert.rejects(manager.resolve(key), isCode("upstream_failure"));
+
+      gate.resolve({ accessToken: `rotated-${key}` });
+      await pending;
+      assert.equal((await manager.resolve(key)).value.accessToken, `rotated-${key}`);
+    }
+  });
 });
 
 describe("result persistence failures", () => {
@@ -790,10 +872,10 @@ describe("result persistence failures", () => {
     };
   }
 
-  test("a throwing result write notifies, keeps the uncertainty marker, and rethrows", async () => {
+  test("a throwing result write notifies, keeps the uncertainty marker, and throws a sanitized error", async () => {
     const h = harness();
     await h.manager().save("a", expiring);
-    const failure = new Error("database unavailable");
+    const failure = new Error(`database unavailable writing ${secretRefresh}`);
 
     const manager = new CredentialManager(failingResultWrites(h, failure, "result-only"), h.lock, {
       clock: h.clock,
@@ -810,7 +892,7 @@ describe("result persistence failures", () => {
       },
     });
 
-    await assert.rejects(manager.resolve("a"), (error) => error === failure);
+    await assert.rejects(manager.resolve("a"), isSanitized("ambiguous_outcome"));
     assert.deepEqual(h.failures, [
       { key: "a", outcome: "uncertain", code: "ambiguous_outcome", observedAt: iso(start) },
     ]);
@@ -828,7 +910,7 @@ describe("result persistence failures", () => {
   test("if the store stays down the in-flight marker remains and expires into uncertainty", async () => {
     const h = harness({ lockTtlMs: 1_000, refreshTimeoutMs: 1_000 });
     await h.manager().save("a", expiring);
-    const failure = new Error("database unavailable");
+    const failure = new Error(`database unavailable writing ${secretRefresh}`);
     let calls = 0;
 
     const manager = new CredentialManager(
@@ -846,7 +928,7 @@ describe("result persistence failures", () => {
       },
     );
 
-    await assert.rejects(manager.resolve("a"), (error) => error === failure);
+    await assert.rejects(manager.resolve("a"), isSanitized("ambiguous_outcome"));
     assert.equal((await h.store.get("a"))?.value.refreshState?.state, "in-flight");
     await assert.rejects(h.manager().resolve("a"), isCode("upstream_failure"));
     h.advance(1_001);
@@ -858,7 +940,7 @@ describe("result persistence failures", () => {
   test("throwing callbacks and a failing lock release do not mask the store failure", async () => {
     const h = harness();
     await h.manager().save("a", expiring);
-    const failure = new Error("database unavailable");
+    const failure = new Error(`database unavailable writing ${secretRefresh}`);
 
     const lock = {
       acquire: (key: string, ttlMs: number) => h.lock.acquire(key, ttlMs),
@@ -882,7 +964,7 @@ describe("result persistence failures", () => {
       },
     });
 
-    await assert.rejects(manager.resolve("a"), (error) => error === failure);
+    await assert.rejects(manager.resolve("a"), isSanitized("ambiguous_outcome"));
     assert.equal((await h.store.get("a"))?.value.refreshState?.state, "uncertain");
   });
 });

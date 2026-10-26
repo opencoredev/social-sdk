@@ -229,6 +229,9 @@ export interface CredentialRefreshRequest {
 /**
  * Calls the provider token endpoint. Return the complete next credential,
  * carrying over the previous refresh token when the provider does not rotate it.
+ * It runs even when the credential has no refresh token, because some providers
+ * refresh with the access token. If yours needs one, throw a `SocialError` with
+ * code `reconnect_required`.
  * Throw a `SocialError` for a definite provider answer. Any other error, or a
  * `SocialError` with code `ambiguous_outcome`, `timeout`, or `cancelled`, leaves
  * the credential marked uncertain because the provider may have rotated tokens.
@@ -529,12 +532,17 @@ export class CredentialManager {
   }
 
   #assess(value: StoredCredential): Assessment {
+    // A forced rotation can mark even a fresh token; the provider may have revoked it.
+    const fence = this.#fence(value);
+
+    if (fence !== undefined) return fence;
+
     if (value.expiresAt === undefined) return { kind: "usable", freshness: "non-expiring" };
 
     if (Date.parse(value.expiresAt) - this.#skewMs > this.#clock().getTime())
       return { kind: "usable", freshness: "fresh" };
 
-    return this.#fence(value) ?? { kind: "refresh-due" };
+    return { kind: "refresh-due" };
   }
 
   /** The persisted refresh marker, if it forbids starting another refresh. */
@@ -618,11 +626,13 @@ export class CredentialManager {
 
       if (assessment.kind !== "refresh-due") return this.#blocked(key, assessment, operation);
 
-      if (latest.value.refreshToken === undefined)
-        return this.#reconnect(key, "missing-refresh-token", operation);
-
+      // The hook owns its prerequisites: Threads and Instagram refresh with the access token.
       if (this.#options.refresh === undefined)
-        return this.#reconnect(key, "refresh-unavailable", operation);
+        return this.#reconnect(
+          key,
+          latest.value.refreshToken === undefined ? "missing-refresh-token" : "refresh-unavailable",
+          operation,
+        );
       refresher = this.#options.refresh;
     }
 
@@ -663,11 +673,8 @@ export class CredentialManager {
       } catch {
         return this.#failUncertain(key, markerRevision, latest.value, {
           code: "upstream_failure",
-          error: new SocialError({
-            code: "upstream_failure",
-            operation,
-            message: "Credential refresh returned an invalid credential",
-          }),
+          operation,
+          message: "Credential refresh returned an invalid credential",
         });
       }
 
@@ -679,11 +686,12 @@ export class CredentialManager {
           expectedRevision: markerRevision,
           value: next,
         });
-      } catch (cause) {
+      } catch {
         // The write may or may not have landed; the provider may have rotated tokens.
         return this.#failUncertain(key, markerRevision, latest.value, {
           code: "ambiguous_outcome",
-          error: cause,
+          operation,
+          message: "Saving the refreshed credential failed; reconnect the account",
         });
       }
 
@@ -705,21 +713,15 @@ export class CredentialManager {
     if (attempt.kind === "timeout")
       return this.#failUncertain(key, markerRevision, latest.value, {
         code: "timeout",
-        error: new SocialError({
-          code: "timeout",
-          operation,
-          message: "Credential refresh did not finish before its deadline",
-        }),
+        operation,
+        message: "Credential refresh did not finish before its deadline",
       });
 
     if (attempt.kind === "cancelled")
       return this.#failUncertain(key, markerRevision, latest.value, {
         code: "cancelled",
-        error: new SocialError({
-          code: "cancelled",
-          operation,
-          message: "Credential refresh was cancelled after the provider request started",
-        }),
+        operation,
+        message: "Credential refresh was cancelled after the provider request started",
       });
 
     const error = attempt.cause;
@@ -736,15 +738,24 @@ export class CredentialManager {
 
     return this.#failUncertain(key, markerRevision, latest.value, {
       code: error instanceof SocialError ? error.code : "ambiguous_outcome",
-      error,
+      operation,
+      message: "Credential refresh ended without a definite answer; reconnect the account",
     });
   }
 
+  /**
+   * Marks the credential uncertain and throws a fresh error. The provider or
+   * store error is never attached, because it may echo tokens.
+   */
   async #failUncertain(
     key: string,
     markerRevision: string,
     previous: StoredCredential,
-    failure: { readonly code: SocialErrorCode; readonly error: unknown },
+    failure: {
+      readonly code: SocialErrorCode;
+      readonly operation: string;
+      readonly message: string;
+    },
   ): Promise<never> {
     await this.#compareAndSetQuietly(key, markerRevision, {
       ...previous,
@@ -753,7 +764,12 @@ export class CredentialManager {
     await this.#notifyFailure(key, "uncertain", failure.code);
     await this.#notifyReconnect(key, "refresh-uncertain");
 
-    throw failure.error;
+    throw new SocialError({
+      code: failure.code,
+      operation: failure.operation,
+      message: failure.message,
+      retryDisposition: { kind: "after-reconnect" },
+    });
   }
 
   async #attempt(

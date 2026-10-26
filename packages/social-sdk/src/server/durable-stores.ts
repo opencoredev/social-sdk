@@ -760,7 +760,8 @@ function parseDeliveryOutcome(value: JsonValue): DeliveryOutcome | undefined {
     !isObjectValue(value) ||
     !isFiniteNumberValue(value["targetIndex"]) ||
     !isStringValue(value["observedAt"]) ||
-    !isOptionalString(value["backendState"])
+    !isOptionalString(value["backendState"]) ||
+    !isOptionalString(value["retryAttemptId"])
   )
     return undefined;
   const account = parseAccountRef(value["account"]);
@@ -775,7 +776,11 @@ function parseDeliveryOutcome(value: JsonValue): DeliveryOutcome | undefined {
     targetIndex: value["targetIndex"],
     account,
     observedAt: value["observedAt"],
-    ...definedFields({ delivery, backendState: value["backendState"] }),
+    ...definedFields({
+      delivery,
+      backendState: value["backendState"],
+      retryAttemptId: value["retryAttemptId"],
+    }),
   };
 
   const mediaId = value["mediaId"];
