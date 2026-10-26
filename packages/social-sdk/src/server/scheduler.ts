@@ -1102,6 +1102,7 @@ export class SocialScheduler {
           queueId: input.at.queueId,
           at: candidate,
           jobId: id,
+          now: new Date(input.now).toISOString(),
         })
       )
         return candidate;

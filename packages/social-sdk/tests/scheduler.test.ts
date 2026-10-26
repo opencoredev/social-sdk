@@ -951,7 +951,7 @@ describe("key-value schedule store", () => {
     };
 
     await store.create(job);
-    const slot = { scope: job.scope, queueId: "daily", at: job.runAt };
+    const slot = { scope: job.scope, queueId: "daily", at: job.runAt, now: job.createdAt };
     assert.equal(await store.reserveSlot({ ...slot, jobId: job.id }), true);
     assert.equal(await store.reserveSlot({ ...slot, jobId: "other" }), false);
     const saved = await store.get({ scope: job.scope, id: job.id });
