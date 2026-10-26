@@ -529,12 +529,17 @@ export class CredentialManager {
   }
 
   #assess(value: StoredCredential): Assessment {
+    // A forced rotation can mark even a fresh token; the provider may have revoked it.
+    const fence = this.#fence(value);
+
+    if (fence !== undefined) return fence;
+
     if (value.expiresAt === undefined) return { kind: "usable", freshness: "non-expiring" };
 
     if (Date.parse(value.expiresAt) - this.#skewMs > this.#clock().getTime())
       return { kind: "usable", freshness: "fresh" };
 
-    return this.#fence(value) ?? { kind: "refresh-due" };
+    return { kind: "refresh-due" };
   }
 
   /** The persisted refresh marker, if it forbids starting another refresh. */

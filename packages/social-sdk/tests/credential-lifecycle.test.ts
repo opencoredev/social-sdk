@@ -774,6 +774,44 @@ describe("fenced rotate", () => {
     assert.equal((await h.store.get("a"))?.value.accessToken, secretAccess);
     assert.equal((await h.store.get("a"))?.value.refreshState?.state, "uncertain");
   });
+
+  test("resolve does not return a fresh or non-expiring token after an uncertain rotation", async () => {
+    const late = deferred<StoredCredential>();
+    const h = harness({ lockTtlMs: 50, refreshTimeoutMs: 10 });
+    const manager = h.manager();
+    await manager.save("a", { accessToken: secretAccess });
+    await manager.save("b", { accessToken: secretAccess, expiresAt: iso(start + 3_600_000) });
+
+    for (const key of ["a", "b"]) {
+      await assert.rejects(
+        manager.rotate(key, async () => late.promise),
+        isCode("timeout"),
+      );
+      await assert.rejects(manager.resolve(key), isCode("reconnect_required"));
+    }
+
+    late.resolve({ accessToken: "late" });
+  });
+
+  test("resolve does not return a fresh or non-expiring token during a forced rotation", async () => {
+    const h = harness();
+    const manager = h.manager();
+    await manager.save("a", { accessToken: secretAccess });
+    await manager.save("b", { accessToken: secretAccess, expiresAt: iso(start + 3_600_000) });
+
+    for (const key of ["a", "b"]) {
+      const gate = deferred<StoredCredential>();
+      const pending = manager.rotate(key, async () => gate.promise);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // The persisted in-flight marker fences the old token.
+      await assert.rejects(manager.resolve(key), isCode("upstream_failure"));
+
+      gate.resolve({ accessToken: `rotated-${key}` });
+      await pending;
+      assert.equal((await manager.resolve(key)).value.accessToken, `rotated-${key}`);
+    }
+  });
 });
 
 describe("result persistence failures", () => {
