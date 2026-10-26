@@ -561,6 +561,36 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     const photoIds: string[] = [];
 
+    // Removes the unpublished photos this call created, once Facebook definitely made no post
+    // with them. Returns the IDs it could not remove.
+    const discardPhotos = async (): Promise<string[]> => {
+      const kept: string[] = [];
+
+      for (const id of photoIds)
+        try {
+          await deleteObject(id, context, "facebook.posts.publish");
+        } catch {
+          kept.push(id);
+        }
+
+      return kept;
+    };
+
+    const definiteFailure = async (error: SocialError): Promise<never> => {
+      const kept = await discardPhotos();
+
+      throw new SocialError({
+        code: error.code,
+        operation: "facebook.posts.publish",
+        message: error.message,
+        ...definedFields({
+          details: kept.length === 0 ? undefined : { unpublishedPhotoIds: kept },
+        }),
+        retryDisposition: error.retryDisposition,
+        cause: error,
+      });
+    };
+
     try {
       for (const item of media) {
         const uploaded = object(
@@ -579,25 +609,35 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         photoIds.push(string(uploaded["id"]));
       }
     } catch (error) {
-      if (error instanceof SocialError)
-        throw new SocialError({
-          code: error.code,
-          operation: "facebook.posts.publish",
-          message: error.message,
-          details: { unpublishedPhotoIds: photoIds },
-          retryDisposition: error.retryDisposition,
-          cause: error,
-        });
-      throw error;
+      if (!(error instanceof SocialError)) throw error;
+
+      // No feed post exists yet, so every staged photo is safe to remove.
+      return definiteFailure(error);
     }
 
-    const result = object(
-      await request(`${page}/feed`, context, {
-        attached_media: photoIds.map((id) => ({ media_fbid: id })),
-        ...definedFields({ message: target.content.text }),
-        ...scheduleFields(schedule),
-      }),
-    );
+    let result: JsonObject;
+
+    try {
+      result = object(
+        await request(`${page}/feed`, context, {
+          attached_media: photoIds.map((id) => ({ media_fbid: id })),
+          ...definedFields({ message: target.content.text }),
+          ...scheduleFields(schedule),
+        }),
+      );
+    } catch (error) {
+      // An ambiguous answer may still have created the post, which needs its photos, so they
+      // stay and the client reports the target as unknown. A definite refusal created nothing.
+      if (
+        !(error instanceof SocialError) ||
+        error.code === "timeout" ||
+        error.code === "ambiguous_outcome" ||
+        error.code === "cancelled"
+      )
+        throw error;
+
+      return definiteFailure(error);
+    }
 
     const id = string(result["id"]);
 

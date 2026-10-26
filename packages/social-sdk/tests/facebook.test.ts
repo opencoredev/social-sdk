@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { createSocial, connectedAccountRef } from "../src/index.js";
+import { createSocial, connectedAccountRef, SocialError } from "../src/index.js";
 import { discoverFacebookPages, facebook } from "../src/platforms/facebook.js";
 import { isJsonValue } from "../src/transport/json.js";
 import { isJsonObject } from "../src/transport/validation.js";
@@ -230,39 +230,115 @@ describe("facebook pages adapter", () => {
     });
   });
 
-  it("keeps uploaded photo IDs when a multi-photo post fails part way", async () => {
-    const calls: string[] = [];
-
-    const fb = facebook({
-      auth: { pageId: "123", accessToken: "page-token" },
-      clock,
-      fetch: async (input) => {
-        calls.push(String(input));
-
-        return calls.length === 1
-          ? Response.json({ id: "p1" })
-          : Response.json({ error: { message: "bad" } }, { status: 400 });
-      },
-    });
-
+  describe("multi-photo failures", () => {
     const image = {
       kind: "image" as const,
       mimeType: "image/jpeg",
       source: { kind: "https-url" as const, url: "https://cdn.example.com/a.jpg" },
     };
 
-    await assert.rejects(
-      fb.posts!.publishTarget(
-        {
-          targetIndex: 0,
-          targetKey: "k",
-          account: page,
-          content: { text: "Album", media: [image, image] },
+    const album = {
+      targetIndex: 0,
+      targetKey: "k",
+      account: page,
+      content: { text: "Album", media: [image, image] },
+    };
+
+    /** Answers by method and path; `feed` decides the final post request. */
+    const graph = (input: {
+      readonly secondUpload: "ok" | "rejected";
+      readonly feed: "rejected" | "network-error";
+      readonly deletes: "ok" | "rejected";
+    }) => {
+      const calls: string[] = [];
+      let uploads = 0;
+
+      const fetch: typeof globalThis.fetch = async (url, init) => {
+        const { pathname } = new URL(String(url));
+        const method = init?.method ?? "GET";
+        calls.push(`${method} ${pathname}`);
+
+        if (method === "DELETE")
+          return input.deletes === "ok"
+            ? Response.json({ success: true })
+            : Response.json({ error: { message: "nope" } }, { status: 400 });
+
+        if (pathname.endsWith("/photos")) {
+          uploads++;
+
+          return uploads === 2 && input.secondUpload === "rejected"
+            ? Response.json({ error: { message: "bad" } }, { status: 400 })
+            : Response.json({ id: `p${uploads}` });
+        }
+
+        if (input.feed === "network-error") throw new TypeError("socket hang up");
+
+        return Response.json({ error: { message: "bad" } }, { status: 400 });
+      };
+
+      return {
+        calls,
+        adapter: facebook({ auth: { pageId: "123", accessToken: "page-token" }, clock, fetch }),
+      };
+    };
+
+    it("removes the staged photo when a later upload is refused", async () => {
+      const { calls, adapter: fb } = graph({
+        secondUpload: "rejected",
+        feed: "rejected",
+        deletes: "ok",
+      });
+
+      await assert.rejects(
+        fb.posts!.publishTarget(album, context),
+        (error: unknown): error is SocialError => {
+          assert.ok(error instanceof SocialError);
+          assert.equal(error.code, "upstream_failure");
+          assert.equal(error.details, undefined);
+
+          return true;
         },
-        context,
-      ),
-      { code: "upstream_failure", details: { unpublishedPhotoIds: ["p1"] } },
-    );
+      );
+      assert.deepEqual(calls.slice(2), ["DELETE /v25.0/p1"]);
+    });
+
+    it("keeps the IDs of staged photos it could not remove", async () => {
+      const { adapter: fb } = graph({
+        secondUpload: "rejected",
+        feed: "rejected",
+        deletes: "rejected",
+      });
+
+      await assert.rejects(fb.posts!.publishTarget(album, context), {
+        code: "upstream_failure",
+        details: { unpublishedPhotoIds: ["p1"] },
+      });
+    });
+
+    it("removes every staged photo when Facebook refuses the post", async () => {
+      const { calls, adapter: fb } = graph({ secondUpload: "ok", feed: "rejected", deletes: "ok" });
+
+      await assert.rejects(fb.posts!.publishTarget(album, context), { code: "upstream_failure" });
+      assert.deepEqual(calls.slice(3), ["DELETE /v25.0/p1", "DELETE /v25.0/p2"]);
+    });
+
+    it("keeps staged photos and reports unknown when the post request is ambiguous", async () => {
+      const { calls, adapter: fb } = graph({
+        secondUpload: "ok",
+        feed: "network-error",
+        deletes: "ok",
+      });
+
+      const outcome = (
+        await createSocial({ backend: fb, clock }).posts.publish({
+          targets: [{ account: page }],
+          content: album.content,
+        })
+      ).outcomes[0];
+
+      assert.equal(outcome?.state, "unknown");
+      assert.ok(!calls.some((call) => call.startsWith("DELETE")));
+    });
   });
 
   it("submits Page videos on graph-video and reconciles them through posts.status", async () => {

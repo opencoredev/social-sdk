@@ -93,7 +93,7 @@ await social.posts.publish({
 });
 ```
 
-Media can be a public HTTPS URL or a `Blob`. Image `altText` is sent as `alt_text_custom`. If an upload fails part way through a multi-photo post, the error's `details.unpublishedPhotoIds` lists the photos already uploaded; they stay unpublished.
+Media can be a public HTTPS URL or a `Blob`. Image `altText` is sent as `alt_text_custom`. If an upload fails part way through a multi-photo post, or Facebook refuses the final post, the adapter deletes the unpublished photos it uploaded. Any it could not delete are listed in the error's `details.unpublishedPhotoIds`. If the final post request ends without a definite answer, the post may exist, so its photos are kept and the target is reported as `unknown`.
 
 ### Publish a video or Reel
 
