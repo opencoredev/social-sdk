@@ -15,6 +15,7 @@ import {
   preparationIssue,
   targetKey,
   unrecordedOutcome,
+  withPreflightParents,
   type PublicationPlan,
 } from "./client-support.js";
 import {
@@ -1832,18 +1833,7 @@ export function createSocial(
           chained
             ? {
                 ...publishRequest,
-                // Placeholder parents so adapters validate reply support before anything is sent.
-                targets: item.targets.map((target) => ({
-                  ...target,
-                  replyTo: {
-                    kind: "platform-post" as const,
-                    version: 1 as const,
-                    backend: target.account.backend,
-                    platform: target.account.platform,
-                    accountId: target.account.accountId,
-                    postId: "preflight",
-                  },
-                })),
+                targets: withPreflightParents(item.targets),
               }
             : publishRequest,
         );
