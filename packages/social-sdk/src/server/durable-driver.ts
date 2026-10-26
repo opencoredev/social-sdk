@@ -81,17 +81,33 @@ export function isStringArray(value: JsonValue | undefined): value is string[] {
   return Array.isArray(value) && value.every(isStringValue);
 }
 
+/** Errors issued by the SDK's own storage code, whose fixed messages are safe to surface. */
+const issued = new WeakSet<SocialError>();
+
+/** Marks an SDK-built error with fixed, non-secret fields as safe to pass through `guarded`. */
+export function issuedError(error: SocialError): SocialError {
+  issued.add(error);
+
+  return error;
+}
+
 export function storeError(
   operation: string,
   message: string,
   code: SocialError["code"] = "upstream_failure",
 ): SocialError {
-  return new SocialError({ code, operation, message });
+  const error = new SocialError({ code, operation, message });
+
+  issued.add(error);
+
+  return error;
 }
 
 /**
- * Runs a driver call and replaces any failure with a generic error. Driver
- * errors can echo statement parameters, which may hold tokens or verifiers.
+ * Runs a storage call and replaces any failure the SDK did not issue with a generic
+ * error. Drivers, executors, and application stores can echo statement parameters or
+ * written records, which may hold tokens, verifiers, or provider state. A SocialError
+ * keeps its code and retry disposition; nothing else from it survives.
  */
 export async function guarded<Result>(
   operation: string,
@@ -100,13 +116,25 @@ export async function guarded<Result>(
   try {
     return await run();
   } catch (error) {
-    if (error instanceof SocialError) throw error;
-    throw new SocialError({
-      code: "upstream_failure",
-      operation,
-      message: "Durable store request failed",
-      details: { errorName: error instanceof Error ? error.name : "unknown" },
-    });
+    if (error instanceof SocialError && issued.has(error)) throw error;
+
+    const replacement =
+      error instanceof SocialError
+        ? new SocialError({
+            code: error.code,
+            operation,
+            message: "Durable store request failed",
+            retryDisposition: error.retryDisposition,
+          })
+        : new SocialError({
+            code: "upstream_failure",
+            operation,
+            message: "Durable store request failed",
+            details: { errorName: error instanceof Error ? error.name : "unknown" },
+          });
+
+    issued.add(replacement);
+    throw replacement;
   }
 }
 

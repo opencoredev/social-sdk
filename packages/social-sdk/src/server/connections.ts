@@ -1,5 +1,6 @@
 import { SocialError } from "../core/errors.js";
 import type { ConnectedAccountRef, Platform } from "../core/types.js";
+import { guarded } from "./durable-driver.js";
 
 export interface ConnectionAttempt {
   readonly id: string;
@@ -75,6 +76,28 @@ export interface ConnectionStore {
     readonly accounts: readonly ConnectionAccount[];
     readonly selectedAccountIds: readonly string[];
   }): Promise<readonly ConnectionGrant[]>;
+}
+
+/**
+ * Replaces store failures with fixed-message errors. Attempts carry PKCE verifiers and
+ * private provider state, which an application store's error could echo.
+ */
+function guardedConnectionStore(store: ConnectionStore): ConnectionStore {
+  return {
+    save: (attempt) => guarded("connections.store.save", () => store.save(attempt)),
+    get: (attemptId) => guarded("connections.store.get", () => store.get(attemptId)),
+    claimDiscovery: (attemptId) =>
+      guarded("connections.store.claimDiscovery", () => store.claimDiscovery(attemptId)),
+    saveDiscoveredAccounts: (attemptId, accounts) =>
+      guarded("connections.store.saveDiscoveredAccounts", () =>
+        store.saveDiscoveredAccounts(attemptId, accounts),
+      ),
+    getDiscoveredAccounts: (attemptId) =>
+      guarded("connections.store.getDiscoveredAccounts", () =>
+        store.getDiscoveredAccounts(attemptId),
+      ),
+    complete: (input) => guarded("connections.store.complete", () => store.complete(input)),
+  };
 }
 
 export interface ConnectionGrant {
@@ -190,7 +213,7 @@ export class ConnectionManager {
         message: "ttlMs must be a positive safe integer",
       });
     this.#options = {
-      store: options.store,
+      store: guardedConnectionStore(options.store),
       now: options.now ?? (() => new Date()),
       randomBytes: options.randomBytes ?? randomBytes,
       ttlMs,

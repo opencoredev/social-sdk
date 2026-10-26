@@ -1,4 +1,5 @@
 import type { CredentialStore } from "../core/adapter.js";
+import { guarded, issuedError } from "./durable-driver.js";
 import { SocialError } from "../core/errors.js";
 import { isJsonValue } from "../transport/json.js";
 import { isJsonObject, isString } from "../transport/validation.js";
@@ -79,12 +80,14 @@ function failure(
   message: string,
   keyId?: string,
 ): SocialError {
-  return new SocialError({
-    code: "invalid_config",
-    operation,
-    message,
-    details: keyId === undefined ? { reason } : { reason, keyId },
-  });
+  return issuedError(
+    new SocialError({
+      code: "invalid_config",
+      operation,
+      message,
+      details: keyId === undefined ? { reason } : { reason, keyId },
+    }),
+  );
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -303,7 +306,9 @@ function encryptedStore<TCredential>(
 
     async compareAndSet(input) {
       const operation = "credentials.encrypt";
-      const plaintext = codec.encode(input.value);
+      // The codec error may quote the credential, so only its code is kept.
+      const plaintext = await guarded(operation, async () => codec.encode(input.value));
+
       const keyId = options.currentKeyId;
       const key = await cryptoKey(keyId, "encrypt", operation);
       const nonce = webCrypto.getRandomValues(new Uint8Array(nonceBytes));

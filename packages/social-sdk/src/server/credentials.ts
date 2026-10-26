@@ -3,6 +3,7 @@ import { SocialError, type SocialErrorCode } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
 import type { JsonValue } from "../core/types.js";
 import { isJsonValue } from "../transport/json.js";
+import { guarded } from "./durable-driver.js";
 import { isJsonArray, isJsonObject, isString, type JsonField } from "../transport/validation.js";
 
 export interface CredentialLease {
@@ -348,41 +349,20 @@ function sanitizedRejection(error: SocialError, operation: string): SocialError 
   });
 }
 
-/** Replaces a store or lock failure with a fixed-message error that keeps only its code. */
-async function guardedStorage<Result>(
-  operation: string,
-  run: () => Promise<Result>,
-): Promise<Result> {
-  try {
-    return await run();
-  } catch (error) {
-    // Store and lock errors can echo the credential being written or a connection string.
-    throw new SocialError({
-      code: error instanceof SocialError ? error.code : "upstream_failure",
-      operation,
-      message: "The credential store or lock request failed",
-      retryDisposition:
-        error instanceof SocialError
-          ? error.retryDisposition
-          : { kind: "after-delay", delayMs: 1_000 },
-    });
-  }
-}
-
 function guardedStore(store: CredentialStore<StoredCredential>): CredentialStore<StoredCredential> {
   const deleteIfRevision = store.deleteIfRevision?.bind(store);
 
   return {
-    get: (key) => guardedStorage("credentials.store.get", () => store.get(key)),
+    get: (key) => guarded("credentials.store.get", () => store.get(key)),
     compareAndSet: (input) =>
-      guardedStorage("credentials.store.compareAndSet", () => store.compareAndSet(input)),
-    delete: (key) => guardedStorage("credentials.store.delete", () => store.delete(key)),
+      guarded("credentials.store.compareAndSet", () => store.compareAndSet(input)),
+    delete: (key) => guarded("credentials.store.delete", () => store.delete(key)),
     ...definedFields({
       deleteIfRevision:
         deleteIfRevision === undefined
           ? undefined
           : (key: string, expectedRevision: string) =>
-              guardedStorage("credentials.store.deleteIfRevision", () =>
+              guarded("credentials.store.deleteIfRevision", () =>
                 deleteIfRevision(key, expectedRevision),
               ),
     }),
@@ -391,9 +371,8 @@ function guardedStore(store: CredentialStore<StoredCredential>): CredentialStore
 
 function guardedLock(lock: CredentialLock): CredentialLock {
   return {
-    acquire: (key, ttlMs) =>
-      guardedStorage("credentials.lock.acquire", () => lock.acquire(key, ttlMs)),
-    release: (lease) => guardedStorage("credentials.lock.release", () => lock.release(lease)),
+    acquire: (key, ttlMs) => guarded("credentials.lock.acquire", () => lock.acquire(key, ttlMs)),
+    release: (lease) => guarded("credentials.lock.release", () => lock.release(lease)),
   };
 }
 

@@ -544,7 +544,9 @@ export class DurableCredentialStore<TCredential> implements CredentialStore<TCre
     const text = record["credential"];
 
     const value =
-      record["kind"] === "credential" && isStringValue(text) ? this.#codec.decode(text) : undefined;
+      record["kind"] === "credential" && isStringValue(text)
+        ? await guarded("credentials.get", async () => this.#codec.decode(text))
+        : undefined;
 
     if (value === undefined) throw storeError("credentials.get", "Stored credential is malformed");
 
@@ -557,7 +559,13 @@ export class DurableCredentialStore<TCredential> implements CredentialStore<TCre
     readonly value: TCredential;
   }): Promise<{ readonly updated: boolean; readonly revision?: string }> {
     const revision = newRevision();
-    const body = encodeRecord({ kind: "credential", credential: this.#codec.encode(input.value) });
+
+    // An application codec may quote the credential in its error, so its failures are replaced.
+    const credential = await guarded("credentials.save", async () =>
+      this.#codec.encode(input.value),
+    );
+
+    const body = encodeRecord({ kind: "credential", credential });
 
     const updated = await guarded("credentials.save", () =>
       this.#driver.write({
