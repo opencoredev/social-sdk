@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { postfast } from "../src/cloud/postfast.js";
 import { SocialError } from "../src/core/errors.js";
+import {
+  MemoryScheduleStore,
+  SocialScheduler,
+  outcomeRecovery,
+  scheduledOutcomes,
+} from "../src/server/index.js";
+import { MemoryIdempotencyStore } from "../src/testing/index.js";
+import { array, object } from "../src/transport/validation.js";
 import type { AdapterOperationContext, JsonObject, PlatformPostRef } from "../src/core/types.js";
 
 const context: AdapterOperationContext = {
@@ -634,4 +642,59 @@ it("PostFast does not submit a schedule that passed during media upload", async 
     "POST api.postfa.st/file/get-signed-upload-urls",
     "PUT storage.example.test/image/i1.png",
   ]);
+});
+
+it("SocialScheduler schedules PostFast through the native lane", async () => {
+  const posted: JsonObject[] = [];
+
+  const adapter = postfast({
+    apiKey: "test",
+    clock,
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+
+      if (url.pathname === "/social-posts" && init?.method === "POST") {
+        posted.push(object(JSON.parse(String(init.body))));
+
+        return Response.json({ postIds: ["p1"] }, { status: 201 });
+      }
+
+      return Response.json({ data: [row({})], totalCount: 1 });
+    },
+  });
+
+  const social = createSocial({
+    backend: adapter,
+    clock,
+    recovery: outcomeRecovery(),
+    idempotencyStore: new MemoryIdempotencyStore(),
+  });
+
+  const scheduler = new SocialScheduler({ social, store: new MemoryScheduleStore(), clock });
+
+  const job = await scheduler.schedule({
+    work: {
+      kind: "publish",
+      request: { targets: [{ account: x }], content: { text: "hello" }, idempotencyKey: "pf-1" },
+    },
+    at: { kind: "instant", at: future },
+  });
+
+  assert.deepEqual(
+    job.lanes.map((lane) => lane.mode),
+    ["native"],
+  );
+
+  await scheduler.runDue();
+
+  const stored = await scheduler.get(job.id);
+
+  assert.equal(stored?.status, "scheduled");
+  assert.equal(
+    stored === undefined ? undefined : scheduledOutcomes(stored)[0]?.outcomes[0]?.state,
+    "scheduled",
+  );
+  assert.equal(posted.length, 1);
+  assert.equal(object(array(posted[0]?.["posts"])[0])["scheduledAt"], future);
+  assert.equal(posted[0]?.["status"], "SCHEDULED");
 });

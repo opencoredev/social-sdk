@@ -364,6 +364,7 @@ export function postfast(options: ManagedOptions) {
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.status",
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",

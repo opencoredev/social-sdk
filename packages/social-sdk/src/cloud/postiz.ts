@@ -629,6 +629,7 @@ export function postiz(options: PostizOptions) {
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.status",
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",

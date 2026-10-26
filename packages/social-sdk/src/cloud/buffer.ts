@@ -917,6 +917,7 @@ export function buffer(options: BufferOptions) {
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.read",
         "posts.list",
         "posts.status",
