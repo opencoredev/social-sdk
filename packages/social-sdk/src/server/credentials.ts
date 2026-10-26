@@ -330,6 +330,23 @@ function positiveInteger(value: number, name: string): number {
   return value;
 }
 
+/**
+ * A definite refresh rejection with only safe fields kept. The original message, details,
+ * and cause come from the refresh hook or transport and may echo tokens or request URLs.
+ */
+function sanitizedRejection(error: SocialError, operation: string): SocialError {
+  return new SocialError({
+    code: error.code,
+    operation,
+    message:
+      error.code === "reconnect_required"
+        ? "The provider rejected the credential refresh; reconnect the account"
+        : "The provider rejected the credential refresh",
+    retryDisposition: error.retryDisposition,
+    ...definedFields({ upstreamStatus: error.upstreamStatus, upstreamCode: error.upstreamCode }),
+  });
+}
+
 export class CredentialManager {
   readonly #store: CredentialStore<StoredCredential>;
   readonly #lock: CredentialLock;
@@ -481,11 +498,24 @@ export class CredentialManager {
         throw busy(operation, Date.parse(marker.deadline) - this.#clock().getTime());
 
       if (this.#options.revoke !== undefined)
-        await this.#options.revoke({
-          key,
-          credential: withoutRefreshState(credential),
-          ...definedFields({ signal: options.signal }),
-        });
+        try {
+          await this.#options.revoke({
+            key,
+            credential: withoutRefreshState(credential),
+            ...definedFields({ signal: options.signal }),
+          });
+        } catch (error) {
+          // The hook's error may echo the credential or a request URL; keep only its code.
+          throw new SocialError({
+            code: error instanceof SocialError ? error.code : "upstream_failure",
+            operation,
+            message: "The provider did not confirm the revocation; the local credential was kept",
+            retryDisposition:
+              error instanceof SocialError
+                ? error.retryDisposition
+                : { kind: "after-delay", delayMs: 1_000 },
+          });
+        }
 
       if (await store.deleteIfRevision(key, current.revision)) return;
 
@@ -733,7 +763,7 @@ export class CredentialManager {
 
       if (error.code === "reconnect_required") await this.#notifyReconnect(key, "refresh-rejected");
 
-      throw error;
+      throw sanitizedRejection(error, operation);
     }
 
     return this.#failUncertain(key, markerRevision, latest.value, {

@@ -372,8 +372,12 @@ describe("refresh failures", () => {
     const rejection = new SocialError({
       code: "rate_limited",
       operation: "x.oauth.refresh",
-      message: "Slow down",
+      message: `Slow down ${secretRefresh}`,
       retryDisposition: { kind: "after-delay", delayMs: 1_000 },
+      details: { echoed: secretRefresh },
+      cause: new Error(
+        `GET https://graph.threads.net/refresh_access_token?access_token=${secretRefresh}`,
+      ),
     });
 
     let fail = true;
@@ -389,7 +393,24 @@ describe("refresh failures", () => {
     const manager = h.manager();
     await manager.save("a", expiring);
 
-    await assert.rejects(manager.resolve("a"), (error) => error === rejection);
+    // Only the code, retry disposition, and upstream fields survive; the hook's text may echo tokens.
+    await assert.rejects(manager.resolve("a"), (error: unknown): error is SocialError => {
+      assert.ok(error instanceof SocialError);
+      assert.notEqual(error, rejection);
+      assert.equal(error.code, "rate_limited");
+      assert.equal(error.cause, undefined);
+      assert.deepEqual(error.retryDisposition, { kind: "after-delay", delayMs: 1_000 });
+
+      for (const part of [
+        error.message,
+        error.stack,
+        JSON.stringify(error),
+        JSON.stringify(error.details),
+      ])
+        assert.ok(!part?.includes(secretRefresh), part);
+
+      return true;
+    });
     assert.deepEqual((await h.store.get("a"))?.value, expiring);
     assert.deepEqual(h.failures, [
       { key: "a", outcome: "rejected", code: "rate_limited", observedAt: iso(start) },
@@ -653,7 +674,7 @@ describe("refresh failures", () => {
     const manager = h.manager();
     await manager.save("a", expiring);
 
-    await assert.rejects(manager.resolve("a"), (error) => error === rejection);
+    await assert.rejects(manager.resolve("a"), isCode("reconnect_required"));
     await assert.rejects(manager.resolve("missing"), isCode("reconnect_required"));
     assert.deepEqual((await h.store.get("a"))?.value, expiring);
   });
@@ -783,7 +804,8 @@ describe("fenced rotate", () => {
       manager.rotate("a", async () => {
         throw rejection;
       }),
-      (error) => error === rejection,
+      (error: unknown): error is SocialError =>
+        error instanceof SocialError && error.code === "rate_limited" && error.cause === undefined,
     );
     assert.deepEqual((await h.store.get("a"))?.value, expiring);
   });
@@ -1078,6 +1100,30 @@ describe("revoke", () => {
     assert.deepEqual((await h.store.get("a"))?.value, reconnected);
   });
 
+  test("a failing revoke hook throws a sanitized error and keeps the credential", async () => {
+    const h = harness();
+
+    const manager = h.manager({
+      revoke: async () => {
+        throw new Error(`POST https://api.x.com/2/oauth2/revoke token=${secretAccess}`);
+      },
+    });
+
+    await manager.save("a", { ...expiring, accessToken: secretAccess });
+
+    await assert.rejects(manager.revoke("a"), (error: unknown): error is SocialError => {
+      assert.ok(error instanceof SocialError);
+      assert.equal(error.code, "upstream_failure");
+      assert.equal(error.cause, undefined);
+
+      for (const part of [error.message, error.stack, JSON.stringify(error)])
+        assert.ok(!part?.includes(secretAccess), part);
+
+      return true;
+    });
+    assert.equal((await h.store.get("a"))?.value.accessToken, secretAccess);
+  });
+
   test("succeeds when the record was deleted during revocation", async () => {
     const h = harness();
 
@@ -1161,7 +1207,7 @@ describe("revoke", () => {
 
     await manager.save("a", expiring);
 
-    await assert.rejects(manager.revoke("a"), (error) => error === failure);
+    await assert.rejects(manager.revoke("a"), isCode("upstream_failure"));
     assert.deepEqual((await h.store.get("a"))?.value, expiring);
 
     // The lock was released, so a retry is possible.
