@@ -282,7 +282,7 @@ With `replyToPrevious`, each destination account gets its own chain, and every i
 
 ### Native scheduling
 
-For a single publication, routes whose manifest declares `posts.publish`, `posts.schedule`, and `posts.cancelScheduled` as available are submitted early with `schedule`, so the provider holds the post. All other routes are sent by `runDue` at the scheduled time. `preferNativeSchedule: false` sends every route at the scheduled time. The option never sends `schedule` to a route that does not declare it. If a native submission is still unsent when its time arrives, it is sent directly. Sequences always run at the scheduled time.
+For a single publication, routes whose manifest declares `posts.publish`, `posts.schedule`, and `posts.cancelScheduled` as available are submitted early with `schedule`, so the provider holds the post. All other routes are sent by `runDue` at the scheduled time. `preferNativeSchedule: false` sends every route at the scheduled time. The option never sends `schedule` to a route that does not declare it. Every managed backend (Zernio, Post for Me, PostFast, Postiz, Buffer, and Upload-Post) declares all three, so its routes are held by the provider. PostFast only schedules, so this is how it runs under `SocialScheduler`. If a native submission is still unsent when its time arrives, it is sent directly. Sequences always run at the scheduled time.
 
 ### Cancel and reschedule
 

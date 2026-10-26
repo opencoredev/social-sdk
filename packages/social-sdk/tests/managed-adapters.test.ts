@@ -98,6 +98,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.read",
         "posts.list",
         "posts.status",
@@ -112,6 +113,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.read",
         "posts.list",
         "posts.status",
@@ -128,6 +130,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.status",
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",
@@ -141,6 +144,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.status",
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",
@@ -154,6 +158,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.read",
         "posts.list",
         "posts.status",

@@ -36,6 +36,7 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
+import { metaOAuthReconnect } from "../transport/provider-errors.js";
 import { verifyMetaWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
@@ -156,6 +157,21 @@ function graphPage(
   return { items, ...definedFields({ nextCursor: nextGraphCursor(result) }) };
 }
 
+type GraphRequest = ReturnType<typeof managedHttp>;
+
+/** Graph reports an expired Page token as code 190 on HTTP 400; surface it as a reconnect. */
+function reconnectOnExpiredToken(graphRequest: GraphRequest): GraphRequest {
+  return async (...args) => {
+    try {
+      return await graphRequest(...args);
+    } catch (error) {
+      if (error instanceof SocialError) throw metaOAuthReconnect(error);
+
+      throw error;
+    }
+  };
+}
+
 /**
  * List the Pages a Facebook Login user token can manage, with their Page access
  * tokens (GET /me/accounts). Requires `pages_show_list`; publishing also needs
@@ -170,10 +186,12 @@ export async function discoverFacebookPages(input: {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
 }): Promise<Page<FacebookPageGrant>> {
-  const request = managedHttp(graphOrigin, {
-    apiKey: input.userAccessToken,
-    ...definedFields({ fetch: input.fetch }),
-  });
+  const request = reconnectOnExpiredToken(
+    managedHttp(graphOrigin, {
+      apiKey: input.userAccessToken,
+      ...definedFields({ fetch: input.fetch }),
+    }),
+  );
 
   const context: AdapterOperationContext = {
     backendInstance: "facebook",
@@ -217,14 +235,16 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     });
 
   const http = { apiKey: options.auth.accessToken, ...definedFields({ fetch: options.fetch }) };
-  const request = managedHttp(graphOrigin, http);
-  const videoRequest = managedHttp(videoOrigin, http);
+  const request = reconnectOnExpiredToken(managedHttp(graphOrigin, http));
+  const videoRequest = reconnectOnExpiredToken(managedHttp(videoOrigin, http));
 
   // The Reels upload host expects `Authorization: OAuth <token>` rather than a bearer token.
-  const ruploadRequest = managedHttp("https://rupload.facebook.com", http, (token) => [
-    "Authorization",
-    `OAuth ${token}`,
-  ]);
+  const ruploadRequest = reconnectOnExpiredToken(
+    managedHttp("https://rupload.facebook.com", http, (token) => [
+      "Authorization",
+      `OAuth ${token}`,
+    ]),
+  );
 
   const clock = () => options.clock?.() ?? new Date();
   const now = () => clock().toISOString();
@@ -265,6 +285,48 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       operation,
       "Facebook did not confirm the deletion. Reconcile before retrying.",
     );
+  };
+
+  /** Posts report `scheduled_publish_time` as Unix seconds; videos report an ISO datetime. */
+  const scheduledTimeMs = (value: JsonField): number | undefined => {
+    if (isFiniteNumber(value)) return value * 1000;
+
+    if (!isString(value)) return undefined;
+    const time = Date.parse(value);
+
+    return Number.isFinite(time) ? time : undefined;
+  };
+
+  /**
+   * Cancelling deletes the object, so a post or video that went live after it was
+   * scheduled would be removed. Require affirmative evidence that it is still
+   * unpublished with a future publish time. Feed post IDs are `{page-id}_{post-id}`;
+   * Page videos and Reels use bare video IDs and report `published` instead.
+   */
+  const requireFutureSchedule = async (
+    id: string,
+    context: AdapterOperationContext,
+  ): Promise<void> => {
+    const post = id.includes("_");
+
+    const node = object(
+      await request(`/${encodeURIComponent(id)}`, context, undefined, {
+        fields: post
+          ? "id,is_published,scheduled_publish_time"
+          : "id,published,scheduled_publish_time",
+      }),
+    );
+
+    const unpublished = (post ? node["is_published"] : node["published"]) === false;
+    const at = scheduledTimeMs(node["scheduled_publish_time"]);
+
+    if (!unpublished || at === undefined || at <= clock().getTime())
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "posts.cancelScheduled",
+        message:
+          "Only an unpublished Facebook post or video with a future publish time can be cancelled. Reconcile a due or published item.",
+      });
   };
 
   const scheduleSeconds = (at: string) => String(Math.floor(Date.parse(at) / 1000));
@@ -378,6 +440,39 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       fail(operation, "Facebook schedules Page posts between 10 minutes and 30 days ahead.");
   };
 
+  const reelInterrupted = (
+    account: ConnectedAccountRef,
+    videoId: string,
+    error: SocialError | undefined,
+  ): DeliveryOutcome => {
+    if (
+      error === undefined ||
+      error.code === "timeout" ||
+      error.code === "ambiguous_outcome" ||
+      error.code === "cancelled"
+    )
+      return {
+        state: "unknown",
+        targetIndex: 0,
+        account,
+        observedAt: now(),
+        delivery: delivery(account, videoId),
+        reason: "ambiguous-submission",
+        diagnostic: "The Reel upload was interrupted after Facebook created it. Reconcile it.",
+      };
+
+    return {
+      state: "failed",
+      targetIndex: 0,
+      account,
+      observedAt: now(),
+      delivery: delivery(account, videoId),
+      code: error.code,
+      message: error.message,
+      retryDisposition: { kind: "reconcile-first" },
+    };
+  };
+
   const publishReel: FacebookNative["publishReel"] = async (input) => {
     authorize(input.account, input.context);
 
@@ -420,17 +515,13 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
       confirmSuccess(finish, "facebook.reels.publish", "Facebook did not confirm the Reel.");
     } catch (error) {
-      // The Reel container exists; keep its ID so callers can reconcile through posts.status.
-      if (error instanceof SocialError && error.details?.["videoId"] === undefined)
-        throw new SocialError({
-          code: error.code,
-          operation: "facebook.reels.publish",
-          message: error.message,
-          details: { videoId },
-          retryDisposition: { kind: "reconcile-first" },
-          cause: error,
-        });
-      throw error;
+      // The Reel container exists. Return its delivery so callers can reconcile it through
+      // posts.status instead of losing the only reference to a Reel that may still publish.
+      return reelInterrupted(
+        input.account,
+        videoId,
+        error instanceof SocialError ? error : undefined,
+      );
     }
 
     return input.scheduleAt === undefined
@@ -952,7 +1043,8 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
           operation: "posts.cancelScheduled",
           availability: "available",
           requiredScopes: publishScopes,
-          notes: "Deletes the unpublished scheduled post or video.",
+          notes:
+            "Reads the post or video first and deletes it only while it is unpublished with a future scheduled_publish_time. Due or published items are refused.",
         },
         ...["accounts.read", "posts.list", "posts.read", "posts.status"].map((operation) => ({
           operation,
@@ -1082,6 +1174,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         context: AdapterOperationContext,
       ): Promise<ScheduleCancellation> {
         authorize(ref, context);
+        await requireFutureSchedule(ref.jobId, context);
         await deleteObject(ref.jobId, context, "facebook.posts.cancelScheduled");
 
         return { state: "cancelled", backendRecord: "deleted" };

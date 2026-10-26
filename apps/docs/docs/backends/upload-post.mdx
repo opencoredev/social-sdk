@@ -32,7 +32,16 @@ The adapter sends the key as `Authorization: Apikey <key>`. Keep it on your serv
 
 ## Accounts are profile and platform pairs
 
-`accounts.list` reads `/uploadposts/users` and returns one account for each connected platform on each profile. The account ID is the Upload-Post profile username, the `user` value in every Upload-Post call. Platform and profile together identify the destination. A slot that needs reauthentication is reported as `reconnect-required`. Platforms outside the SDK's selection, such as Pinterest or Reddit, are skipped.
+`accounts.list` reads `/uploadposts/users` and returns one account for each connected platform on each profile. The account ID is the Upload-Post profile username, the `user` value in every Upload-Post call. Platform and profile together identify the destination. A slot that needs reauthentication is reported as `reconnect-required`. Listing and publishing cover different sets. Listing returns slots on every network the SDK recognizes, such as Pinterest and Reddit. Publishing covers X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, and Facebook; a target on any other listed network fails preparation with `platform.unsupported` before any request.
+
+Slots on networks the SDK does not know are skipped. Pass `unknownPlatforms: "include"` to list them under Upload-Post's own name, for reading only:
+
+```ts
+const adapter = uploadPost({
+  apiKey: process.env["UPLOAD_POST_API_KEY"]!,
+  unknownPlatforms: "include",
+});
+```
 
 ## Publish
 

@@ -205,6 +205,21 @@
         },
         {
           "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -370,6 +385,21 @@
         },
         {
           "platform": "threads",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -523,6 +553,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -697,6 +742,21 @@
         },
         {
           "platform": "youtube",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -861,6 +921,21 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -1013,6 +1088,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -1178,6 +1268,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -1343,6 +1448,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -1507,6 +1627,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -1672,6 +1807,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "reddit",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -1837,6 +1987,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "telegram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -2002,6 +2167,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "discord",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -2167,6 +2347,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "google-business",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -2329,6 +2524,21 @@
           "formats": [
             "video"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "snapchat",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -2672,6 +2882,21 @@
         },
         {
           "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -2822,6 +3047,21 @@
         },
         {
           "platform": "threads",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -2960,6 +3200,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -3119,6 +3374,21 @@
         },
         {
           "platform": "youtube",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -3268,6 +3538,21 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -3405,6 +3690,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -3555,6 +3855,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -3705,6 +4020,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Post for Me's Facebook integration is Page-scoped; personal profiles are not supported."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -3854,6 +4184,21 @@
             "video",
             "carousel"
           ],
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
           "constraints": {
             "approval": [
               "Provider account eligibility and application approval are checked by the managed provider."
@@ -4036,6 +4381,21 @@
         },
         {
           "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -4149,6 +4509,21 @@
         },
         {
           "platform": "threads",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -4255,6 +4630,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4371,6 +4761,21 @@
         },
         {
           "platform": "youtube",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -4483,6 +4888,21 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -4589,6 +5009,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -4708,6 +5143,21 @@
         },
         {
           "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -4821,6 +5271,21 @@
         },
         {
           "platform": "facebook",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. PostFast's Facebook integration is Page-scoped; personal profiles are not supported."
+        },
+        {
+          "platform": "facebook",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -4927,6 +5392,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -5040,6 +5520,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "telegram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -5153,6 +5648,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "google-business",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -5288,6 +5798,21 @@
         },
         {
           "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -5408,6 +5933,21 @@
         },
         {
           "platform": "threads",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -5522,6 +6062,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -5645,6 +6200,21 @@
         },
         {
           "platform": "youtube",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -5764,6 +6334,21 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -5877,6 +6462,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -6003,6 +6603,21 @@
         },
         {
           "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -6123,6 +6738,21 @@
         },
         {
           "platform": "facebook",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Postiz's Facebook integration is Page-scoped; personal profiles are not supported."
+        },
+        {
+          "platform": "facebook",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -6236,6 +6866,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -6341,8 +6986,7 @@
           "formats": [
             "text",
             "image",
-            "video",
-            "carousel"
+            "video"
           ],
           "constraints": {
             "approval": [
@@ -6356,6 +7000,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "reddit",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -6476,6 +7135,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "mastodon",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -6596,6 +7270,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "telegram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -6716,6 +7405,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "discord",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -6836,6 +7540,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "google-business",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -6953,6 +7672,21 @@
               "media-ref",
               "blob",
               "stream"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "twitch",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -7091,6 +7825,21 @@
         },
         {
           "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "x",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -7217,6 +7966,21 @@
         },
         {
           "platform": "threads",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -7337,6 +8101,21 @@
             ],
             "mediaSources": [
               "https-url"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -7466,6 +8245,21 @@
         },
         {
           "platform": "youtube",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -7591,6 +8385,21 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.read",
           "availability": "available",
           "surface": "normalized",
@@ -7710,6 +8519,21 @@
             ],
             "mediaSources": [
               "https-url"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -7825,7 +8649,8 @@
             "text",
             "image",
             "video",
-            "carousel"
+            "carousel",
+            "document"
           ],
           "constraints": {
             "approval": [
@@ -7836,6 +8661,21 @@
             ],
             "mediaSources": [
               "https-url"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -7962,6 +8802,21 @@
             ],
             "mediaSources": [
               "https-url"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -8087,6 +8942,21 @@
             ],
             "mediaSources": [
               "https-url"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "pinterest",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -8213,6 +9083,21 @@
             ],
             "mediaSources": [
               "https-url"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "mastodon",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -8339,6 +9224,21 @@
             ],
             "mediaSources": [
               "https-url"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "google-business",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -8487,6 +9387,21 @@
         },
         {
           "platform": "x",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Upload-Post strips URLs from X posts unless the account enables its link add-on. Replies use reply_to_id."
+        },
+        {
+          "platform": "x",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -8560,6 +9475,21 @@
             "mediaSources": [
               "https-url",
               "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "threads",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -8639,6 +9569,21 @@
             "mediaSources": [
               "https-url",
               "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Text replies use reply_to_id; Upload-Post documents no reply field for Bluesky media posts."
+        },
+        {
+          "platform": "bluesky",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Text replies use reply_to_id; Upload-Post documents no reply field for Bluesky media posts."
@@ -8721,6 +9666,21 @@
         },
         {
           "platform": "youtube",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "youtube",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -8799,6 +9759,21 @@
         },
         {
           "platform": "tiktok",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "tiktok",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -8871,6 +9846,21 @@
             "mediaSources": [
               "https-url",
               "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "instagram",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
@@ -8957,6 +9947,21 @@
         },
         {
           "platform": "linkedin",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Document posts accept one PDF, PPT, PPTX, DOC or DOCX. Video and document posts default to PUBLIC visibility."
+        },
+        {
+          "platform": "linkedin",
           "operation": "posts.status",
           "availability": "available",
           "surface": "normalized",
@@ -9030,6 +10035,21 @@
             "mediaSources": [
               "https-url",
               "blob"
+            ]
+          },
+          "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Page-scoped. Upload-Post selects the Page automatically only when the profile has one connected Page."
+        },
+        {
+          "platform": "facebook",
+          "operation": "posts.schedule",
+          "availability": "available",
+          "surface": "normalized",
+          "constraints": {
+            "approval": [
+              "Provider account eligibility and application approval are checked by the managed provider."
+            ],
+            "eligibility": [
+              "A connected account returned by the managed provider is required."
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate. Page-scoped. Upload-Post selects the Page automatically only when the profile has one connected Page."
@@ -11247,7 +12267,7 @@
             "pages_read_engagement",
             "pages_show_list"
           ],
-          "notes": "Deletes the unpublished scheduled post or video."
+          "notes": "Reads the post or video first and deletes it only while it is unpublished with a future scheduled_publish_time. Due or published items are refused."
         },
         {
           "operation": "accounts.read",

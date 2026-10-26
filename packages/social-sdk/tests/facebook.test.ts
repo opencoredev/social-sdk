@@ -56,6 +56,58 @@ function recorder(responses: readonly JsonValue[]) {
   return { calls, fetch };
 }
 
+type Reply = { readonly status: number; readonly body: JsonValue } | "network-error";
+
+/** Replies in order with explicit HTTP statuses, or fails the request after dispatch. */
+function statusAdapter(replies: readonly Reply[]) {
+  const urls: URL[] = [];
+  let index = 0;
+
+  const fetch: typeof globalThis.fetch = async (input) => {
+    urls.push(new URL(String(input)));
+    const reply = replies[index++];
+
+    if (reply === undefined) throw new Error("Unexpected request");
+
+    if (reply === "network-error") throw new TypeError("socket hang up");
+
+    return Response.json(reply.body, { status: reply.status });
+  };
+
+  return {
+    urls,
+    adapter: facebook({ auth: { pageId: "123", accessToken: "page-token" }, fetch, clock }),
+  };
+}
+
+const expiredToken: Reply = {
+  status: 400,
+  body: { error: { type: "OAuthException", code: 190, message: "Session has expired" } },
+};
+
+const reelRequest = {
+  targets: [{ account: page, options: { reel: true } }],
+  content: {
+    text: "Reel",
+    media: [
+      {
+        kind: "video" as const,
+        mimeType: "video/mp4",
+        source: { kind: "https-url" as const, url: "https://cdn.example.com/reel.mp4" },
+      },
+    ],
+  },
+};
+
+const scheduledJob = (jobId: string) => ({
+  kind: "scheduled-job" as const,
+  version: 1 as const,
+  backend: "default",
+  platform: "facebook",
+  accountId: "123",
+  jobId,
+});
+
 function adapter(responses: readonly JsonValue[]) {
   const { calls, fetch } = recorder(responses);
 
@@ -500,22 +552,149 @@ describe("facebook pages adapter", () => {
   });
 
   it("cancels scheduled posts by deleting the unpublished object", async () => {
-    const { calls, adapter: fb } = adapter([{ success: true }]);
+    // 2026-10-24T13:00:00Z, one hour after the test clock.
+    const { calls, adapter: fb } = adapter([
+      { id: "123_789", is_published: false, scheduled_publish_time: 1_792_846_800 },
+      { success: true },
+    ]);
 
-    const result = await fb.posts!.cancelScheduled!(
-      {
-        kind: "scheduled-job",
-        version: 1,
-        backend: "default",
-        platform: "facebook",
-        accountId: "123",
-        jobId: "123_789",
-      },
-      context,
-    );
+    const result = await fb.posts!.cancelScheduled!(scheduledJob("123_789"), context);
 
     assert.deepEqual(result, { state: "cancelled", backendRecord: "deleted" });
-    assert.equal(calls[0]?.url.pathname, "/v25.0/123_789");
+    assert.equal(calls[0]?.method, "GET");
+    assert.equal(
+      calls[0]?.url.searchParams.get("fields"),
+      "id,is_published,scheduled_publish_time",
+    );
+    assert.equal(calls[1]?.method, "DELETE");
+    assert.equal(calls[1]?.url.pathname, "/v25.0/123_789");
+  });
+
+  it("cancels a scheduled video only while it is unpublished with a future time", async () => {
+    const { calls, adapter: fb } = adapter([
+      { id: "vid9", published: false, scheduled_publish_time: "2026-10-25T12:00:00+0000" },
+      { success: true },
+    ]);
+
+    assert.deepEqual(await fb.posts!.cancelScheduled!(scheduledJob("vid9"), context), {
+      state: "cancelled",
+      backendRecord: "deleted",
+    });
+    assert.equal(calls[0]?.url.searchParams.get("fields"), "id,published,scheduled_publish_time");
+    assert.equal(calls[1]?.method, "DELETE");
+  });
+
+  it("refuses to cancel a stale job whose post or video already went live", async () => {
+    const stale: readonly [string, JsonObject][] = [
+      ["123_789", { id: "123_789", is_published: true }],
+      // Still marked unpublished, but the scheduled time has passed: publication may be under way.
+      ["123_790", { id: "123_790", is_published: false, scheduled_publish_time: 1_792_840_000 }],
+      // An unpublished post without a time is a draft, not a schedule.
+      ["123_791", { id: "123_791", is_published: false }],
+      ["vid9", { id: "vid9", published: true, scheduled_publish_time: "2026-10-24T11:00:00+0000" }],
+    ];
+
+    for (const [jobId, node] of stale) {
+      const { calls, adapter: fb } = adapter([node, { success: true }]);
+
+      await assert.rejects(fb.posts!.cancelScheduled!(scheduledJob(jobId), context), {
+        code: "invalid_input",
+        operation: "posts.cancelScheduled",
+      });
+      assert.deepEqual(
+        calls.map((call) => call.method),
+        ["GET"],
+        `${jobId} must not be deleted`,
+      );
+    }
+  });
+
+  it("asks for a reconnect when the Page token expired on feed and video requests", async () => {
+    const feed = statusAdapter([expiredToken]);
+
+    const feedResult = await createSocial({ backend: feed.adapter, clock }).posts.publish({
+      targets: [{ account: page }],
+      content: { text: "Hello" },
+    });
+
+    assert.equal(feed.urls[0]?.hostname, "graph.facebook.com");
+    assert.equal(feedResult.outcomes[0]?.state, "failed");
+    assert.equal(
+      feedResult.outcomes[0]?.state === "failed" ? feedResult.outcomes[0].code : undefined,
+      "reconnect_required",
+    );
+    assert.deepEqual(
+      feedResult.outcomes[0]?.state === "failed"
+        ? feedResult.outcomes[0].retryDisposition
+        : undefined,
+      { kind: "after-reconnect" },
+    );
+
+    const video = statusAdapter([expiredToken]);
+
+    const videoResult = await createSocial({ backend: video.adapter, clock }).posts.publish({
+      targets: [{ account: page }],
+      content: {
+        text: "Clip",
+        media: [
+          {
+            kind: "video",
+            mimeType: "video/mp4",
+            source: { kind: "https-url", url: "https://cdn.example.com/clip.mp4" },
+          },
+        ],
+      },
+    });
+
+    assert.equal(video.urls[0]?.hostname, "graph-video.facebook.com");
+    assert.equal(
+      videoResult.outcomes[0]?.state === "failed" ? videoResult.outcomes[0].code : undefined,
+      "reconnect_required",
+    );
+
+    const read = statusAdapter([expiredToken]);
+
+    await assert.rejects(read.adapter.accounts!.get!(page, context), {
+      code: "reconnect_required",
+    });
+  });
+
+  it("keeps the Reel delivery when the upload is interrupted after the container exists", async () => {
+    const started: Reply = {
+      status: 200,
+      body: {
+        video_id: "reel7",
+        upload_url: "https://rupload.facebook.com/video-upload/v25.0/reel7",
+      },
+    };
+
+    const interrupted = statusAdapter([started, "network-error"]);
+
+    const unknown = await createSocial({ backend: interrupted.adapter, clock }).posts.publish(
+      reelRequest,
+    );
+
+    const outcome = unknown.outcomes[0];
+
+    assert.equal(outcome?.state, "unknown");
+    assert.equal(outcome?.state === "unknown" ? outcome.reason : undefined, "ambiguous-submission");
+    assert.equal(outcome?.delivery?.deliveryId, "reel7");
+
+    const rejected = statusAdapter([
+      started,
+      { status: 200, body: { success: true } },
+      { status: 400, body: { error: { type: "OAuthException", code: 100 } } },
+    ]);
+
+    const failed = (
+      await createSocial({ backend: rejected.adapter, clock }).posts.publish(reelRequest)
+    ).outcomes[0];
+
+    assert.equal(failed?.state, "failed");
+    assert.equal(failed?.delivery?.deliveryId, "reel7");
+    assert.deepEqual(failed?.state === "failed" ? failed.retryDisposition : undefined, {
+      kind: "reconcile-first",
+    });
   });
 
   it("reads post engagement, Page counts, and a bounded daily report", async () => {

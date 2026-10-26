@@ -93,6 +93,21 @@ function inboxFields(value: JsonValue, fields: readonly string[]): JsonObject {
   return result;
 }
 
+const zernioOperations = [
+  "accounts.read",
+  "posts.publish",
+  "posts.schedule",
+  "posts.read",
+  "posts.list",
+  "posts.status",
+  "posts.cancelScheduled",
+  "posts.deleteBackendRecord",
+  "analytics.read",
+  "analytics.account.read",
+  "media.upload",
+  "webhooks.verify",
+] as const;
+
 export interface ZernioConnectionOptions {
   platform: string;
   profileId: string;
@@ -190,33 +205,9 @@ export function zernio(options: ManagedOptions) {
   return defineAdapter({
     id: "zernio",
     capabilities: {
-      ...capabilityManifest("zernio", "v1 / OpenAPI 1.25.1", [
-        "accounts.read",
-        "posts.publish",
-        "posts.read",
-        "posts.list",
-        "posts.status",
-        "posts.cancelScheduled",
-        "posts.deleteBackendRecord",
-        "analytics.read",
-        "analytics.account.read",
-        "media.upload",
-        "webhooks.verify",
-      ]),
+      ...capabilityManifest("zernio", "v1 / OpenAPI 1.25.1", zernioOperations),
       capabilities: [
-        ...capabilityManifest("zernio", "1.25.1", [
-          "accounts.read",
-          "posts.publish",
-          "posts.read",
-          "posts.list",
-          "posts.status",
-          "posts.cancelScheduled",
-          "posts.deleteBackendRecord",
-          "analytics.read",
-          "analytics.account.read",
-          "media.upload",
-          "webhooks.verify",
-        ]).capabilities,
+        ...capabilityManifest("zernio", "1.25.1", zernioOperations).capabilities,
         ...["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].map((platform) => {
           const declaration = {
             platform,

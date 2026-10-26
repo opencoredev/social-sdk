@@ -42,8 +42,16 @@ import {
   managedPreparation,
   mappedPlatform,
   optionsObject,
+  publishFormats,
   type ManagedOptions,
+  type PublishFormats,
 } from "./common.js";
+
+/** Buffer publishes document assets to LinkedIn only. */
+const bufferFormats: PublishFormats = (platform) =>
+  platform === "linkedin"
+    ? ["text", "image", "video", "carousel", "document"]
+    : publishFormats(platform);
 
 /** Buffer needs a document title; the caption wins over the filename. */
 const documentTitle = (item: MediaAttachment): string | undefined =>
@@ -917,6 +925,7 @@ export function buffer(options: BufferOptions) {
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.read",
         "posts.list",
         "posts.status",
@@ -924,7 +933,7 @@ export function buffer(options: BufferOptions) {
         "posts.deleteBackendRecord",
         "analytics.read",
       ],
-      undefined,
+      bufferFormats,
       (_platform, operation) =>
         managedConstraints(operation, operation === "posts.publish" ? ["https-url"] : undefined),
     ),

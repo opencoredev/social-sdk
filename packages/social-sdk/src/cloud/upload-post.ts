@@ -661,7 +661,14 @@ export function uploadPost(options: ManagedOptions) {
   const manifest = capabilityManifest(
     "upload-post",
     apiRevision,
-    ["accounts.read", "posts.publish", "posts.status", "posts.cancelScheduled", "webhooks.verify"],
+    [
+      "accounts.read",
+      "posts.publish",
+      "posts.schedule",
+      "posts.status",
+      "posts.cancelScheduled",
+      "webhooks.verify",
+    ],
     (selected) =>
       selected === "youtube"
         ? ["video"]

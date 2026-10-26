@@ -19,6 +19,7 @@ import type {
   JsonObject,
   JsonValue,
   MediaAttachment,
+  MediaInput,
   MediaRef,
   MetricValue,
   Platform,
@@ -49,8 +50,10 @@ import {
   optionsObject,
   mappedPlatform,
   providerPlatforms,
+  publishFormats,
   subredditName,
   type ManagedOptions,
+  type PublishFormats,
 } from "./common.js";
 
 export interface PostizOptions extends ManagedOptions {
@@ -150,6 +153,28 @@ const maxBytes = { image: 10 * 1024 * 1024, video: 1024 * 1024 * 1024 } as const
 const urlExtension = /\.(png|jpe?g|gif|webp|mp4)$/i;
 
 const recordId = /^[A-Za-z0-9_-]{1,128}$/;
+
+// Postiz pinned source: the Twitch provider truncates chat messages to 500 characters, and the
+// Reddit provider uploads `media[0].thumbnail` as the MP4 poster, typing it from the extension.
+const twitchMaxLength = 500;
+
+const imageExtension = /\.(png|jpe?g|gif|webp)$/i;
+
+function isRedditThumbnail(
+  thumbnail: MediaAttachment["thumbnail"],
+): thumbnail is Extract<MediaInput, { kind: "https-url" }> {
+  if (thumbnail?.kind !== "https-url") return false;
+
+  try {
+    return imageExtension.test(httpsUrl(thumbnail.url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** The pinned Reddit provider rejects anything but exactly one attachment for a media post. */
+const postizFormats: PublishFormats = (platform) =>
+  platform === "reddit" ? ["text", "image", "video"] : publishFormats(platform);
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -604,13 +629,14 @@ export function postiz(options: PostizOptions) {
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.status",
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",
         "analytics.read",
         "media.upload",
       ],
-      undefined,
+      postizFormats,
       (_platform, operation) =>
         managedConstraints(
           operation,
@@ -726,11 +752,42 @@ export function postiz(options: PostizOptions) {
         if (at !== undefined && !(Date.parse(at) > clock().getTime()))
           fail("schedule.past", "Postiz needs a future schedule time. Omit it to publish now.");
 
-        for (const item of target.content.media ?? []) {
-          if (item.thumbnail !== undefined)
+        const media = target.content.media ?? [];
+        const platform = target.account.platform;
+
+        // Postiz's Twitch provider sends only the first 500 characters to chat and ignores media.
+        if (platform === "twitch") {
+          if (media.length > 0)
+            fail("twitch.media_unsupported", "Postiz posts Twitch chat messages as text only.");
+
+          if ((target.content.text ?? "").length > twitchMaxLength)
+            fail(
+              "twitch.text_too_long",
+              "Postiz Twitch chat messages are limited to 500 characters.",
+            );
+        }
+
+        // Postiz's Reddit provider uploads exactly one attachment, and an MP4 needs a poster image.
+        if (platform === "reddit" && media.length > 1)
+          fail("reddit.media_count", "Postiz Reddit media posts take exactly one image or video.");
+
+        for (const item of media) {
+          const redditVideo = platform === "reddit" && item.kind === "video";
+
+          if (redditVideo && item.thumbnail === undefined)
+            fail(
+              "reddit.video_thumbnail_required",
+              "Postiz Reddit video posts need a thumbnail image at a public HTTPS URL.",
+            );
+          else if (redditVideo && !isRedditThumbnail(item.thumbnail))
+            fail(
+              "reddit.video_thumbnail_source",
+              "Use a public HTTPS thumbnail URL ending in .png, .jpg, .jpeg, .gif, or .webp.",
+            );
+          else if (!redditVideo && item.thumbnail !== undefined)
             fail(
               "media.thumbnail_unsupported",
-              "Postiz custom thumbnails have no verified mapping in this adapter.",
+              "Postiz custom thumbnails map only to Reddit video posts in this adapter.",
             );
 
           if (item.kind === "document") {
@@ -796,14 +853,29 @@ export function postiz(options: PostizOptions) {
         const image: JsonObject[] = [];
 
         for (const item of target.content.media ?? []) {
-          if (item.thumbnail !== undefined)
-            reject(
-              "posts.publish",
-              "Postiz custom thumbnails have no verified mapping in this adapter.",
-            );
+          const thumbnail = item.thumbnail;
+          let thumbnailUrl: string | undefined;
+
+          if (thumbnail !== undefined) {
+            if (
+              target.account.platform === "reddit" &&
+              item.kind === "video" &&
+              isRedditThumbnail(thumbnail)
+            )
+              thumbnailUrl = httpsUrl(thumbnail.url).href;
+            else
+              reject(
+                "posts.publish",
+                "Postiz custom thumbnails map only to Reddit video posts, from a public HTTPS image URL.",
+              );
+          }
+
           const media = await resolveMedia(item, target.account, context);
 
-          image.push({ ...media, ...definedFields({ alt: item.altText }) });
+          image.push({
+            ...media,
+            ...definedFields({ alt: item.altText, thumbnail: thumbnailUrl }),
+          });
         }
 
         // Media uploads can outlast a near schedule.

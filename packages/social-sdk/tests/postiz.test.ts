@@ -8,6 +8,7 @@ import type {
   AdapterOperationContext,
   JsonObject,
   JsonValue,
+  MediaAttachment,
   PlatformPostRef,
 } from "../src/core/types.js";
 
@@ -797,4 +798,133 @@ it("Postiz maps token exchange failures without echoing secrets", async () => {
     exchangePostizCode({ clientId: "pca_client", clientSecret: "pcs_secret", code: "" }),
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
+});
+
+it("Postiz sends a Reddit video thumbnail and allows one Reddit attachment", async () => {
+  const reddit = connectedAccountRef({ backend: "default", platform: "reddit", accountId: "red1" });
+  const sent: JsonObject[] = [];
+
+  const adapter = postiz({
+    apiKey: "test",
+    clock,
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+
+      if (url.pathname.endsWith("/upload-from-url"))
+        return Response.json({ id: "m1", path: "https://uploads.postiz.com/m1.mp4" });
+
+      if (init?.method === "POST") {
+        sent.push(object(JSON.parse(String(init.body))));
+
+        return Response.json([{ postId: "p1", integration: "red1" }], { status: 201 });
+      }
+
+      return Response.json({
+        posts: [row({ integration: { id: "red1", providerIdentifier: "reddit" } })],
+      });
+    },
+  });
+
+  const social = createSocial({ backend: adapter, clock });
+  const options = { subreddit: "typescript", title: "Demo" };
+
+  const video = {
+    kind: "video" as const,
+    mimeType: "video/mp4",
+    source: { kind: "https-url" as const, url: "https://cdn.example.com/clip.mp4" },
+  };
+
+  const image = {
+    kind: "image" as const,
+    mimeType: "image/png",
+    source: { kind: "https-url" as const, url: "https://cdn.example.com/a.png" },
+  };
+
+  const codes = (media: readonly MediaAttachment[]) =>
+    social.posts
+      .prepare({ targets: [{ account: reddit, options }], content: { text: "hi", media } })
+      .issues.map((issue) => issue.code);
+
+  assert.ok(codes([video]).includes("reddit.video_thumbnail_required"));
+  assert.ok(
+    codes([
+      { ...video, thumbnail: { kind: "https-url", url: "https://cdn.example.com/poster" } },
+    ]).includes("reddit.video_thumbnail_source"),
+  );
+  assert.ok(codes([image, image]).includes("reddit.media_count"));
+  assert.ok(
+    codes([
+      { ...image, thumbnail: { kind: "https-url", url: "https://cdn.example.com/p.png" } },
+    ]).includes("media.thumbnail_unsupported"),
+  );
+
+  const formats = adapter.capabilities.capabilities.find(
+    (entry) => entry.platform === "reddit" && entry.operation === "posts.publish",
+  )?.formats;
+
+  assert.deepEqual(formats, ["text", "image", "video"]);
+
+  const result = await social.posts.publish({
+    targets: [{ account: reddit, options }],
+    content: {
+      text: "hi",
+      media: [{ ...video, thumbnail: { kind: "https-url", url: "https://cdn.example.com/p.jpg" } }],
+    },
+    schedule: { at: future },
+  });
+
+  assert.equal(result.outcomes[0]?.state, "scheduled");
+
+  const [post] = array(sent[0]?.["posts"] ?? []);
+  const [value] = array(object(post ?? {})["value"] ?? []);
+
+  assert.deepEqual(object(value ?? {})["image"], [
+    {
+      id: "m1",
+      path: "https://uploads.postiz.com/m1.mp4",
+      thumbnail: "https://cdn.example.com/p.jpg",
+    },
+  ]);
+});
+
+it("Postiz rejects Twitch media and long messages before any upload", async () => {
+  const twitch = connectedAccountRef({ backend: "default", platform: "twitch", accountId: "tw1" });
+  let requests = 0;
+
+  const social = createSocial({
+    backend: postiz({
+      apiKey: "test",
+      clock,
+      fetch: async () => {
+        requests += 1;
+
+        return Response.json({});
+      },
+    }),
+    clock,
+  });
+
+  const codes = (content: Parameters<typeof social.posts.prepare>[0]["content"]) =>
+    social.posts.prepare({ targets: [{ account: twitch }], content }).issues.map((i) => i.code);
+
+  assert.deepEqual(codes({ text: "x".repeat(500) }), []);
+  assert.ok(codes({ text: "x".repeat(501) }).includes("twitch.text_too_long"));
+  assert.ok(
+    codes({
+      text: "clip",
+      media: [{ kind: "video", mimeType: "video/mp4", filename: "a.mp4", source: blob(1) }],
+    }).includes("twitch.media_unsupported"),
+  );
+
+  await assert.rejects(
+    social.posts.publish({
+      targets: [{ account: twitch }],
+      content: {
+        text: "look",
+        media: [{ kind: "image", mimeType: "image/png", filename: "a.png", source: blob(1) }],
+      },
+    }),
+    { code: "invalid_input" },
+  );
+  assert.equal(requests, 0);
 });

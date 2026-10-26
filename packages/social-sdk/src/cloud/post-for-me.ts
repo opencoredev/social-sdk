@@ -157,6 +157,7 @@ export function postForMe(options: ManagedOptions) {
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.read",
         "posts.list",
         "posts.status",

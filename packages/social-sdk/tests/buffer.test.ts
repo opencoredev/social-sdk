@@ -914,3 +914,13 @@ it("Buffer OAuth helpers require PKCE and never echo grants", async () => {
     },
   );
 });
+
+it("Buffer advertises LinkedIn documents in its manifest", () => {
+  const formats = (platform: string) =>
+    buffer({ apiKey: "fixture-key" }).capabilities.capabilities.find(
+      (entry) => entry.platform === platform && entry.operation === "posts.publish",
+    )?.formats;
+
+  assert.deepEqual(formats("linkedin"), ["text", "image", "video", "carousel", "document"]);
+  assert.ok(!formats("x")?.includes("document"));
+});
