@@ -343,8 +343,58 @@ function sanitizedRejection(error: SocialError, operation: string): SocialError 
         ? "The provider rejected the credential refresh; reconnect the account"
         : "The provider rejected the credential refresh",
     retryDisposition: error.retryDisposition,
-    ...definedFields({ upstreamStatus: error.upstreamStatus, upstreamCode: error.upstreamCode }),
+    // upstreamCode is free text the hook controls, so only the numeric status is kept.
+    ...definedFields({ upstreamStatus: error.upstreamStatus }),
   });
+}
+
+/** Replaces a store or lock failure with a fixed-message error that keeps only its code. */
+async function guardedStorage<Result>(
+  operation: string,
+  run: () => Promise<Result>,
+): Promise<Result> {
+  try {
+    return await run();
+  } catch (error) {
+    // Store and lock errors can echo the credential being written or a connection string.
+    throw new SocialError({
+      code: error instanceof SocialError ? error.code : "upstream_failure",
+      operation,
+      message: "The credential store or lock request failed",
+      retryDisposition:
+        error instanceof SocialError
+          ? error.retryDisposition
+          : { kind: "after-delay", delayMs: 1_000 },
+    });
+  }
+}
+
+function guardedStore(store: CredentialStore<StoredCredential>): CredentialStore<StoredCredential> {
+  const deleteIfRevision = store.deleteIfRevision?.bind(store);
+
+  return {
+    get: (key) => guardedStorage("credentials.store.get", () => store.get(key)),
+    compareAndSet: (input) =>
+      guardedStorage("credentials.store.compareAndSet", () => store.compareAndSet(input)),
+    delete: (key) => guardedStorage("credentials.store.delete", () => store.delete(key)),
+    ...definedFields({
+      deleteIfRevision:
+        deleteIfRevision === undefined
+          ? undefined
+          : (key: string, expectedRevision: string) =>
+              guardedStorage("credentials.store.deleteIfRevision", () =>
+                deleteIfRevision(key, expectedRevision),
+              ),
+    }),
+  };
+}
+
+function guardedLock(lock: CredentialLock): CredentialLock {
+  return {
+    acquire: (key, ttlMs) =>
+      guardedStorage("credentials.lock.acquire", () => lock.acquire(key, ttlMs)),
+    release: (lease) => guardedStorage("credentials.lock.release", () => lock.release(lease)),
+  };
 }
 
 export class CredentialManager {
@@ -362,8 +412,8 @@ export class CredentialManager {
     options: number | CredentialManagerOptions = {},
   ) {
     const resolved = isLockTtl(options) ? { lockTtlMs: options } : options;
-    this.#store = store;
-    this.#lock = lock;
+    this.#store = guardedStore(store);
+    this.#lock = guardedLock(lock);
     this.#options = resolved;
     this.#lockTtlMs = positiveInteger(resolved.lockTtlMs ?? 30_000, "lockTtlMs");
     this.#skewMs = positiveInteger(resolved.refreshSkewMs ?? 60_000, "refreshSkewMs");

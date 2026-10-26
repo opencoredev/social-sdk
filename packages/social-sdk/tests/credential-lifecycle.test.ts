@@ -1246,3 +1246,66 @@ describe("revoke", () => {
     assert.equal(await h.store.get("a"), undefined);
   });
 });
+
+describe("errors from injected stores and hooks", () => {
+  const leaks = (error: unknown): error is SocialError => {
+    assert.ok(error instanceof SocialError);
+    assert.equal(error.cause, undefined);
+
+    for (const part of [error.message, error.stack, JSON.stringify(error), error.upstreamCode])
+      for (const secret of [secretAccess, secretRefresh]) assert.ok(!part?.includes(secret), part);
+
+    return true;
+  };
+
+  test("a store that echoes the credential it writes cannot leak it through resolve", async () => {
+    const h = harness();
+    await h.store.compareAndSet({ key: "a", expectedRevision: undefined, value: expiring });
+
+    const echoing: CredentialStore<StoredCredential> = {
+      get: (key) => h.store.get(key),
+      delete: (key) => h.store.delete(key),
+      async compareAndSet(input) {
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "custom.store",
+          message: `write failed: ${JSON.stringify(input.value)}`,
+          details: { value: input.value.accessToken },
+          cause: new Error(input.value.refreshToken ?? ""),
+        });
+      },
+    };
+
+    const manager = new CredentialManager(echoing, h.lock, {
+      clock: h.clock,
+      refresh: async (request) => request.credential,
+    });
+
+    await assert.rejects(manager.resolve("a"), leaks);
+  });
+
+  test("a refresh rejection cannot leak a token through upstreamCode", async () => {
+    const h = harness({
+      refresh: async (request) => {
+        throw new SocialError({
+          code: "rate_limited",
+          operation: "custom.refresh",
+          message: "later",
+          upstreamStatus: 429,
+          upstreamCode: request.credential.refreshToken ?? "",
+        });
+      },
+    });
+
+    const manager = h.manager();
+    await manager.save("a", expiring);
+
+    await assert.rejects(manager.resolve("a"), (error: unknown): error is SocialError => {
+      assert.ok(leaks(error));
+      assert.equal(error.code, "rate_limited");
+      assert.equal(error.upstreamStatus, 429);
+
+      return true;
+    });
+  });
+});
