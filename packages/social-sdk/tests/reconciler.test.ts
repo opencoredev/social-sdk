@@ -248,6 +248,51 @@ describe("core reconcile", () => {
     assert.equal((await social.posts.publish(request("a"))).outcomes[0]?.state, "published");
   });
 
+  test("completes a failed delivery retry through the durable SQL idempotency store", async () => {
+    const stores = createSqlStores({
+      executor: createSqliteExecutor(new DatabaseSync(":memory:")),
+      dialect: "sqlite",
+    });
+
+    await stores.driver.createSchema();
+    let attempt = 0;
+
+    const { adapter } = programmableAdapter({
+      publish: (target) => {
+        attempt += 1;
+
+        return attempt === 1
+          ? {
+              state: "failed",
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt,
+              code: "rate_limited",
+              message: "fixture",
+              retryDisposition: { kind: "after-delay", delayMs: 0 },
+            }
+          : published(target, "post-a");
+      },
+    });
+
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: stores.idempotency,
+    });
+
+    assert.equal((await social.posts.publish(request("a"))).outcomes[0]?.state, "failed");
+
+    const retried = await social.posts.retryFailed(request("a"));
+
+    assert.equal(retried.outcomes[0]?.state, "published");
+    assert.ok(retried.outcomes[0]?.retryAttemptId);
+    const replayed = (await social.posts.publish(request("a"))).outcomes[0];
+
+    assert.equal(replayed?.state, "published");
+    assert.equal(replayed?.retryAttemptId, retried.outcomes[0]?.retryAttemptId);
+  });
+
   test("polls pending deliveries and saves terminal outcomes in the original claim", async () => {
     const store = new MemoryIdempotencyStore();
     let pollState: "processing" | "published" = "processing";
