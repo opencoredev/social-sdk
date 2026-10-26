@@ -11,7 +11,7 @@
     "test": "bun test tests"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.11",
+    "@electric-sql/pglite": "^0.5.12",
     "@neondatabase/serverless": "^1.2.0",
     "@opencoredev/social-sdk": "workspace:*",
     "drizzle-orm": "^0.45.4"
