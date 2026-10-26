@@ -1129,6 +1129,20 @@ describe("scheduled times are checked as they will be sent", () => {
     const kept = await h.scheduler.get(job.id);
     assert.notEqual(kept?.status, "completed");
     assert.equal(kept?.blocked?.code, "reschedule_interrupted");
+
+    // A retry cannot restore withdrawn copies, so it keeps the block and does not complete.
+    const retried = await h.scheduler.retryFailed(job.id);
+    assert.equal(retried?.blocked?.code, "reschedule_interrupted");
+    assert.notEqual(retried?.status, "completed");
+
+    // Rescheduling resolves it.
+    const moved = await h.scheduler.reschedule(job.id, {
+      kind: "instant",
+      at: "2026-03-01T16:00:00Z",
+    });
+
+    assert.equal(moved.state, "rescheduled");
+    assert.equal((await h.scheduler.get(job.id))?.blocked, undefined);
   });
 
   test("a reschedule that loses its lease during preflight cancels nothing", async () => {

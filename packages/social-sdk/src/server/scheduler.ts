@@ -1463,7 +1463,11 @@ export class SocialScheduler {
 
     if (job.status === "cancelled") return input.force ? job : undefined;
 
-    // An explicit retry may clear a block that the retry itself can resolve.
+    // An explicit retry may clear a block that the retry itself can resolve. An interrupted
+    // reschedule withdrew provider copies, which no retry can restore: only reschedule or
+    // cancel resolves it, so the block stays and nothing is retried.
+    const interrupted = job.blocked?.code === "reschedule_interrupted";
+    const retry = input.retry && !interrupted;
     const { blocked: _cleared, ...unblocked } = job;
 
     const leaseOwner = `${this.#owner}:${crypto.randomUUID()}`;
@@ -1471,7 +1475,7 @@ export class SocialScheduler {
     const claimed = await this.#store.compareAndSet({
       expectedRevision: input.stored.revision,
       job: {
-        ...(input.retry ? unblocked : job),
+        ...(retry ? unblocked : job),
         lease: { owner: leaseOwner, until: new Date(nowMs + this.#leaseMs).toISOString() },
       },
     });
@@ -1491,7 +1495,7 @@ export class SocialScheduler {
 
         await this.#poll({ key, now: nowMs, force: input.force, touched });
       } else {
-        if (input.retry) await this.#retrySteps(key);
+        if (retry) await this.#retrySteps(key);
 
         for (let round = 0; round < 3; round++) {
           const advanced = input.advance && (await this.#advance({ key, now: nowMs, touched }));
