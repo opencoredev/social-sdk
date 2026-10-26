@@ -834,7 +834,41 @@ export class SocialScheduler {
       throw error;
     }
 
-    if (nativeSteps.some((step) => step.state === "dispatched")) {
+    const withdrawing = nativeSteps.some((step) => step.state === "dispatched");
+
+    if (withdrawing) {
+      // The preflight may have outlived the fence lease, and another job may have taken the
+      // reserved slot and revoked it. Renewing the lease by compare-and-set proves this call
+      // still owns the job before any provider copy is cancelled.
+      let renewed = false;
+
+      await this.#mutate(key, (current) => {
+        renewed = false;
+
+        if (
+          current.lease?.owner !== fenceOwner ||
+          Date.parse(current.lease.until) <= this.#clock().getTime()
+        )
+          return undefined;
+
+        renewed = true;
+
+        return {
+          ...current,
+          lease: {
+            owner: fenceOwner,
+            until: new Date(this.#clock().getTime() + this.#leaseMs).toISOString(),
+          },
+        };
+      });
+
+      if (!renewed) {
+        await release();
+        await unfence();
+
+        return { state: "not-reschedulable", reason: "in-flight", job };
+      }
+
       const withdrawn = await this.#cancelProviderWork({
         key,
         job,
@@ -908,12 +942,69 @@ export class SocialScheduler {
     ) {
       await release();
 
+      // Provider copies were withdrawn but the move did not commit. Without this the
+      // cancelled outcomes would settle the job as completed with nothing published.
+      if (withdrawing) await this.#interruptedMove(key, job);
+
       return { state: "not-reschedulable", reason: "in-flight", job };
     }
 
     await this.#wake(moved.job);
 
     return { state: "rescheduled", job: moved.job };
+  }
+
+  /**
+   * After a reschedule withdrew provider copies and then lost the job, returns the withdrawn
+   * native steps to pending and blocks the job, so a worker never completes it unpublished.
+   * Only steps of the lane revision that was withdrawn, whose outcomes are all those
+   * cancellations, are touched. Rescheduling again clears the block.
+   */
+  async #interruptedMove(key: JobKey, job: ScheduledJob): Promise<void> {
+    const revisions = new Map(job.lanes.map((lane) => [lane.id, lane.revision]));
+    const updatedAt = this.#clock().toISOString();
+
+    await this.#mutate(key, (current) => {
+      if (current.status === "cancelled" || current.status === "cancel-unresolved")
+        return undefined;
+
+      let reopened = false;
+
+      const lanes = current.lanes.map((lane) =>
+        lane.mode !== "native" || lane.revision !== revisions.get(lane.id)
+          ? lane
+          : {
+              ...lane,
+              steps: lane.steps.map((step) => {
+                if (
+                  step.state !== "dispatched" ||
+                  !step.outcomes.every(
+                    (outcome) =>
+                      outcome.state === "cancelled" && outcome.reason === "schedule-cancelled",
+                  )
+                )
+                  return step;
+
+                reopened = true;
+
+                return pendingStep(step);
+              }),
+            },
+      );
+
+      return reopened
+        ? {
+            ...current,
+            lanes,
+            blocked: {
+              code: "reschedule_interrupted",
+              message:
+                "The provider copies were withdrawn but the move did not finish; reschedule the job",
+            },
+            updatedAt,
+          }
+        : undefined;
+    });
   }
 
   /** Claims due jobs and advances each as far as it can go now. */

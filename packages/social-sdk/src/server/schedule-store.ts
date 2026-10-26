@@ -576,9 +576,10 @@ export function createKeyValueScheduleStore(
 
         const value = encodeReservation({ jobId: input.jobId, token: input.token });
 
-        if (current === undefined) {
-          if ((await kv.compareAndSet({ key, expectedVersion: undefined, value })).updated)
-            return true;
+        if (current === undefined || current.value === vacantSlot) {
+          const expectedVersion = current?.version;
+
+          if ((await kv.compareAndSet({ key, expectedVersion, value })).updated) return true;
           continue;
         }
 
@@ -628,7 +629,7 @@ export function createKeyValueScheduleStore(
       const key = slotKey(input.scope, input.queueId, input.at);
       const current = await kv.get(key);
 
-      if (current === undefined) return;
+      if (current === undefined || current.value === vacantSlot) return;
 
       const owner = decodeReservation(current.value);
 
@@ -644,11 +645,17 @@ export function createKeyValueScheduleStore(
       )
         return;
 
-      // A lost race only means another writer changed the slot; it is no longer ours.
-      await kv.delete({ key, expectedVersion: current.version });
+      // A freed slot keeps a versioned record instead of being deleted. A key store may
+      // restart a deleted key's version, which would let a delayed compare-and-set from
+      // before the release match a newer reservation. A lost race only means another
+      // writer changed the slot; it is no longer ours.
+      await kv.compareAndSet({ key, expectedVersion: current.version, value: vacantSlot });
     },
   };
 }
+
+/** The value of a freed slot record. Never a valid encoded reservation. */
+const vacantSlot = "[]";
 
 interface Reservation {
   readonly jobId: string;

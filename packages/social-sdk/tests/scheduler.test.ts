@@ -1067,11 +1067,65 @@ describe("scheduled times are checked as they will be sent", () => {
 
     assert.equal(result.state, "not-reschedulable");
 
+    // The withdrawal is not left reported as scheduled, and the job cannot complete
+    // unpublished: the step is pending again and the job is blocked until rescheduled.
     const kept = await h.scheduler.get(job.id);
+    assert.equal(kept?.blocked?.code, "reschedule_interrupted");
+    assert.equal(kept?.lanes.find((lane) => lane.id === "native")?.steps[0]?.state, "pending");
+
+    h.advance(2 * 3_600_000);
+    await h.scheduler.runDue();
+    assert.notEqual((await h.scheduler.get(job.id))?.status, "completed");
+    assert.equal(h.publishes().length, 1, "nothing is published while blocked");
+
+    const moved = await h.scheduler.reschedule(job.id, {
+      kind: "instant",
+      at: "2026-03-01T14:00:00Z",
+    });
+
+    assert.equal(moved.state, "rescheduled");
+    assert.equal((await h.scheduler.get(job.id))?.blocked, undefined);
+  });
+
+  test("a reschedule that loses its lease during preflight cancels nothing", async () => {
+    const h = harness({ native: true });
+
+    const job = await h.scheduler.schedule({
+      work: { kind: "publish", request: publication("native-preflight", xAccount) },
+      at: inOneHour,
+    });
+
+    await h.scheduler.runDue();
+    let now = start;
+
+    // The preflight takes longer than the fence lease.
+    const scheduler = new SocialScheduler({
+      social: {
+        ...h.social,
+        posts: {
+          ...h.social.posts,
+          prepare(request) {
+            now = new Date(now.getTime() + 10 * 60_000);
+
+            return h.social.posts.prepare(request);
+          },
+        },
+      },
+      store: h.store,
+      clock: () => now,
+      leaseMs: 60_000,
+    });
+
+    const result = await scheduler.reschedule(job.id, {
+      kind: "instant",
+      at: "2026-03-01T12:00:00Z",
+    });
+
+    assert.equal(result.state, "not-reschedulable");
+    assert.equal(cancellations(h).length, 0, "no provider copy is withdrawn");
     assert.equal(
-      kept === undefined ? undefined : scheduledOutcomes(kept)[0]?.outcomes[0]?.state,
-      "cancelled",
-      "the confirmed withdrawal is recorded, not left as scheduled",
+      (await h.scheduler.get(job.id))?.lanes.find((lane) => lane.id === "native")?.steps[0]?.state,
+      "dispatched",
     );
   });
 
@@ -1203,6 +1257,30 @@ describe("key-value schedule store", () => {
     // The owning operation can still release its own reservation.
     await store.releaseSlot({ ...slot, jobId: "J", token: "reschedule:1" });
     assert.equal(await store.reserveSlot({ ...slot, jobId: "K", token: "k" }), true);
+  });
+
+  test("a freed slot never reuses a version a delayed write could match", async () => {
+    const kv = new MemoryKeyValueStore();
+    const store = createKeyValueScheduleStore(kv);
+    const key = "schedule/slot/t1/daily/2026-03-02T09:00:00.000Z";
+
+    const slot = {
+      scope: "t1",
+      queueId: "daily",
+      at: "2026-03-02T09:00:00.000Z",
+      now: start.toISOString(),
+    };
+
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "J", token: "j" }), true);
+    const stale = await kv.get(key);
+    assert.ok(stale !== undefined);
+
+    await store.releaseSlot({ ...slot, jobId: "J", token: "j" });
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "K", token: "k" }), true);
+
+    // A compare-and-set read before the release must not overwrite K's reservation.
+    const late = await kv.compareAndSet({ key, expectedVersion: stale.version, value: "late" });
+    assert.equal(late.updated, false);
   });
 
   test("a later reschedule of the same job reuses the slot an earlier move left", async () => {
