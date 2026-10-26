@@ -8649,7 +8649,8 @@
             "text",
             "image",
             "video",
-            "carousel"
+            "carousel",
+            "document"
           ],
           "constraints": {
             "approval": [
