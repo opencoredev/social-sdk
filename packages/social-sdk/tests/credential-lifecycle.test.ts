@@ -12,6 +12,7 @@ import {
   type CredentialRefreshRequest,
   type StoredCredential,
 } from "../src/server/credentials.js";
+import { refreshOAuthToken } from "../src/server/oauth.js";
 
 const start = Date.parse("2026-10-24T12:00:00.000Z");
 
@@ -1307,5 +1308,37 @@ describe("errors from injected stores and hooks", () => {
 
       return true;
     });
+  });
+});
+
+describe("refresh through the SDK's OAuth helper", () => {
+  test("a refreshOAuthToken result with token_type is saved, not rejected", async () => {
+    const h = harness({
+      refresh: async (request) =>
+        refreshOAuthToken(
+          "youtube",
+          {
+            clientId: "c",
+            fetch: async () =>
+              Response.json({
+                access_token: "next-access",
+                token_type: "Bearer",
+                expires_in: 3600,
+              }),
+          },
+          request.credential,
+        ),
+    });
+
+    const manager = h.manager();
+    await manager.save("a", expiring);
+
+    const resolved = await manager.resolve("a");
+
+    assert.equal(resolved.freshness, "refreshed");
+    assert.equal(resolved.value.accessToken, "next-access");
+    assert.equal(resolved.value.refreshToken, secretRefresh);
+    // The token type is validated but never persisted.
+    assert.equal("tokenType" in ((await h.store.get("a"))?.value ?? {}), false);
   });
 });

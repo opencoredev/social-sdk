@@ -66,6 +66,8 @@ const credentialFields = new Set([
   "scopes",
   "metadata",
   "refreshState",
+  // `refreshOAuthToken` returns the provider's token_type. It is validated, not stored.
+  "tokenType",
 ]);
 
 function invalidCredential(operation: string): never {
@@ -125,7 +127,8 @@ export function parseStoredCredential(
     (refreshToken !== undefined && !isNonEmptyString(refreshToken)) ||
     (expiresAt !== undefined && !isTimestamp(expiresAt)) ||
     (scopes !== undefined && !isStringList(scopes)) ||
-    (metadata !== undefined && !isStringMap(metadata))
+    (metadata !== undefined && !isStringMap(metadata)) ||
+    (value["tokenType"] !== undefined && !isString(value["tokenType"]))
   )
     return invalidCredential(operation);
 
