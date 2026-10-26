@@ -151,6 +151,17 @@ export interface ScheduleStore {
     /** Current UTC instant, used to tell a live holder lease from an expired one. */
     readonly now: string;
   }): Promise<boolean>;
+  /**
+   * Frees a reservation the job holds but does not occupy, after a schedule or reschedule
+   * reserved the slot and then failed. A slot the job's saved record occupies, or one
+   * another job holds, is left unchanged.
+   */
+  releaseSlot(input: {
+    readonly scope: string;
+    readonly queueId: string;
+    readonly at: string;
+    readonly jobId: string;
+  }): Promise<void>;
 }
 
 export interface KeyValueEntry {
@@ -588,6 +599,25 @@ export function createKeyValueScheduleStore(
 
       return false;
     },
+    async releaseSlot(input) {
+      const key = slotKey(input.scope, input.queueId, input.at);
+      const current = await kv.get(key);
+
+      if (current === undefined || current.value !== input.jobId) return;
+
+      const holder = await read(input.scope, input.jobId);
+
+      if (
+        holder !== undefined &&
+        activeStatuses.has(holder.job.status) &&
+        holder.job.queueId === input.queueId &&
+        holder.job.runAt === input.at
+      )
+        return;
+
+      // A lost race only means another writer changed the slot; it is no longer ours.
+      await kv.delete({ key, expectedVersion: current.version });
+    },
   };
 }
 
@@ -613,6 +643,10 @@ export class MemoryScheduleStore implements ScheduleStore {
 
   reserveSlot(input: Parameters<ScheduleStore["reserveSlot"]>[0]) {
     return this.#store.reserveSlot(input);
+  }
+
+  releaseSlot(input: Parameters<ScheduleStore["releaseSlot"]>[0]) {
+    return this.#store.releaseSlot(input);
   }
 }
 

@@ -51,22 +51,62 @@ function withCapabilities<A extends SocialAdapter<unknown>>(
   };
 }
 
+/** Rejects scheduled times closer than `noticeMs`, like Facebook's ten-minute minimum. */
+function withNotice<A extends SocialAdapter<unknown>>(input: {
+  readonly adapter: A;
+  readonly noticeMs: number;
+  readonly clock: () => Date;
+}): A {
+  const { adapter, noticeMs, clock } = input;
+  const { posts } = adapter;
+
+  if (posts === undefined) return adapter;
+
+  return {
+    ...adapter,
+    posts: {
+      ...posts,
+      prepareTarget(target: root.PreparedPublishTarget) {
+        const issues = posts.prepareTarget(target);
+        const at = target.schedule?.at;
+
+        if (at === undefined || Date.parse(at) - clock().getTime() >= noticeMs) return issues;
+
+        return [
+          ...issues,
+          {
+            code: "mock.schedule_notice",
+            message: "Schedule at least ten minutes ahead",
+            severity: "error" as const,
+            targetIndex: target.targetIndex,
+          },
+        ];
+      },
+    },
+  };
+}
+
 function harness(
   options: {
     readonly native?: boolean;
     readonly authorization?: root.AuthorizationPolicy;
     readonly idempotencyStore?: root.IdempotencyStore;
+    /** Least notice, in ms, the route accepts for a scheduled time, like Facebook's ten minutes. */
+    readonly noticeMs?: number;
   } = {},
 ) {
   let now = start;
   const clock = () => now;
   const mock = mockBackend({ clock });
+  const { noticeMs } = options;
+
+  const noticed = noticeMs === undefined ? mock : withNotice({ adapter: mock, noticeMs, clock });
 
   const backend = options.native
-    ? withCapabilities(mock, [
+    ? withCapabilities(noticed, [
         { operation: "posts.schedule", platform: "x", availability: "available" },
       ])
-    : mock;
+    : noticed;
 
   const social = createSocial({
     recovery: outcomeRecovery(),
@@ -877,6 +917,125 @@ describe("SocialScheduler", () => {
     assert.deepEqual(hints, [
       { type: "social-sdk.schedule.run-due", runAt: "2026-03-01T11:00:00.000Z" },
     ]);
+  });
+});
+
+describe("scheduled times are checked as they will be sent", () => {
+  const hasNoticeIssue = (error: unknown): error is SocialError =>
+    error instanceof SocialError &&
+    error.code === "invalid_input" &&
+    (error.issues ?? []).some((issue) => issue.code === "mock.schedule_notice");
+
+  const cancellations = (h: ReturnType<typeof harness>) =>
+    h.mock.testing.history().filter((entry) => entry.operation === "posts.cancelScheduled");
+
+  test("rescheduling submitted native work checks the replacement before cancelling it", async () => {
+    const h = harness({ native: true, noticeMs: 600_000 });
+
+    const job = await h.scheduler.schedule({
+      work: { kind: "publish", request: publication("native-move", xAccount) },
+      at: inOneHour,
+    });
+
+    await h.scheduler.runDue();
+    assert.equal(h.publishes().length, 1);
+
+    await assert.rejects(
+      h.scheduler.reschedule(job.id, { kind: "instant", at: "2026-03-01T10:05:00Z" }),
+      hasNoticeIssue,
+    );
+
+    assert.equal(cancellations(h).length, 0, "the valid provider copy stays scheduled");
+    const kept = await h.scheduler.get(job.id);
+    assert.equal(kept?.runAt, "2026-03-01T11:00:00.000Z");
+    assert.equal(kept?.lease, undefined);
+    assert.equal(
+      kept === undefined ? undefined : scheduledOutcomes(kept)[0]?.outcomes[0]?.state,
+      "scheduled",
+    );
+
+    // A replacement the route accepts still moves the job.
+    const moved = await h.scheduler.reschedule(job.id, {
+      kind: "instant",
+      at: "2026-03-01T12:00:00Z",
+    });
+
+    assert.equal(moved.state, "rescheduled");
+    assert.equal(cancellations(h).length, 1);
+  });
+
+  test("a queue checks the slot it reserves and frees it when the check fails", async () => {
+    const h = harness({ native: true, noticeMs: 600_000 });
+
+    const queue = {
+      kind: "queue" as const,
+      queueId: "soon",
+      timeZone: "UTC",
+      slots: [{ time: "10:03" }],
+    };
+
+    const slot = {
+      scope: "credential-ready",
+      queueId: "soon",
+      at: "2026-03-01T10:03:00.000Z",
+      now: start.toISOString(),
+    };
+
+    await assert.rejects(
+      h.scheduler.schedule({
+        id: "queued",
+        work: { kind: "publish", request: publication("queued", xAccount) },
+        at: queue,
+      }),
+      hasNoticeIssue,
+    );
+
+    assert.equal(await h.store.get({ scope: "credential-ready", id: "queued" }), undefined);
+    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "probe-1" }), true);
+    await h.store.releaseSlot({ ...slot, jobId: "probe-1" });
+
+    const job = await h.scheduler.schedule({
+      work: { kind: "publish", request: publication("to-queue", xAccount) },
+      at: inOneHour,
+    });
+
+    await assert.rejects(h.scheduler.reschedule(job.id, queue), hasNoticeIssue);
+
+    const kept = await h.scheduler.get(job.id);
+    assert.equal(kept?.runAt, "2026-03-01T11:00:00.000Z");
+    assert.equal(kept?.lease, undefined);
+    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "probe-2" }), true);
+  });
+
+  test("releasing a slot never frees one the job's saved record occupies", async () => {
+    const h = harness();
+
+    const queue = {
+      kind: "queue" as const,
+      queueId: "daily",
+      timeZone: "UTC",
+      slots: [{ time: "12:00" }],
+    };
+
+    const job = await h.scheduler.schedule({
+      id: "held",
+      work: { kind: "publish", request: publication("held", xAccount) },
+      at: queue,
+    });
+
+    // Reusing the ID fails, and its cleanup must leave the existing job's slot held.
+    await assert.rejects(
+      h.scheduler.schedule({
+        id: "held",
+        work: { kind: "publish", request: publication("held-again", xAccount) },
+        at: queue,
+      }),
+      (error: unknown): error is SocialError =>
+        error instanceof SocialError && /already exists/.test(error.message),
+    );
+
+    const slot = { scope: job.scope, queueId: "daily", at: job.runAt, now: start.toISOString() };
+    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "other" }), false);
   });
 });
 
