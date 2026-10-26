@@ -1114,6 +1114,7 @@ export function createSocial(
     options: PublishCallOptions | undefined,
   ): Promise<PublishResult> {
     const outcomes: DeliveryOutcome[] = [];
+    const warnings: PublishWarning[] = [];
     const publications: string[] = [];
     let refusal: SocialError | undefined;
 
@@ -1130,6 +1131,9 @@ export function createSocial(
 
         publications.push(single.publication.publicationId);
         outcomes.push(...single.outcomes.map((outcome) => ({ ...outcome, targetIndex: position })));
+        warnings.push(
+          ...(single.warnings ?? []).map((warning) => ({ ...warning, targetIndex: position })),
+        );
       } catch (error) {
         if (!(error instanceof SocialError)) throw error;
 
@@ -1166,6 +1170,7 @@ export function createSocial(
         publicationId: await fingerprint({ key: item.idempotencyKey, publications }),
       },
       outcomes,
+      ...definedFields({ warnings: warnings.length === 0 ? undefined : warnings }),
     };
   }
 
@@ -2008,7 +2013,12 @@ export function createSocial(
             ),
           ].sort((left, right) => left.targetIndex - right.targetIndex);
 
-          result = { ...result, status: "partial", outcomes };
+          const warnings = result.warnings?.map((warning) => ({
+            ...warning,
+            targetIndex: submitted[warning.targetIndex]?.targetIndex ?? warning.targetIndex,
+          }));
+
+          result = { ...result, status: "partial", outcomes, ...definedFields({ warnings }) };
         }
 
         results.push(result);

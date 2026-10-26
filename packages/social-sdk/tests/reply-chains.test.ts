@@ -474,3 +474,62 @@ test("a sequence replay after reconciling one chain continues it without a key c
   const reply = replay.items[1]?.outcomes[1];
   assert.equal(reply?.state, "published");
 });
+
+/** Refuses to save outcomes for one account, as a store outage limited to its claims would. */
+class AccountFailingStore extends MemoryIdempotencyStore {
+  constructor(private readonly accountId: string) {
+    super();
+  }
+
+  override async saveOutcome(input: Parameters<MemoryIdempotencyStore["saveOutcome"]>[0]) {
+    if (input.outcome.account.accountId === this.accountId) throw new Error("store unavailable");
+
+    return super.saveOutcome(input);
+  }
+}
+
+describe("persistence warnings in reply chains", () => {
+  test("a per-destination item keeps the warning at the destination's index", async () => {
+    const { adapter } = chainAdapter();
+
+    const social = createSocial({
+      backend: adapter,
+      idempotencyStore: new AccountFailingStore("bob"),
+    });
+
+    const result = await social.posts.publishSequence({
+      idempotencyKey: "thread-warn",
+      replyToPrevious: true,
+      items: [item("1"), item("2")],
+    });
+
+    assert.deepEqual(result.items[1]?.warnings, [
+      { code: "idempotency-outcome-not-persisted", targetIndex: 1 },
+    ]);
+  });
+
+  test("a partly submitted item maps its warning back to the original target", async () => {
+    const { adapter } = chainAdapter(
+      (target) => target.account.accountId === "alice" && target.content.text === "1",
+    );
+
+    const social = createSocial({
+      backend: adapter,
+      idempotencyStore: new AccountFailingStore("bob"),
+    });
+
+    const result = await social.posts.publishSequence({
+      idempotencyKey: "thread-warn-partial",
+      replyToPrevious: true,
+      stopOnFailure: false,
+      items: [item("1"), item("2")],
+    });
+
+    const second = result.items[1];
+
+    assert.equal(second?.outcomes[0]?.state, "not-submitted");
+    assert.deepEqual(second?.warnings, [
+      { code: "idempotency-outcome-not-persisted", targetIndex: 1 },
+    ]);
+  });
+});
