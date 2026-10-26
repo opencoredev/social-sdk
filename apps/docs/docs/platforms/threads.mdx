@@ -1,7 +1,43 @@
 ---
 title: Threads
 description: Publish Threads containers, carousels, and media while preserving processing outcomes for explicit reconciliation.
+seo:
+  title: Post to Threads from Node.js and TypeScript
+  description: Post to Threads from Node.js or Bun with the Threads API, with text, images, video and carousels, container status checks and typed results.
 ---
+
+To post to Threads from a server, create a media container with `POST /{threads-user-id}/threads`, then publish it with `POST /{threads-user-id}/threads_publish`, using a user access token with the `threads_basic` and `threads_content_publish` scopes. The Social SDK Threads adapter runs both steps through `social.posts.publish`, checks the container's status in between, and returns `published` with the new post ID, or `processing` while Meta is still preparing the container.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+```ts
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { threads } from "@opencoredev/social-sdk/threads";
+
+const social = createSocial({
+  backend: threads({
+    auth: {
+      userId: process.env["THREADS_USER_ID"]!,
+      accessToken: process.env["THREADS_ACCESS_TOKEN"]!,
+    },
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "threads",
+  accountId: process.env["THREADS_USER_ID"]!,
+});
+
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: { text: "Posted from TypeScript with Social SDK" },
+});
+```
+
+Without a `workflowStore`, the adapter keeps container state in memory, which is fine for a one-off script. On a server, pass a shared, persistent store as in the setup below, so a post that comes back `processing` can still be continued after a restart.
 
 The direct Threads adapter uses an existing user access token and Threads user ID. Use the exported `threadsOAuth`, `exchangeLongLivedOAuthToken`, and `refreshOAuthToken` server helpers with the [authentication guide](/docs/authentication). Account selection and token storage remain application responsibilities. Set `THREADS_GRAPH_VERSION` deliberately when a version other than the adapter default (`v1.0`) is required.
 
