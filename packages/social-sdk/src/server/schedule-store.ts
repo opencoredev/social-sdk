@@ -267,7 +267,7 @@ function storageError(cause: unknown): SocialError {
       cause instanceof ScheduleDecodeError
         ? `Stored record failed validation: ${cause.message}`
         : "Stored record is not valid JSON",
-    cause,
+    // No cause: JSON syntax errors quote part of the stored record, which holds draft content.
   });
 }
 

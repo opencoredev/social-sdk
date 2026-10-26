@@ -1,4 +1,5 @@
 import { SocialError } from "../core/errors.js";
+import type { RetryDisposition } from "../core/types.js";
 import { parseJson, type JsonValue } from "../transport/json.js";
 
 /**
@@ -112,6 +113,8 @@ export function storeError(
 export async function guarded<Result>(
   operation: string,
   run: () => Promise<Result>,
+  /** Retry disposition for failures that are not SocialErrors. */
+  fallbackRetry: RetryDisposition = { kind: "never" },
 ): Promise<Result> {
   try {
     return await run();
@@ -131,6 +134,7 @@ export async function guarded<Result>(
             operation,
             message: "Durable store request failed",
             details: { errorName: error instanceof Error ? error.name : "unknown" },
+            retryDisposition: fallbackRetry,
           });
 
     issued.add(replacement);

@@ -3,8 +3,12 @@ import { SocialError, type SocialErrorCode } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
 import type { JsonValue } from "../core/types.js";
 import { isJsonValue } from "../transport/json.js";
-import { guarded } from "./durable-driver.js";
+import { guarded, issuedError } from "./durable-driver.js";
 import { isJsonArray, isJsonObject, isString, type JsonField } from "../transport/validation.js";
+
+/** Store and lock outages are usually transient, so unknown failures retry after a delay. */
+const guardedStorage = <Result>(operation: string, run: () => Promise<Result>) =>
+  guarded(operation, run, { kind: "after-delay", delayMs: 1_000 });
 
 export interface CredentialLease {
   readonly key: string;
@@ -65,11 +69,13 @@ const credentialFields = new Set([
 ]);
 
 function invalidCredential(operation: string): never {
-  throw new SocialError({
-    code: "invalid_input",
-    operation,
-    message: "Credential is invalid",
-  });
+  throw issuedError(
+    new SocialError({
+      code: "invalid_input",
+      operation,
+      message: "Credential is invalid",
+    }),
+  );
 }
 
 function parseRefreshState(value: JsonField, operation: string): CredentialRefreshState {
@@ -322,11 +328,13 @@ function isLockTtl(options: number | CredentialManagerOptions): options is numbe
 
 function positiveInteger(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 1)
-    throw new SocialError({
-      code: "invalid_config",
-      operation: "credentials.configure",
-      message: `${name} must be a positive integer`,
-    });
+    throw issuedError(
+      new SocialError({
+        code: "invalid_config",
+        operation: "credentials.configure",
+        message: `${name} must be a positive integer`,
+      }),
+    );
 
   return value;
 }
@@ -353,16 +361,16 @@ function guardedStore(store: CredentialStore<StoredCredential>): CredentialStore
   const deleteIfRevision = store.deleteIfRevision?.bind(store);
 
   return {
-    get: (key) => guarded("credentials.store.get", () => store.get(key)),
+    get: (key) => guardedStorage("credentials.store.get", () => store.get(key)),
     compareAndSet: (input) =>
-      guarded("credentials.store.compareAndSet", () => store.compareAndSet(input)),
-    delete: (key) => guarded("credentials.store.delete", () => store.delete(key)),
+      guardedStorage("credentials.store.compareAndSet", () => store.compareAndSet(input)),
+    delete: (key) => guardedStorage("credentials.store.delete", () => store.delete(key)),
     ...definedFields({
       deleteIfRevision:
         deleteIfRevision === undefined
           ? undefined
           : (key: string, expectedRevision: string) =>
-              guarded("credentials.store.deleteIfRevision", () =>
+              guardedStorage("credentials.store.deleteIfRevision", () =>
                 deleteIfRevision(key, expectedRevision),
               ),
     }),
@@ -371,8 +379,9 @@ function guardedStore(store: CredentialStore<StoredCredential>): CredentialStore
 
 function guardedLock(lock: CredentialLock): CredentialLock {
   return {
-    acquire: (key, ttlMs) => guarded("credentials.lock.acquire", () => lock.acquire(key, ttlMs)),
-    release: (lease) => guarded("credentials.lock.release", () => lock.release(lease)),
+    acquire: (key, ttlMs) =>
+      guardedStorage("credentials.lock.acquire", () => lock.acquire(key, ttlMs)),
+    release: (lease) => guardedStorage("credentials.lock.release", () => lock.release(lease)),
   };
 }
 

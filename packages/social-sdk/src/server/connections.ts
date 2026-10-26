@@ -1,6 +1,10 @@
 import { SocialError } from "../core/errors.js";
 import type { ConnectedAccountRef, Platform } from "../core/types.js";
-import { guarded } from "./durable-driver.js";
+import { guarded, issuedError } from "./durable-driver.js";
+
+/** Store and lock outages are usually transient, so unknown failures retry after a delay. */
+const guardedStorage = <Result>(operation: string, run: () => Promise<Result>) =>
+  guarded(operation, run, { kind: "after-delay", delayMs: 1_000 });
 
 export interface ConnectionAttempt {
   readonly id: string;
@@ -84,19 +88,19 @@ export interface ConnectionStore {
  */
 function guardedConnectionStore(store: ConnectionStore): ConnectionStore {
   return {
-    save: (attempt) => guarded("connections.store.save", () => store.save(attempt)),
-    get: (attemptId) => guarded("connections.store.get", () => store.get(attemptId)),
+    save: (attempt) => guardedStorage("connections.store.save", () => store.save(attempt)),
+    get: (attemptId) => guardedStorage("connections.store.get", () => store.get(attemptId)),
     claimDiscovery: (attemptId) =>
-      guarded("connections.store.claimDiscovery", () => store.claimDiscovery(attemptId)),
+      guardedStorage("connections.store.claimDiscovery", () => store.claimDiscovery(attemptId)),
     saveDiscoveredAccounts: (attemptId, accounts) =>
-      guarded("connections.store.saveDiscoveredAccounts", () =>
+      guardedStorage("connections.store.saveDiscoveredAccounts", () =>
         store.saveDiscoveredAccounts(attemptId, accounts),
       ),
     getDiscoveredAccounts: (attemptId) =>
-      guarded("connections.store.getDiscoveredAccounts", () =>
+      guardedStorage("connections.store.getDiscoveredAccounts", () =>
         store.getDiscoveredAccounts(attemptId),
       ),
-    complete: (input) => guarded("connections.store.complete", () => store.complete(input)),
+    complete: (input) => guardedStorage("connections.store.complete", () => store.complete(input)),
   };
 }
 
@@ -497,11 +501,13 @@ export class MemoryConnectionStore implements ConnectionStore {
 
   async save(attempt: ConnectionAttempt): Promise<void> {
     if (this.#attempts.has(attempt.id))
-      throw new SocialError({
-        code: "upstream_failure",
-        operation: "connections.begin",
-        message: "Connection attempt ID collision",
-      });
+      throw issuedError(
+        new SocialError({
+          code: "upstream_failure",
+          operation: "connections.begin",
+          message: "Connection attempt ID collision",
+        }),
+      );
     this.#attempts.set(attempt.id, {
       attempt: structuredClone(attempt),
       consumed: false,
@@ -531,11 +537,13 @@ export class MemoryConnectionStore implements ConnectionStore {
     const stored = this.#attempts.get(attemptId);
 
     if (!stored || stored.consumed || !stored.discoveryClaimed || stored.accounts)
-      throw new SocialError({
-        code: "unauthorized",
-        operation: "connections.discover",
-        message: "Discovery cannot be saved for this attempt",
-      });
+      throw issuedError(
+        new SocialError({
+          code: "unauthorized",
+          operation: "connections.discover",
+          message: "Discovery cannot be saved for this attempt",
+        }),
+      );
     stored.accounts = structuredClone(accounts);
   }
 
@@ -556,18 +564,22 @@ export class MemoryConnectionStore implements ConnectionStore {
     const stored = this.#attempts.get(input.attemptId);
 
     if (stored === undefined || stored.consumed || stored.attempt.state !== input.state)
-      throw new SocialError({
-        code: "unauthorized",
-        operation: "connections.complete",
-        message: "Connection callback is invalid or already consumed",
-      });
+      throw issuedError(
+        new SocialError({
+          code: "unauthorized",
+          operation: "connections.complete",
+          message: "Connection callback is invalid or already consumed",
+        }),
+      );
 
     if (!stored.accounts || JSON.stringify(stored.accounts) !== JSON.stringify(input.accounts))
-      throw new SocialError({
-        code: "unauthorized",
-        operation: "connections.select",
-        message: "Grants must match persisted discovery",
-      });
+      throw issuedError(
+        new SocialError({
+          code: "unauthorized",
+          operation: "connections.select",
+          message: "Grants must match persisted discovery",
+        }),
+      );
     const selected = new Set(input.selectedAccountIds);
 
     const grants = input.accounts

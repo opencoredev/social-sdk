@@ -3,9 +3,14 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { SocialError } from "../src/core/errors.js";
 import { ConnectionManager, MemoryConnectionStore } from "../src/server/connections.js";
-import type { StoredCredential } from "../src/server/credentials.js";
+import {
+  CredentialManager,
+  MemoryCredentialLock,
+  type StoredCredential,
+} from "../src/server/credentials.js";
 import { DurableCredentialStore, type CredentialCodec } from "../src/server/durable-stores.js";
 import { createEncryptedCredentialStore } from "../src/server/encrypted-credentials.js";
+import { MemoryKeyValueStore, createKeyValueScheduleStore } from "../src/server/schedule-store.js";
 import {
   SqlDurableDriver,
   createSqliteExecutor,
@@ -148,5 +153,73 @@ describe("storage errors never carry what the store was given", () => {
         }),
         sanitized("invalid_input"),
       );
+  });
+});
+
+describe("storage error details the SDK keeps", () => {
+  test("an unknown credential store failure still retries after a delay", async () => {
+    const manager = new CredentialManager(
+      {
+        get: async () => {
+          throw new Error(`connection refused ${secret}`);
+        },
+        compareAndSet: async () => ({ updated: false }),
+        delete: async () => undefined,
+      },
+      new MemoryCredentialLock(),
+    );
+
+    await assert.rejects(manager.resolve("a"), (error: unknown): error is SocialError => {
+      assert.ok(sanitized("upstream_failure")(error));
+      assert.deepEqual(error.retryDisposition, { kind: "after-delay", delayMs: 1_000 });
+
+      return true;
+    });
+  });
+
+  test("the memory connection store's fixed messages survive the store guard", async () => {
+    const manager = new ConnectionManager({
+      store: new MemoryConnectionStore(),
+      randomBytes: () => new Uint8Array(64),
+    });
+
+    const begin = () =>
+      manager.begin({
+        backend: "direct",
+        tenantId: "tenant",
+        principalId: "principal",
+        platforms: ["youtube"],
+        redirectUri: "https://app.test/cb",
+        allowedRedirectUris: ["https://app.test/cb"],
+        provider: {
+          start: async () => ({ authorizationUrl: "https://provider.test/authorize" }),
+          complete: async () => [],
+        },
+      });
+
+    await begin();
+
+    // Fixed random bytes reuse the attempt ID, so the second save collides.
+    await assert.rejects(begin(), { message: "Connection attempt ID collision" });
+  });
+
+  test("a corrupted schedule record is reported without the parser's excerpt", async () => {
+    const kv = new MemoryKeyValueStore();
+
+    await kv.compareAndSet({
+      key: "schedule/job/s/j",
+      expectedVersion: undefined,
+      value: `{"format":"social-sdk.schedule-job","draft":"${secret}"`,
+    });
+
+    await assert.rejects(
+      createKeyValueScheduleStore(kv).get({ scope: "s", id: "j" }),
+      (error: unknown): error is SocialError => {
+        assert.ok(sanitized("upstream_failure")(error));
+        assert.equal(error.message, "Stored record is not valid JSON");
+
+        return true;
+      },
+    );
   });
 });
