@@ -8,6 +8,7 @@ import type {
   ConnectedAccountRef,
   DeliveryOutcome,
   MediaAttachment,
+  OperationName,
   PlatformPostRef,
   PreparationIssue,
   PublishRequest,
@@ -841,7 +842,7 @@ export class SocialScheduler {
     const due = await this.#store.listDue({ now: now.toISOString(), limit });
 
     const processed = await mapLimited(due, concurrency, (stored) =>
-      this.#process({ stored, now, force: false, retry: false }),
+      this.#process({ stored, now, force: false, retry: false, advance: true }),
     );
 
     const jobs = processed.flatMap((job) =>
@@ -862,7 +863,11 @@ export class SocialScheduler {
 
     await this.#authorizeCaller(stored.job, options, "posts.getDelivery");
 
-    return this.#process({ stored, now: this.#clock(), force: true, retry: false });
+    // Advancing publishes with the stored context, so a caller who may only read
+    // deliveries gets a poll and nothing more.
+    const advance = await this.#mayAdvance(stored.job, options);
+
+    return this.#process({ stored, now: this.#clock(), force: true, retry: false, advance });
   }
 
   /**
@@ -878,15 +883,41 @@ export class SocialScheduler {
 
     if (stored === undefined) return undefined;
 
-    await this.#authorizeCaller(stored.job, options, "posts.publish");
+    for (const operation of this.#advanceOperations(stored.job))
+      await this.#authorizeCaller(stored.job, options, operation);
 
-    return this.#process({ stored, now: this.#clock(), force: true, retry: true });
+    return this.#process({
+      stored,
+      now: this.#clock(),
+      force: true,
+      retry: true,
+      advance: true,
+    });
+  }
+
+  /** Every operation advancing this job can send: publishing, and native scheduling. */
+  #advanceOperations(job: ScheduledJob): readonly OperationName[] {
+    return job.lanes.some((lane) => lane.mode === "native")
+      ? ["posts.publish", "posts.schedule"]
+      : ["posts.publish"];
+  }
+
+  async #mayAdvance(job: ScheduledJob, options: ScheduleCallOptions): Promise<boolean> {
+    try {
+      for (const operation of this.#advanceOperations(job))
+        await this.#authorizeCaller(job, options, operation);
+
+      return true;
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized") return false;
+      throw error;
+    }
   }
 
   async #authorizeCaller(
     job: ScheduledJob,
     options: ScheduleCallOptions,
-    operation: import("../core/types.js").OperationName,
+    operation: OperationName,
   ): Promise<void> {
     const targets =
       job.work.kind === "publish"
@@ -1246,6 +1277,8 @@ export class SocialScheduler {
     readonly now: Date;
     readonly force: boolean;
     readonly retry: boolean;
+    /** Without it the job is only polled: nothing new is published or scheduled. */
+    readonly advance: boolean;
   }): Promise<ScheduledJob | undefined> {
     const nowMs = input.now.getTime();
     const { job } = input.stored;
@@ -1294,7 +1327,7 @@ export class SocialScheduler {
         if (input.retry) await this.#retrySteps(key);
 
         for (let round = 0; round < 3; round++) {
-          const advanced = await this.#advance({ key, now: nowMs, touched });
+          const advanced = input.advance && (await this.#advance({ key, now: nowMs, touched }));
           const polled = await this.#poll({ key, now: nowMs, force: input.force, touched });
 
           if (!advanced && !polled) break;

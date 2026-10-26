@@ -149,6 +149,57 @@ test("scheduler reads and mutations authorize the current caller before changing
   assert.equal(h.publishes().length, 0);
 });
 
+test("reconcile by a delivery reader only polls, and retryFailed authorizes what it sends", async () => {
+  const grants = new Map([
+    ["owner", ["posts.read", "posts.getDelivery", "posts.publish", "posts.schedule"]],
+    ["reader", ["posts.read", "posts.getDelivery"]],
+    ["publisher", ["posts.read", "posts.getDelivery", "posts.publish"]],
+  ]);
+
+  const h = harness({
+    native: true,
+    authorization: {
+      async authorizeTargets({ operation, accounts, context }) {
+        const allowed = grants.get(context.authorization?.principalId ?? "") ?? [];
+
+        return accounts.map((account) => ({ account, allowed: allowed.includes(operation) }));
+      },
+    },
+  });
+
+  const as = (principalId: string) => ({ authorization: { tenantId: "tenant", principalId } });
+
+  const job = await h.scheduler.schedule({
+    work: { kind: "publish", request: publication("read-only", threadsAccount) },
+    at: inOneHour,
+    ...as("owner"),
+  });
+
+  h.advance(3_600_000);
+  const polled = await h.scheduler.reconcile(job.id, as("reader"));
+  assert.equal(h.publishes().length, 0, "a reader's reconcile never publishes a due job");
+  assert.equal(polled?.lanes[0]?.steps[0]?.state, "pending");
+
+  const native = await h.scheduler.schedule({
+    work: { kind: "publish", request: publication("native-retry", xAccount) },
+    at: { kind: "instant", at: "2026-03-01T13:00:00Z" },
+    ...as("owner"),
+  });
+
+  for (const principal of ["reader", "publisher"])
+    await assert.rejects(
+      h.scheduler.retryFailed(native.id, as(principal)),
+      (error: unknown): error is SocialError =>
+        error instanceof SocialError && error.code === "unauthorized",
+    );
+
+  assert.equal(h.publishes().length, 0);
+
+  // The creator's own reconcile still advances the due job.
+  assert.equal((await h.scheduler.reconcile(job.id, as("owner")))?.status, "completed");
+  assert.equal(h.publishes().length, 1);
+});
+
 test("the scheduler inherits JobRunner from createSocial configuration", async () => {
   const hints: string[] = [];
 
