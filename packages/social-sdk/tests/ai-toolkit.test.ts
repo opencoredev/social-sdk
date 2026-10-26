@@ -17,6 +17,7 @@ import {
   type AuthorizationPolicy,
   type JsonObject,
 } from "../src/index.js";
+import { tiktok } from "../src/platforms/tiktok.js";
 import { mockBackend } from "../src/testing/index.js";
 import { array, object, string } from "../src/transport/validation.js";
 
@@ -325,7 +326,7 @@ it("caps agent page sizes and hides unexpected adapter error details", async () 
   data(await toolkit.call("social_list_posts", { account: accountJson, limit: 500 }));
   data(await toolkit.call("social_list_posts", { account: accountJson }));
   data(await toolkit.call("social_list_posts", { account: accountJson, limit: 5 }));
-  assert.deepEqual(limits, [25, 25, 5]);
+  assert.deepEqual(limits, [25, 20, 5]);
 
   const failed = await toolkit.call("social_list_comments", {
     post: { ...accountJson, kind: "platform-post", postId: "p1" },
@@ -333,6 +334,41 @@ it("caps agent page sizes and hides unexpected adapter error details", async () 
 
   assert.equal(failed.ok, false);
   assert.ok(!JSON.stringify(failed).includes("leaked-secret"));
+});
+
+it("an omitted page size fits direct TikTok, which allows at most 20", async () => {
+  const requested: string[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async (_input, init) => {
+      requested.push(String(init?.body));
+
+      return Response.json({
+        data: { videos: [], cursor: 0, has_more: false },
+        error: { code: "ok" },
+      });
+    },
+  });
+
+  const toolkit = createSocialToolkit(createSocial({ backend: adapter }));
+
+  const listed = await toolkit.call("social_list_posts", {
+    account: { ...accountJson, platform: "tiktok", accountId: "creator1" },
+  });
+
+  assert.equal(listed.ok, true, JSON.stringify(listed));
+  assert.equal(requested.length, 1);
+  assert.match(requested[0] ?? "", /"max_count":20/);
+
+  // An explicit request above TikTok's limit still reaches the adapter's own check.
+  const tooMany = await toolkit.call("social_list_posts", {
+    account: { ...accountJson, platform: "tiktok", accountId: "creator1" },
+    limit: 30,
+  });
+
+  assert.equal(!tooMany.ok && tooMany.error.code, "invalid_input");
 });
 
 it("enforces call and write budgets", async () => {
