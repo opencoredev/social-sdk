@@ -6,7 +6,7 @@ import { createSocial } from "./core/client.js";
 import { definedFields } from "./core/fields.js";
 import type { SocialAdapter } from "./core/index.js";
 import { decodePublishRequest, PublishRequestInputError } from "./cli-request.js";
-import { isJsonValue } from "./transport/json.js";
+import { parseJson } from "./transport/json.js";
 import { isJsonObject, isString } from "./transport/validation.js";
 import { mockBackend } from "./testing/index.js";
 import { zernio } from "./cloud/zernio.js";
@@ -147,6 +147,16 @@ export function createDiagnosticAdapter(
   }
 }
 
+/** Reads the version from this package's own package.json, one level above both `src` and `dist`. */
+async function readPackageVersion(): Promise<string> {
+  const manifest = parseJson(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const version = isJsonObject(manifest) ? manifest["version"] : undefined;
+
+  if (!isString(version)) throw new Error("package.json has no version string.");
+
+  return version;
+}
+
 export interface CliIO {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly readInput: (path: string) => Promise<string>;
@@ -167,7 +177,7 @@ export const offlineMcpTools = [
 
 /** All commands are offline and return 0 (valid), 1 (diagnostic failure), or 2 (usage/input error). */
 export async function runCli(args: readonly string[], io: CliIO): Promise<number> {
-  const command = args[0] ?? "help";
+  const command = args[0] === "--version" ? "version" : (args[0] ?? "help");
   const json = args.includes("--json");
 
   // `data` is any report shape this command builds; it is only passed to JSON.stringify.
@@ -200,10 +210,19 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   if (command === "help" || command === "--help")
     return finish(0, {
       usage:
-        "social-sdk <doctor|adapters|capabilities|validate|examples|mcp> [--adapter NAME] [--file PATH] [--json]",
+        "social-sdk <doctor|adapters|capabilities|validate|examples|mcp|version> [--adapter NAME] [--file PATH] [--json]",
       offline: true,
       exitCodes: { success: 0, diagnosticFailure: 1, invalidInput: 2 },
     });
+
+  if (command === "version") {
+    try {
+      return finish(0, { version: await readPackageVersion() });
+    } catch {
+      return finish(1, { error: "Unable to read the installed package version." });
+    }
+  }
+
   const selected = options.get("--adapter") ?? "mock";
 
   if (!isAdapterName(selected))
@@ -330,21 +349,6 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   }
 }
 
-async function packageVersion(): Promise<string | undefined> {
-  try {
-    const manifest: unknown = JSON.parse(
-      await readFile(new URL("../package.json", import.meta.url), "utf8"),
-    );
-
-    if (!isJsonValue(manifest) || !isJsonObject(manifest)) return undefined;
-    const version = manifest["version"];
-
-    return isString(version) ? version : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 const invokedPath = process.argv[1];
 
 let invokedRealPath = invokedPath;
@@ -361,7 +365,7 @@ if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) 
   process.exitCode = await runCli(process.argv.slice(2), {
     env: process.env,
     stdin: process.stdin,
-    version: await packageVersion(),
+    version: await readPackageVersion().catch(() => undefined),
     async readInput(path) {
       const info = await stat(path);
 

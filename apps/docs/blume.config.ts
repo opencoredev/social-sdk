@@ -2,7 +2,6 @@ import { defineConfig } from "blume";
 import { script } from "blume/analytics";
 
 import { posthogScript } from "./analytics";
-import { LAUNCH_BANNER_ID, LAUNCH_POST_URL } from "./launch-banner";
 import { platformTabsMarkdown } from "./components/platforms.ts";
 import { blogFeeds } from "./pages/_blog/feeds.ts";
 
@@ -20,12 +19,6 @@ export default defineConfig({
     href: "/docs",
   },
   basePath: "/docs",
-  banner: {
-    id: LAUNCH_BANNER_ID,
-    content: "Hey, Leo here 👋 I just launched gradients.sh.",
-    link: { href: LAUNCH_POST_URL, text: "Come check it out" },
-    dismissible: true,
-  },
   feedback: false,
   lastModified: "git",
   redirects: [

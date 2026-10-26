@@ -112,4 +112,6 @@ Beyond `code` and `message`, a `SocialError` includes the `operation` name, the 
 
 `error.toJSON()` returns the redacted, JSON-safe shape with all of the fields above and the retry disposition. Log or transport that shape instead of the raw provider response; it is designed to be safe for application logs.
 
+`SocialError.fromJSON(value)` turns that shape back into a `SocialError`, either directly or after `JSON.parse`, so a queue worker or background job can rethrow a real error with its `code` and `retryDisposition`. A value that is not a serialized `SocialError` throws `invalid_input` with operation `SocialError.fromJSON`. The `cause` is not restored, because `toJSON()` drops it.
+
 Preparation failures are reported before any network call, so a request with an invalid media source or an over-limit text never reaches the platform. See [operations](/operations) for budgets, cancellation, and diagnostics.

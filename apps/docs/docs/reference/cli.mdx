@@ -12,6 +12,7 @@ social-sdk capabilities --adapter youtube --json
 social-sdk examples --json
 social-sdk validate --adapter mock --file request.json --json
 social-sdk mcp --adapter youtube
+social-sdk version --json
 ```
 
 `doctor` checks the presence of environment variables for the selected adapter only. It prints their names when missing, never their values. Success means that configuration is present, not that credentials authenticate or that a platform has approved your app.
@@ -25,5 +26,7 @@ ratios, and duration limits against the metadata in the request. Missing remote
 metadata stays unknown: the command never fetches media or stages local files.
 
 `mcp` serves `social_capabilities`, `social_doctor`, `social_validate` and `social_plan_publish` to an MCP client over stdio until stdin closes. Stdout then carries protocol messages only. The tools stay offline like the other commands; see [MCP server](/agents/mcp-server) to serve read and write tools from your own application.
+
+`version` prints the installed package version, which is the first thing to include in a bug report. `social-sdk --version` is the same command.
 
 Every command except `mcp` accepts `--json`. The envelope contains `schemaVersion: 1`, `command`, `ok`, and `data`. Exit code 0 means the diagnostic passed; 1 means a configuration or preparation check failed; 2 means invalid arguments or input. Unknown commands and options fail rather than enabling a network operation.
