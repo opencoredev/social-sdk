@@ -51,7 +51,7 @@ Use `createEncryptedCredentialStore` to encrypt credential values with AES-256-G
 
 Encryption does not authorize a credential lookup. Check the authenticated tenant's grant before resolving a token, even when the token store is encrypted.
 
-For example, inject a Node SQLite database and an application key resolver:
+For example, inject a Node SQLite database and an application key resolver. `node:sqlite` needs Node.js 22.13 or later, or `--experimental-sqlite` on Node.js 22.12. A better-sqlite3 database works with the same executor, and `createPostgresExecutor` takes a `pg` client.
 
 ```ts
 import type { DatabaseSync } from "node:sqlite";

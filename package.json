@@ -12,7 +12,7 @@
     "build": "turbo run build",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
-    "test:node": "node --import tsx --test packages/social-sdk/tests/*.test.ts",
+    "test:node": "node --experimental-sqlite --import tsx --test packages/social-sdk/tests/*.test.ts",
     "lint": "turbo run lint && oxlint . && bun scripts/check-lint-policy.ts",
     "format:check": "oxfmt --check .",
     "format:fix": "oxfmt --write .",
