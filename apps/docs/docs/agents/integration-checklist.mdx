@@ -14,6 +14,9 @@ Use this sequence when integrating Social SDK into an existing application.
 7. Handle uncertain writes through status reconciliation before retrying.
 8. Add provider-specific webhook verification before parsing or acknowledging events.
 9. Verify the installed package in the application itself: run the application's type check (for example `npx tsc --noEmit`) so every import resolves against `@opencoredev/social-sdk`, run the mock flow in a test, and run `npx social-sdk capabilities --adapter <name> --json` to confirm the route declares the operations you use. The repository's packed-consumer and release checks are for SDK maintainers, not application integrators.
-10. Request human credentials, platform approval, mutation authorization, or spend authorization only for the remaining live step.
+10. If the application hands social actions to an AI agent, expose them through `@opencoredev/social-sdk/ai` or `@opencoredev/social-sdk/mcp` with the same `AuthorizationPolicy`, and keep write tools in the default confirm mode. See [AI agent tools](/agents/ai-tools) and [MCP server](/agents/mcp-server).
+11. Request human credentials, platform approval, mutation authorization, or spend authorization only for the remaining live step.
+
+While you integrate, `npx social-sdk mcp --adapter <name>` gives your coding agent offline capability lookup and publish-request validation over MCP.
 
 The documentation site is static. It publishes Markdown pages and `llms.txt`, but it does not advertise a live MCP endpoint. Use the repository's integration skill for the complete implementation workflow once its examples and commands have been verified against the released package.

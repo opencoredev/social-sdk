@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createSocial } from "./core/client.js";
+import { definedFields } from "./core/fields.js";
 import type { SocialAdapter } from "./core/index.js";
 import { decodePublishRequest, PublishRequestInputError } from "./cli-request.js";
 import { parseJson } from "./transport/json.js";
@@ -13,6 +14,7 @@ import { postForMe } from "./cloud/post-for-me.js";
 import { postfast } from "./cloud/postfast.js";
 import { postiz } from "./cloud/postiz.js";
 import { buffer } from "./cloud/buffer.js";
+import { uploadPost } from "./cloud/upload-post.js";
 import { bluesky } from "./platforms/bluesky.js";
 import { x } from "./platforms/x.js";
 import { threads } from "./platforms/threads.js";
@@ -20,6 +22,10 @@ import { youtube } from "./platforms/youtube.js";
 import { tiktok } from "./platforms/tiktok.js";
 import { instagram } from "./platforms/instagram.js";
 import { linkedin } from "./platforms/linkedin.js";
+import { facebook } from "./platforms/facebook.js";
+import { createSocialToolkit, type SocialToolName } from "./ai/toolkit.js";
+import { createMcpServer } from "./mcp/server.js";
+import { serveMcpStdio } from "./mcp/stdio.js";
 
 /** Adapters the diagnostic CLI can construct offline. */
 export const adapterNames = [
@@ -29,6 +35,7 @@ export const adapterNames = [
   "postfast",
   "postiz",
   "buffer",
+  "upload-post",
   "bluesky",
   "x",
   "threads",
@@ -36,6 +43,7 @@ export const adapterNames = [
   "tiktok",
   "instagram",
   "linkedin",
+  "facebook",
 ] as const;
 
 export type AdapterName = (typeof adapterNames)[number];
@@ -57,6 +65,7 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   postfast: ["POSTFAST_API_KEY"],
   postiz: ["POSTIZ_API_KEY"],
   buffer: ["BUFFER_API_KEY"],
+  "upload-post": ["UPLOAD_POST_API_KEY"],
   bluesky: ["BLUESKY_SERVICE", "BLUESKY_DID", "BLUESKY_ACCESS_JWT"],
   x: ["X_USER_ID", "X_ACCESS_TOKEN"],
   threads: ["THREADS_USER_ID", "THREADS_ACCESS_TOKEN"],
@@ -64,6 +73,7 @@ const environmentNames: Record<AdapterName, readonly string[]> = {
   tiktok: ["TIKTOK_OPEN_ID", "TIKTOK_ACCESS_TOKEN"],
   instagram: ["INSTAGRAM_ACCOUNT_ID", "INSTAGRAM_ACCESS_TOKEN"],
   linkedin: ["LINKEDIN_AUTHOR_URN", "LINKEDIN_ACCESS_TOKEN", "LINKEDIN_API_VERSION"],
+  facebook: ["FACEBOOK_PAGE_ID", "FACEBOOK_PAGE_ACCESS_TOKEN"],
 };
 
 const noNetwork: typeof globalThis.fetch = async () => {
@@ -87,6 +97,8 @@ export function createDiagnosticAdapter(
       return postiz({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "buffer":
       return buffer({ apiKey: "offline-placeholder", fetch: noNetwork });
+    case "upload-post":
+      return uploadPost({ apiKey: "offline-placeholder", fetch: noNetwork });
     case "bluesky":
       return bluesky({
         auth: { service: "https://bsky.social", did: accountId, accessJwt: "offline-placeholder" },
@@ -127,6 +139,11 @@ export function createDiagnosticAdapter(
         apiVersion: "202609",
         fetch: noNetwork,
       });
+    case "facebook":
+      return facebook({
+        auth: { pageId: accountId, accessToken: "offline-placeholder" },
+        fetch: noNetwork,
+      });
   }
 }
 
@@ -144,7 +161,19 @@ export interface CliIO {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly readInput: (path: string) => Promise<string>;
   readonly write: (text: string) => void;
+  /** Protocol input for `mcp`, such as `process.stdin`. */
+  readonly stdin?: AsyncIterable<Uint8Array | string>;
+  /** Reported to MCP clients as the server version. */
+  readonly version?: string | undefined;
 }
+
+/** The CLI MCP server stays offline: discovery, diagnostics and local validation only. */
+export const offlineMcpTools = [
+  "social_capabilities",
+  "social_doctor",
+  "social_validate",
+  "social_plan_publish",
+] as const satisfies readonly SocialToolName[];
 
 /** All commands are offline and return 0 (valid), 1 (diagnostic failure), or 2 (usage/input error). */
 export async function runCli(args: readonly string[], io: CliIO): Promise<number> {
@@ -181,7 +210,7 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   if (command === "help" || command === "--help")
     return finish(0, {
       usage:
-        "social-sdk <doctor|adapters|capabilities|validate|examples|version> [--adapter NAME] [--file PATH] [--json]",
+        "social-sdk <doctor|adapters|capabilities|validate|examples|mcp|version> [--adapter NAME] [--file PATH] [--json]",
       offline: true,
       exitCodes: { success: 0, diagnosticFailure: 1, invalidInput: 2 },
     });
@@ -206,9 +235,40 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
       verification: "Local contract tests; no live checks are performed by this CLI.",
     });
 
-  if (command === "doctor") {
-    const missing = environmentNames[name].filter((key) => !io.env[key]?.trim());
+  const missing = environmentNames[name].filter((key) => !io.env[key]?.trim());
 
+  if (command === "mcp") {
+    if (io.stdin === undefined) return finish(2, { error: "mcp requires a stdin stream." });
+
+    const toolkit = createSocialToolkit(createSocial({ backend: createDiagnosticAdapter(name) }), {
+      writes: "preview",
+      tools: offlineMcpTools,
+      checks: () => [
+        {
+          name: "environment",
+          ok: missing.length === 0,
+          detail: missing.length
+            ? `Missing on this machine: ${missing.join(", ")}. Values are never read or printed.`
+            : "Configuration names are present. Values were not read, printed or sent.",
+        },
+      ],
+    });
+
+    // Stdout carries protocol messages only from here on.
+    await serveMcpStdio(
+      createMcpServer(toolkit, {
+        name: "social-sdk-diagnostics",
+        ...definedFields({ version: io.version }),
+        instructions:
+          "Offline Social SDK diagnostics. Tools read declared adapter capabilities and validate publish requests locally; they never authenticate, call a provider or publish.",
+      }),
+      { input: io.stdin, write: io.write },
+    );
+
+    return 0;
+  }
+
+  if (command === "doctor") {
     return finish(missing.length ? 1 : 0, {
       adapter: name,
       offline: true,
@@ -304,6 +364,8 @@ if (invokedPath) {
 if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) {
   process.exitCode = await runCli(process.argv.slice(2), {
     env: process.env,
+    stdin: process.stdin,
+    version: await readPackageVersion().catch(() => undefined),
     async readInput(path) {
       const info = await stat(path);
 

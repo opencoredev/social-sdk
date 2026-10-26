@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { postfast } from "../src/cloud/postfast.js";
 import { SocialError } from "../src/core/errors.js";
+import {
+  MemoryScheduleStore,
+  SocialScheduler,
+  outcomeRecovery,
+  scheduledOutcomes,
+} from "../src/server/index.js";
+import { MemoryIdempotencyStore } from "../src/testing/index.js";
+import { array, object } from "../src/transport/validation.js";
 import type { AdapterOperationContext, JsonObject, PlatformPostRef } from "../src/core/types.js";
 
 const context: AdapterOperationContext = {
@@ -68,7 +76,7 @@ it("PostFast sends its API key header and maps supported accounts", async () => 
           displayName: "Demo",
           connectionStatus: "CONNECTED",
         },
-        { id: "sm3", platform: "PINTEREST", platformUsername: "pins" },
+        { id: "sm3", platform: "SUBSTACK", platformUsername: "letters" },
         {
           id: "sm2",
           platform: "YOUTUBE",
@@ -489,6 +497,10 @@ it("PostFast reads analytics around the publish time and parses bigint counters"
   };
 
   const metrics = await adapter.analytics.getPostMetrics(ref, context);
+  assert.deepEqual(
+    metrics.map((metric) => metric.canonicalName),
+    ["likes", "comments", "views", undefined],
+  );
 
   assert.deepEqual(
     metrics.map((metric) => [metric.name, metric.value, metric.unit]),
@@ -521,7 +533,7 @@ it("PostFast connect links validate platforms and return the hosted URL", async 
     { url: "https://app.postfa.st/connect/abc" },
   );
   await assert.rejects(
-    adapter.native.createConnectLink({ platforms: ["PINTEREST"] }, context),
+    adapter.native.createConnectLink({ platforms: ["SUBSTACK"] }, context),
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
 });
@@ -630,4 +642,125 @@ it("PostFast does not submit a schedule that passed during media upload", async 
     "POST api.postfa.st/file/get-signed-upload-urls",
     "PUT storage.example.test/image/i1.png",
   ]);
+});
+
+it("SocialScheduler schedules PostFast through the native lane", async () => {
+  const posted: JsonObject[] = [];
+
+  const adapter = postfast({
+    apiKey: "test",
+    clock,
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+
+      if (url.pathname === "/social-posts" && init?.method === "POST") {
+        posted.push(object(JSON.parse(String(init.body))));
+
+        return Response.json({ postIds: ["p1"] }, { status: 201 });
+      }
+
+      return Response.json({ data: [row({})], totalCount: 1 });
+    },
+  });
+
+  const social = createSocial({
+    backend: adapter,
+    clock,
+    recovery: outcomeRecovery(),
+    idempotencyStore: new MemoryIdempotencyStore(),
+  });
+
+  const scheduler = new SocialScheduler({ social, store: new MemoryScheduleStore(), clock });
+
+  const job = await scheduler.schedule({
+    work: {
+      kind: "publish",
+      request: { targets: [{ account: x }], content: { text: "hello" }, idempotencyKey: "pf-1" },
+    },
+    at: { kind: "instant", at: future },
+  });
+
+  assert.deepEqual(
+    job.lanes.map((lane) => lane.mode),
+    ["native"],
+  );
+
+  await scheduler.runDue();
+
+  const stored = await scheduler.get(job.id);
+
+  assert.equal(stored?.status, "scheduled");
+  assert.equal(
+    stored === undefined ? undefined : scheduledOutcomes(stored)[0]?.outcomes[0]?.state,
+    "scheduled",
+  );
+  assert.equal(posted.length, 1);
+  assert.equal(object(array(posted[0]?.["posts"])[0])["scheduledAt"], future);
+  assert.equal(posted[0]?.["status"], "SCHEDULED");
+});
+
+it("a PostFast job first run after its time blocks as missed instead of publishing unscheduled", async () => {
+  const posted: JsonObject[] = [];
+  let now = clock();
+
+  const adapter = postfast({
+    apiKey: "test",
+    clock: () => now,
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+
+      if (url.pathname === "/social-posts" && init?.method === "POST") {
+        posted.push(object(JSON.parse(String(init.body))));
+
+        return Response.json({ postIds: ["p1"] }, { status: 201 });
+      }
+
+      return Response.json({ data: [row({})], totalCount: 1 });
+    },
+  });
+
+  const social = createSocial({
+    backend: adapter,
+    clock: () => now,
+    recovery: outcomeRecovery(),
+    idempotencyStore: new MemoryIdempotencyStore(),
+  });
+
+  const scheduler = new SocialScheduler({
+    social,
+    store: new MemoryScheduleStore(),
+    clock: () => now,
+  });
+
+  const job = await scheduler.schedule({
+    work: {
+      kind: "publish",
+      request: { targets: [{ account: x }], content: { text: "hello" }, idempotencyKey: "pf-2" },
+    },
+    at: { kind: "instant", at: future },
+  });
+
+  // A periodic worker that first wakes after the time passed.
+  now = new Date(Date.parse(future) + 60_000);
+  await scheduler.runDue();
+
+  const missed = await scheduler.get(job.id);
+
+  assert.equal(missed?.status, "blocked");
+  assert.equal(missed?.blocked?.code, "schedule_missed");
+  assert.match(missed?.blocked?.message ?? "", /schedule\.required/);
+  assert.deepEqual(
+    missed?.lanes.map((lane) => lane.mode),
+    ["native"],
+  );
+  assert.equal(posted.length, 0);
+
+  // Rescheduling to a future time submits it natively.
+  const later = new Date(now.getTime() + 3_600_000).toISOString();
+  const moved = await scheduler.reschedule(job.id, { kind: "instant", at: later });
+
+  assert.equal(moved.state, "rescheduled");
+  await scheduler.runDue();
+  assert.equal(posted.length, 1);
+  assert.equal(object(array(posted[0]?.["posts"])[0])["scheduledAt"], later);
 });

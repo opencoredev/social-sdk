@@ -53,9 +53,29 @@
       "types": "./dist/cloud/buffer.d.ts",
       "import": "./dist/cloud/buffer.js"
     },
+    "./cloud/upload-post": {
+      "types": "./dist/cloud/upload-post.d.ts",
+      "import": "./dist/cloud/upload-post.js"
+    },
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./dist/mcp/index.js"
+    },
+    "./ai": {
+      "types": "./dist/ai/index.d.ts",
+      "import": "./dist/ai/index.js"
+    },
+    "./inbox": {
+      "types": "./dist/inbox.d.ts",
+      "import": "./dist/inbox.js"
+    },
+    "./media-staging": {
+      "types": "./dist/media-staging.d.ts",
+      "import": "./dist/media-staging.js"
     },
     "./package.json": "./package.json",
     "./bluesky": {
@@ -85,6 +105,10 @@
     "./instagram": {
       "types": "./dist/platforms/instagram.d.ts",
       "import": "./dist/platforms/instagram.js"
+    },
+    "./facebook": {
+      "types": "./dist/platforms/facebook.d.ts",
+      "import": "./dist/platforms/facebook.js"
     }
   },
   "publishConfig": {

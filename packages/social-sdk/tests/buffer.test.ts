@@ -106,7 +106,7 @@ function channelsFetch(init?: RequestInit): Response {
             id: "channel_pin_example",
             name: "pins",
             displayName: "Pins",
-            service: "pinterest",
+            service: "startPage",
           }),
           channel({
             id: "channel_yt_example",
@@ -762,6 +762,7 @@ it("Buffer reports post metrics only after a sent post", async () => {
           externalLink: "https://x.com/example/status/1",
           metrics: [
             { type: "reactions", value: 4, unit: "count", name: "Reactions" },
+            { type: "view_count", value: 0, unit: "count", name: "Views" },
             { type: "mystery", value: 1, unit: "widgets", name: "Mystery" },
           ],
           metricsUpdatedAt: "2026-10-10T00:00:00.000Z",
@@ -786,6 +787,16 @@ it("Buffer reports post metrics only after a sent post", async () => {
     {
       name: "reactions",
       value: 4,
+      unit: "count",
+      period: "lifetime",
+      freshness: "unknown",
+      source: "buffer:x:post",
+      fetchedAt: "2026-10-10T00:00:00.000Z",
+    },
+    {
+      name: "view_count",
+      canonicalName: "views",
+      value: 0,
       unit: "count",
       period: "lifetime",
       freshness: "unknown",
@@ -902,4 +913,14 @@ it("Buffer OAuth helpers require PKCE and never echo grants", async () => {
       return true;
     },
   );
+});
+
+it("Buffer advertises LinkedIn documents in its manifest", () => {
+  const formats = (platform: string) =>
+    buffer({ apiKey: "fixture-key" }).capabilities.capabilities.find(
+      (entry) => entry.platform === platform && entry.operation === "posts.publish",
+    )?.formats;
+
+  assert.deepEqual(formats("linkedin"), ["text", "image", "video", "carousel", "document"]);
+  assert.ok(!formats("x")?.includes("document"));
 });

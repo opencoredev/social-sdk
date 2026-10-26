@@ -116,7 +116,7 @@ export interface SocialEvent {
   readonly version: 1;
   readonly id: string;
   readonly backend: string;
-  readonly provider: "zernio" | "post-for-me" | DirectWebhookPlatform;
+  readonly provider: "zernio" | "post-for-me" | "upload-post" | DirectWebhookPlatform;
   readonly type:
     | "publication.updated"
     | "post.removed"
@@ -321,6 +321,135 @@ export async function decodeWebhook(input: {
   return event;
 }
 
+/**
+ * Verify an Upload-Post webhook. `X-Upload-Post-Signature: sha256=<hex>` is the
+ * HMAC-SHA256 of `<X-Upload-Post-Timestamp>.<raw body>` keyed with the account's
+ * `webhook_secret`; Upload-Post recommends rejecting timestamps older than about five
+ * minutes. Source: https://docs.upload-post.com/api/webhooks (checked 2026-10-24).
+ */
+export async function verifyUploadPostWebhook(input: {
+  secret: string;
+  headers: Headers;
+  body: Uint8Array;
+  maxBytes?: number;
+  toleranceSeconds?: number;
+  now?: () => Date;
+}): Promise<VerifiedWebhook> {
+  const body = checkedBytes(input.body, input.maxBytes ?? 1024 * 1024);
+  const tolerance = input.toleranceSeconds ?? 300;
+
+  if (!Number.isSafeInteger(tolerance) || tolerance <= 0)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "webhooks.verify",
+      message: "Upload-Post webhook tolerance must be a positive whole number of seconds.",
+    });
+
+  if (!input.secret) denied();
+  const timestamp = input.headers.get("X-Upload-Post-Timestamp") ?? "";
+  const match = /^sha256=([0-9a-f]{64})$/i.exec(input.headers.get("X-Upload-Post-Signature") ?? "");
+  const signature = match?.[1] === undefined ? undefined : hexBytes(match[1], 32);
+
+  if (!/^\d{1,12}$/.test(timestamp) || !signature) denied();
+  const prefix = encoder.encode(`${timestamp}.`);
+  const signed = new Uint8Array(prefix.byteLength + body.byteLength);
+  signed.set(prefix);
+  signed.set(body, prefix.byteLength);
+
+  if (!(await hmacMatches(input.secret, "SHA-256", signature, signed))) denied();
+  const seconds = Number(timestamp);
+  const now = Math.floor((input.now?.() ?? new Date()).getTime() / 1000);
+
+  if (Math.abs(now - seconds) > tolerance)
+    denied("Webhook signature is valid but its timestamp is outside the accepted window.");
+
+  return {
+    valid: true,
+    method: "hmac-sha256",
+    bodyAuthenticated: true,
+    signedTimestamp: true,
+    signedAt: new Date(seconds * 1000).toISOString(),
+  };
+}
+
+function uploadPostEventType(event: string): SocialEvent["type"] {
+  if (event === "upload_completed") return "publication.updated";
+
+  if (/^social_account[._](connected|disconnected|reauth_required)$/.test(event))
+    return "account.updated";
+
+  if (event === "comment_received") return "comment.received";
+
+  if (event === "dm_received") return "message.received";
+
+  return "unknown";
+}
+
+/**
+ * Decode a verified Upload-Post delivery. Account IDs are Upload-Post profile
+ * usernames, matching the adapter's connected-account references. The payload has no
+ * event ID, so identity is an exact-body digest.
+ */
+export async function decodeUploadPostWebhook(input: {
+  backend: string;
+  body: Uint8Array;
+  receivedAt?: string;
+}): Promise<SocialEvent> {
+  const bytes = checkedBytes(input.body, 1024 * 1024);
+  let parsed: JsonValue;
+
+  try {
+    parsed = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "webhooks.decode",
+      message: "Webhook body is not valid UTF-8 JSON.",
+    });
+  }
+
+  if (!isJsonObject(parsed) || !isString(parsed["event"]) || !parsed["event"])
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "webhooks.decode",
+      message: "Upload-Post webhook body must be an object with an event name.",
+    });
+
+  const payload = parsed;
+  const originalType = string(payload["event"]);
+  const profile = optionalString(payload["profile_username"]);
+
+  const id = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+
+  const backendRecordId =
+    originalType === "upload_completed"
+      ? (optionalString(payload["request_id"]) ?? optionalString(payload["job_id"]))
+      : undefined;
+
+  const occurredAt = optionalString(payload["created_at"]);
+
+  // The owner's email address is private account data and is not needed to route the event.
+  const routed: JsonObject = Object.fromEntries(
+    Object.entries(payload).filter(([key]) => key !== "user_email"),
+  );
+
+  return {
+    version: 1,
+    id,
+    identity: "body-digest",
+    backend: input.backend,
+    provider: "upload-post",
+    type: uploadPostEventType(originalType),
+    originalType,
+    receivedAt: input.receivedAt ?? new Date().toISOString(),
+    accountIds: profile ? [profile] : [],
+    data: cleanObject(routed),
+    ...definedFields({ backendRecordId: backendRecordId || undefined, occurredAt }),
+  };
+}
+
 export interface EventInbox {
   /** Atomically persist event, route resolution, and pending processing state. */
   accept(input: {
@@ -394,6 +523,7 @@ export async function acceptWebhook(input: {
  */
 
 export type DirectWebhookPlatform =
+  | "facebook"
   | "instagram"
   | "threads"
   | "x"
@@ -500,7 +630,7 @@ function bodyVerified(method: WebhookVerificationMethod): VerifiedWebhook {
 }
 
 /**
- * Verify a Meta webhook POST for Instagram or Threads. Meta signs the raw body with
+ * Verify a Meta webhook POST for Facebook Pages, Instagram or Threads. Meta signs the raw body with
  * HMAC-SHA256 using the app secret and sends `X-Hub-Signature-256: sha256=<hex>`.
  */
 export async function verifyMetaWebhook(input: {
@@ -933,6 +1063,70 @@ function decodeInstagram(payload: JsonObject): DecodedDelivery {
   return { items, accountIds, data: payload };
 }
 
+/**
+ * Page webhooks use `object: "page"`. Feed changes carry `value.item` and `value.verb`;
+ * Messenger deliveries arrive under `entry[].messaging`. Source:
+ * https://developers.facebook.com/docs/graph-api/webhooks/reference/page (checked 2026-10-24).
+ */
+function facebookFeedType(value: JsonField): SocialEvent["type"] {
+  if (!isJsonObject(value)) return "unknown";
+  const item = value["item"];
+  const verb = value["verb"];
+
+  if (item === "comment" && verb === "add") return "comment.received";
+
+  if (
+    verb === "remove" &&
+    (item === "status" || item === "post" || item === "photo" || item === "video")
+  )
+    return "post.removed";
+
+  return "unknown";
+}
+
+function decodeFacebook(payload: JsonObject): DecodedDelivery {
+  const entries = array(payload["entry"]);
+
+  if (payload["object"] !== "page" || entries.length === 0) malformed("facebook");
+  const items: DecodedItem[] = [];
+  const accountIds: string[] = [];
+
+  for (const value of entries) {
+    const entry = object(value);
+    const id = optionalString(entry["id"]);
+
+    if (id) accountIds.push(id);
+
+    if (entry["changes"] !== undefined)
+      for (const change of array(entry["changes"])) {
+        const changed = object(change);
+        const field = string(changed["field"]);
+
+        items.push({
+          originalType: field,
+          type: field === "feed" ? facebookFeedType(changed["value"]) : "unknown",
+        });
+      }
+
+    if (entry["messaging"] !== undefined)
+      for (const item of array(entry["messaging"])) {
+        const message = object(item)["message"];
+        const echo = isJsonObject(message) && message["is_echo"] === true;
+
+        items.push(
+          message === undefined
+            ? { originalType: "messaging", type: "unknown" }
+            : {
+                originalType: echo ? "message_echoes" : "messages",
+                type: echo ? "unknown" : "message.received",
+              },
+        );
+      }
+  }
+
+  return { items, accountIds, data: payload };
+}
+
 function nestedString(value: JsonField, key: string): string | undefined {
   return value === undefined ? undefined : optionalString(object(value)[key]);
 }
@@ -1187,6 +1381,8 @@ function decodeDelivery(platform: DirectWebhookPlatform, text: string): DecodedD
 
   if (platform === "instagram") return decodeInstagram(payload);
 
+  if (platform === "facebook") return decodeFacebook(payload);
+
   if (platform === "threads") return decodeThreads(payload);
 
   if (platform === "x") return decodeX(payload);
@@ -1252,4 +1448,370 @@ export async function decodePlatformWebhook(input: {
   return delivery.occurredAt === undefined
     ? withRecord
     : { ...withRecord, occurredAt: delivery.occurredAt };
+}
+
+/*
+ * Meta deauthorize and data deletion callbacks. Official sources, accessed 2026-10-24:
+ * - https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow#deauth-callback
+ * - https://developers.facebook.com/docs/development/create-an-app/app-dashboard/data-deletion-callback
+ * - https://developers.facebook.com/docs/games/gamesonfacebook/login#parsingsr
+ *
+ * Meta POSTs `signed_request=<signature>.<payload>` as a form body. Both parts are
+ * unpadded base64url; the signature is HMAC-SHA256 of the encoded payload text
+ * under the app secret. These requests carry no browser session, so they are
+ * authenticated only by that signature, never by application cookies.
+ */
+
+/** A verified Meta `signed_request`. */
+export interface MetaSignedRequest {
+  readonly algorithm: "HMAC-SHA256";
+  /** App-scoped Meta user ID. Map it to your own accounts on the server. */
+  readonly userId: string;
+  readonly issuedAt: string;
+  /**
+   * SHA-256 hex digest of the exact signed request. Meta resends the same
+   * value on retry, so use it as the idempotency key for durable work.
+   */
+  readonly requestId: string;
+}
+
+/**
+ * What the data deletion callback returns once the request is durably
+ * recorded. Meta shows `statusUrl` and `confirmationCode` to the user; the
+ * status page must report the real state (queued, in progress, or done), so
+ * accepting a request must not be described as deleting the data.
+ */
+export interface MetaDataDeletionReceipt {
+  readonly statusUrl: string;
+  readonly confirmationCode: string;
+}
+
+export interface MetaSignedRequestOptions {
+  readonly appSecret: string;
+  readonly now?: () => Date;
+  /** Oldest accepted `issued_at`. Defaults to one hour; at most seven days. */
+  readonly maxAgeSeconds?: number;
+}
+
+export interface MetaCallbackHandlerOptions extends MetaSignedRequestOptions {
+  /** Maximum form body size. Defaults to 16 KiB. */
+  readonly maxBodyBytes?: number;
+}
+
+const metaFutureSkewSeconds = 5 * 60;
+
+const metaMaxSignedRequestLength = 8 * 1024;
+
+function signedRequestRefused(code: "unauthorized" | "invalid_input"): never {
+  throw new SocialError({
+    code,
+    operation: "webhooks.metaSignedRequest",
+    message:
+      code === "unauthorized"
+        ? "Meta signed_request authentication failed. Check the app secret and the request time."
+        : "Meta signed_request is malformed.",
+  });
+}
+
+function base64UrlEncode(bytes: Uint8Array<ArrayBuffer>): string {
+  return base64(bytes.buffer).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+/** Decode strict, unpadded, canonical base64url. */
+function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> | undefined {
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) return undefined;
+  let binary: string;
+
+  try {
+    binary = atob(value.replaceAll("-", "+").replaceAll("_", "/"));
+  } catch {
+    return undefined;
+  }
+
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+
+  // Reject encodings with nonzero trailing bits, which decode to the same bytes.
+  return base64UrlEncode(bytes) === value ? bytes : undefined;
+}
+
+function metaMaxAge(maxAgeSeconds: number | undefined): number {
+  const value = maxAgeSeconds ?? 60 * 60;
+
+  if (!Number.isSafeInteger(value) || value < 1 || value > 7 * 24 * 60 * 60)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "webhooks.metaSignedRequest",
+      message: "maxAgeSeconds must be an integer from 1 to 604800",
+    });
+
+  return value;
+}
+
+/**
+ * Verify a Meta `signed_request`. The signature is checked against the
+ * original encoded payload before the payload is decoded or parsed.
+ */
+export async function verifyMetaSignedRequest(
+  input: MetaSignedRequestOptions & { readonly signedRequest: string },
+): Promise<MetaSignedRequest> {
+  const maxAgeSeconds = metaMaxAge(input.maxAgeSeconds);
+
+  if (!input.appSecret) denied();
+
+  if (input.signedRequest.length > metaMaxSignedRequestLength)
+    signedRequestRefused("invalid_input");
+  const parts = input.signedRequest.split(".");
+  const [encodedSignature, encodedPayload] = parts;
+
+  if (parts.length !== 2 || encodedSignature === undefined || encodedPayload === undefined)
+    signedRequestRefused("invalid_input");
+  const signature = base64UrlBytes(encodedSignature);
+
+  if (signature?.byteLength !== 32) signedRequestRefused("invalid_input");
+
+  if (!(await hmacMatches(input.appSecret, "SHA-256", signature, encoder.encode(encodedPayload))))
+    signedRequestRefused("unauthorized");
+  const payloadBytes = base64UrlBytes(encodedPayload);
+
+  if (payloadBytes === undefined) signedRequestRefused("invalid_input");
+  let payload: JsonObject;
+
+  try {
+    const parsed = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(payloadBytes));
+
+    if (!isJsonObject(parsed)) signedRequestRefused("invalid_input");
+    payload = parsed;
+  } catch {
+    signedRequestRefused("invalid_input");
+  }
+
+  if (payload["algorithm"] !== "HMAC-SHA256") signedRequestRefused("unauthorized");
+  const userId = payload["user_id"];
+  const issued = payload["issued_at"];
+
+  if (!isString(userId) || !/^[0-9]{1,64}$/.test(userId)) signedRequestRefused("invalid_input");
+
+  if (!isFiniteNumber(issued) || !Number.isSafeInteger(issued) || issued < 0)
+    signedRequestRefused("invalid_input");
+  const nowSeconds = Math.floor((input.now ?? (() => new Date()))().getTime() / 1000);
+
+  if (issued > nowSeconds + metaFutureSkewSeconds || nowSeconds - issued > maxAgeSeconds)
+    signedRequestRefused("unauthorized");
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(input.signedRequest));
+
+  return {
+    algorithm: "HMAC-SHA256",
+    userId,
+    issuedAt: new Date(issued * 1000).toISOString(),
+    requestId: Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join(""),
+  };
+}
+
+type MetaCallbackRefusal =
+  | "method_not_allowed"
+  | "unsupported_media_type"
+  | "payload_too_large"
+  | "invalid_request"
+  | "unauthorized"
+  | "internal_error";
+
+const metaRefusals: Readonly<
+  Record<MetaCallbackRefusal, { readonly status: number; readonly message: string }>
+> = {
+  method_not_allowed: { status: 405, message: "Use POST." },
+  unsupported_media_type: {
+    status: 415,
+    message: "Send the body as application/x-www-form-urlencoded.",
+  },
+  payload_too_large: { status: 413, message: "The request body is too large." },
+  invalid_request: { status: 400, message: "The signed request is malformed." },
+  unauthorized: { status: 401, message: "The signed request could not be verified." },
+  internal_error: { status: 500, message: "The request was not accepted. Retry later." },
+};
+
+class MetaCallbackRefused extends Error {
+  readonly refusal: MetaCallbackRefusal;
+
+  constructor(refusal: MetaCallbackRefusal) {
+    super(refusal);
+    this.refusal = refusal;
+  }
+}
+
+function metaRefuse(refusal: MetaCallbackRefusal): never {
+  throw new MetaCallbackRefused(refusal);
+}
+
+function metaResponse(status: number, body: JsonValue, headers = new Headers()): Response {
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Content-Type-Options", "nosniff");
+
+  return new Response(JSON.stringify(body), { status, headers });
+}
+
+async function readMetaForm(request: Request, maxBytes: number): Promise<string> {
+  if (request.method !== "POST") metaRefuse("method_not_allowed");
+  const mediaType = (request.headers.get("Content-Type") ?? "").split(";")[0]?.trim().toLowerCase();
+
+  if (mediaType !== "application/x-www-form-urlencoded") metaRefuse("unsupported_media_type");
+  const declared = request.headers.get("Content-Length");
+
+  if (declared !== null && (!/^\d{1,15}$/.test(declared) || Number(declared) > maxBytes))
+    metaRefuse("payload_too_large");
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  if (request.body) {
+    const reader = request.body.getReader();
+
+    try {
+      for (;;) {
+        const part = await reader.read();
+
+        if (part.done) break;
+        total += part.value.byteLength;
+
+        if (total > maxBytes) {
+          void reader.cancel().catch(() => undefined);
+          metaRefuse("payload_too_large");
+        }
+
+        chunks.push(part.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  let text: string;
+
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(merged);
+  } catch {
+    metaRefuse("invalid_request");
+  }
+
+  const fields = [...new URLSearchParams(text)];
+  const [field] = fields;
+
+  if (fields.length !== 1 || field === undefined || field[0] !== "signed_request" || !field[1])
+    metaRefuse("invalid_request");
+
+  return field[1];
+}
+
+function metaRefusalFor(cause: unknown): MetaCallbackRefusal {
+  if (cause instanceof MetaCallbackRefused) return cause.refusal;
+
+  if (cause instanceof SocialError && cause.operation === "webhooks.metaSignedRequest")
+    return cause.code === "unauthorized" ? "unauthorized" : "invalid_request";
+
+  if (cause instanceof SocialError && cause.operation === "webhooks.verify") return "unauthorized";
+
+  return "internal_error";
+}
+
+function metaHandler(
+  options: MetaCallbackHandlerOptions,
+  accept: (request: MetaSignedRequest) => Promise<JsonValue>,
+): (request: Request) => Promise<Response> {
+  if (!options.appSecret)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "webhooks.metaSignedRequest",
+      message: "appSecret is required",
+    });
+  metaMaxAge(options.maxAgeSeconds);
+  const maxBodyBytes = options.maxBodyBytes ?? 16 * 1024;
+
+  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "webhooks.metaSignedRequest",
+      message: "maxBodyBytes must be a positive safe integer",
+    });
+
+  return async (request) => {
+    try {
+      const signedRequest = await readMetaForm(request, maxBodyBytes);
+      const verified = await verifyMetaSignedRequest({ ...options, signedRequest });
+
+      return metaResponse(200, await accept(verified));
+    } catch (error) {
+      const refusal = metaRefusalFor(error);
+      const { status, message } = metaRefusals[refusal];
+      const headers = new Headers();
+
+      if (refusal === "method_not_allowed") headers.set("Allow", "POST");
+
+      return metaResponse(status, { error: { code: refusal, message } }, headers);
+    }
+  };
+}
+
+/**
+ * Handle Meta's deauthorize callback. `onDeauthorize` must durably record the
+ * request, idempotently by `requestId`, before it resolves; it maps `userId` to
+ * your accounts and revokes or disables them. A rejection answers 500 so Meta
+ * retries.
+ */
+export function createMetaDeauthorizeHandler(
+  options: MetaCallbackHandlerOptions & {
+    readonly onDeauthorize: (request: MetaSignedRequest) => Promise<void>;
+  },
+): (request: Request) => Promise<Response> {
+  return metaHandler(options, async (request) => {
+    await options.onDeauthorize(request);
+
+    return { status: "accepted" };
+  });
+}
+
+function receiptBody(receipt: MetaDataDeletionReceipt): JsonValue {
+  let url: URL;
+
+  try {
+    url = new URL(receipt.statusUrl);
+  } catch {
+    metaRefuse("internal_error");
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    receipt.statusUrl.length > 2048 ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(receipt.confirmationCode)
+  )
+    metaRefuse("internal_error");
+
+  return { url: url.href, confirmation_code: receipt.confirmationCode };
+}
+
+/**
+ * Handle Meta's data deletion callback. `onDataDeletion` must durably record
+ * the request, idempotently by `requestId`, and resolve only once it is
+ * accepted; the receipt it returns is sent to Meta. The receipt confirms
+ * acceptance, not deletion. An invalid receipt or a rejection answers 500.
+ */
+export function createMetaDataDeletionHandler(
+  options: MetaCallbackHandlerOptions & {
+    readonly onDataDeletion: (request: MetaSignedRequest) => Promise<MetaDataDeletionReceipt>;
+  },
+): (request: Request) => Promise<Response> {
+  return metaHandler(options, async (request) =>
+    receiptBody(await options.onDataDeletion(request)),
+  );
 }

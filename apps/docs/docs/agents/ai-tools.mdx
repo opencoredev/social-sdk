@@ -1,0 +1,128 @@
+---
+title: AI agent tools
+description: Expose a Social SDK client to AI agents as JSON Schema tools for the Vercel AI SDK or OpenAI, with dry-run writes by default.
+---
+
+`@opencoredev/social-sdk/ai` turns a configured client into agent tools. Each tool has a name, a description, a JSON Schema for its arguments, and a `call` that never throws. The same toolkit backs the [MCP server](/agents/mcp-server).
+
+```ts
+import { createSocial } from "@opencoredev/social-sdk";
+import { createSocialToolkit } from "@opencoredev/social-sdk/ai";
+import { idempotencyStore } from "./stores"; // your durable IdempotencyStore
+
+const social = createSocial({ backend, authorization: policy, idempotencyStore });
+
+const toolkit = createSocialToolkit(social, {
+  policy, // the same AuthorizationPolicy, for plans, previews and native tools
+  authorization: { tenantId, principalId },
+});
+
+const result = await toolkit.call("social_list_accounts", {});
+```
+
+## Tools
+
+The registry reads each backend's capability manifest and lists a tool only when at least one backend declares its operation `available`. A backend without messaging never shows `social_send_message`.
+
+| Tool                                                                                                     | Operation                                                                        | Access |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------ |
+| `social_capabilities`, `social_doctor`                                                                   | none                                                                             | local  |
+| `social_validate`, `social_plan_publish`                                                                 | local preparation                                                                | local  |
+| `social_list_accounts`, `social_get_account`                                                             | `accounts.read`                                                                  | read   |
+| `social_list_posts`, `social_get_post`, `social_search_posts`                                            | `posts.list`, `posts.get`, `search.posts`                                        | read   |
+| `social_get_delivery`                                                                                    | `posts.getDelivery`                                                              | read   |
+| `social_post_metrics`, `social_account_metrics`, `social_analytics_report`                               | `analytics.*`                                                                    | read   |
+| `social_list_comments`, `social_list_conversations`, `social_list_messages`, `social_list_notifications` | `comments.read`, `messages.read`, `notifications.read`                           | read   |
+| `social_publish`, `social_publish_sequence`                                                              | `posts.publish`                                                                  | write  |
+| `social_delete_post`                                                                                     | `posts.removeFromPlatform`, `posts.deleteBackendRecord`, `posts.cancelScheduled` | write  |
+| `social_reply_comment`, `social_send_message`                                                            | `comments.write`, `messages.write`                                               | write  |
+
+Pass `tools: [...]` to expose a subset. Local tools make no provider request.
+
+## Writes are previews until confirmed
+
+`writes` controls every write tool:
+
+- `"confirm"` (default): a write returns `status: "dry-run"` with a preparation summary, the declared capability, and the policy decision. It sends only when the call includes `confirmWrite: true`.
+- `"preview"`: writes never send, even with `confirmWrite: true`.
+- `"allow"`: writes send without confirmation. Use it only when your application runs its own approval step.
+
+Executing `social_publish` also requires `request.idempotencyKey`. The key prevents a duplicate only when the client has a durable `idempotencyStore` that every process shares, as in the setup above: a retry after a timeout then reads the saved claim instead of posting again. Without a store, every confirmed call dispatches again, key or not. The [Neon guide](/integrations/neon#durable-stores) shows a Postgres store. Previews report text length and media counts, not the text or URLs.
+
+Treat `scheduled`, `accepted`, `processing`, and `unknown` outcomes as not published. Reconcile with `social_get_delivery` before retrying.
+
+## Authorization and limits
+
+Every backend call goes through the client facade, so your `AuthorizationPolicy`, capability checks, and per-backend concurrency limits apply to agent calls exactly as they do to your own code. A context passed per call replaces the toolkit default:
+
+```ts
+await toolkit.call("social_get_account", { account }, { authorization: session, signal });
+```
+
+The toolkit adds its own safeguards:
+
+- `maxPageSize` (default 50) caps any `limit` an agent requests. When the agent omits `limit`, the toolkit asks for 20, or `maxPageSize` if it is smaller. Every built-in list operation accepts 20; direct TikTok allows no more.
+- `limits: { maxCalls, maxWrites }` fails further calls with `rate_limited` once spent.
+- Failures resolve to `{ ok: false, error }` with a `SocialError` code. Unexpected adapter errors become a generic `upstream_failure` without their message.
+
+## Native actions
+
+Native modules bypass the client facade. To expose one, wrap it with `defineNativeTool`. The toolkit requires `policy`, authorizes the account with operation `native`, applies write confirmation, and limits concurrent native calls per backend (`nativeConcurrency`, default 4).
+
+```ts
+import { defineNativeTool } from "@opencoredev/social-sdk/ai";
+
+const spacesTool = defineNativeTool({
+  name: "x_search_spaces",
+  description: "Search live or scheduled X Spaces by keyword.",
+  backend: "default",
+  access: "read",
+  argsSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+  // Validate args, then call your native client and return JSON.
+  run: ({ account, args, signal }) => searchSpaces(account, args, signal),
+});
+
+createSocialToolkit(social, { policy, nativeTools: [spacesTool] });
+```
+
+The tool is listed as `social_native_x_search_spaces`. Accounts from other backends are rejected before `run`.
+
+## Vercel AI SDK
+
+`toAISDKTools` returns a `ToolSet`. Each input schema is a [Standard Schema](https://standardschema.dev) with a JSON Schema converter, so no adapter package is needed.
+
+```ts
+import { generateText } from "ai";
+import { toAISDKTools } from "@opencoredev/social-sdk/ai";
+
+const { text } = await generateText({
+  model,
+  tools: toAISDKTools(toolkit, { authorization: session }),
+  prompt: "Draft a launch post for our X account and show me the preview.",
+});
+```
+
+The model's abort signal is forwarded to each call.
+
+## OpenAI function calling
+
+```ts
+import { runOpenAIToolCall, toOpenAIResponsesTools } from "@opencoredev/social-sdk/ai";
+
+const response = await openai.responses.create({
+  model,
+  input,
+  tools: toOpenAIResponsesTools(toolkit),
+});
+const toolOutputs = [];
+
+for (const item of response.output)
+  if (item.type === "function_call")
+    toolOutputs.push({
+      type: "function_call_output",
+      call_id: item.call_id,
+      output: await runOpenAIToolCall(toolkit, item, { authorization: session }),
+    });
+```
+
+`toOpenAIChatTools` returns the Chat Completions shape. Schemas are not strict-mode schemas, so the tools set `strict: false`.

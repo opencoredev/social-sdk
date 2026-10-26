@@ -1,0 +1,70 @@
+---
+title: MCP server
+description: Serve Social SDK agent tools over MCP from your own server, with stdio and Streamable HTTP, tenant authorization and dry-run writes.
+---
+
+`@opencoredev/social-sdk/mcp` serves the [agent toolkit](/agents/ai-tools) over the Model Context Protocol. You run the server inside your application with your own credentials and authorization policy. Social SDK does not host an MCP endpoint.
+
+The server implements MCP protocol versions `2025-06-18`, `2025-03-26`, and `2024-11-05`, with the lifecycle, `ping`, and tools. Tool results include JSON text and `structuredContent`, and failures set `isError`.
+
+```ts
+import { createSocialToolkit } from "@opencoredev/social-sdk/ai";
+import { createMcpServer } from "@opencoredev/social-sdk/mcp";
+
+const server = createMcpServer(createSocialToolkit(social, { policy }), {
+  name: "acme-social",
+  version: "1.0.0",
+});
+```
+
+Write tools stay in dry-run mode until the agent calls them with `confirmWrite: true`. The server's default instructions tell agents to show the preview to the user first.
+
+## Streamable HTTP
+
+`createMcpHttpHandler` returns a Web `Request` handler for Bun, Deno, Workers, Hono, Next.js route handlers, and other fetch servers. It is stateless: each POST carries one JSON-RPC message or batch, and the reply is JSON, or server-sent events when the client accepts only `text/event-stream`.
+
+```ts
+import { createMcpHttpHandler } from "@opencoredev/social-sdk/mcp";
+
+const handler = createMcpHttpHandler(server, {
+  async authorize(request) {
+    const session = await sessionFromBearer(request.headers.get("authorization"));
+    return session ? { tenantId: session.tenantId, principalId: session.userId } : null;
+  },
+});
+
+export const POST = handler; // Next.js app/api/mcp/route.ts
+```
+
+`authorize` is required. It runs before the body is read, and `null` answers 401. The context it returns scopes every tool call in that request, so your `AuthorizationPolicy` sees the caller's tenant. The handler also:
+
+- rejects requests whose `Origin` header is not in `allowedOrigins` (default none) with 403, which blocks DNS rebinding from browsers;
+- answers 405 to GET and DELETE, because it opens no server-initiated stream;
+- answers 415 to non-JSON bodies, 413 above `maxBodyBytes` (default 1 MiB), and 400 to an unsupported `MCP-Protocol-Version` header;
+- forwards `request.signal` so a disconnected client cancels its call.
+
+## Stdio
+
+`serveMcpStdio` reads newline-delimited JSON-RPC from an input stream and writes responses to stdout. Requests run concurrently (`maxInFlight`, default 16) and wait in a bounded queue (`maxQueued`, default 256) beyond that. Each element of a JSON-RPC batch counts as one request against both limits, and the batch's replies are still sent together. A batch that does not fit gets a `Server busy` error for each of its requests. Reading never waits on them, so `notifications/cancelled` aborts the matching call whether it is queued or running. `maxInFlight` must be an integer of at least 1, `maxQueued` at least 0, and `maxMessageBytes` at least 1; `serveMcpStdio` rejects other values with `invalid_config` before it reads any input, and `createMcpHttpHandler` throws the same error for an invalid `maxBodyBytes`.
+
+```ts
+import { serveMcpStdio } from "@opencoredev/social-sdk/mcp";
+
+await serveMcpStdio(server, {
+  input: process.stdin,
+  write: (line) => process.stdout.write(line),
+  authorization: { tenantId: "local", principalId: "operator" },
+});
+```
+
+Log to stderr only. Anything else on stdout corrupts the protocol stream.
+
+## Offline diagnostics from the CLI
+
+`social-sdk mcp` starts a stdio server with four offline tools: `social_capabilities`, `social_doctor`, `social_validate`, and `social_plan_publish`. It uses the same diagnostic adapters as the [CLI](/reference/cli), so it never authenticates, calls a provider, or publishes. `social_doctor` reports missing environment variable names for the selected adapter, never their values.
+
+```sh
+claude mcp add social-sdk -- npx social-sdk mcp --adapter youtube
+```
+
+To let an agent read accounts or publish, run your own server with your configured client, as shown above.

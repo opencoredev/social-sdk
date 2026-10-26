@@ -1,3 +1,9 @@
+import {
+  normalizeMetrics,
+  normalizeComment,
+  normalizeMessage,
+  normalizeConversation,
+} from "../core/projections.js";
 import { managedLifecycle } from "./lifecycle.js";
 import { managedMedia } from "./media.js";
 
@@ -42,12 +48,65 @@ import {
   managedHttp,
   managedPreparation,
   managedOptionIssues,
+  normalizePlatform,
   optionsObject,
   platform,
   publicFields,
+  subredditName,
+  zernioPlatform as wirePlatform,
   type ManagedOptions,
 } from "./common.js";
 import { zernioOutcome } from "./outcomes.js";
+
+function inboxFields(value: JsonValue, fields: readonly string[]): JsonObject {
+  const row = object(value);
+  const result = { ...publicFields(row, fields) };
+  const authorFields = ["id", "did", "name", "displayName", "username", "handle"];
+
+  for (const key of ["from", "author", "sender"]) {
+    if (fields.includes(key) && isJsonObject(row[key]))
+      result[key] = publicFields(row[key], authorFields);
+  }
+
+  const participants = row["participants"];
+
+  const members = isJsonArray(participants)
+    ? participants
+    : isJsonObject(participants) && isJsonArray(participants["data"])
+      ? participants["data"]
+      : undefined;
+
+  if (fields.includes("participants") && members)
+    result["participants"] = members.map((member) => publicFields(member, authorFields));
+
+  if (fields.includes("lastMessage") && isJsonObject(row["lastMessage"]))
+    result["lastMessage"] = publicFields(row["lastMessage"], [
+      "id",
+      "text",
+      "message",
+      "senderId",
+      "senderName",
+      "createdAt",
+      "createdTime",
+    ]);
+
+  return result;
+}
+
+const zernioOperations = [
+  "accounts.read",
+  "posts.publish",
+  "posts.schedule",
+  "posts.read",
+  "posts.list",
+  "posts.status",
+  "posts.cancelScheduled",
+  "posts.deleteBackendRecord",
+  "analytics.read",
+  "analytics.account.read",
+  "media.upload",
+  "webhooks.verify",
+] as const;
 
 export interface ZernioConnectionOptions {
   platform: string;
@@ -73,7 +132,7 @@ export function zernio(options: ManagedOptions) {
         kind: "connected-account",
         version: 1,
         backend,
-        platform: platform(row["platform"]),
+        platform: platform(row["platform"], options),
         accountId: string(row["_id"]),
       },
       displayName: optionalString(row["displayName"]) ?? handle ?? string(row["_id"]),
@@ -96,6 +155,41 @@ export function zernio(options: ManagedOptions) {
     }
   };
 
+  /** The list endpoint is paginated, so keep reading until the account appears. */
+  const findAccount = async (
+    ref: Pick<ConnectedAccountRef, "platform" | "accountId">,
+    context: AdapterOperationContext,
+  ): Promise<JsonObject | undefined> => {
+    for (let page = 1; page <= 100; page++) {
+      const response = object(
+        await request("/v1/accounts", context, undefined, {
+          platform: wirePlatform(ref.platform),
+          page: String(page),
+          limit: "100",
+        }),
+      );
+
+      const found = array(response["accounts"])
+        .map(object)
+        .find(
+          (item) =>
+            item["_id"] === ref.accountId &&
+            isString(item["platform"]) &&
+            normalizePlatform(item["platform"]) === ref.platform,
+        );
+
+      if (found) return found;
+
+      const pagination = response["pagination"] ? object(response["pagination"]) : {};
+
+      const pages = optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
+
+      if (pages === undefined || page >= pages) return undefined;
+    }
+
+    return undefined;
+  };
+
   const analytics = async (ref: PlatformPostRef, context: AdapterOperationContext) => {
     accountMatches(ref, context);
 
@@ -103,7 +197,7 @@ export function zernio(options: ManagedOptions) {
       await request("/v1/analytics", context, undefined, {
         postId: ref.postId,
         accountId: ref.accountId,
-        platform: ref.platform === "x" ? "twitter" : ref.platform,
+        platform: wirePlatform(ref.platform),
       }),
     );
   };
@@ -111,33 +205,9 @@ export function zernio(options: ManagedOptions) {
   return defineAdapter({
     id: "zernio",
     capabilities: {
-      ...capabilityManifest("zernio", "v1 / OpenAPI 1.25.1", [
-        "accounts.read",
-        "posts.publish",
-        "posts.read",
-        "posts.list",
-        "posts.status",
-        "posts.cancelScheduled",
-        "posts.deleteBackendRecord",
-        "analytics.read",
-        "analytics.account.read",
-        "media.upload",
-        "webhooks.verify",
-      ]),
+      ...capabilityManifest("zernio", "v1 / OpenAPI 1.25.1", zernioOperations),
       capabilities: [
-        ...capabilityManifest("zernio", "1.25.1", [
-          "accounts.read",
-          "posts.publish",
-          "posts.read",
-          "posts.list",
-          "posts.status",
-          "posts.cancelScheduled",
-          "posts.deleteBackendRecord",
-          "analytics.read",
-          "analytics.account.read",
-          "media.upload",
-          "webhooks.verify",
-        ]).capabilities,
+        ...capabilityManifest("zernio", "1.25.1", zernioOperations).capabilities,
         ...["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].map((platform) => {
           const declaration = {
             platform,
@@ -230,34 +300,7 @@ export function zernio(options: ManagedOptions) {
       async get(ref: ConnectedAccountRef, context: AdapterOperationContext) {
         accountMatches(ref, context);
 
-        const platform = ref.platform === "x" ? "twitter" : ref.platform;
-        let raw: ReturnType<typeof object> | undefined;
-
-        // The list endpoint is paginated, so keep reading until the account appears.
-        for (let page = 1; page <= 100 && !raw; page++) {
-          const response = object(
-            await request("/v1/accounts", context, undefined, {
-              platform,
-              page: String(page),
-              limit: "100",
-            }),
-          );
-
-          raw = array(response["accounts"])
-            .map(object)
-            .find(
-              (item) =>
-                item["_id"] === ref.accountId &&
-                (item["platform"] === ref.platform || item["platform"] === platform),
-            );
-
-          const pagination = response["pagination"] ? object(response["pagination"]) : {};
-
-          const pages =
-            optionalNumber(pagination["pages"]) ?? optionalNumber(pagination["totalPages"]);
-
-          if (pages === undefined || page >= pages) break;
-        }
+        const raw = await findAccount(ref, context);
 
         if (!raw)
           throw new SocialError({
@@ -308,7 +351,7 @@ export function zernio(options: ManagedOptions) {
             limit: String(limit),
             source: "external",
             accountId: account.accountId,
-            platform: account.platform === "x" ? "twitter" : account.platform,
+            platform: wirePlatform(account.platform),
           }),
         );
 
@@ -331,7 +374,7 @@ export function zernio(options: ManagedOptions) {
               return (
                 id === account.accountId &&
                 (item["platform"] === account.platform ||
-                  item["platform"] === (account.platform === "x" ? "twitter" : account.platform))
+                  item["platform"] === wirePlatform(account.platform))
               );
             });
 
@@ -438,6 +481,10 @@ export function zernio(options: ManagedOptions) {
         )
           native["replySettings"] = string(config["replySettings"]);
 
+        // prepareTarget admits only platform-post replies on X (managedReplySupported).
+        if (target.account.platform === "x" && target.replyTo?.kind === "platform-post")
+          native["replyToTweetId"] = target.replyTo.postId;
+
         if (target.account.platform === "tiktok") {
           const video = media.length === 1 && media[0]?.["type"] === "video";
           const photo = media.length > 0 && media.every((item) => item["type"] === "image");
@@ -480,6 +527,40 @@ export function zernio(options: ManagedOptions) {
           if (photo && mediaType === "photo") native["mediaType"] = "photo";
         }
 
+        if (target.account.platform === "pinterest")
+          for (const key of ["boardId", "title", "link"] as const) {
+            const value = optionalString(config[key]);
+
+            if (value !== undefined) native[key] = value;
+          }
+
+        if (target.account.platform === "reddit") {
+          native["subreddit"] = subredditName(string(config["subreddit"]));
+
+          for (const key of ["title", "flairId"] as const) {
+            const value = optionalString(config[key]);
+
+            if (value !== undefined) native[key] = value;
+          }
+
+          if (isBoolean(config["nsfw"])) native["nsfw"] = config["nsfw"];
+        }
+
+        if (target.account.platform === "discord")
+          native["channelId"] = string(config["channelId"]);
+
+        if (target.account.platform === "google-business") {
+          const locationId = optionalString(config["locationId"]);
+
+          if (locationId !== undefined) native["locationId"] = locationId;
+        }
+
+        if (target.account.platform === "snapchat") {
+          const contentType = optionalString(config["contentType"]);
+
+          if (contentType !== undefined) native["contentType"] = contentType;
+        }
+
         const tiktokPhoto =
           target.account.platform === "tiktok" &&
           media.length > 0 &&
@@ -493,7 +574,7 @@ export function zernio(options: ManagedOptions) {
             mediaItems: media,
             platforms: [
               {
-                platform: target.account.platform === "x" ? "twitter" : target.account.platform,
+                platform: wirePlatform(target.account.platform),
                 accountId: target.account.accountId,
                 ...definedFields({
                   platformSpecificData: Object.keys(native).length ? native : undefined,
@@ -584,19 +665,7 @@ export function zernio(options: ManagedOptions) {
 
         // Zernio documents followersCount on GET /v1/accounts (when the
         // analytics add-on is enabled); there is no accountId-specific GET.
-        const result = object(
-          await request("/v1/accounts", context, undefined, {
-            platform: ref.platform === "x" ? "twitter" : ref.platform,
-          }),
-        );
-
-        const row = array(result["accounts"])
-          .map(object)
-          .find(
-            (item) =>
-              item["_id"] === ref.accountId &&
-              item["platform"] === (ref.platform === "x" ? "twitter" : ref.platform),
-          );
+        const row = await findAccount(ref, context);
 
         if (!row)
           throw new SocialError({
@@ -609,7 +678,7 @@ export function zernio(options: ManagedOptions) {
         if (followers === undefined) return [];
         const measuredAt = optionalString(row["followersLastUpdated"]);
 
-        return [
+        return normalizeMetrics([
           {
             name: "followers",
             value: followers,
@@ -621,7 +690,7 @@ export function zernio(options: ManagedOptions) {
             fetchedAt: now(),
             source: `zernio:${ref.platform}:account`,
           },
-        ];
+        ]);
       },
       async getPostMetrics(
         ref: PlatformPostRef,
@@ -661,7 +730,7 @@ export function zernio(options: ManagedOptions) {
             });
         }
 
-        return metrics;
+        return normalizeMetrics(metrics);
       },
     },
     comments: {
@@ -699,20 +768,27 @@ export function zernio(options: ManagedOptions) {
 
         return {
           items: array(result["comments"]).map((entry) =>
-            publicFields(entry, [
-              "id",
-              "message",
-              "createdTime",
-              "likeCount",
-              "replyCount",
-              "parentId",
-              "rootUri",
-              "rootCid",
-              "cid",
-              "canReply",
-              "canDelete",
-              "canHide",
-            ]),
+            normalizeComment(
+              inboxFields(entry, [
+                "id",
+                "message",
+                "from",
+                "author",
+                "authorId",
+                "authorHandle",
+                "authorName",
+                "createdTime",
+                "likeCount",
+                "replyCount",
+                "parentId",
+                "rootUri",
+                "rootCid",
+                "cid",
+                "canReply",
+                "canDelete",
+                "canHide",
+              ]),
+            ),
           ),
           ...definedFields({ nextCursor: hasMore === false || !cursor ? undefined : cursor }),
         };
@@ -772,16 +848,20 @@ export function zernio(options: ManagedOptions) {
 
         return {
           items: array(result["data"]).map((entry) =>
-            publicFields(entry, [
-              "id",
-              "platform",
-              "accountId",
-              "participantId",
-              "participantName",
-              "lastMessage",
-              "updatedTime",
-              "unreadCount",
-            ]),
+            normalizeConversation(
+              inboxFields(entry, [
+                "id",
+                "platform",
+                "accountId",
+                "participantId",
+                "participantName",
+                "participantHandle",
+                "participants",
+                "lastMessage",
+                "updatedTime",
+                "unreadCount",
+              ]),
+            ),
           ),
           ...definedFields({ nextCursor: cursor || undefined }),
         };
@@ -819,15 +899,20 @@ export function zernio(options: ManagedOptions) {
 
         return {
           items: array(result["messages"]).map((entry) =>
-            publicFields(entry, [
-              "id",
-              "message",
-              "senderId",
-              "senderName",
-              "direction",
-              "createdAt",
-              "deliveryStatus",
-            ]),
+            normalizeMessage(
+              inboxFields(entry, [
+                "id",
+                "message",
+                "from",
+                "sender",
+                "senderId",
+                "senderName",
+                "senderHandle",
+                "direction",
+                "createdAt",
+                "deliveryStatus",
+              ]),
+            ),
           ),
           ...definedFields({ nextCursor: cursor || undefined }),
         };
@@ -882,11 +967,11 @@ export function zernio(options: ManagedOptions) {
     },
     native: {
       async createConnection(input: ZernioConnectionOptions, context: AdapterOperationContext) {
-        platform(input.platform);
+        const slug = platform(input.platform, options);
 
         const response = object(
           await request(
-            `/v1/connect/${input.platform === "x" ? "twitter" : encodeURIComponent(input.platform)}`,
+            `/v1/connect/${encodeURIComponent(wirePlatform(slug))}`,
             context,
             undefined,
             { profileId: input.profileId, redirect_url: input.redirectUrl },

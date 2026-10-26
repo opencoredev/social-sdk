@@ -83,6 +83,7 @@ it("reads Zernio follower snapshots from the documented accounts response", asyn
   assert.deepEqual(metrics, [
     {
       name: "followers",
+      canonicalName: "followers",
       value: 0,
       unit: "count",
       period: "lifetime",

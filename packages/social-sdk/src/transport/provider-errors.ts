@@ -1,11 +1,42 @@
+import { SocialError } from "../core/errors.js";
 import type { HttpErrorData } from "./http.js";
 import type { JsonValue } from "./json.js";
 import { isJsonObject, isJsonArray, isString } from "./validation.js";
+
+// Meta Graph APIs report an invalid, expired, or revoked access token as an
+// OAuthException with code 190, usually on HTTP 400 rather than 401. Source:
+// https://developers.facebook.com/docs/graph-api/guides/error-handling (accessed 2026-10-24).
+// Facebook video uploads use graph-video.facebook.com and Reels bytes go to rupload.facebook.com.
+const metaGraphHosts = new Set([
+  "graph.instagram.com",
+  "graph.facebook.com",
+  "graph-video.facebook.com",
+  "rupload.facebook.com",
+  "graph.threads.net",
+]);
+
+function hostname(origin: string): string | undefined {
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Keep only recognized machine codes and an opaque reconciliation ID, never provider prose. */
 export function providerErrorDecoder(origin: string, path: string) {
   return (body: JsonValue, status: number): HttpErrorData | undefined => {
     if (!isJsonObject(body)) return undefined;
+
+    const host = hostname(origin);
+
+    if (host !== undefined && metaGraphHosts.has(host)) {
+      const error = body["error"];
+
+      return isJsonObject(error) && error["code"] === 190
+        ? { code: "oauth-token-invalid" }
+        : undefined;
+    }
 
     if (origin === "https://zernio.com/api" && path === "/v1/posts" && status === 409) {
       const details = body["details"];
@@ -60,4 +91,26 @@ export function providerErrorDecoder(origin: string, path: string) {
 
     return undefined;
   };
+}
+
+/**
+ * Reclassify a Meta Graph code 190 failure as a reconnect. The managed transport
+ * keeps unknown provider codes as upstream failures, so Graph adapters call this
+ * from their request wrappers. The message is fixed and never carries provider prose.
+ * Other errors are returned unchanged.
+ */
+export function metaOAuthReconnect(error: SocialError): SocialError {
+  if (error.upstreamCode !== "oauth-token-invalid") return error;
+
+  return new SocialError({
+    code: "reconnect_required",
+    operation: error.operation,
+    message: "The Meta access token is invalid, expired, or revoked. Reconnect the account.",
+    backend: error.backend,
+    correlationId: error.correlationId,
+    upstreamStatus: error.upstreamStatus,
+    upstreamCode: error.upstreamCode,
+    retryDisposition: { kind: "after-reconnect" },
+    cause: error,
+  });
 }

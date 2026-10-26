@@ -8,6 +8,7 @@ import type {
   CommentRef,
   ConnectedAccountRef,
   JsonObject,
+  JsonValue,
   MediaAttachment,
   MediaRef,
   MetricValue,
@@ -27,18 +28,14 @@ import {
   type JsonField,
 } from "../transport/validation.js";
 import { upload } from "../transport/upload.js";
-import { optionsObject, publicFields } from "../cloud/common.js";
+import {
+  documentMimeTypes as linkedInDocumentMimeTypes,
+  optionsObject,
+  publicFields,
+} from "../cloud/common.js";
+import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { verifyLinkedInWebhook } from "../server/webhooks.js";
 import { directWebhooks } from "./webhook-adapter.js";
-
-/** Documents API file types (PDF, PPT, PPTX, DOC, DOCX), checked 2026-09-24 against version 202609. */
-const linkedInDocumentMimeTypes: readonly string[] = [
-  "application/pdf",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-];
 
 /** LinkedIn documents "100MB"; the decimal reading is the conservative local bound. */
 const linkedInDocumentMaxBytes = 100_000_000;
@@ -1442,6 +1439,8 @@ export function linkedin(
               ? "w_organization_social"
               : "w_member_social",
           ],
+          // Mirrors prepareTarget: account-bound media references, at most 20 images per post.
+          constraints: { mediaSources: ["media-ref" as const], maxItems: 20 },
           notes: options.auth.author.startsWith("urn:li:organization:")
             ? "Explicit organization author and public visibility. Requires product approval and ADMINISTRATOR, CONTENT_ADMIN (ACL CONTENT_ADMINISTRATOR) or DIRECT_SPONSORED_CONTENT_POSTER role. Supports image, multi-image, video and document posts."
             : "Explicit member author and public visibility. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts.",
@@ -2069,6 +2068,14 @@ export function linkedin(
         input: { readonly cursor?: string; readonly limit?: number },
         context: AdapterOperationContext,
       ) {
+        // Cursors are decimal offsets this adapter returned; reject "", "1e2", "0x10", and padding.
+        if (input.cursor !== undefined && !/^(?:0|[1-9][0-9]{0,8})$/.test(input.cursor))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.read",
+            message: "Use a LinkedIn comment cursor returned by a previous page.",
+          });
+
         await readPost(ref, context);
 
         const start = input.cursor === undefined ? 0 : Number(input.cursor);
@@ -2116,18 +2123,37 @@ export function linkedin(
         const items = array(result["elements"]).map((value) => {
           const row = object(value);
 
-          return {
-            ...publicFields(row, ["id", "actor", "commentUrn", "object"]),
+          const nested: Record<string, JsonValue> = {};
+
+          // Keep authorship, timestamps, threading, and engagement records for normalization.
+          for (const field of [
+            "message",
+            "created",
+            "lastModified",
+            "parentComment",
+            "content",
+            "likesSummary",
+            "commentsSummary",
+          ]) {
+            const entry = row[field];
+
+            if (entry !== undefined) nested[field] = entry;
+          }
+
+          return normalizeComment({
+            ...publicFields(row, ["id", "actor", "commentUrn", "object", "agent"]),
+            ...nested,
             text: string(object(row["message"])["text"]),
-          };
+          });
         });
 
         const paging = result["paging"] === undefined ? {} : object(result["paging"]);
 
         const total = optionalNumber(paging["total"]);
 
+        // An empty page cannot advance the offset, so it ends the walk even when total is larger.
         const next =
-          total !== undefined && start + items.length < total
+          total !== undefined && items.length > 0 && start + items.length < total
             ? String(start + items.length)
             : undefined;
 
@@ -2321,7 +2347,7 @@ export function linkedin(
 
         return value === undefined
           ? []
-          : [
+          : normalizeMetrics([
               {
                 name: "followers",
                 value,
@@ -2331,7 +2357,7 @@ export function linkedin(
                 freshness: "unknown",
                 source: `linkedin:${options.apiVersion}:networkSizes`,
               },
-            ];
+            ]);
       },
       async getPostMetrics(
         ref: PlatformPostRef,
@@ -2372,7 +2398,7 @@ export function linkedin(
             });
         }
 
-        return metrics;
+        return normalizeMetrics(metrics);
       },
     },
     webhooks: directWebhooks(

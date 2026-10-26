@@ -1,3 +1,4 @@
+import { normalizeMetrics } from "../core/projections.js";
 import { createHash, randomBytes } from "node:crypto";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
@@ -11,6 +12,7 @@ import type {
   DeliveryRef,
   JsonObject,
   JsonValue,
+  MediaAttachment,
   MetricValue,
   Platform,
   PlatformPostRef,
@@ -38,9 +40,22 @@ import {
   managedConstraints,
   managedOptionIssues,
   managedPreparation,
+  mappedPlatform,
   optionsObject,
+  publishFormats,
   type ManagedOptions,
+  type PublishFormats,
 } from "./common.js";
+
+/** Buffer publishes document assets to LinkedIn only. */
+const bufferFormats: PublishFormats = (platform) =>
+  platform === "linkedin"
+    ? ["text", "image", "video", "carousel", "document"]
+    : publishFormats(platform);
+
+/** Buffer needs a document title; the caption wins over the filename. */
+const documentTitle = (item: MediaAttachment): string | undefined =>
+  [item.caption, item.filename].find((value) => value !== undefined && value.trim() !== "");
 
 export interface BufferOptions extends ManagedOptions {
   /** Limit channel and post queries to one Buffer organization. Omit to read every organization on the key. */
@@ -106,6 +121,9 @@ const nativePlatforms = new Map<string, Platform>([
   ["instagram", "instagram"],
   ["linkedin", "linkedin"],
   ["facebook", "facebook"],
+  ["pinterest", "pinterest"],
+  ["mastodon", "mastodon"],
+  ["googlebusiness", "google-business"],
 ]);
 
 const postSelection = `
@@ -578,7 +596,7 @@ export function buffer(options: BufferOptions) {
 
   const account = (value: JsonValue, backend: string): AccountRecord | undefined => {
     const row = object(value);
-    const slug = nativePlatforms.get(string(row["service"]));
+    const slug = mappedPlatform(nativePlatforms, string(row["service"]), options);
 
     if (!slug) return undefined;
     const handle = optionalString(row["name"]);
@@ -712,7 +730,7 @@ export function buffer(options: BufferOptions) {
         message: "The Buffer post does not belong to the authorized channel.",
       });
 
-    if (nativePlatforms.get(string(row["channelService"])) !== ref.platform)
+    if (mappedPlatform(nativePlatforms, string(row["channelService"]), options) !== ref.platform)
       throw new SocialError({
         code: "unauthorized",
         operation,
@@ -907,6 +925,7 @@ export function buffer(options: BufferOptions) {
       [
         "accounts.read",
         "posts.publish",
+        "posts.schedule",
         "posts.read",
         "posts.list",
         "posts.status",
@@ -914,7 +933,7 @@ export function buffer(options: BufferOptions) {
         "posts.deleteBackendRecord",
         "analytics.read",
       ],
-      undefined,
+      bufferFormats,
       (_platform, operation) =>
         managedConstraints(operation, operation === "posts.publish" ? ["https-url"] : undefined),
     ),
@@ -974,10 +993,30 @@ export function buffer(options: BufferOptions) {
 
         for (const item of target.content.media ?? []) {
           if (item.kind === "document") {
-            fail(
-              "media.document_unsupported",
-              "This adapter maps Buffer image and video assets only. Document assets need a title and thumbnail the SDK does not collect.",
-            );
+            if (target.account.platform !== "linkedin")
+              fail(
+                "media.document_unsupported",
+                "Buffer document assets are mapped for LinkedIn only.",
+              );
+
+            if (item.source.kind !== "https-url")
+              fail(
+                "media.url_required",
+                "Buffer has no upload endpoint. Host the file yourself and pass a public HTTPS URL.",
+              );
+
+            if (documentTitle(item) === undefined)
+              fail(
+                "media.document_title",
+                "Buffer documents need a title. Set the attachment caption or filename.",
+              );
+
+            if (item.thumbnail?.kind !== "https-url")
+              fail(
+                "media.document_thumbnail",
+                "Buffer documents need a thumbnail hosted at a public HTTPS URL.",
+              );
+
             continue;
           }
 
@@ -1031,12 +1070,26 @@ export function buffer(options: BufferOptions) {
         for (const item of target.content.media ?? []) {
           const source = item.source;
 
-          if (source.kind !== "https-url" || item.kind === "document")
+          if (source.kind !== "https-url")
             reject(
               "posts.publish",
-              "Buffer accepts public HTTPS image and video URLs only through this adapter.",
+              "Buffer accepts public HTTPS image, video and document URLs only through this adapter.",
             );
-          else
+          else if (item.kind === "document") {
+            const title = documentTitle(item);
+            const thumbnail = item.thumbnail;
+
+            if (title === undefined || thumbnail?.kind !== "https-url")
+              reject("posts.publish", "Buffer documents need a title and an HTTPS thumbnail.");
+            else
+              assets.push({
+                document: {
+                  url: httpsUrl(source.url).href,
+                  title,
+                  thumbnailUrl: httpsUrl(thumbnail.url).href,
+                },
+              });
+          } else
             assets.push(
               item.kind === "video"
                 ? { video: { url: httpsUrl(source.url).href } }
@@ -1097,6 +1150,17 @@ export function buffer(options: BufferOptions) {
               type: "post",
             },
           ]);
+        }
+
+        if (target.account.platform === "pinterest") {
+          const boardServiceId = optionalString(config["boardId"]);
+          const title = optionalString(config["title"]);
+          const url = optionalString(config["link"]);
+
+          if (boardServiceId === undefined)
+            return reject("posts.publish", "Select the Pinterest board by its ID.");
+
+          metadataEntries.push(["pinterest", { boardServiceId, ...definedFields({ title, url }) }]);
         }
 
         if (target.account.platform === "tiktok" && config["aiGenerated"] !== undefined) {
@@ -1291,7 +1355,7 @@ export function buffer(options: BufferOptions) {
             message: "Buffer reports metrics only after a post is sent.",
           });
 
-        return postMetrics(row, ref.platform);
+        return normalizeMetrics(postMetrics(row, ref.platform));
       },
     },
   });

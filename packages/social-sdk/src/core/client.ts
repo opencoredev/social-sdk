@@ -1,9 +1,37 @@
 import { decodeCursor, encodeCursor, iterateItems, type IterationOptions } from "./pagination.js";
 import { createConcurrencyLimiter } from "./concurrency.js";
-import type { AuthorizationPolicy, GraphAdapter, SocialAdapter } from "./adapter.js";
-import { SocialError } from "./errors.js";
+import type { AuthorizationPolicy, GraphAdapter, JobRunner, SocialAdapter } from "./adapter.js";
+import { SocialError, type SocialErrorCode } from "./errors.js";
 import { definedFields } from "./fields.js";
 import { isString } from "../transport/validation.js";
+import type { InboxAggregation, MediaStaging, OutcomeRecovery } from "./extensions.js";
+import {
+  executionOperationFor,
+  inboxSourceScope,
+  isNonBlankStringInput,
+  isObjectInput,
+  makeContext,
+  mapConcurrent,
+  preparationIssue,
+  targetKey,
+  unrecordedOutcome,
+  withPreflightParents,
+  type PublicationPlan,
+} from "./client-support.js";
+import {
+  mediaConstraintIssues,
+  selectPublishDeclaration,
+  withStagingPlaceholders,
+} from "./media-validation.js";
+import {
+  normalizeComment,
+  normalizeConversation,
+  normalizeMessage,
+  normalizeMetrics,
+  type CommentRecord,
+  type ConversationRecord,
+  type MessageRecord,
+} from "./projections.js";
 import {
   deriveTargetIdempotencyKey,
   fingerprint,
@@ -25,12 +53,14 @@ import type {
   DeliveryOutcome,
   PreparationIssue,
   PreparedPublishTarget,
+  PersistenceDiagnostic,
   PublicationRef,
   PublicationStatus,
   PublishContent,
   PublishPreparation,
   PublishRequest,
   PublishResult,
+  PublishWarning,
   PublishSequenceRequest,
   PublishSequenceResult,
   Page,
@@ -45,6 +75,7 @@ import type {
   ProfileRecord,
   ProfileRef,
   RelationshipRecord,
+  RetryDisposition,
 } from "./types.js";
 
 export type BackendRegistry = Readonly<Record<string, SocialAdapter<unknown>>>;
@@ -55,7 +86,76 @@ export interface PublishCallOptions {
   readonly retryBudget?: RetryBudget;
 }
 
+/** One place `inbox.list` reads from. */
+export type InboxSource =
+  | { readonly kind: "conversations"; readonly account: ConnectedAccountRef }
+  | { readonly kind: "comments"; readonly post: PlatformPostRef };
+
+/**
+ * Sources for one inbox read. Conversations are read per account. Comments are
+ * read per post because providers expose them per post, not per account.
+ */
+export interface InboxListInput {
+  /** Accounts whose direct-message conversations to read. */
+  readonly accounts?: readonly ConnectedAccountRef[];
+  /** Posts whose comments to read. */
+  readonly posts?: readonly PlatformPostRef[];
+  /** Page size requested from each source, 1 through 100. Defaults to 20. */
+  readonly limit?: number;
+  /** `nextCursor` from a previous call with the same accounts, posts, order, limit and tenant. */
+  readonly cursor?: string;
+}
+
+export type InboxEntry =
+  | {
+      readonly kind: "conversation";
+      /** Position of the source in `InboxPage.sources`. */
+      readonly sourceIndex: number;
+      readonly account: ConnectedAccountRef;
+      readonly record: ConversationRecord;
+    }
+  | {
+      readonly kind: "comment";
+      readonly sourceIndex: number;
+      readonly post: PlatformPostRef;
+      readonly record: CommentRecord;
+    };
+
+export type InboxSourceOutcome =
+  | {
+      readonly state: "read";
+      readonly source: InboxSource;
+      readonly itemCount: number;
+      /** False when this page was the source's last. */
+      readonly hasMore: boolean;
+    }
+  /** Finished on an earlier page; reauthorized but not read again. */
+  | { readonly state: "exhausted"; readonly source: InboxSource }
+  /** The source keeps its position, so the next call with `nextCursor` retries it. */
+  | {
+      readonly state: "failed";
+      readonly source: InboxSource;
+      readonly code: SocialErrorCode;
+      readonly message: string;
+      readonly retryDisposition: RetryDisposition;
+    };
+
+export interface InboxPage {
+  /** Every item from each source's page, grouped by source in `sources` order. Never truncated or re-sorted. */
+  readonly entries: readonly InboxEntry[];
+  /** One outcome per source: accounts in input order, then posts in input order. */
+  readonly sources: readonly InboxSourceOutcome[];
+  /** Absent once every source is exhausted. Present while any source has more pages or failed. */
+  readonly nextCursor?: string;
+}
+
+export interface AuthorizeCallOptions extends PublishCallOptions {
+  readonly operation?: import("./types.js").OperationName;
+}
+
 export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
+  /** Optional application runner inherited by SocialScheduler unless overridden. */
+  readonly jobRunner?: JobRunner;
   readonly accounts: {
     list(
       options?: PublishCallOptions & {
@@ -110,6 +210,29 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
       request: PublishSequenceRequest,
       options?: PublishCallOptions,
     ): Promise<PublishSequenceResult>;
+    /** Runs the authorization `publish` would run for this request, without dispatching. */
+    authorize<const T extends PublishRequest>(
+      request: CheckedPublishRequest<T>,
+      options?: AuthorizeCallOptions,
+    ): Promise<void>;
+    /**
+     * Polls pending targets of a previous `publish` with the same full request and saves
+     * validated results into its original idempotency claim. Requires an
+     * `idempotencyStore` with `compareAndSetOutcome`.
+     */
+    reconcile<const T extends PublishRequest>(
+      request: CheckedPublishRequest<T>,
+      options?: PublishCallOptions,
+    ): Promise<ReconcileResult>;
+    /**
+     * Re-sends only targets whose saved outcome proves nothing is live: retryable
+     * failures, `not-submitted`, and pre-submission cancellations. Published and
+     * unresolved targets are never sent again.
+     */
+    retryFailed<const T extends PublishRequest>(
+      request: CheckedPublishRequest<T>,
+      options?: RetryCallOptions,
+    ): Promise<RetryResult>;
     get(ref: PlatformPostRef, options?: PublishCallOptions): Promise<JsonObject>;
     cancelScheduled(
       ref: ScheduledJobRef,
@@ -160,11 +283,11 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
     list(
       ref: PlatformPostRef,
       options?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>>;
+    ): Promise<Page<CommentRecord>>;
     iterate(
       ref: PlatformPostRef,
       options?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject>;
+    ): AsyncIterable<CommentRecord>;
     reply(
       ref: CommentRef,
       content: { readonly text: string },
@@ -175,24 +298,33 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
     listConversations(
       account: ConnectedAccountRef,
       options?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>>;
+    ): Promise<Page<ConversationRecord>>;
     iterateConversations(
       account: ConnectedAccountRef,
       options?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject>;
+    ): AsyncIterable<ConversationRecord>;
     listMessages(
       ref: ConversationRef,
       options?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>>;
+    ): Promise<Page<MessageRecord>>;
     iterateMessages(
       ref: ConversationRef,
       options?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject>;
+    ): AsyncIterable<MessageRecord>;
     send(
       ref: ConversationRef,
       content: { readonly text: string },
       options?: PublishCallOptions,
     ): Promise<JsonObject>;
+  };
+  readonly inbox: {
+    /**
+     * Reads one page from every source concurrently. Each source is authorized
+     * on every call through the same checks as `messages.listConversations`
+     * and `comments.list`, and a failing source is reported in `sources`
+     * without failing the others.
+     */
+    list(input: InboxListInput, options?: PublishCallOptions): Promise<InboxPage>;
   };
   readonly notifications: {
     list(
@@ -220,9 +352,51 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
   ): B[K]["native"];
 }
 
+export interface ReconcilePollError {
+  readonly targetIndex: number;
+  readonly code: string;
+  readonly message: string;
+}
+
+export interface ReconcileResult extends PublishResult {
+  /** Target indexes still scheduled, accepted, processing, or unknown after this pass. */
+  readonly unresolved: readonly number[];
+  /** Targets whose poll failed or returned an outcome for a different target. */
+  readonly pollErrors: readonly ReconcilePollError[];
+}
+
+export type RetrySkipReason = "not-retryable" | "retry-not-due" | "unresolved" | "concurrent-retry";
+
+export interface RetryCallOptions extends PublishCallOptions {
+  /** Restricts the retry to these original target indexes. */
+  readonly targetIndexes?: readonly number[];
+}
+
+export interface RetryResult extends PublishResult {
+  readonly retried: readonly number[];
+  /** Unpublished targets left alone, with the reason. Published targets are omitted. */
+  readonly skipped: readonly { readonly targetIndex: number; readonly reason: RetrySkipReason }[];
+}
+
 export interface SharedSocialConfig {
+  readonly jobRunner?: JobRunner;
   readonly authorization?: AuthorizationPolicy;
+  /**
+   * Stages `blob` and `stream` media as HTTPS URLs for URL-only targets. Create it
+   * with `localMediaStaging(provider)` from `@opencoredev/social-sdk/media-staging`.
+   */
+  readonly mediaStaging?: MediaStaging;
+  /** Enables `posts.reconcile` and `posts.retryFailed`: `outcomeRecovery()` from `/server`. */
+  readonly recovery?: OutcomeRecovery;
+  /** Enables `inbox.list`: `inboxAggregation()` from `@opencoredev/social-sdk/inbox`. */
+  readonly inbox?: InboxAggregation;
   readonly idempotencyStore?: IdempotencyStore;
+  /**
+   * Called when a delivery outcome could not be saved to the idempotency store.
+   * The publish result still reports the outcome and carries a matching warning.
+   * Errors thrown here are ignored.
+   */
+  readonly onPersistenceDiagnostic?: (diagnostic: PersistenceDiagnostic) => void | Promise<void>;
   readonly concurrency?: number;
   readonly maxQueued?: number;
   readonly clock?: () => Date;
@@ -237,10 +411,6 @@ export type MultiBackendConfig<B extends BackendRegistry> = SharedSocialConfig &
   readonly backend?: never;
   readonly backends: B;
 };
-
-function targetKey(account: ConnectedAccountRef): string {
-  return JSON.stringify([account.backend, account.platform, account.accountId]);
-}
 
 function mergeContent(
   base: PublishContent,
@@ -281,14 +451,6 @@ function mediaFingerprintView(content: PublishContent) {
   };
 }
 
-function preparationIssue(code: string, message: string, targetIndex?: number): PreparationIssue {
-  const issue: PreparationIssue = { code, message, severity: "error" };
-
-  if (targetIndex !== undefined) Object.assign(issue, { targetIndex });
-
-  return issue;
-}
-
 function publicationStatus(outcomes: readonly DeliveryOutcome[]): PublicationStatus {
   const pending = new Set(["scheduled", "accepted", "processing"]);
   const success = new Set(["published"]);
@@ -306,49 +468,6 @@ function publicationStatus(outcomes: readonly DeliveryOutcome[]): PublicationSta
   return "partial";
 }
 
-async function mapConcurrent<T>(
-  count: number,
-  concurrency: number,
-  execute: (index: number) => Promise<T>,
-): Promise<T[]> {
-  const results: T[] = [];
-  let next = 0;
-
-  async function worker(): Promise<void> {
-    while (next < count) {
-      const index = next++;
-      results[index] = await execute(index);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(count, concurrency) }, () => worker()));
-
-  return results;
-}
-
-function makeContext(
-  backendInstance: string,
-  correlationId: string,
-  options: PublishCallOptions | undefined,
-  targetIdempotencyKey?: string,
-): AdapterOperationContext {
-  const context: AdapterOperationContext = {
-    backendInstance,
-    correlationId,
-    retryBudget: options?.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 },
-  };
-
-  if (options?.signal !== undefined) Object.assign(context, { signal: options.signal });
-
-  if (options?.authorization !== undefined)
-    Object.assign(context, { authorization: options.authorization });
-
-  if (targetIdempotencyKey !== undefined)
-    Object.assign(context, { idempotencyKey: targetIdempotencyKey, targetIdempotencyKey });
-
-  return context;
-}
-
 function unsupported(operation: string, backend: string): never {
   throw new SocialError({
     code: "unsupported_capability",
@@ -356,18 +475,6 @@ function unsupported(operation: string, backend: string): never {
     backend,
     message: `${backend} does not implement ${operation}`,
   });
-}
-
-/**
- * Runtime guards for JavaScript callers that bypass the facade's static types.
- * They are generic so a typed argument keeps its declared type when narrowed.
- */
-function isObjectInput<Value>(value: Value): value is Value & object {
-  return typeof value === "object" && value !== null;
-}
-
-function isNonBlankStringInput<Value>(value: Value): value is Value & string {
-  return typeof value === "string" && value.trim() !== "";
 }
 
 /** `error` is the rejection when it was a SocialError, or undefined for any other thrown value. */
@@ -481,6 +588,27 @@ export function createSocial(
     });
   }
 
+  const mediaStaging = config.mediaStaging;
+
+  const extensionIssue =
+    mediaStaging !== undefined &&
+    (!isObjectInput(mediaStaging) ||
+      !(mediaStaging.stage instanceof Function) ||
+      !isNonBlankStringInput(mediaStaging.origin))
+      ? "mediaStaging must come from localMediaStaging(provider)"
+      : config.recovery !== undefined && !(config.recovery instanceof Function)
+        ? "recovery must come from outcomeRecovery()"
+        : config.inbox !== undefined && !(config.inbox instanceof Function)
+          ? "inbox must come from inboxAggregation()"
+          : undefined;
+
+  if (extensionIssue !== undefined)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "createSocial",
+      message: extensionIssue,
+    });
+
   const limiters = new Map<string, ReturnType<typeof createConcurrencyLimiter>>(
     entries.map(([backend]) => [
       backend,
@@ -520,6 +648,10 @@ export function createSocial(
   let correlationSequence = 0;
 
   function prepare(request: PublishRequest): PublishPreparation {
+    return prepareWith(request, false);
+  }
+
+  function prepareWith(request: PublishRequest, allowPastSchedule: boolean): PublishPreparation {
     const issues: PreparationIssue[] = [];
     const targets: PreparedPublishTarget[] = [];
 
@@ -540,7 +672,7 @@ export function createSocial(
 
       if (!Number.isFinite(scheduledAt)) {
         issues.push(preparationIssue("schedule.invalid", "schedule.at must be an ISO timestamp"));
-      } else if (scheduledAt <= clock().getTime()) {
+      } else if (!allowPastSchedule && scheduledAt <= clock().getTime()) {
         issues.push(preparationIssue("schedule.in_past", "A scheduled time must be in the future"));
       }
     }
@@ -596,10 +728,12 @@ export function createSocial(
         continue;
       }
 
-      const declaration = adapter.capabilities.capabilities.find(
-        (candidate) =>
-          candidate.operation === "posts.publish" &&
-          (candidate.platform === "*" || candidate.platform === target.account.platform),
+      const content = mergeContent(request.content, target.content);
+
+      const declaration = selectPublishDeclaration(
+        adapter.capabilities.capabilities,
+        target.account.platform,
+        content,
       );
 
       if (declaration === undefined || declaration.availability !== "available") {
@@ -655,7 +789,7 @@ export function createSocial(
         targetIndex,
         targetKey: key,
         account: target.account,
-        content: mergeContent(request.content, target.content),
+        content,
       };
 
       if (target.options !== undefined) Object.assign(prepared, { options: target.options });
@@ -665,8 +799,29 @@ export function createSocial(
       if (replyTo !== undefined) Object.assign(prepared, { replyTo });
       targets.push(prepared);
 
+      const constraints = declaration.constraints;
+
+      issues.push(
+        ...mediaConstraintIssues({
+          media: content.media ?? [],
+          constraints,
+          targetIndex,
+          stagingEnabled: mediaStaging !== undefined,
+        }),
+      );
+
+      // The adapter validates the URLs staging will produce; the plan keeps the
+      // caller's media so idempotency fingerprints use the original content.
+      const adapterView: PreparedPublishTarget =
+        mediaStaging === undefined
+          ? prepared
+          : {
+              ...prepared,
+              content: withStagingPlaceholders(content, constraints, mediaStaging.origin),
+            };
+
       try {
-        issues.push(...adapter.posts.prepareTarget(prepared));
+        issues.push(...adapter.posts.prepareTarget(adapterView));
       } catch (error) {
         issues.push(
           preparationIssue(
@@ -807,52 +962,89 @@ export function createSocial(
     if (declaration?.availability !== "available") unsupported(operation, backend);
   }
 
-  async function publish(
-    request: PublishRequest,
-    options?: PublishCallOptions,
-  ): Promise<PublishResult> {
-    const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
-    const executionOperation = request.schedule === undefined ? "posts.publish" : "posts.schedule";
-    const authContext = makeContext("*", correlationId, options);
+  /** Errors the adapter reports for a target whose staged URLs replaced local media. */
+  function preparedIssues(
+    posts: NonNullable<SocialAdapter<unknown>["posts"]>,
+    target: PreparedPublishTarget,
+  ): readonly PreparationIssue[] {
+    try {
+      return posts.prepareTarget(target).filter((issue) => issue.severity === "error");
+    } catch {
+      return [
+        preparationIssue(
+          "adapter.prepare_failed",
+          "The adapter could not validate the staged media",
+          target.targetIndex,
+        ),
+      ];
+    }
+  }
 
+  async function notifyPersistenceDiagnostic(diagnostic: PersistenceDiagnostic): Promise<void> {
+    if (config.onPersistenceDiagnostic === undefined) return;
+
+    try {
+      await config.onPersistenceDiagnostic(diagnostic);
+    } catch {
+      // A diagnostic sink must not change the publication result.
+    }
+  }
+
+  async function authorizeRequest(
+    request: PublishRequest,
+    operation: import("./types.js").OperationName,
+    options: PublishCallOptions | undefined,
+    correlationId: string,
+  ): Promise<void> {
     if (options?.signal?.aborted) {
       throw new SocialError({
         code: "cancelled",
-        operation: executionOperation,
+        operation,
         message: "Publishing was cancelled before authorization",
         correlationId,
       });
     }
 
-    const authorizationOperation = executionOperation;
+    if (config.authorization === undefined) return;
 
-    if (config.authorization !== undefined) {
-      const decisions = await config.authorization.authorizeTargets({
-        operation: authorizationOperation,
-        accounts: request.targets.map((target) => target.account),
-        context: authContext,
-      });
+    const decisions = await config.authorization.authorizeTargets({
+      operation,
+      accounts: request.targets.map((target) => target.account),
+      context: makeContext("*", correlationId, options),
+    });
 
-      for (const target of request.targets) {
-        const decision = decisions.find(
-          (candidate) => targetKey(candidate.account) === targetKey(target.account),
-        );
+    for (const target of request.targets) {
+      const decision = decisions.find(
+        (candidate) => targetKey(candidate.account) === targetKey(target.account),
+      );
 
-        if (decision?.allowed !== true) {
-          throw new SocialError({
-            code: "unauthorized",
-            operation: authorizationOperation,
-            message: decision?.reason ?? "A target is not authorized for this operation",
-            account: target.account,
-            correlationId,
-          });
-        }
+      if (decision?.allowed !== true) {
+        throw new SocialError({
+          code: "unauthorized",
+          operation,
+          message: decision?.reason ?? "A target is not authorized for this operation",
+          account: target.account,
+          correlationId,
+        });
       }
     }
+  }
 
-    const plan = prepare(request);
+  /**
+   * Prepares the request and derives the claim identity shared by publish, reconcile,
+   * and retry. `recovery` tolerates a schedule that has since passed and adapter issues
+   * introduced after submission, but still requires every original target.
+   */
+  async function planPublication(
+    request: PublishRequest,
+    options: PublishCallOptions | undefined,
+    correlationId: string,
+    mode: "execute" | "recovery",
+  ): Promise<PublicationPlan> {
+    const executionOperation = executionOperationFor(request);
+    const plan = prepareWith(request, mode === "recovery");
 
-    if (!plan.ok) {
+    if (mode === "recovery" ? plan.targets.length !== request.targets.length : !plan.ok) {
       throw new SocialError({
         code: "invalid_input",
         operation: executionOperation,
@@ -862,27 +1054,34 @@ export function createSocial(
       });
     }
 
-    for (const target of plan.targets) {
-      const adapter = registry[target.account.backend];
+    if (mode === "execute") {
+      for (const target of plan.targets) {
+        const adapter = registry[target.account.backend];
 
-      if (adapter === undefined) throw new Error("Prepared adapter disappeared");
+        if (adapter === undefined) throw new Error("Prepared adapter disappeared");
 
-      requireCapability(adapter, "posts.publish", target.account.platform, target.account.backend);
-
-      if (
-        target.schedule !== undefined &&
-        adapter.capabilities.capabilities.some(
-          (candidate) =>
-            candidate.operation === "posts.schedule" &&
-            (candidate.platform === "*" || candidate.platform === target.account.platform),
-        )
-      )
         requireCapability(
           adapter,
-          "posts.schedule",
+          "posts.publish",
           target.account.platform,
           target.account.backend,
         );
+
+        if (
+          target.schedule !== undefined &&
+          adapter.capabilities.capabilities.some(
+            (candidate) =>
+              candidate.operation === "posts.schedule" &&
+              (candidate.platform === "*" || candidate.platform === target.account.platform),
+          )
+        )
+          requireCapability(
+            adapter,
+            "posts.schedule",
+            target.account.platform,
+            target.account.backend,
+          );
+      }
     }
 
     const targetViews = plan.targets.map((target) => ({
@@ -900,13 +1099,237 @@ export function createSocial(
       "posts.publish",
     ]);
 
+    return { targets: plan.targets, payloadFingerprint, scope };
+  }
+
+  /**
+   * Publishes one chained sequence item as a separate request per destination, each under
+   * `${itemKey}:${targetKey}`. Outcome indexes are positions in `submitted`. A destination
+   * whose request throws gets a `not-submitted` outcome; the item throws only when every
+   * destination does.
+   */
+  async function publishDestinations(
+    item: PublishRequest,
+    submitted: readonly { readonly target: PublishRequest["targets"][number] }[],
+    options: PublishCallOptions | undefined,
+  ): Promise<PublishResult> {
+    const outcomes: DeliveryOutcome[] = [];
+    const warnings: PublishWarning[] = [];
+    const publications: string[] = [];
+    let refusal: SocialError | undefined;
+
+    for (const [position, { target }] of submitted.entries()) {
+      try {
+        const single = await publish(
+          {
+            ...item,
+            targets: [target],
+            idempotencyKey: `${item.idempotencyKey ?? ""}:${targetKey(target.account)}`,
+          },
+          options,
+        );
+
+        publications.push(single.publication.publicationId);
+        outcomes.push(...single.outcomes.map((outcome) => ({ ...outcome, targetIndex: position })));
+        warnings.push(
+          ...(single.warnings ?? []).map((warning) => ({ ...warning, targetIndex: position })),
+        );
+      } catch (error) {
+        if (!(error instanceof SocialError)) throw error;
+
+        refusal ??= error;
+        outcomes.push({
+          state: "not-submitted",
+          reason:
+            error.code === "unauthorized"
+              ? "unauthorized"
+              : error.code === "invalid_input"
+                ? "validation"
+                : error.code === "idempotency_conflict"
+                  ? "idempotency-conflict"
+                  : "before-submission",
+          targetIndex: position,
+          account: target.account,
+          observedAt: clock().toISOString(),
+          ...definedFields({ issues: error.issues }),
+        });
+      }
+    }
+
+    if (refusal !== undefined && publications.length === 0) throw refusal;
+
+    const backends = new Set(submitted.map(({ target }) => target.account.backend));
+
+    return {
+      status: publicationStatus(outcomes),
+      publication: {
+        kind: "publication",
+        version: 1,
+        backend:
+          backends.size === 1 ? (submitted[0]?.target.account.backend ?? "unknown") : "multiple",
+        publicationId: await fingerprint({ key: item.idempotencyKey, publications }),
+      },
+      outcomes,
+      ...definedFields({ warnings: warnings.length === 0 ? undefined : warnings }),
+    };
+  }
+
+  async function publicationResult(
+    request: PublishRequest,
+    plan: PublicationPlan,
+    correlationId: string,
+    outcomes: DeliveryOutcome[],
+  ): Promise<PublishResult> {
+    outcomes.sort((left, right) => left.targetIndex - right.targetIndex);
+
+    const publicationBackend =
+      new Set(plan.targets.map((target) => target.account.backend)).size === 1
+        ? (plan.targets[0]?.account.backend ?? "unknown")
+        : "multiple";
+
+    const publicationId = await fingerprint({
+      scope: plan.scope,
+      key: request.idempotencyKey ?? correlationId,
+      payloadFingerprint: plan.payloadFingerprint,
+    });
+
+    const publication: PublicationRef = {
+      kind: "publication",
+      version: 1,
+      backend: publicationBackend,
+      publicationId,
+    };
+
+    return { status: publicationStatus(outcomes), publication, outcomes };
+  }
+
+  /**
+   * Sends one prepared target and maps every adapter failure into its outcome. Local media
+   * is staged inside the backend's concurrency slot, so retries stage it the same way.
+   */
+  async function dispatchTarget(
+    target: PreparedPublishTarget,
+    executionOperation: "posts.publish" | "posts.schedule",
+    correlationId: string,
+    options: PublishCallOptions | undefined,
+    targetIdempotencyKey: string | undefined,
+  ): Promise<DeliveryOutcome> {
+    const adapter = registry[target.account.backend];
+    const posts = adapter?.posts;
+
+    if (adapter === undefined || posts === undefined)
+      throw new Error("Prepared adapter disappeared");
+
+    const observedAt = (): string => clock().toISOString();
+    let enteredAdapter = false;
+
+    const constraints = selectPublishDeclaration(
+      adapter.capabilities.capabilities,
+      target.account.platform,
+      target.content,
+    )?.constraints;
+
+    let settle: ((outcome: DeliveryOutcome, enteredAdapter: boolean) => Promise<void>) | undefined;
+
+    const outcome = await (async (): Promise<DeliveryOutcome> => {
+      try {
+        const candidate = await dispatch(
+          target.account.backend,
+          options?.signal,
+          executionOperation,
+          async () => {
+            let dispatched = target;
+
+            let context = makeContext(
+              target.account.backend,
+              correlationId,
+              options,
+              targetIdempotencyKey,
+            );
+
+            // Staging runs here: after authorization and the replay check, inside
+            // the backend's concurrency slot, and under the caller's signal.
+            if (mediaStaging !== undefined) {
+              const staged = await mediaStaging.stage({
+                target,
+                constraints,
+                context,
+                signal: options?.signal,
+                observedAt,
+                revalidate: (candidate) => preparedIssues(posts, candidate),
+              });
+
+              if (staged.kind !== "unchanged") settle = staged.settle;
+
+              if (staged.kind === "stopped") return staged.outcome;
+
+              if (staged.kind === "staged") {
+                dispatched = staged.target;
+                context = staged.context;
+              }
+            }
+
+            enteredAdapter = true;
+
+            return posts.publishTarget(dispatched, context);
+          },
+        );
+
+        return assertValidOutcome(candidate, target)
+          ? candidate
+          : {
+              state: "unknown",
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt: observedAt(),
+              reason: "unmapped-state",
+              diagnostic: "Adapter returned an outcome for a different target",
+            };
+      } catch (error) {
+        return !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
+          ? {
+              state: "cancelled",
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt: observedAt(),
+              reason: "before-submission",
+            }
+          : !enteredAdapter && error instanceof SocialError && error.code === "rate_limited"
+            ? {
+                state: "not-submitted",
+                targetIndex: target.targetIndex,
+                account: target.account,
+                observedAt: observedAt(),
+                reason: "capacity",
+              }
+            : outcomeFromError(
+                error instanceof SocialError ? error : undefined,
+                target,
+                observedAt(),
+              );
+      }
+    })();
+
+    if (settle !== undefined) await settle(outcome, enteredAdapter);
+
+    return outcome;
+  }
+
+  async function publish(
+    request: PublishRequest,
+    options?: PublishCallOptions,
+  ): Promise<PublishResult> {
+    const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
+    const executionOperation = executionOperationFor(request);
+    await authorizeRequest(request, executionOperation, options, correlationId);
+    const plan = await planPublication(request, options, correlationId, "execute");
     let claim: IdempotencyClaim | undefined;
 
     if (request.idempotencyKey !== undefined && config.idempotencyStore !== undefined) {
       claim = await config.idempotencyStore.claim({
-        scope,
+        scope: plan.scope,
         key: request.idempotencyKey,
-        fingerprint: payloadFingerprint,
+        fingerprint: plan.payloadFingerprint,
         targetKeys: plan.targets.map((target) => target.targetKey),
       });
 
@@ -920,7 +1343,7 @@ export function createSocial(
       }
     }
 
-    const observedAt = (): string => clock().toISOString();
+    const warnings: PublishWarning[] = [];
 
     const outcomes = await mapConcurrent(
       plan.targets.length,
@@ -931,87 +1354,29 @@ export function createSocial(
         if (target === undefined) throw new Error("Prepared target index was lost");
 
         if (claim !== undefined && claim.kind === "existing") {
-          const saved = claim.outcomes[target.targetKey];
-
-          if (saved !== undefined) return saved;
-
-          return {
-            state: "unknown",
-            targetIndex: target.targetIndex,
-            account: target.account,
-            observedAt: observedAt(),
-            reason: "ambiguous-submission",
-            diagnostic: "A previous execution claimed this target without recording an outcome",
-          } satisfies DeliveryOutcome;
+          return (
+            claim.outcomes[target.targetKey] ?? unrecordedOutcome(target, clock().toISOString())
+          );
         }
-
-        const adapter = registry[target.account.backend];
-
-        if (adapter?.posts === undefined) throw new Error("Prepared adapter disappeared");
 
         const targetIdempotencyKey =
           request.idempotencyKey === undefined
             ? undefined
             : await deriveTargetIdempotencyKey({
                 logicalKey: request.idempotencyKey,
-                scope,
+                scope: plan.scope,
                 backend: target.account.backend,
                 targetKey: target.targetKey,
-                payloadFingerprint,
+                payloadFingerprint: plan.payloadFingerprint,
               });
 
-        let outcome: DeliveryOutcome;
-        let enteredAdapter = false;
-
-        try {
-          const candidate = await dispatch(
-            target.account.backend,
-            options?.signal,
-            executionOperation,
-            () => {
-              enteredAdapter = true;
-
-              return adapter.posts!.publishTarget(
-                target,
-                makeContext(target.account.backend, correlationId, options, targetIdempotencyKey),
-              );
-            },
-          );
-
-          outcome = assertValidOutcome(candidate, target)
-            ? candidate
-            : {
-                state: "unknown",
-                targetIndex: target.targetIndex,
-                account: target.account,
-                observedAt: observedAt(),
-                reason: "unmapped-state",
-                diagnostic: "Adapter returned an outcome for a different target",
-              };
-        } catch (error) {
-          outcome =
-            !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
-              ? {
-                  state: "cancelled",
-                  targetIndex: target.targetIndex,
-                  account: target.account,
-                  observedAt: observedAt(),
-                  reason: "before-submission",
-                }
-              : !enteredAdapter && error instanceof SocialError && error.code === "rate_limited"
-                ? {
-                    state: "not-submitted",
-                    targetIndex: target.targetIndex,
-                    account: target.account,
-                    observedAt: observedAt(),
-                    reason: "capacity",
-                  }
-                : outcomeFromError(
-                    error instanceof SocialError ? error : undefined,
-                    target,
-                    observedAt(),
-                  );
-        }
+        const outcome = await dispatchTarget(
+          target,
+          executionOperation,
+          correlationId,
+          options,
+          targetIdempotencyKey,
+        );
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
           try {
@@ -1022,6 +1387,16 @@ export function createSocial(
             });
           } catch {
             // Return the complete in-memory result even if durable persistence is unavailable.
+            // The storage error is dropped because it may name keys, claims, or identities.
+            warnings.push({
+              code: "idempotency-outcome-not-persisted",
+              targetIndex: target.targetIndex,
+            });
+            await notifyPersistenceDiagnostic({
+              code: "idempotency-outcome-not-persisted",
+              operation: executionOperation,
+              targetIndex: target.targetIndex,
+            });
           }
         }
 
@@ -1029,28 +1404,53 @@ export function createSocial(
       },
     );
 
-    outcomes.sort((left, right) => left.targetIndex - right.targetIndex);
+    const result = await publicationResult(request, plan, correlationId, outcomes);
 
-    const publicationBackend =
-      new Set(plan.targets.map((target) => target.account.backend)).size === 1
-        ? (plan.targets[0]?.account.backend ?? "unknown")
-        : "multiple";
+    warnings.sort((left, right) => left.targetIndex - right.targetIndex);
 
-    const publicationId = await fingerprint({
-      scope,
-      key: request.idempotencyKey ?? correlationId,
-      payloadFingerprint,
-    });
+    if (warnings.length === 0) return result;
 
-    const publication: PublicationRef = {
-      kind: "publication",
-      version: 1,
-      backend: publicationBackend,
-      publicationId,
-    };
-
-    return { status: publicationStatus(outcomes), publication, outcomes };
+    return { ...result, warnings };
   }
+
+  const nextCorrelationId = (): string => `social-${++correlationSequence}`;
+
+  const recovery = config.recovery?.({
+    registry,
+    idempotencyStore: config.idempotencyStore,
+    clock,
+    nextCorrelationId,
+    authorizeRequest,
+    planPublication,
+    publicationResult,
+    dispatchTarget,
+    requireCapability,
+    dispatch,
+  });
+
+  const notInstalled = (operation: string, install: string, from: string): never => {
+    throw new SocialError({
+      code: "invalid_config",
+      operation,
+      message: `${operation} needs createSocial({ ${install} }) from ${from}`,
+    });
+  };
+
+  const reconcile = async (request: PublishRequest, options?: PublishCallOptions) =>
+    recovery?.reconcile(request, options) ??
+    notInstalled(
+      "posts.reconcile",
+      "recovery: outcomeRecovery()",
+      "@opencoredev/social-sdk/server",
+    );
+
+  const retryFailed = async (request: PublishRequest, options?: RetryCallOptions) =>
+    recovery?.retryFailed(request, options) ??
+    notInstalled(
+      "posts.retryFailed",
+      "recovery: outcomeRecovery()",
+      "@opencoredev/social-sdk/server",
+    );
 
   const accountsFacade = {
     async list(
@@ -1439,6 +1839,16 @@ export function createSocial(
     },
     prepare,
     publish,
+    reconcile,
+    retryFailed,
+    async authorize(request: PublishRequest, callOptions?: AuthorizeCallOptions): Promise<void> {
+      await authorizeRequest(
+        request,
+        callOptions?.operation ?? executionOperationFor(request),
+        callOptions,
+        request.correlationId ?? `social-${++correlationSequence}`,
+      );
+    },
     async publishSequence(
       request: PublishSequenceRequest,
       callOptions?: PublishCallOptions,
@@ -1470,27 +1880,24 @@ export function createSocial(
         const chained = request.replyToPrevious === true && index > 0;
 
         if (chained) {
-          const account = item.targets[0]?.account;
-          const parent = request.items[index - 1]?.targets[0]?.account;
+          const parentKeys = new Set(
+            (request.items[index - 1]?.targets ?? []).map((target) => targetKey(target.account)),
+          );
 
-          // A chain replies to the single post the previous item created, so every link
-          // must publish to one target on the same account.
+          // Each destination replies to the post the same account created in the previous
+          // item, so every chained target needs a parent account and no reply of its own.
           if (
-            item.targets.length !== 1 ||
-            request.items[index - 1]?.targets.length !== 1 ||
             item.replyTo !== undefined ||
-            item.targets[0]?.replyTo !== undefined ||
-            account === undefined ||
-            parent === undefined ||
-            account.backend !== parent.backend ||
-            account.platform !== parent.platform ||
-            account.accountId !== parent.accountId
+            item.targets.some(
+              (target) =>
+                target.replyTo !== undefined || !parentKeys.has(targetKey(target.account)),
+            )
           )
             throw new SocialError({
               code: "invalid_input",
               operation: "posts.publishSequence",
               message:
-                "replyToPrevious requires every item to publish to the same single account without its own replyTo",
+                "replyToPrevious requires every target to publish to an account from the previous item, without its own replyTo",
             });
         }
 
@@ -1498,15 +1905,7 @@ export function createSocial(
           chained
             ? {
                 ...publishRequest,
-                // Placeholder parent so adapters validate reply support before anything is sent.
-                replyTo: {
-                  kind: "platform-post",
-                  version: 1,
-                  backend: item.targets[0]!.account.backend,
-                  platform: item.targets[0]!.account.platform,
-                  accountId: item.targets[0]!.account.accountId,
-                  postId: "preflight",
-                },
+                targets: withPreflightParents(item.targets),
               }
             : publishRequest,
         );
@@ -1531,24 +1930,43 @@ export function createSocial(
 
       const results: PublishResult[] = [];
       const failures: { index: number; code: string; message: string }[] = [];
-      let previous: PlatformPostRef | undefined;
+      // Published parent per destination account; each destination is an independent chain.
+      let parents = new Map<string, PlatformPostRef>();
 
       for (const [index, publishRequest] of prepared.entries()) {
         const chained = request.replyToPrevious === true && index > 0;
+        const original = publishRequest.targets;
 
-        // Without a published parent the item would post as an unrelated root post.
-        if (chained && previous === undefined) break;
+        // Without a published parent a target would post as an unrelated root post.
+        const submitted = chained
+          ? original.flatMap((target, targetIndex) => {
+              const parent = parents.get(targetKey(target.account));
 
-        const nextRequest =
-          chained && previous !== undefined
-            ? { ...publishRequest, replyTo: previous }
-            : publishRequest;
+              return parent === undefined
+                ? []
+                : [{ targetIndex, target: { ...target, replyTo: parent } }];
+            })
+          : original.map((target, targetIndex) => ({ targetIndex, target }));
+
+        if (submitted.length === 0) break;
+
+        const nextRequest: PublishRequest =
+          submitted.length === original.length && !chained
+            ? publishRequest
+            : { ...publishRequest, targets: submitted.map((entry) => entry.target) };
 
         let result: PublishResult;
-        previous = undefined;
+        const children = new Map<string, PlatformPostRef>();
+        parents = children;
 
         try {
-          result = await publish(nextRequest, callOptions);
+          // Chains after the root are independent per destination, so each destination's
+          // reply gets its own claim. A replay after one chain recovers then submits the
+          // same per-destination requests instead of a different target set under one key.
+          result =
+            chained && original.length > 1
+              ? await publishDestinations(publishRequest, submitted, callOptions)
+              : await publish(nextRequest, callOptions);
         } catch (error) {
           if (error instanceof SocialError) {
             failures.push({ index, code: error.code, message: error.message });
@@ -1560,11 +1978,57 @@ export function createSocial(
           throw error;
         }
 
+        if (submitted.length < original.length) {
+          const observedAt = clock().toISOString();
+          const sent = new Set(submitted.map((entry) => entry.targetIndex));
+
+          // Report every destination: remap submitted outcomes to the item's target order and
+          // mark destinations whose previous link was not published as never submitted.
+          const outcomes: DeliveryOutcome[] = [
+            ...result.outcomes.map((outcome) => ({
+              ...outcome,
+              targetIndex: submitted[outcome.targetIndex]?.targetIndex ?? outcome.targetIndex,
+            })),
+            ...original.flatMap((target, targetIndex): DeliveryOutcome[] =>
+              sent.has(targetIndex)
+                ? []
+                : [
+                    {
+                      state: "not-submitted",
+                      reason: "before-submission",
+                      targetIndex,
+                      account: target.account,
+                      observedAt,
+                      issues: [
+                        {
+                          code: "sequence.parent_unpublished",
+                          message:
+                            "The previous item did not publish a post for this account, so its reply was not sent",
+                          targetIndex,
+                          severity: "error",
+                        },
+                      ],
+                    },
+                  ],
+            ),
+          ].sort((left, right) => left.targetIndex - right.targetIndex);
+
+          const warnings = result.warnings?.map((warning) => ({
+            ...warning,
+            targetIndex: submitted[warning.targetIndex]?.targetIndex ?? warning.targetIndex,
+          }));
+
+          result = { ...result, status: "partial", outcomes, ...definedFields({ warnings }) };
+        }
+
         results.push(result);
 
-        const published = result.outcomes.find((outcome) => outcome.state === "published");
+        for (const outcome of result.outcomes) {
+          const target = original[outcome.targetIndex];
 
-        if (published?.post !== undefined) previous = published.post;
+          if (outcome.state === "published" && target !== undefined)
+            children.set(targetKey(target.account), outcome.post);
+        }
 
         if (request.stopOnFailure !== false && result.status === "partial") break;
       }
@@ -1756,10 +2220,12 @@ export function createSocial(
 
       if (!adapter.analytics?.getAccountMetrics) unsupported("analytics.account.read", ref.backend);
 
-      return dispatch(ref.backend, callOptions?.signal, "analytics.account.read", () =>
-        adapter.analytics!.getAccountMetrics!(
-          ref,
-          makeContext(ref.backend, correlationId, callOptions),
+      return normalizeMetrics(
+        await dispatch(ref.backend, callOptions?.signal, "analytics.account.read", () =>
+          adapter.analytics!.getAccountMetrics!(
+            ref,
+            makeContext(ref.backend, correlationId, callOptions),
+          ),
         ),
       );
     },
@@ -1783,10 +2249,12 @@ export function createSocial(
 
       if (adapter.analytics === undefined) unsupported("analytics.read", ref.backend);
 
-      return dispatch(ref.backend, callOptions?.signal, "analytics.read", () =>
-        adapter.analytics!.getPostMetrics(
-          ref,
-          makeContext(ref.backend, correlationId, callOptions),
+      return normalizeMetrics(
+        await dispatch(ref.backend, callOptions?.signal, "analytics.read", () =>
+          adapter.analytics!.getPostMetrics(
+            ref,
+            makeContext(ref.backend, correlationId, callOptions),
+          ),
         ),
       );
     },
@@ -1837,7 +2305,7 @@ export function createSocial(
     async list(
       ref: PlatformPostRef,
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>> {
+    ): Promise<Page<CommentRecord>> {
       const correlationId = `social-${++correlationSequence}`;
 
       if (
@@ -1864,15 +2332,11 @@ export function createSocial(
 
       if (adapter.comments === undefined) unsupported("comments.read", ref.backend);
 
-      const cursorScope = JSON.stringify([
-        ref.backend,
-        "comments.read",
+      const cursorScope = inboxSourceScope(
+        { kind: "comments", post: ref },
         callOptions?.authorization?.tenantId ?? null,
-        ref.platform,
-        ref.accountId,
-        ref.postId,
         callOptions?.limit ?? null,
-      ]);
+      );
 
       const received = await dispatch(ref.backend, callOptions?.signal, "comments.read", () =>
         adapter.comments!.list(
@@ -1882,12 +2346,12 @@ export function createSocial(
         ),
       );
 
-      return encodePage(cursorScope, received);
+      return mapItems(encodePage(cursorScope, received), normalizeComment);
     },
     iterate(
       ref: PlatformPostRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject> {
+    ): AsyncIterable<CommentRecord> {
       return iterateItems(
         (cursor) => commentsFacade.list(ref, iterationPageOptions(callOptions, cursor)),
         callOptions,
@@ -1924,7 +2388,7 @@ export function createSocial(
     async listConversations(
       account: ConnectedAccountRef,
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>> {
+    ): Promise<Page<ConversationRecord>> {
       const correlationId = `social-${++correlationSequence}`;
 
       if (
@@ -1942,15 +2406,11 @@ export function createSocial(
 
       if (adapter.messages === undefined) unsupported("messages.read", account.backend);
 
-      const cursorScope = JSON.stringify([
-        account.backend,
-        "messages.read",
+      const cursorScope = inboxSourceScope(
+        { kind: "conversations", account },
         callOptions?.authorization?.tenantId ?? null,
-        account.platform,
-        account.accountId,
-        "conversations",
         callOptions?.limit ?? null,
-      ]);
+      );
 
       const received = await dispatch(account.backend, callOptions?.signal, "messages.read", () =>
         adapter.messages!.listConversations(
@@ -1960,12 +2420,12 @@ export function createSocial(
         ),
       );
 
-      return encodePage(cursorScope, received);
+      return mapItems(encodePage(cursorScope, received), normalizeConversation);
     },
     iterateConversations(
       account: ConnectedAccountRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject> {
+    ): AsyncIterable<ConversationRecord> {
       return iterateItems(
         (cursor) =>
           messagesFacade.listConversations(account, iterationPageOptions(callOptions, cursor)),
@@ -1975,7 +2435,7 @@ export function createSocial(
     async listMessages(
       ref: ConversationRef,
       callOptions?: PublishCallOptions & { readonly cursor?: string; readonly limit?: number },
-    ): Promise<Page<JsonObject>> {
+    ): Promise<Page<MessageRecord>> {
       const correlationId = `social-${++correlationSequence}`;
 
       if (
@@ -2020,12 +2480,12 @@ export function createSocial(
         ),
       );
 
-      return encodePage(cursorScope, received);
+      return mapItems(encodePage(cursorScope, received), normalizeMessage);
     },
     iterateMessages(
       ref: ConversationRef,
       callOptions?: PublishCallOptions & IterationOptions & { readonly limit?: number },
-    ): AsyncIterable<JsonObject> {
+    ): AsyncIterable<MessageRecord> {
       return iterateItems(
         (cursor) => messagesFacade.listMessages(ref, iterationPageOptions(callOptions, cursor)),
         callOptions,
@@ -2056,6 +2516,21 @@ export function createSocial(
         adapter.messages!.send(ref, content, makeContext(ref.backend, correlationId, callOptions)),
       );
     },
+  };
+
+  const inbox = config.inbox?.({
+    concurrency,
+    nextCorrelationId,
+    validateAccountRef,
+    authorizeRef,
+    listConversations: (account, options) => messagesFacade.listConversations(account, options),
+    listComments: (post, options) => commentsFacade.list(post, options),
+  });
+
+  const inboxFacade = {
+    list: async (input: InboxListInput, options?: PublishCallOptions) =>
+      inbox?.list(input, options) ??
+      notInstalled("inbox.list", "inbox: inboxAggregation()", "@opencoredev/social-sdk/inbox"),
   };
 
   const notificationsFacade = {
@@ -2145,6 +2620,7 @@ export function createSocial(
 
   return {
     accounts: accountsFacade,
+    ...definedFields({ jobRunner: config.jobRunner }),
     graph: graphFacade,
     posts: postsFacade,
     search: searchFacade,
@@ -2152,6 +2628,7 @@ export function createSocial(
     analytics: analyticsFacade,
     comments: commentsFacade,
     messages: messagesFacade,
+    inbox: inboxFacade,
     notifications: notificationsFacade,
     capabilities: () =>
       Object.fromEntries(entries.map(([key, adapter]) => [key, adapter.capabilities])),
@@ -2211,6 +2688,10 @@ function encodePage<T>(scope: string, page: Page<T>): Page<T> {
   if (page.nextCursor !== undefined) result.nextCursor = encodeCursor(scope, page.nextCursor);
 
   return result;
+}
+
+function mapItems<T, U>(page: Page<T>, project: (item: T) => U): Page<U> {
+  return { ...page, items: page.items.map(project) };
 }
 
 function iterationPageOptions<T extends object>(

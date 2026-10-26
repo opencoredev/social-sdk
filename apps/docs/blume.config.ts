@@ -61,6 +61,7 @@ export default defineConfig({
               icon: "/integrations/instagram.svg",
             },
             { label: "LinkedIn", root: "/platforms/linkedin", icon: "/integrations/linkedin.svg" },
+            { label: "Facebook", root: "/platforms/facebook", icon: "/integrations/facebook.svg" },
           ],
         },
         {
@@ -82,6 +83,7 @@ export default defineConfig({
             },
             { label: "Postiz", root: "/backends/postiz", icon: "/integrations/postiz.svg" },
             { label: "Buffer", root: "/backends/buffer", icon: "calendar-clock" },
+            { label: "Upload-Post", root: "/backends/upload-post", icon: "upload" },
           ],
         },
         {
@@ -177,6 +179,8 @@ export default defineConfig({
               icon: "puzzle",
             },
             { label: "Integrate with an agent", root: "/agents/integrate-social-sdk", icon: "bot" },
+            { label: "AI agent tools", root: "/agents/ai-tools", icon: "wrench" },
+            { label: "MCP server", root: "/agents/mcp-server", icon: "plug" },
             {
               label: "Integration checklist",
               root: "/agents/integration-checklist",

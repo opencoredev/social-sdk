@@ -3,7 +3,7 @@ title: Trigger.dev
 description: Run scheduled social publishing and delivery reconciliation as durable Trigger.dev tasks with Social SDK idempotency keys and explicit outcomes.
 ---
 
-Social SDK deliberately owns no scheduler: nothing in the SDK fires later, polls, or retries an uncertain public write on its own. Trigger.dev supplies that missing piece as durable tasks with retries and delays you configure, while the SDK keeps every platform call explicit.
+Trigger.dev runs durable tasks with retries and delays you configure. You can use it to call [SocialScheduler.runDue](/publishing#schedule-with-socialscheduler) or keep the application-owned workflow below. Social SDK starts no background worker and never retries an uncertain public write automatically.
 
 ## Install
 

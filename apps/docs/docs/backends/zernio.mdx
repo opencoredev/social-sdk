@@ -88,7 +88,7 @@ const result = await social.posts.publish(
 );
 ```
 
-`result.outcomes` has one entry per target. Type each account as `ConnectedAccountRef<"youtube">` and so on so TypeScript checks the options. The adapter rejects LinkedIn `visibility: "connections"` and Threads `replyControl` at preparation.
+`result.outcomes` has one entry per target. Type each account as `ConnectedAccountRef<"youtube">` and so on so TypeScript checks the options. The adapter rejects LinkedIn `visibility: "connections"` and Threads `replyControl` at preparation. An X target with a `platform-post` `replyTo` is published as a reply through `platformSpecificData.replyToTweetId`, so `publishSequence` with `replyToPrevious` builds X threads. Other platforms reject publish-time replies with `reply.use_comments`.
 
 ## Schedule and check a delivery
 
@@ -251,6 +251,21 @@ export function webhookRoute(input: {
 ```
 
 `inbox` is your durable event store and `resolveTenants` maps Zernio account IDs to your tenants. See [events](/events) for both.
+
+## Other platforms
+
+Zernio accounts on Pinterest, Reddit, Telegram, Discord, Google Business Profile, and Snapchat are listed and publish through the same `posts.publish` call. Zernio's `googlebusiness` appears as `google-business`. Each platform takes the options Zernio documents for it:
+
+| Platform          | Options                                                                   |
+| ----------------- | ------------------------------------------------------------------------- |
+| `pinterest`       | `boardId`, `title`, `link`. Media is required.                            |
+| `reddit`          | `subreddit` (required), `title`, `flairId`, `nsfw`                        |
+| `discord`         | `channelId` (required)                                                    |
+| `google-business` | `locationId`                                                              |
+| `snapchat`        | `contentType`: `story`, `saved_story`, or `spotlight`. Media is required. |
+| `telegram`        | none                                                                      |
+
+WhatsApp accounts are listed but not published to, because Zernio's WhatsApp surface is messaging. Accounts on networks the SDK has no name for, such as Slack, are left out of listings. Set `unknownPlatforms: "include"` when creating the adapter to list them under Zernio's own identifier for reading.
 
 ## Connect accounts
 

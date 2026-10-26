@@ -1,6 +1,6 @@
 ---
 title: TikTok
-description: Prepare TikTok creator choices and publish verified media URLs with Social SDK, covering consent, privacy settings, drafts, and processing checks.
+description: Prepare TikTok creator choices and publish verified media URLs or local videos with Social SDK, covering consent, privacy, drafts, and processing checks.
 ---
 
 The direct TikTok adapter accepts an existing access token and creator `openId`. The server package also provides `tiktokOAuth` for TikTok Login Kit web authorization and creator discovery. OAuth consent does not replace the creator preview and publish consent requirements.
@@ -16,8 +16,8 @@ The direct TikTok adapter accepts an existing access token and creator `openId`.
     `user.info.stats` for account statistics.
   </Step>
   <Step title="Verify media origins">
-    The adapter uses `PULL_FROM_URL`. Verify each media domain or URL prefix with TikTok and list
-    its HTTPS origin in `verifiedMediaOrigins`.
+    For `PULL_FROM_URL`, verify each media domain or URL prefix with TikTok and list its HTTPS
+    origin in `verifiedMediaOrigins`.
   </Step>
   <Step title="Configure the adapter">
     Construct the backend with the token, `openId`, and verified origins.
@@ -127,6 +127,17 @@ async function publishVideo(choices: CreatorChoices) {
   });
 }
 ```
+
+Local videos use `FILE_UPLOAD` instead of `PULL_FROM_URL`. Supply a Blob source
+or a replayable stream with an exact positive `byteSize`, an explicit
+`video/mp4`, `video/quicktime`, or `video/webm` MIME type, and known duration.
+The adapter transfers at most 4 GiB in bounded chunks. `uploadChunkBytes` accepts
+5–64 MiB and defaults to 10 MiB; small files upload as a single chunk. Provider
+upload requests carry no API access token, follow no redirects, and are never
+retried automatically. A successful transfer returns `processing`, not
+`published`. Keep the delivery reference and reconcile uncertain transfers
+before trying another upload. Verified media origins are needed for URL pulls,
+not for local video uploads.
 
 ### Publish a photo carousel
 
