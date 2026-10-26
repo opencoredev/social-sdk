@@ -6341,8 +6341,7 @@
           "formats": [
             "text",
             "image",
-            "video",
-            "carousel"
+            "video"
           ],
           "constraints": {
             "approval": [
