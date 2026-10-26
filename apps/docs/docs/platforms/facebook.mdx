@@ -115,7 +115,7 @@ const reel = await social.posts.publish({
 });
 ```
 
-A feed video goes to `graph-video.facebook.com` and accepts a URL or a `Blob` up to 1 GiB. A Reel uses Meta's three-phase Reels API and needs a hosted 9:16 video of 3 to 90 seconds. Both return `processing` with a delivery reference, because Facebook processes video after upload.
+A feed video goes to `graph-video.facebook.com` and accepts a URL or a `Blob` up to 1 GiB. A Reel uses Meta's three-phase Reels API and needs a hosted 9:16 video of 3 to 90 seconds. Both return `processing` with a delivery reference, because Facebook processes video after upload. If a Reel upload fails after Facebook has created the Reel, the outcome still carries that delivery reference: `unknown` when the request timed out or its result is unclear, otherwise `failed` with retry disposition `reconcile-first`. Check it with `getDelivery` before publishing again.
 
 ### Reconcile video processing
 
@@ -141,7 +141,9 @@ const outcome = scheduled.outcomes[0];
 if (outcome?.state === "scheduled") await social.posts.cancelScheduled(outcome.job);
 ```
 
-Scheduling uses Facebook's own `scheduled_publish_time`, so no job runner is required. Meta accepts times between 10 minutes and 30 days after the request; preparation reports `facebook.schedule_window` otherwise. Text, photos, videos, and Reels can all be scheduled. Cancelling deletes the unpublished post.
+Scheduling uses Facebook's own `scheduled_publish_time`, so no job runner is required. Meta accepts times between 10 minutes and 30 days after the request; preparation reports `facebook.schedule_window` otherwise. Text, photos, videos, and Reels can all be scheduled.
+
+Cancelling reads the post or video first and deletes it only while Facebook reports it unpublished with a future `scheduled_publish_time`. If the item is published, its time has passed, or it has no publish time, `cancelScheduled` throws `invalid_input` and deletes nothing. A job that was due may already be live, so reconcile it with `getDelivery` instead of cancelling.
 
 ### Read and remove posts
 
@@ -193,6 +195,7 @@ Subscribe your app to the Page's `feed` field. The adapter verifies `X-Hub-Signa
 ## Limits and requirements
 
 - One Page per adapter instance. Create one adapter per Page and register each under its own backend key.
+- An expired or revoked Page token (Graph error code 190) fails as `reconnect_required` with retry disposition `after-reconnect`.
 - Replies through `posts.publish` are rejected with `reply.use_comments`; use `comments.reply`.
 - Mixed image and video posts, documents, streams, per-attachment captions, custom thumbnails, and video alt text are rejected at preparation.
 - Editing published posts and Page messaging (Messenger Platform) are not implemented.

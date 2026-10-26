@@ -6,7 +6,14 @@ import { isJsonObject, isJsonArray, isString } from "./validation.js";
 // Meta Graph APIs report an invalid, expired, or revoked access token as an
 // OAuthException with code 190, usually on HTTP 400 rather than 401. Source:
 // https://developers.facebook.com/docs/graph-api/guides/error-handling (accessed 2026-10-24).
-const metaGraphHosts = new Set(["graph.instagram.com", "graph.facebook.com", "graph.threads.net"]);
+// Facebook video uploads use graph-video.facebook.com and Reels bytes go to rupload.facebook.com.
+const metaGraphHosts = new Set([
+  "graph.instagram.com",
+  "graph.facebook.com",
+  "graph-video.facebook.com",
+  "rupload.facebook.com",
+  "graph.threads.net",
+]);
 
 function hostname(origin: string): string | undefined {
   try {
