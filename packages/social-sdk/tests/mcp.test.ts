@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createSocialToolkit, defineNativeTool } from "../src/ai/index.js";
 import { runCli } from "../src/cli.js";
 import {
+  SocialError,
   createSocial,
   type AuthorizationPolicy,
   type JsonObject,
@@ -502,4 +503,58 @@ it("social-sdk mcp serves offline diagnostics over stdio without printing values
   });
 
   assert.equal(noStdin, 2);
+});
+
+it("transports reject limits that would stall or disable them", async () => {
+  const server = createMcpServer(createSocialToolkit(createSocial({ backend: mockBackend() })));
+
+  const isConfigError =
+    (name: string) =>
+    (error: unknown): error is SocialError =>
+      error instanceof SocialError &&
+      error.code === "invalid_config" &&
+      error.message.startsWith(name);
+
+  const bad = [
+    { maxInFlight: 0 },
+    { maxInFlight: -1 },
+    { maxInFlight: 1.5 },
+    { maxInFlight: Number.NaN },
+    { maxQueued: -1 },
+    { maxQueued: 0.5 },
+    { maxMessageBytes: 0 },
+  ];
+
+  for (const limits of bad) {
+    const [name = ""] = Object.keys(limits);
+
+    const session = serveMcpStdio(server, {
+      input: lines(`${JSON.stringify(rpc(1, "ping"))}\n`),
+      write: () => undefined,
+      ...limits,
+    });
+
+    const outcome = await Promise.race([
+      assert.rejects(session, isConfigError(name)).then(() => "rejected"),
+      new Promise((resolve) => setTimeout(() => resolve("hung"), 2000)),
+    ]);
+
+    assert.equal(outcome, "rejected", JSON.stringify(limits));
+  }
+
+  // A queue of zero is valid: requests run only when a slot is free.
+  const output: string[] = [];
+
+  await serveMcpStdio(server, {
+    input: lines(`${JSON.stringify(rpc(1, "ping"))}\n`),
+    write: (line) => output.push(line),
+    maxQueued: 0,
+  });
+  assert.equal(output.length, 1);
+
+  for (const maxBodyBytes of [0, Number.NaN, 2.5])
+    assert.throws(
+      () => createMcpHttpHandler(server, { authorize: async () => ({}), maxBodyBytes }),
+      isConfigError("maxBodyBytes"),
+    );
 });

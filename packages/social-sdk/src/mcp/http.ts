@@ -2,6 +2,7 @@ import type { AuthorizationContext, JsonObject, JsonValue } from "../core/types.
 import { isJsonValue } from "../transport/json.js";
 import { isJsonObject } from "../transport/validation.js";
 import {
+  integerOption,
   isSupportedProtocolVersion,
   jsonRpcError,
   jsonRpcErrorCodes,
@@ -97,7 +98,15 @@ export function createMcpHttpHandler(
   server: McpServer,
   options: McpHttpOptions,
 ): (request: Request) => Promise<Response> {
-  const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
+  // NaN would disable the body bound, and zero would refuse every request.
+  const maxBodyBytes = integerOption({
+    value: options.maxBodyBytes,
+    fallback: 1024 * 1024,
+    min: 1,
+    name: "maxBodyBytes",
+    operation: "mcp.http",
+  });
+
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
 
   return async (request) => {

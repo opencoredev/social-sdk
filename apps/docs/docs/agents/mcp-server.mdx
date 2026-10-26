@@ -45,7 +45,7 @@ export const POST = handler; // Next.js app/api/mcp/route.ts
 
 ## Stdio
 
-`serveMcpStdio` reads newline-delimited JSON-RPC from an input stream and writes responses to stdout. Requests run concurrently (`maxInFlight`, default 16) and wait in a bounded queue (`maxQueued`, default 256) beyond that. Each element of a JSON-RPC batch counts as one request against both limits, and the batch's replies are still sent together. A batch that does not fit gets a `Server busy` error for each of its requests. Reading never waits on them, so `notifications/cancelled` aborts the matching call whether it is queued or running.
+`serveMcpStdio` reads newline-delimited JSON-RPC from an input stream and writes responses to stdout. Requests run concurrently (`maxInFlight`, default 16) and wait in a bounded queue (`maxQueued`, default 256) beyond that. Each element of a JSON-RPC batch counts as one request against both limits, and the batch's replies are still sent together. A batch that does not fit gets a `Server busy` error for each of its requests. Reading never waits on them, so `notifications/cancelled` aborts the matching call whether it is queued or running. `maxInFlight` must be an integer of at least 1, `maxQueued` at least 0, and `maxMessageBytes` at least 1; `serveMcpStdio` rejects other values with `invalid_config` before it reads any input, and `createMcpHttpHandler` throws the same error for an invalid `maxBodyBytes`.
 
 ```ts
 import { serveMcpStdio } from "@opencoredev/social-sdk/mcp";
