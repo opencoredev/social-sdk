@@ -1080,7 +1080,7 @@ describe("key-value schedule store", () => {
       now: start.toISOString(),
     };
 
-    assert.equal(await store.reserveSlot({ ...slot, jobId: "J", token: "reschedule" }), true);
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "J", token: "reschedule:1" }), true);
 
     // A concurrent schedule({ id: "J" }) does not share the reschedule's reservation...
     assert.equal(await store.reserveSlot({ ...slot, jobId: "J", token: "duplicate" }), false);
@@ -1090,8 +1090,58 @@ describe("key-value schedule store", () => {
     assert.equal(await store.reserveSlot({ ...slot, jobId: "K", token: "k" }), false);
 
     // The owning operation can still release its own reservation.
-    await store.releaseSlot({ ...slot, jobId: "J", token: "reschedule" });
+    await store.releaseSlot({ ...slot, jobId: "J", token: "reschedule:1" });
     assert.equal(await store.reserveSlot({ ...slot, jobId: "K", token: "k" }), true);
+  });
+
+  test("a later reschedule of the same job reuses the slot an earlier move left", async () => {
+    const store = createKeyValueScheduleStore(new MemoryKeyValueStore());
+
+    const vacated = {
+      scope: "t1",
+      queueId: "daily",
+      at: "2026-03-02T09:00:00.000Z",
+      now: start.toISOString(),
+    };
+
+    // J was scheduled into the slot, then moved to 11:00; its old reservation remains.
+    assert.equal(await store.reserveSlot({ ...vacated, jobId: "J", token: "first" }), true);
+    await store.create({
+      ...sampleJob("J"),
+      queueId: "daily",
+      lease: { owner: "reschedule:2", until: "2026-03-01T12:00:00.000Z" },
+    });
+
+    assert.equal(await store.reserveSlot({ ...vacated, jobId: "J", token: "reschedule:2" }), true);
+  });
+
+  test("taking a slot from an operation whose lease expired revokes that lease", async () => {
+    const store = createKeyValueScheduleStore(new MemoryKeyValueStore());
+
+    await store.create({
+      ...sampleJob("J"),
+      queueId: "daily",
+      lease: { owner: "reschedule:3", until: "2026-03-01T09:59:00.000Z" },
+    });
+
+    const slot = {
+      scope: "t1",
+      queueId: "daily",
+      at: "2026-03-02T09:00:00.000Z",
+      now: start.toISOString(),
+    };
+
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "J", token: "reschedule:3" }), true);
+
+    const before = await store.get({ scope: "t1", id: "J" });
+
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "K", token: "k" }), true);
+
+    // The stalled reschedule's commit compares against `before.revision`, which is now stale.
+    const after = await store.get({ scope: "t1", id: "J" });
+
+    assert.equal(after?.job.lease, undefined);
+    assert.notEqual(after?.revision, before?.revision);
   });
 
   test("uses compare-and-set revisions and lists only due, unleased jobs", async () => {

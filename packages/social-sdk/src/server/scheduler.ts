@@ -817,7 +817,8 @@ export class SocialScheduler {
 
     try {
       if (at.kind === "queue") {
-        const token = crypto.randomUUID();
+        // The fence lease owner names this operation, so the slot stays held while it runs.
+        const token = fenceOwner;
 
         runAt = await this.#reserveQueueSlot({ key, at, now, skip: job.runAt, token });
         reserved = { scope: key.scope, queueId: at.queueId, at: runAt, jobId: id, token };

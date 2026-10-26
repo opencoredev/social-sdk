@@ -149,9 +149,10 @@ export interface ScheduleStore {
     readonly at: string;
     readonly jobId: string;
     /**
-     * Identifies the schedule or reschedule operation making the reservation. Two
-     * operations on the same job ID hold separate reservations, so one's cleanup can never
-     * free the other's slot.
+     * Identifies the schedule or reschedule operation making the reservation. A reschedule
+     * passes its fence lease owner, so the reservation stays held exactly while that lease
+     * is live. Two operations on the same job ID hold separate reservations, so one's
+     * cleanup can never free the other's slot.
      */
     readonly token: string;
     /** Current UTC instant, used to tell a live holder lease from an expired one. */
@@ -585,19 +586,37 @@ export function createKeyValueScheduleStore(
 
         if (owner.jobId === input.jobId && owner.token === input.token) return true;
 
-        // A reservation whose job was never written is treated as held, and so is one
-        // whose job holds a live lease: a reschedule reserves before it saves the move.
-        // This applies to another operation on the same job ID too.
+        // The reservation stays held while its operation can still commit into the slot: the
+        // job is being created (no record yet), its saved record occupies the slot, or the
+        // operation that made it (a reschedule reserves under its fence lease owner) still
+        // holds a live lease. A job's reservation left behind by an earlier, finished move is
+        // stale, even for a later operation on the same job.
         const holder = await read(input.scope, owner.jobId);
+
+        const lease = holder?.job.lease;
+        const leaseLive = lease !== undefined && Date.parse(lease.until) > Date.parse(input.now);
 
         if (
           holder === undefined ||
           (activeStatuses.has(holder.job.status) &&
-            ((holder.job.lease !== undefined &&
-              Date.parse(holder.job.lease.until) > Date.parse(input.now)) ||
-              (holder.job.queueId === input.queueId && holder.job.runAt === input.at)))
+            ((holder.job.queueId === input.queueId && holder.job.runAt === input.at) ||
+              (leaseLive && lease.owner === owner.token)))
         )
           return false;
+
+        // An operation that outlived its lease may still try to commit into this slot.
+        // Revoking the expired lease changes the holder's revision, so that commit fails.
+        if (lease !== undefined && !leaseLive) {
+          const { lease: _expired, ...released } = holder.job;
+
+          const revoked = await kv.compareAndSet({
+            key: jobKey(input.scope, owner.jobId),
+            expectedVersion: holder.revision,
+            value: encodeJob(released),
+          });
+
+          if (!revoked.updated) continue;
+        }
 
         if ((await kv.compareAndSet({ key, expectedVersion: current.version, value })).updated)
           return true;
