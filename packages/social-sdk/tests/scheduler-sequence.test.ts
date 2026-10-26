@@ -10,6 +10,7 @@ import {
   type ConnectedAccountRef,
   type DeliveryOutcome,
   type DeliveryRef,
+  type IdempotencyStore,
   type PreparedPublishTarget,
   type PublishSequenceRequest,
 } from "../src/index.js";
@@ -57,7 +58,10 @@ type Behavior = (
 type BehaviorResult = "publish" | "accept" | "unknown" | "fail";
 
 /** Each account's behavior is chosen per call; accepted deliveries publish when `release` runs. */
-function chainHarness(behavior: Behavior = () => "publish") {
+function chainHarness(
+  behavior: Behavior = () => "publish",
+  idempotencyStore: IdempotencyStore = new MemoryIdempotencyStore(),
+) {
   const sent: Sent[] = [];
   const attempts = new Map<string, number>();
   const accepted = new Map<string, { account: ConnectedAccountRef; released: boolean }>();
@@ -162,7 +166,7 @@ function chainHarness(behavior: Behavior = () => "publish") {
   const social = createSocial({
     recovery: outcomeRecovery(),
     backend: adapter,
-    idempotencyStore: new MemoryIdempotencyStore(),
+    idempotencyStore,
     clock,
   });
 
@@ -176,6 +180,7 @@ function chainHarness(behavior: Behavior = () => "publish") {
 
   return {
     scheduler,
+    social,
     sent,
     release: () => {
       for (const entry of accepted.values()) entry.released = true;
@@ -415,6 +420,102 @@ describe("scheduled reply chains", () => {
 
     // The retried parent published, so nothing can still publish and cancel settles.
     assert.equal((await h.scheduler.cancel(job.id)).state, "cancelled");
+  });
+
+  test("a storage failure after a retry sends leaves the parent unresolved, not failed", async () => {
+    const store = new MemoryIdempotencyStore();
+    let failSave = true;
+
+    // Saving the retry's result fails once, after the fence moved the claim to `unknown`
+    // and the retry was sent.
+    const flaky: IdempotencyStore = {
+      claim: (input) => store.claim(input),
+      saveOutcome: (input) => store.saveOutcome(input),
+      async compareAndSetOutcome(input) {
+        if (failSave && input.expected?.state === "unknown") {
+          failSave = false;
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "idempotency.store",
+            message: "write failed",
+          });
+        }
+
+        return store.compareAndSetOutcome(input);
+      },
+    };
+
+    const h = chainHarness(
+      (target, attempt) =>
+        target.account.accountId === "alpha" && target.content.text === "1/" && attempt === 1
+          ? "fail"
+          : "publish",
+      flaky,
+    );
+
+    const job = await h.scheduler.schedule({
+      work: {
+        kind: "sequence",
+        request: thread([
+          { targets: [alpha, beta], text: "1/" },
+          { targets: [alpha, beta], text: "2/" },
+        ]),
+      },
+      at,
+    });
+
+    h.setNow(due);
+    await h.scheduler.runDue({ now: due });
+
+    const retried = await h.scheduler.retryFailed(job.id);
+    const parent = retried?.lanes[0]?.steps[0];
+
+    assert.equal(h.sent.filter((entry) => entry.accountId === "alpha").length, 2);
+    assert.equal(parent?.state, "dispatched");
+    assert.equal(
+      parent?.state === "dispatched" ? parent.outcomes[0]?.state : undefined,
+      "unknown",
+      "the retry may have published, so the old failure is not restored",
+    );
+
+    // Cancel cannot report a clean cancellation while the retried parent may publish.
+    assert.equal((await h.scheduler.cancel(job.id)).state, "unresolved");
+  });
+
+  test("a retry that sends nothing still saves newer outcomes from another retry", async () => {
+    const h = chainHarness((target, attempt) =>
+      target.account.accountId === "alpha" && target.content.text === "1/" && attempt === 1
+        ? "fail"
+        : "publish",
+    );
+
+    const job = await h.scheduler.schedule({
+      work: {
+        kind: "sequence",
+        request: thread([
+          { targets: [alpha, beta], text: "1/" },
+          { targets: [alpha, beta], text: "2/" },
+        ]),
+      },
+      at,
+    });
+
+    h.setNow(due);
+    await h.scheduler.runDue({ now: due });
+
+    const parent = (await h.scheduler.get(job.id))?.lanes[0]?.steps[0];
+    assert.equal(parent?.state, "dispatched");
+
+    // Another process retries the same claim directly and publishes the parent.
+    if (parent?.state === "dispatched") await h.social.posts.retryFailed(parent.request);
+    assert.equal(h.sent.filter((entry) => entry.accountId === "alpha").length, 2);
+
+    const retried = await h.scheduler.retryFailed(job.id);
+    assert.equal(retried?.status, "completed");
+    assert.deepEqual(
+      h.sent.map((entry) => `${entry.accountId}:${entry.text}`),
+      ["alpha:1/", "beta:1/", "beta:2/", "alpha:1/", "alpha:2/"],
+    );
   });
 
   test("a non-chained sequence stops after a failed item by default", async () => {

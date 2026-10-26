@@ -8,7 +8,11 @@ UTC instants, IANA local times, and queue slots, reject skipped daylight-saving 
 duplicate slots. `runDue` claims jobs with compare-and-set leases, submits early to routes that
 declare native scheduling, runs per-destination reply chains only under published parents, and
 recovers interrupted steps from their idempotency claim instead of resending them. Cancellation and
-rescheduling require provider confirmation before native posts count as withdrawn.
+rescheduling require provider confirmation before native posts count as withdrawn. Queue slots
+and reschedules are checked at the actual time before anything is saved or cancelled, and a failed
+check frees the reserved slot through `ScheduleStore.releaseSlot`. A native job that misses its time
+on a route that only schedules (PostFast) is blocked with `schedule_missed` instead of being sent
+without a schedule. A retry that throws after it may have sent leaves the step unresolved.
 
 Add `posts.reconcile`, `posts.retryFailed`, and `posts.authorize` to the client, plus
 `OutcomeReconciler`. Reconcile and retry are opt-in: create the client with

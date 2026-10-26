@@ -1,4 +1,5 @@
 import type { SocialToolkit } from "../ai/toolkit.js";
+import { SocialError } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
 import type { AuthorizationContext, JsonObject, JsonValue } from "../core/types.js";
 import { isJsonArray, isJsonObject, isString } from "../transport/validation.js";
@@ -196,6 +197,29 @@ export function createMcpServer(toolkit: SocialToolkit, options: McpServerOption
 }
 
 /** Builds the per-message context, omitting absent fields. */
+/**
+ * Reads an optional integer transport limit. A zero, negative, fractional, or NaN value
+ * would stall or disable a limit silently, so it fails when the transport is created.
+ */
+export function integerOption(input: {
+  readonly value: number | undefined;
+  readonly fallback: number;
+  readonly min: number;
+  readonly name: string;
+  readonly operation: string;
+}): number {
+  const value = input.value ?? input.fallback;
+
+  if (!Number.isSafeInteger(value) || value < input.min)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: input.operation,
+      message: `${input.name} must be an integer of at least ${input.min}`,
+    });
+
+  return value;
+}
+
 export function requestContext(
   authorization: AuthorizationContext | undefined,
   signal: AbortSignal | undefined,

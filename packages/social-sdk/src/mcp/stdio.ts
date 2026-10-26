@@ -1,7 +1,13 @@
 import type { AuthorizationContext, JsonObject, JsonValue } from "../core/types.js";
 import { isJsonValue } from "../transport/json.js";
 import { isFiniteNumber, isJsonArray, isJsonObject, isString } from "../transport/validation.js";
-import { jsonRpcError, jsonRpcErrorCodes, requestContext, type McpServer } from "./server.js";
+import {
+  integerOption,
+  jsonRpcError,
+  jsonRpcErrorCodes,
+  requestContext,
+  type McpServer,
+} from "./server.js";
 
 export interface McpStdioOptions {
   /** Message input, such as `process.stdin`. The session ends when it ends. */
@@ -12,9 +18,12 @@ export interface McpStdioOptions {
   readonly authorization?: AuthorizationContext;
   /** Largest accepted message. Default 1 MiB. */
   readonly maxMessageBytes?: number;
-  /** Requests handled concurrently. Default 16. */
+  /** Requests handled concurrently, at least 1. Default 16. */
   readonly maxInFlight?: number;
-  /** Requests waiting for a slot before new ones get a "Server busy" error. Default 256. */
+  /**
+   * Requests waiting for a slot before new ones get a "Server busy" error, at least 0.
+   * Default 256.
+   */
   readonly maxQueued?: number;
 }
 
@@ -58,9 +67,33 @@ function parseLine(line: string): JsonValue | undefined {
  * queued or running, whose response is then dropped.
  */
 export async function serveMcpStdio(server: McpServer, options: McpStdioOptions): Promise<void> {
-  const maxBytes = options.maxMessageBytes ?? 1024 * 1024;
-  const maxInFlight = options.maxInFlight ?? 16;
-  const maxQueued = options.maxQueued ?? 256;
+  const operation = "mcp.stdio";
+
+  const maxBytes = integerOption({
+    value: options.maxMessageBytes,
+    fallback: 1024 * 1024,
+    min: 1,
+    name: "maxMessageBytes",
+    operation,
+  });
+
+  // With no slot no request ever starts, so the client would wait without an answer.
+  const maxInFlight = integerOption({
+    value: options.maxInFlight,
+    fallback: 16,
+    min: 1,
+    name: "maxInFlight",
+    operation,
+  });
+
+  const maxQueued = integerOption({
+    value: options.maxQueued,
+    fallback: 256,
+    min: 0,
+    name: "maxQueued",
+    operation,
+  });
+
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const controllers = new Map<string, AbortController>();

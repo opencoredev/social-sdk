@@ -61,7 +61,7 @@ await toolkit.call("social_get_account", { account }, { authorization: session, 
 
 The toolkit adds its own safeguards:
 
-- `maxPageSize` (default 50) is the page size when an agent omits `limit` and caps any `limit` it requests.
+- `maxPageSize` (default 50) caps any `limit` an agent requests. When the agent omits `limit`, the toolkit asks for 20, or `maxPageSize` if it is smaller. Every built-in list operation accepts 20; direct TikTok allows no more.
 - `limits: { maxCalls, maxWrites }` fails further calls with `rate_limited` once spent.
 - Failures resolve to `{ ok: false, error }` with a `SocialError` code. Unexpected adapter errors become a generic `upstream_failure` without their message.
 

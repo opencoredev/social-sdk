@@ -215,7 +215,10 @@ export interface SocialToolkitOptions {
   readonly policy?: AuthorizationPolicy;
   /** Expose only these tools. Tools the backends do not declare stay hidden either way. */
   readonly tools?: readonly SocialToolName[];
-  /** Page size when an agent omits `limit`, and the cap on any limit it requests. Default 50. */
+  /**
+   * The cap on any `limit` an agent requests. Default 50. When an agent omits `limit`,
+   * the toolkit asks for 20, or this cap when it is smaller.
+   */
   readonly maxPageSize?: number;
   /** Per-toolkit budgets. Exhausted budgets fail with `rate_limited`. */
   readonly limits?: { readonly maxCalls?: number; readonly maxWrites?: number };
@@ -403,6 +406,11 @@ export function createSocialToolkit(
   if (!Number.isSafeInteger(maxPageSize) || maxPageSize < 1 || maxPageSize > 1000)
     throw invalidConfig("maxPageSize must be an integer from 1 through 1000");
 
+  // Adapter defaults reach 100, above the cap, so an omitted limit is set explicitly. 20
+  // is a size every built-in list operation accepts: TikTok allows at most 20, and some X
+  // searches need at least 10.
+  const defaultPageSize = Math.min(20, maxPageSize);
+
   for (const [name, value] of Object.entries(options.limits ?? {}))
     if (value !== undefined && (!Number.isSafeInteger(value) || value < 0))
       throw invalidConfig(`limits.${name} must be a nonnegative integer`);
@@ -533,8 +541,7 @@ export function createSocialToolkit(
       ...run.options,
       ...definedFields({
         cursor: optionalTextAt(args["cursor"], "cursor"),
-        // Adapter defaults can exceed the cap, so an omitted limit uses it too.
-        limit: Math.min(limit ?? maxPageSize, maxPageSize),
+        limit: limit === undefined ? defaultPageSize : Math.min(limit, maxPageSize),
       }),
     };
   }

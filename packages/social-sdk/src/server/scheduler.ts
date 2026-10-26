@@ -461,8 +461,57 @@ function withStep(input: {
   return changed ? { ...input.job, lanes } : undefined;
 }
 
+/** The job's lanes with one native lane switched to runtime dispatch. */
+function runtimeLane(job: ScheduledJob, lane: ScheduledLane): ScheduledLane[] {
+  return job.lanes.map((candidate) =>
+    candidate.id === lane.id ? { ...candidate, mode: "runtime" } : candidate,
+  );
+}
+
 function pendingStep(step: ScheduledStep): ScheduledStep {
   return { itemIndex: step.itemIndex, targetIndexes: step.targetIndexes, state: "pending" };
+}
+
+/**
+ * A retried step rebuilt from its claim's outcomes. When nothing was sent and no outcome
+ * changed, it keeps its poll count and the refusal that stopped later items.
+ */
+function retriedStep(input: {
+  readonly previous: Extract<ScheduledStep, { readonly state: "dispatched" }>;
+  readonly outcomes: DeliveryOutcome[];
+  readonly sent: boolean;
+}): ScheduledStep {
+  const { previous, outcomes } = input;
+
+  const unchanged =
+    !input.sent &&
+    outcomes.map((outcome) => outcome.state).join() ===
+      previous.outcomes.map((outcome) => outcome.state).join();
+
+  return {
+    ...pendingStep(previous),
+    state: "dispatched",
+    request: previous.request,
+    outcomes,
+    polls: unchanged ? previous.polls : 0,
+    ...definedFields({ error: unchanged ? previous.error : undefined }),
+  };
+}
+
+/**
+ * Lanes after a move: every step pending under a new revision, so replacement provider
+ * work gets new keys. A native lane converted to runtime after a missed window becomes
+ * native again.
+ */
+function rescheduledLanes(job: ScheduledJob): ScheduledLane[] {
+  return job.lanes.map(
+    (lane): ScheduledLane => ({
+      ...lane,
+      mode: lane.id === "native" ? "native" : lane.mode,
+      revision: lane.revision + 1,
+      steps: lane.steps.map(pendingStep),
+    }),
+  );
 }
 
 /** Outcomes per item, merged across lanes, by original target index. */
@@ -588,11 +637,21 @@ export class SocialScheduler {
     }
 
     validateQueue(at);
-    await this.#preflight(draft(new Date(now.getTime() + 86_400_000).toISOString()));
 
     const runAt = await this.#reserveQueueSlot({ key: { scope, id }, at, now: now.getTime() });
+    const slot = { scope, queueId: at.queueId, at: runAt, jobId: id };
 
-    return this.#create(draft(runAt));
+    // Routes check the real slot (Facebook needs ten minutes of notice), and a failed
+    // check or an existing job ID must not leave the slot held by a job that was never saved.
+    try {
+      const job = draft(runAt);
+      await this.#preflight(job);
+
+      return await this.#create(job);
+    } catch (error) {
+      await this.#store.releaseSlot(slot);
+      throw error;
+    }
   }
 
   /** Reads a job in the caller's tenant scope. */
@@ -717,10 +776,8 @@ export class SocialScheduler {
     if (fixed !== undefined && Date.parse(fixed) <= now)
       throw invalid("The scheduled time must be in the future");
 
-    // Revalidate pending work with the stored execution context before removing a block.
-    await this.#preflight({ ...job, runAt: fixed ?? job.runAt });
-
-    // A reschedule lease keeps runners off the job while provider cancellations run.
+    // A reschedule lease keeps runners off the job while it reserves a slot, checks the
+    // replacement, and withdraws provider copies.
     const fenceOwner = `reschedule:${crypto.randomUUID()}`;
 
     const fenced = await this.#store.compareAndSet({
@@ -733,6 +790,39 @@ export class SocialScheduler {
 
     if (!fenced.updated) return { state: "not-reschedulable", reason: "in-flight", job };
 
+    const unfence = () =>
+      this.#mutate(key, (current) => {
+        if (current.lease?.owner !== fenceOwner) return undefined;
+
+        const { lease: _released, ...rest } = current;
+
+        return rest;
+      });
+
+    let reserved: Parameters<ScheduleStore["releaseSlot"]>[0] | undefined;
+
+    const release = async () => {
+      if (reserved !== undefined) await this.#store.releaseSlot(reserved);
+    };
+
+    let runAt: string;
+
+    try {
+      if (at.kind === "queue") {
+        runAt = await this.#reserveQueueSlot({ key, at, now, skip: job.runAt });
+        reserved = { scope: key.scope, queueId: at.queueId, at: runAt, jobId: id };
+      } else runAt = fixed ?? job.runAt;
+
+      // Check the work exactly as it will be sent after the move, including native steps
+      // already submitted, before any provider copy is cancelled. This also revalidates
+      // with the stored execution context before removing a block.
+      await this.#preflight({ ...job, runAt, lanes: rescheduledLanes(job) });
+    } catch (error) {
+      await release();
+      await unfence();
+      throw error;
+    }
+
     if (nativeSteps.some((step) => step.state === "dispatched")) {
       const withdrawn = await this.#cancelProviderWork({
         key,
@@ -744,13 +834,8 @@ export class SocialScheduler {
 
       if (withdrawn.unresolved.length > 0) {
         // Some provider copies may still publish, so the job stops instead of moving.
-        await this.#mutate(key, (current) => {
-          if (current.lease?.owner !== fenceOwner) return undefined;
-
-          const { lease: _released, ...rest } = current;
-
-          return rest;
-        });
+        await release();
+        await unfence();
 
         const stopped = await this.cancel(id, options);
 
@@ -762,12 +847,6 @@ export class SocialScheduler {
       }
     }
 
-    const runAt =
-      fixed ??
-      (at.kind === "queue"
-        ? await this.#reserveQueueSlot({ key, at, now, skip: job.runAt })
-        : job.runAt);
-
     const updatedAt = this.#clock().toISOString();
 
     const moved = await this.#mutate(key, (current) => {
@@ -778,15 +857,7 @@ export class SocialScheduler {
       )
         return undefined;
 
-      // A native lane converted to runtime after a missed window becomes native again.
-      const lanes = current.lanes.map(
-        (lane): ScheduledLane => ({
-          ...lane,
-          mode: lane.id === "native" ? "native" : lane.mode,
-          revision: lane.revision + 1,
-          steps: lane.steps.map(pendingStep),
-        }),
-      );
+      const lanes = rescheduledLanes(current);
 
       const {
         lease: _released,
@@ -810,8 +881,11 @@ export class SocialScheduler {
       };
     });
 
-    if (moved === undefined || moved.job.lease !== undefined || moved.job.status !== "scheduled")
+    if (moved === undefined || moved.job.lease !== undefined || moved.job.status !== "scheduled") {
+      await release();
+
       return { state: "not-reschedulable", reason: "in-flight", job };
+    }
 
     await this.#wake(moved.job);
 
@@ -1378,31 +1452,40 @@ export class SocialScheduler {
         )
           return;
 
-        const markedStep = marked.job.lanes.find((candidate) => candidate.id === lane.id)?.steps[
-          stepIndex
-        ];
+        const markedLane = marked.job.lanes.find((candidate) => candidate.id === lane.id);
 
-        if (markedStep?.state !== "dispatching") continue;
+        if (markedLane?.steps[stepIndex]?.state !== "dispatching") continue;
 
-        let replacement: ScheduledStep = step;
+        let result: Awaited<ReturnType<SchedulerClient["posts"]["retryFailed"]>>;
 
         try {
-          const result = await this.#social.posts.retryFailed(step.request, options);
-
-          if (result.retried.length > 0)
-            replacement = {
-              ...pendingStep(step),
-              state: "dispatched",
-              request: step.request,
-              outcomes: remap(result.outcomes, step),
-              polls: 0,
-            };
+          result = await this.#social.posts.retryFailed(step.request, options);
         } catch (cause) {
           // A non-SocialError leaves the step dispatching; the next lease holder recovers
-          // it. A step the client refuses to retry (for example a native time that has
-          // passed) keeps its outcomes; other steps are still retried.
+          // it. A SocialError can come after a retry moved its claim to `unknown` and sent,
+          // for example when saving the result fails, so the step is never restored to its
+          // old failure. Its claim is read back instead, which never resends: a refusal
+          // before any dispatch reads the unchanged failure, and an uncertain retry reads
+          // as unresolved. Other steps are still retried.
           if (!(cause instanceof SocialError)) throw cause;
+
+          await this.#recover({
+            key,
+            job: marked.job,
+            lane: markedLane,
+            stepIndex,
+            previous: step,
+          });
+          continue;
         }
+
+        // The claim is authoritative even when this call sent nothing: another retry may
+        // have saved newer outcomes for the same destinations.
+        const replacement = retriedStep({
+          previous: step,
+          outcomes: remap(result.outcomes, step),
+          sent: result.retried.length > 0,
+        });
 
         await this.#mutate(
           key,
@@ -1448,16 +1531,23 @@ export class SocialScheduler {
         const progress = laneProgress({ job, lane, now });
 
         if (progress.kind === "convert-native") {
-          // Nothing reached the provider before the time arrived, so runtime dispatch is safe.
+          // Nothing reached the provider before the time arrived, so runtime dispatch is
+          // safe, but only where the route can publish without a schedule. A route that
+          // only schedules (PostFast) would refuse the converted request, so the job is
+          // blocked with the lane still native until it is rescheduled.
+          const missed = await this.#missedNativeBlock(job, lane);
+
           await this.#mutate(
             key,
-            this.#leased(key, (current) => ({
-              ...current,
-              lanes: current.lanes.map((candidate) =>
-                candidate.id === lane.id ? { ...candidate, mode: "runtime" } : candidate,
-              ),
-            })),
+            this.#leased(key, (current) =>
+              missed === undefined
+                ? { ...current, lanes: runtimeLane(current, lane) }
+                : { ...current, blocked: missed },
+            ),
           );
+
+          if (missed !== undefined) return true;
+
           acted = true;
           break;
         }
@@ -1586,6 +1676,42 @@ export class SocialScheduler {
     return changed;
   }
 
+  /**
+   * Checks a native lane whose time passed as runtime work. Returns the block to save
+   * when the route cannot publish it now, or undefined when conversion is safe.
+   */
+  async #missedNativeBlock(
+    job: ScheduledJob,
+    lane: ScheduledLane,
+  ): Promise<{ readonly code: string; readonly message: string } | undefined> {
+    const converted = runtimeLane(job, lane).filter((candidate) => candidate.id === lane.id);
+
+    try {
+      await this.#preflight({ ...job, lanes: converted });
+
+      return undefined;
+    } catch (error) {
+      if (!(error instanceof SocialError)) throw error;
+
+      if (error.code !== "invalid_input") return { code: error.code, message: error.message };
+
+      const codes = [
+        ...new Set(
+          (error.issues ?? [])
+            .filter((issue) => issue.severity === "error")
+            .map((issue) => issue.code),
+        ),
+      ];
+
+      const detail = codes.length === 0 ? "" : ` (${codes.join(", ")})`;
+
+      return {
+        code: "schedule_missed",
+        message: `The scheduled time passed before this post was submitted, and the route cannot publish it without a future schedule${detail}. Reschedule the job.`,
+      };
+    }
+  }
+
   async #preflightBlock(
     job: ScheduledJob,
   ): Promise<{ readonly code: string; readonly message: string } | undefined> {
@@ -1606,6 +1732,8 @@ export class SocialScheduler {
     readonly job: ScheduledJob;
     readonly lane: ScheduledLane;
     readonly stepIndex: number;
+    /** The dispatched step a failed retry started from. */
+    readonly previous?: Extract<ScheduledStep, { readonly state: "dispatched" }>;
   }): Promise<void> {
     const step = input.lane.steps[input.stepIndex];
 
@@ -1641,8 +1769,10 @@ export class SocialScheduler {
           job: current,
           laneId: input.lane.id,
           stepIndex: input.stepIndex,
-          update: (saved) =>
-            saved.state === "dispatching"
+          update: (saved) => {
+            if (saved.state !== "dispatching") return undefined;
+
+            return input.previous === undefined
               ? {
                   ...pendingStep(saved),
                   state: "dispatched",
@@ -1650,7 +1780,8 @@ export class SocialScheduler {
                   outcomes,
                   polls: 0,
                 }
-              : undefined,
+              : retriedStep({ previous: input.previous, outcomes, sent: false });
+          },
         }),
       ),
     );
