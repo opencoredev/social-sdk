@@ -1,7 +1,44 @@
 ---
 title: Bluesky
 description: Connect Bluesky accounts with AT Protocol OAuth, publish records, and use typed AT Protocol operations with explicit reconciliation.
+seo:
+  title: Post to Bluesky from TypeScript and Node.js
+  description: Post to Bluesky from Node.js or Bun through the AT Protocol, with app password or OAuth sessions, automatic link facets, images, video and typed results.
 ---
+
+To post to Bluesky from a server, create an `app.bsky.feed.post` record in the account's repository with `com.atproto.repo.createRecord`, authenticated as that account. The Social SDK Bluesky adapter makes that call through `social.posts.publish`, adds link facets for URLs in the text, uploads attached images, and returns the new record's URI and CID as a typed outcome.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+```ts
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { bluesky } from "@opencoredev/social-sdk/bluesky";
+
+const social = createSocial({
+  backend: bluesky({
+    auth: {
+      service: "https://bsky.social",
+      did: process.env.BLUESKY_DID!,
+      accessJwt: process.env.BLUESKY_ACCESS_JWT!,
+    },
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "bluesky",
+  accountId: process.env.BLUESKY_DID!,
+});
+
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: { text: "Posted from TypeScript with Social SDK https://social-sdk.dev" },
+});
+```
+
+This sample uses an access JWT from an app password, which suits a single account you own. For accounts your users connect, use the OAuth flow below.
 
 The direct Bluesky adapter accepts an access JWT or a DPoP-bound OAuth session, together with a DID and HTTPS service URL. For user-facing sign-in, use `blueskyOAuth` from `@opencoredev/social-sdk/server`. It implements the [AT Protocol OAuth profile](https://atproto.com/specs/oauth): handle and DID resolution, PDS and authorization server discovery, pushed authorization requests, PKCE, DPoP-bound tokens, the `iss` callback check, and identity verification after the token exchange. It has no runtime dependencies. The official `@atproto/oauth-client-node` client remains a supported alternative.
 

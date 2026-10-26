@@ -1,7 +1,12 @@
 ---
 title: Next.js
 description: Publish to social platforms from Next.js App Router route handlers and server actions with Social SDK, with raw-body webhook verification.
+seo:
+  title: Post and schedule social posts from Next.js
+  description: Publish to X, Bluesky, LinkedIn, Threads and more from Next.js route handlers and server actions, and schedule posts with a durable job runner.
 ---
+
+To post to social media from a Next.js app, call `social.posts.publish` from a route handler or server action, with the platform credentials kept in server-only code. To schedule a post, store it and run that same call at the scheduled time from a durable job runner, such as an [Inngest delayed function](/integrations/inngest#scheduled-publishing) or a [Trigger.dev delayed task](/integrations/trigger-dev#scheduled-publish-as-a-task), instead of holding a request open.
 
 Social SDK runs in Next.js server code: route handlers, server actions, and server components. It must never reach a client component, because backend credentials and connected-account references are server secrets.
 
