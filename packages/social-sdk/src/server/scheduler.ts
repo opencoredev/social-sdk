@@ -1358,20 +1358,58 @@ export class SocialScheduler {
         )
           continue;
 
-        let result: Awaited<ReturnType<SchedulerClient["posts"]["retryFailed"]>>;
+        // Marking the step in flight is the retry's dispatch fence, as in `#advance`: a
+        // cancel that lands first makes this write fail, and one that lands during the
+        // retry reports the step as unresolved instead of finalizing around it.
+        const marked = await this.#mutate(
+          key,
+          this.#leased(key, (current) =>
+            current.status === "cancelled" || current.status === "cancel-unresolved"
+              ? undefined
+              : withStep({
+                  job: current,
+                  laneId: lane.id,
+                  stepIndex,
+                  update: (saved) =>
+                    saved.state === "dispatched"
+                      ? { ...pendingStep(saved), state: "dispatching", request: saved.request }
+                      : undefined,
+                }),
+          ),
+        );
 
-        if ((await this.#store.get(key))?.job.lease?.owner !== key.leaseOwner) return;
+        if (
+          marked?.job.lease?.owner !== key.leaseOwner ||
+          marked.job.status === "cancelled" ||
+          marked.job.status === "cancel-unresolved"
+        )
+          return;
+
+        const markedStep = marked.job.lanes.find((candidate) => candidate.id === lane.id)?.steps[
+          stepIndex
+        ];
+
+        if (markedStep?.state !== "dispatching") continue;
+
+        let replacement: ScheduledStep = step;
 
         try {
-          result = await this.#social.posts.retryFailed(step.request, options);
-        } catch (cause) {
-          // A step the client refuses to retry (for example a native time that has passed)
-          // keeps its outcomes; other steps are still retried.
-          if (!(cause instanceof SocialError)) throw cause;
-          continue;
-        }
+          const result = await this.#social.posts.retryFailed(step.request, options);
 
-        if (result.retried.length === 0) continue;
+          if (result.retried.length > 0)
+            replacement = {
+              ...pendingStep(step),
+              state: "dispatched",
+              request: step.request,
+              outcomes: remap(result.outcomes, step),
+              polls: 0,
+            };
+        } catch (cause) {
+          // A non-SocialError leaves the step dispatching; the next lease holder recovers
+          // it. A step the client refuses to retry (for example a native time that has
+          // passed) keeps its outcomes; other steps are still retried.
+          if (!(cause instanceof SocialError)) throw cause;
+        }
 
         await this.#mutate(
           key,
@@ -1380,16 +1418,7 @@ export class SocialScheduler {
               job: current,
               laneId: lane.id,
               stepIndex,
-              update: (saved) =>
-                saved.state === "dispatched"
-                  ? {
-                      ...pendingStep(saved),
-                      state: "dispatched",
-                      request: saved.request,
-                      outcomes: remap(result.outcomes, saved),
-                      polls: 0,
-                    }
-                  : undefined,
+              update: (saved) => (saved.state === "dispatching" ? replacement : undefined),
             }),
           ),
         );
