@@ -1,5 +1,6 @@
 import type { JobRunner } from "../core/adapter.js";
 import type { SocialClient } from "../core/client.js";
+import { isSettledOutcome } from "../core/client-support.js";
 import { SocialError } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
 import { stableSerialize } from "../core/idempotency.js";
@@ -174,13 +175,6 @@ type JobKey = { readonly scope: string; readonly id: string };
 type LeaseKey = JobKey & { readonly leaseOwner: string };
 
 type Mutation = (job: ScheduledJob) => ScheduledJob | undefined;
-
-const terminal: ReadonlySet<DeliveryOutcome["state"]> = new Set([
-  "published",
-  "failed",
-  "cancelled",
-  "not-submitted",
-]);
 
 function invalid(message: string, issues?: readonly PreparationIssue[]): SocialError {
   return new SocialError({
@@ -372,9 +366,7 @@ type LaneProgress =
   | { readonly kind: "cancelled" };
 
 function hasUnresolved(step: ScheduledStep): boolean {
-  return (
-    step.state === "dispatched" && step.outcomes.some((outcome) => !terminal.has(outcome.state))
-  );
+  return step.state === "dispatched" && step.outcomes.some((outcome) => !isSettledOutcome(outcome));
 }
 
 /** Decides what a lane needs next. Pure; the scheduler performs the I/O it names. */
@@ -414,7 +406,7 @@ function laneProgress(input: {
     // parent might never appear, and replying to it could orphan the rest of the chain.
     if (parent?.state === "published") return { kind: "dispatch", stepIndex, parent: parent.post };
 
-    return parent === undefined || terminal.has(parent.state)
+    return parent === undefined || isSettledOutcome(parent)
       ? { kind: "stopped" }
       : { kind: "wait-outcome" };
   }
@@ -423,7 +415,7 @@ function laneProgress(input: {
 
   if (!stopOnFailure) return { kind: "dispatch", stepIndex };
 
-  if (previous.outcomes.some((outcome) => !terminal.has(outcome.state)))
+  if (previous.outcomes.some((outcome) => !isSettledOutcome(outcome)))
     return { kind: "wait-outcome" };
 
   if (previous.outcomes.some((outcome) => outcome.state !== "published"))
@@ -712,7 +704,7 @@ export class SocialScheduler {
           step.outcomes.some(
             (outcome) =>
               outcome.state === "published" ||
-              (outcome.state !== "scheduled" && !terminal.has(outcome.state)),
+              (outcome.state !== "scheduled" && !isSettledOutcome(outcome)),
           ),
       )
     )
@@ -1204,7 +1196,7 @@ export class SocialScheduler {
         if (step.state !== "dispatched") continue;
 
         for (const outcome of step.outcomes) {
-          if (terminal.has(outcome.state)) continue;
+          if (isSettledOutcome(outcome)) continue;
 
           const entry = { itemIndex: step.itemIndex, targetIndex: outcome.targetIndex };
 
@@ -1353,7 +1345,7 @@ export class SocialScheduler {
         if (
           step.state !== "dispatched" ||
           !step.outcomes.some(
-            (outcome) => outcome.state !== "published" && terminal.has(outcome.state),
+            (outcome) => outcome.state !== "published" && isSettledOutcome(outcome),
           )
         )
           continue;
@@ -1718,7 +1710,7 @@ export class SocialScheduler {
                       // Provider cancellation is saved on the job, while its original
                       // idempotency claim may still report the earlier scheduled state.
                       outcomes: saved.outcomes.map((outcome) =>
-                        terminal.has(outcome.state)
+                        isSettledOutcome(outcome)
                           ? outcome
                           : (outcomes?.find(
                               (polled) => polled.targetIndex === outcome.targetIndex,

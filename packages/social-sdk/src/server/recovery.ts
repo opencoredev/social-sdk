@@ -6,11 +6,11 @@ import {
   executionOperationFor,
   isNonBlankStringInput,
   isObjectInput,
+  isSettledOutcome,
   makeContext,
   mapConcurrent,
   type PublicationPlan,
   targetKey,
-  terminalStates,
   unrecordedOutcome,
 } from "../core/client-support.js";
 import type {
@@ -173,7 +173,7 @@ export function outcomeRecovery(): OutcomeRecovery {
       );
 
       const unresolved = outcomes
-        .filter((outcome) => !terminalStates.has(outcome.state))
+        .filter((outcome) => !isSettledOutcome(outcome))
         .map((outcome) => outcome.targetIndex);
 
       return { outcomes, unresolved };
@@ -237,7 +237,7 @@ export function outcomeRecovery(): OutcomeRecovery {
         const target = claim.plan.targets[index];
         const saved = target === undefined ? undefined : claim.outcomes[target.targetKey];
 
-        if (target === undefined || saved === undefined || terminalStates.has(saved.state)) return;
+        if (target === undefined || saved === undefined || isSettledOutcome(saved)) return;
 
         const ref = saved.delivery;
 

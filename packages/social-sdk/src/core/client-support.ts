@@ -32,6 +32,17 @@ export const terminalStates: ReadonlySet<DeliveryOutcome["state"]> = new Set([
   "not-submitted",
 ]);
 
+/**
+ * Whether a saved outcome is final. A failure whose provider asks to reconcile first and
+ * that carries a delivery reference is not: polling it may still find the post.
+ */
+export function isSettledOutcome(outcome: DeliveryOutcome): boolean {
+  if (outcome.state === "failed")
+    return outcome.retryDisposition.kind !== "reconcile-first" || outcome.delivery === undefined;
+
+  return terminalStates.has(outcome.state);
+}
+
 export async function mapConcurrent<T>(
   count: number,
   concurrency: number,
