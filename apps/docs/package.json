@@ -12,7 +12,7 @@
     "test": "bun test pages/_blog sitemap-dates.test.ts"
   },
   "devDependencies": {
-    "astro": "7.3.3",
+    "astro": "7.4.2",
     "blume": "2.0.3"
   }
 }
