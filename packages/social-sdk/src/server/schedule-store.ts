@@ -140,13 +140,16 @@ export interface ScheduleStore {
   }): Promise<readonly StoredScheduledJob[]>;
   /**
    * Atomically reserves a queue slot for a job. Succeeds when the slot is free or its
-   * holder no longer occupies it (cancelled or moved).
+   * holder no longer occupies it (cancelled or moved). A holder leased at `now` may be
+   * mid-move into the slot, so it keeps the slot until its lease expires.
    */
   reserveSlot(input: {
     readonly scope: string;
     readonly queueId: string;
     readonly at: string;
     readonly jobId: string;
+    /** Current UTC instant, used to tell a live holder lease from an expired one. */
+    readonly now: string;
   }): Promise<boolean>;
 }
 
@@ -563,14 +566,16 @@ export function createKeyValueScheduleStore(
 
         if (current.value === input.jobId) return true;
 
-        // A reservation whose job was never written is treated as held.
+        // A reservation whose job was never written is treated as held, and so is one
+        // whose job holds a live lease: a reschedule reserves before it saves the move.
         const holder = await read(input.scope, current.value);
 
         if (
           holder === undefined ||
           (activeStatuses.has(holder.job.status) &&
-            holder.job.queueId === input.queueId &&
-            holder.job.runAt === input.at)
+            ((holder.job.lease !== undefined &&
+              Date.parse(holder.job.lease.until) > Date.parse(input.now)) ||
+              (holder.job.queueId === input.queueId && holder.job.runAt === input.at)))
         )
           return false;
 
@@ -606,12 +611,7 @@ export class MemoryScheduleStore implements ScheduleStore {
     return this.#store.listDue(input);
   }
 
-  reserveSlot(input: {
-    readonly scope: string;
-    readonly queueId: string;
-    readonly at: string;
-    readonly jobId: string;
-  }) {
+  reserveSlot(input: Parameters<ScheduleStore["reserveSlot"]>[0]) {
     return this.#store.reserveSlot(input);
   }
 }

@@ -474,3 +474,26 @@ it("OpenAI and AI SDK adapters expose the same tools and route calls through the
   assert.equal(backend.testing.history().length, 0);
   assert.equal(account.accountId, "mock-account-1");
 });
+
+it("a chained sequence preview gives each destination its own placeholder parent", async () => {
+  const toolkit = createSocialToolkit(createSocial({ backend: mockBackend() }));
+  const threadsJson = { ...accountJson, platform: "threads", accountId: "mock-account-2" };
+
+  const item = (text: string) => ({
+    targets: [{ account: accountJson }, { account: threadsJson }],
+    content: { text },
+  });
+
+  const result = await toolkit.call("social_publish_sequence", {
+    request: { items: [item("1/"), item("2/")], idempotencyKey: "thread-1", replyToPrevious: true },
+  });
+
+  assert.equal(result.ok && result.status, "dry-run");
+  const preview = data(result);
+
+  for (const prepared of array(preview["items"])) {
+    const issues = array(object(prepared)["issues"]).map((issue) => object(issue)["code"]);
+    assert.deepEqual(issues, []);
+    assert.equal(object(prepared)["ok"], true);
+  }
+});

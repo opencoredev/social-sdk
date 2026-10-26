@@ -1,5 +1,6 @@
 import type { JobRunner } from "../core/adapter.js";
 import type { SocialClient } from "../core/client.js";
+import { isSettledOutcome } from "../core/client-support.js";
 import { SocialError } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
 import { stableSerialize } from "../core/idempotency.js";
@@ -8,6 +9,7 @@ import type {
   ConnectedAccountRef,
   DeliveryOutcome,
   MediaAttachment,
+  OperationName,
   PlatformPostRef,
   PreparationIssue,
   PublishRequest,
@@ -173,13 +175,6 @@ type JobKey = { readonly scope: string; readonly id: string };
 type LeaseKey = JobKey & { readonly leaseOwner: string };
 
 type Mutation = (job: ScheduledJob) => ScheduledJob | undefined;
-
-const terminal: ReadonlySet<DeliveryOutcome["state"]> = new Set([
-  "published",
-  "failed",
-  "cancelled",
-  "not-submitted",
-]);
 
 function invalid(message: string, issues?: readonly PreparationIssue[]): SocialError {
   return new SocialError({
@@ -371,9 +366,7 @@ type LaneProgress =
   | { readonly kind: "cancelled" };
 
 function hasUnresolved(step: ScheduledStep): boolean {
-  return (
-    step.state === "dispatched" && step.outcomes.some((outcome) => !terminal.has(outcome.state))
-  );
+  return step.state === "dispatched" && step.outcomes.some((outcome) => !isSettledOutcome(outcome));
 }
 
 /** Decides what a lane needs next. Pure; the scheduler performs the I/O it names. */
@@ -413,7 +406,7 @@ function laneProgress(input: {
     // parent might never appear, and replying to it could orphan the rest of the chain.
     if (parent?.state === "published") return { kind: "dispatch", stepIndex, parent: parent.post };
 
-    return parent === undefined || terminal.has(parent.state)
+    return parent === undefined || isSettledOutcome(parent)
       ? { kind: "stopped" }
       : { kind: "wait-outcome" };
   }
@@ -422,7 +415,7 @@ function laneProgress(input: {
 
   if (!stopOnFailure) return { kind: "dispatch", stepIndex };
 
-  if (previous.outcomes.some((outcome) => !terminal.has(outcome.state)))
+  if (previous.outcomes.some((outcome) => !isSettledOutcome(outcome)))
     return { kind: "wait-outcome" };
 
   if (previous.outcomes.some((outcome) => outcome.state !== "published"))
@@ -711,7 +704,7 @@ export class SocialScheduler {
           step.outcomes.some(
             (outcome) =>
               outcome.state === "published" ||
-              (outcome.state !== "scheduled" && !terminal.has(outcome.state)),
+              (outcome.state !== "scheduled" && !isSettledOutcome(outcome)),
           ),
       )
     )
@@ -841,7 +834,7 @@ export class SocialScheduler {
     const due = await this.#store.listDue({ now: now.toISOString(), limit });
 
     const processed = await mapLimited(due, concurrency, (stored) =>
-      this.#process({ stored, now, force: false, retry: false }),
+      this.#process({ stored, now, force: false, retry: false, advance: true }),
     );
 
     const jobs = processed.flatMap((job) =>
@@ -862,7 +855,11 @@ export class SocialScheduler {
 
     await this.#authorizeCaller(stored.job, options, "posts.getDelivery");
 
-    return this.#process({ stored, now: this.#clock(), force: true, retry: false });
+    // Advancing publishes with the stored context, so a caller who may only read
+    // deliveries gets a poll and nothing more.
+    const advance = await this.#mayAdvance(stored.job, options);
+
+    return this.#process({ stored, now: this.#clock(), force: true, retry: false, advance });
   }
 
   /**
@@ -878,15 +875,41 @@ export class SocialScheduler {
 
     if (stored === undefined) return undefined;
 
-    await this.#authorizeCaller(stored.job, options, "posts.publish");
+    for (const operation of this.#advanceOperations(stored.job))
+      await this.#authorizeCaller(stored.job, options, operation);
 
-    return this.#process({ stored, now: this.#clock(), force: true, retry: true });
+    return this.#process({
+      stored,
+      now: this.#clock(),
+      force: true,
+      retry: true,
+      advance: true,
+    });
+  }
+
+  /** Every operation advancing this job can send: publishing, and native scheduling. */
+  #advanceOperations(job: ScheduledJob): readonly OperationName[] {
+    return job.lanes.some((lane) => lane.mode === "native")
+      ? ["posts.publish", "posts.schedule"]
+      : ["posts.publish"];
+  }
+
+  async #mayAdvance(job: ScheduledJob, options: ScheduleCallOptions): Promise<boolean> {
+    try {
+      for (const operation of this.#advanceOperations(job))
+        await this.#authorizeCaller(job, options, operation);
+
+      return true;
+    } catch (error) {
+      if (error instanceof SocialError && error.code === "unauthorized") return false;
+      throw error;
+    }
   }
 
   async #authorizeCaller(
     job: ScheduledJob,
     options: ScheduleCallOptions,
-    operation: import("../core/types.js").OperationName,
+    operation: OperationName,
   ): Promise<void> {
     const targets =
       job.work.kind === "publish"
@@ -1079,6 +1102,7 @@ export class SocialScheduler {
           queueId: input.at.queueId,
           at: candidate,
           jobId: id,
+          now: new Date(input.now).toISOString(),
         })
       )
         return candidate;
@@ -1173,7 +1197,7 @@ export class SocialScheduler {
         if (step.state !== "dispatched") continue;
 
         for (const outcome of step.outcomes) {
-          if (terminal.has(outcome.state)) continue;
+          if (isSettledOutcome(outcome)) continue;
 
           const entry = { itemIndex: step.itemIndex, targetIndex: outcome.targetIndex };
 
@@ -1246,6 +1270,8 @@ export class SocialScheduler {
     readonly now: Date;
     readonly force: boolean;
     readonly retry: boolean;
+    /** Without it the job is only polled: nothing new is published or scheduled. */
+    readonly advance: boolean;
   }): Promise<ScheduledJob | undefined> {
     const nowMs = input.now.getTime();
     const { job } = input.stored;
@@ -1294,7 +1320,7 @@ export class SocialScheduler {
         if (input.retry) await this.#retrySteps(key);
 
         for (let round = 0; round < 3; round++) {
-          const advanced = await this.#advance({ key, now: nowMs, touched });
+          const advanced = input.advance && (await this.#advance({ key, now: nowMs, touched }));
           const polled = await this.#poll({ key, now: nowMs, force: input.force, touched });
 
           if (!advanced && !polled) break;
@@ -1320,25 +1346,63 @@ export class SocialScheduler {
         if (
           step.state !== "dispatched" ||
           !step.outcomes.some(
-            (outcome) => outcome.state !== "published" && terminal.has(outcome.state),
+            (outcome) => outcome.state !== "published" && isSettledOutcome(outcome),
           )
         )
           continue;
 
-        let result: Awaited<ReturnType<SchedulerClient["posts"]["retryFailed"]>>;
+        // Marking the step in flight is the retry's dispatch fence, as in `#advance`: a
+        // cancel that lands first makes this write fail, and one that lands during the
+        // retry reports the step as unresolved instead of finalizing around it.
+        const marked = await this.#mutate(
+          key,
+          this.#leased(key, (current) =>
+            current.status === "cancelled" || current.status === "cancel-unresolved"
+              ? undefined
+              : withStep({
+                  job: current,
+                  laneId: lane.id,
+                  stepIndex,
+                  update: (saved) =>
+                    saved.state === "dispatched"
+                      ? { ...pendingStep(saved), state: "dispatching", request: saved.request }
+                      : undefined,
+                }),
+          ),
+        );
 
-        if ((await this.#store.get(key))?.job.lease?.owner !== key.leaseOwner) return;
+        if (
+          marked?.job.lease?.owner !== key.leaseOwner ||
+          marked.job.status === "cancelled" ||
+          marked.job.status === "cancel-unresolved"
+        )
+          return;
+
+        const markedStep = marked.job.lanes.find((candidate) => candidate.id === lane.id)?.steps[
+          stepIndex
+        ];
+
+        if (markedStep?.state !== "dispatching") continue;
+
+        let replacement: ScheduledStep = step;
 
         try {
-          result = await this.#social.posts.retryFailed(step.request, options);
-        } catch (cause) {
-          // A step the client refuses to retry (for example a native time that has passed)
-          // keeps its outcomes; other steps are still retried.
-          if (!(cause instanceof SocialError)) throw cause;
-          continue;
-        }
+          const result = await this.#social.posts.retryFailed(step.request, options);
 
-        if (result.retried.length === 0) continue;
+          if (result.retried.length > 0)
+            replacement = {
+              ...pendingStep(step),
+              state: "dispatched",
+              request: step.request,
+              outcomes: remap(result.outcomes, step),
+              polls: 0,
+            };
+        } catch (cause) {
+          // A non-SocialError leaves the step dispatching; the next lease holder recovers
+          // it. A step the client refuses to retry (for example a native time that has
+          // passed) keeps its outcomes; other steps are still retried.
+          if (!(cause instanceof SocialError)) throw cause;
+        }
 
         await this.#mutate(
           key,
@@ -1347,16 +1411,7 @@ export class SocialScheduler {
               job: current,
               laneId: lane.id,
               stepIndex,
-              update: (saved) =>
-                saved.state === "dispatched"
-                  ? {
-                      ...pendingStep(saved),
-                      state: "dispatched",
-                      request: saved.request,
-                      outcomes: remap(result.outcomes, saved),
-                      polls: 0,
-                    }
-                  : undefined,
+              update: (saved) => (saved.state === "dispatching" ? replacement : undefined),
             }),
           ),
         );
@@ -1656,7 +1711,7 @@ export class SocialScheduler {
                       // Provider cancellation is saved on the job, while its original
                       // idempotency claim may still report the earlier scheduled state.
                       outcomes: saved.outcomes.map((outcome) =>
-                        terminal.has(outcome.state)
+                        isSettledOutcome(outcome)
                           ? outcome
                           : (outcomes?.find(
                               (polled) => polled.targetIndex === outcome.targetIndex,

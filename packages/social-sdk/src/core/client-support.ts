@@ -7,10 +7,29 @@ import type {
   DeliveryOutcome,
   PreparationIssue,
   PreparedPublishTarget,
+  PublishTarget,
 } from "./types.js";
 
 export function targetKey(account: ConnectedAccountRef): string {
   return JSON.stringify([account.backend, account.platform, account.accountId]);
+}
+
+/**
+ * Gives each target of a chained sequence item a placeholder parent on its own account,
+ * so adapters validate reply support before anything is sent.
+ */
+export function withPreflightParents(targets: readonly PublishTarget[]): PublishTarget[] {
+  return targets.map((target) => ({
+    ...target,
+    replyTo: {
+      kind: "platform-post",
+      version: 1,
+      backend: target.account.backend,
+      platform: target.account.platform,
+      accountId: target.account.accountId,
+      postId: "preflight",
+    },
+  }));
 }
 
 export function preparationIssue(
@@ -31,6 +50,17 @@ export const terminalStates: ReadonlySet<DeliveryOutcome["state"]> = new Set([
   "cancelled",
   "not-submitted",
 ]);
+
+/**
+ * Whether a saved outcome is final. A failure whose provider asks to reconcile first and
+ * that carries a delivery reference is not: polling it may still find the post.
+ */
+export function isSettledOutcome(outcome: DeliveryOutcome): boolean {
+  if (outcome.state === "failed")
+    return outcome.retryDisposition.kind !== "reconcile-first" || outcome.delivery === undefined;
+
+  return terminalStates.has(outcome.state);
+}
 
 export async function mapConcurrent<T>(
   count: number,

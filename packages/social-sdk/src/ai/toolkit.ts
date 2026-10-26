@@ -7,6 +7,7 @@ import {
 } from "../cli-request.js";
 import type { AuthorizationPolicy } from "../core/adapter.js";
 import type { PublishCallOptions, SocialClient } from "../core/client.js";
+import { withPreflightParents } from "../core/client-support.js";
 import { createConcurrencyLimiter } from "../core/concurrency.js";
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
@@ -582,29 +583,19 @@ export function createSocialToolkit(
     };
   }
 
-  /** Mirrors `publishSequence` preflight, including the placeholder parent for chained replies. */
+  /** Mirrors `publishSequence` preflight, including each chained target's placeholder parent. */
   function prepareSequence(request: PublishSequenceRequest): readonly PublishPreparation[] {
-    return request.items.map((item, index) => {
-      const account = item.targets[0]?.account;
-      const chained = request.replyToPrevious === true && index > 0 && account !== undefined;
-
-      return social.posts.prepare({
-        targets: item.targets,
-        content: item.content,
-        ...definedFields({
-          replyTo: chained
-            ? {
-                kind: "platform-post",
-                version: 1,
-                backend: account.backend,
-                platform: account.platform,
-                accountId: account.accountId,
-                postId: "preflight",
-              }
-            : item.replyTo,
-        }),
-      });
-    });
+    return request.items.map((item, index) =>
+      social.posts.prepare(
+        request.replyToPrevious === true && index > 0
+          ? { targets: withPreflightParents(item.targets), content: item.content }
+          : {
+              targets: item.targets,
+              content: item.content,
+              ...definedFields({ replyTo: item.replyTo }),
+            },
+      ),
+    );
   }
 
   async function writePreview(

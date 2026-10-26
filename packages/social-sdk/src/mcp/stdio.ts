@@ -27,9 +27,11 @@ interface Tracked {
   readonly key: string | undefined;
 }
 
-type Work =
-  | { readonly kind: "single"; readonly item: Tracked }
-  | { readonly kind: "batch"; readonly items: readonly Tracked[] };
+/** One request waiting for a slot. `settle` receives its response, or nothing. */
+interface Work {
+  readonly item: Tracked;
+  readonly settle: (response: JsonObject | undefined) => void;
+}
 
 function isRequestId(value: JsonValue | undefined): value is string | number {
   return isString(value) || (isFiniteNumber(value) && Number.isSafeInteger(value));
@@ -116,34 +118,50 @@ export async function serveMcpStdio(server: McpServer, options: McpStdioOptions)
     }
   }
 
-  async function run(work: Work): Promise<void> {
-    if (work.kind === "single") {
-      const response = await answer(work.item);
-
-      if (response !== undefined) send(response);
-
-      return;
-    }
-
-    const responses = await Promise.all(work.items.map(answer));
-    const answered = responses.flatMap((response) => (response === undefined ? [] : [response]));
-
-    if (answered.length > 0) send(answered);
-  }
-
   function pump(): void {
     while (pending.size < maxInFlight) {
       const work = queue.shift();
 
       if (work === undefined) return;
 
-      const task = run(work).finally(() => {
-        pending.delete(task);
-        pump();
-      });
+      const task = answer(work.item)
+        .then(work.settle)
+        .finally(() => {
+          pending.delete(task);
+          pump();
+        });
 
       pending.add(task);
     }
+  }
+
+  /** Whether `count` more requests fit in the free slots plus the queue's free space. */
+  function admits(count: number): boolean {
+    return queue.length + count - Math.max(0, maxInFlight - pending.size) <= maxQueued;
+  }
+
+  /**
+   * Every element of a batch takes its own slot, so a batch counts against the same
+   * limits as separate requests. The replies are still sent together, in order.
+   */
+  function enqueueBatch(items: readonly JsonValue[]): void {
+    const tracked = items.map(track);
+    const responses: (JsonObject | undefined)[] = [];
+    let remaining = tracked.length;
+
+    for (const [index, item] of tracked.entries())
+      queue.push({
+        item,
+        settle: (response) => {
+          responses[index] = response;
+
+          if (--remaining > 0) return;
+
+          const answered = responses.flatMap((entry) => (entry === undefined ? [] : [entry]));
+
+          if (answered.length > 0) send(answered);
+        },
+      });
   }
 
   /** Cancellations act as soon as they are read; requests wait in a bounded FIFO for a slot. */
@@ -177,15 +195,23 @@ export async function serveMcpStdio(server: McpServer, options: McpStdioOptions)
 
       if (items.length === 0) return;
 
-      if (queue.length >= maxQueued) {
-        send([jsonRpcError(null, serverBusy, "Server busy")]);
+      if (!admits(items.length)) {
+        const busy = items.flatMap((item) => {
+          const id = isJsonObject(item) ? item["id"] : undefined;
+
+          return id === undefined
+            ? []
+            : [jsonRpcError(isRequestId(id) ? id : null, serverBusy, "Server busy")];
+        });
+
+        if (busy.length > 0) send(busy);
 
         return;
       }
 
-      queue.push({ kind: "batch", items: items.map(track) });
+      enqueueBatch(items);
     } else {
-      if (queue.length >= maxQueued) {
+      if (!admits(1)) {
         const id = isJsonObject(message) ? message["id"] : undefined;
 
         if (id !== undefined)
@@ -194,7 +220,12 @@ export async function serveMcpStdio(server: McpServer, options: McpStdioOptions)
         return;
       }
 
-      queue.push({ kind: "single", item: track(message) });
+      queue.push({
+        item: track(message),
+        settle: (response) => {
+          if (response !== undefined) send(response);
+        },
+      });
     }
 
     pump();

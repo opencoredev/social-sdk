@@ -17,7 +17,12 @@ import {
   type PreparedPublishTarget,
   type PublishRequest,
 } from "../src/index.js";
-import { OutcomeReconciler, outcomeRecovery } from "../src/server/index.js";
+import {
+  MemoryScheduleStore,
+  OutcomeReconciler,
+  SocialScheduler,
+  outcomeRecovery,
+} from "../src/server/index.js";
 import { definedFields } from "../src/core/fields.js";
 import { MemoryIdempotencyStore, mockBackend } from "../src/testing/index.js";
 import { x } from "../src/platforms/x.js";
@@ -362,6 +367,123 @@ describe("core reconcile", () => {
     await social.posts.reconcile(request("a", "b"));
     assert.equal(calls.filter((call) => call.operation === "poll").length, pollsBefore);
     assert.equal(calls.filter((call) => call.operation === "publish").length, 2);
+  });
+
+  test("polls a reconcile-first failure that has a delivery reference", async () => {
+    let found = false;
+
+    const { adapter, calls } = programmableAdapter({
+      publish: (target) => ({
+        state: "failed",
+        targetIndex: target.targetIndex,
+        account: target.account,
+        observedAt,
+        delivery: deliveryRef(target.account.accountId, "upload-1"),
+        code: "upstream_failure",
+        message: "upload finished without a status",
+        retryDisposition: { kind: "reconcile-first" },
+      }),
+      poll: (ref) =>
+        found
+          ? {
+              state: "published",
+              targetIndex: 0,
+              account: account(ref.accountId),
+              observedAt,
+              delivery: ref,
+              post: platformPostRef({
+                backend: "default",
+                platform: "x",
+                accountId: ref.accountId,
+                postId: "post-a",
+              }),
+            }
+          : {
+              state: "processing",
+              targetIndex: 0,
+              account: account(ref.accountId),
+              observedAt,
+              delivery: ref,
+            },
+    });
+
+    const social = createSocial({
+      recovery: outcomeRecovery(),
+      backend: adapter,
+      idempotencyStore: new MemoryIdempotencyStore(),
+    });
+
+    await social.posts.publish(request("a"));
+
+    // A retry would risk a duplicate; the failure must be reconciled first.
+    const refused = await social.posts.retryFailed(request("a"));
+    assert.deepEqual(refused.skipped, [{ targetIndex: 0, reason: "not-retryable" }]);
+
+    const pending = await social.posts.reconcile(request("a"));
+    assert.equal(pending.outcomes[0]?.state, "processing");
+    assert.deepEqual(pending.unresolved, [0]);
+
+    found = true;
+    const settled = await social.posts.reconcile(request("a"));
+    assert.equal(settled.outcomes[0]?.state, "published");
+    assert.deepEqual(settled.unresolved, []);
+    assert.equal(calls.filter((call) => call.operation === "publish").length, 1);
+  });
+
+  test("a scheduled job keeps polling a reconcile-first failure until it settles", async () => {
+    const start = new Date("2026-03-01T10:00:00.000Z");
+    let now = start;
+
+    const { adapter, calls } = programmableAdapter({
+      publish: (target) => ({
+        state: "failed",
+        targetIndex: target.targetIndex,
+        account: target.account,
+        observedAt,
+        delivery: deliveryRef(target.account.accountId, "upload-1"),
+        code: "upstream_failure",
+        message: "upload finished without a status",
+        retryDisposition: { kind: "reconcile-first" },
+      }),
+      poll: (ref) => ({
+        state: "published",
+        targetIndex: 0,
+        account: account(ref.accountId),
+        observedAt,
+        delivery: ref,
+        post: platformPostRef({
+          backend: "default",
+          platform: "x",
+          accountId: ref.accountId,
+          postId: "post-a",
+        }),
+      }),
+    });
+
+    const scheduler = new SocialScheduler({
+      social: createSocial({
+        recovery: outcomeRecovery(),
+        backend: adapter,
+        idempotencyStore: new MemoryIdempotencyStore(),
+        clock: () => now,
+      }),
+      store: new MemoryScheduleStore(),
+      clock: () => now,
+    });
+
+    const job = await scheduler.schedule({
+      work: { kind: "publish", request: request("a") },
+      at: { kind: "instant", at: "2026-03-01T11:00:00Z" },
+    });
+
+    now = new Date("2026-03-01T11:00:00.000Z");
+    assert.equal((await scheduler.runDue()).jobs[0]?.status, "running");
+
+    now = new Date("2026-03-01T11:01:00.000Z");
+    assert.equal((await scheduler.runDue()).jobs[0]?.status, "completed");
+    const step = (await scheduler.get(job.id))?.lanes[0]?.steps[0];
+    assert.equal(step?.state === "dispatched" ? step.outcomes[0]?.state : undefined, "published");
+    assert.equal(calls.filter((call) => call.operation === "publish").length, 1);
   });
 
   test("rejects a poll result for a different account or delivery", async () => {

@@ -239,6 +239,74 @@ it("stdio cancellation reaches a request even when every slot is busy", async ()
   );
 });
 
+it("stdio batch elements share the in-flight and queue limits", async () => {
+  let running = 0;
+  let peak = 0;
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+
+  const held = defineNativeTool({
+    name: "held",
+    description: "Waits for the test.",
+    backend: "default",
+    access: "read",
+    async run() {
+      running += 1;
+      peak = Math.max(peak, running);
+      await gate;
+      running -= 1;
+
+      return { done: true };
+    },
+  });
+
+  const toolkit = createSocialToolkit(createSocial({ backend: mockBackend() }), {
+    nativeTools: [held],
+    policy: {
+      async authorizeTargets({ accounts }) {
+        return accounts.map((account) => ({ account, allowed: true }));
+      },
+    },
+  });
+
+  const call = (id: number) =>
+    rpc(id, "tools/call", { name: "social_native_held", arguments: { account: accountJson } });
+
+  const output: JsonValue[] = [];
+
+  const session = serveMcpStdio(createMcpServer(toolkit), {
+    input: lines(
+      `${JSON.stringify([call(1), call(2), call(3), call(4)])}\n`,
+      `${JSON.stringify([call(5)])}\n`,
+    ),
+    write: (line) => {
+      const value: unknown = JSON.parse(line);
+      assert.ok(isJsonValue(value));
+      output.push(value);
+
+      // The second batch is refused while the first fills both slots and the queue.
+      if (output.length === 1) release();
+    },
+    maxInFlight: 2,
+    maxQueued: 2,
+  });
+
+  // Without the refusal nothing releases the gate; this keeps a regression from hanging.
+  const fallback = setTimeout(release, 2000);
+  await session;
+  clearTimeout(fallback);
+
+  assert.equal(peak, 2, "no more than maxInFlight batch elements run at once");
+  assert.deepEqual(
+    output.map((message) => array(message).map((response) => object(response)["id"])),
+    [[5], [1, 2, 3, 4]],
+  );
+  assert.equal(
+    object(object(array(output[0] ?? null)[0] ?? null)["error"] ?? null)["code"],
+    -32000,
+  );
+});
+
 it("stdio transport frames split chunks, rejects bad input and drops cancelled responses", async () => {
   let release: () => void = () => undefined;
   const gate = new Promise<void>((resolve) => (release = resolve));

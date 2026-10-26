@@ -15,6 +15,7 @@ import {
   preparationIssue,
   targetKey,
   unrecordedOutcome,
+  withPreflightParents,
   type PublicationPlan,
 } from "./client-support.js";
 import {
@@ -1101,6 +1102,73 @@ export function createSocial(
     return { targets: plan.targets, payloadFingerprint, scope };
   }
 
+  /**
+   * Publishes one chained sequence item as a separate request per destination, each under
+   * `${itemKey}:${targetKey}`. Outcome indexes are positions in `submitted`. A destination
+   * whose request throws gets a `not-submitted` outcome; the item throws only when every
+   * destination does.
+   */
+  async function publishDestinations(
+    item: PublishRequest,
+    submitted: readonly { readonly target: PublishRequest["targets"][number] }[],
+    options: PublishCallOptions | undefined,
+  ): Promise<PublishResult> {
+    const outcomes: DeliveryOutcome[] = [];
+    const publications: string[] = [];
+    let refusal: SocialError | undefined;
+
+    for (const [position, { target }] of submitted.entries()) {
+      try {
+        const single = await publish(
+          {
+            ...item,
+            targets: [target],
+            idempotencyKey: `${item.idempotencyKey ?? ""}:${targetKey(target.account)}`,
+          },
+          options,
+        );
+
+        publications.push(single.publication.publicationId);
+        outcomes.push(...single.outcomes.map((outcome) => ({ ...outcome, targetIndex: position })));
+      } catch (error) {
+        if (!(error instanceof SocialError)) throw error;
+
+        refusal ??= error;
+        outcomes.push({
+          state: "not-submitted",
+          reason:
+            error.code === "unauthorized"
+              ? "unauthorized"
+              : error.code === "invalid_input"
+                ? "validation"
+                : error.code === "idempotency_conflict"
+                  ? "idempotency-conflict"
+                  : "before-submission",
+          targetIndex: position,
+          account: target.account,
+          observedAt: clock().toISOString(),
+          ...definedFields({ issues: error.issues }),
+        });
+      }
+    }
+
+    if (refusal !== undefined && publications.length === 0) throw refusal;
+
+    const backends = new Set(submitted.map(({ target }) => target.account.backend));
+
+    return {
+      status: publicationStatus(outcomes),
+      publication: {
+        kind: "publication",
+        version: 1,
+        backend:
+          backends.size === 1 ? (submitted[0]?.target.account.backend ?? "unknown") : "multiple",
+        publicationId: await fingerprint({ key: item.idempotencyKey, publications }),
+      },
+      outcomes,
+    };
+  }
+
   async function publicationResult(
     request: PublishRequest,
     plan: PublicationPlan,
@@ -1832,18 +1900,7 @@ export function createSocial(
           chained
             ? {
                 ...publishRequest,
-                // Placeholder parents so adapters validate reply support before anything is sent.
-                targets: item.targets.map((target) => ({
-                  ...target,
-                  replyTo: {
-                    kind: "platform-post" as const,
-                    version: 1 as const,
-                    backend: target.account.backend,
-                    platform: target.account.platform,
-                    accountId: target.account.accountId,
-                    postId: "preflight",
-                  },
-                })),
+                targets: withPreflightParents(item.targets),
               }
             : publishRequest,
         );
@@ -1898,7 +1955,13 @@ export function createSocial(
         parents = children;
 
         try {
-          result = await publish(nextRequest, callOptions);
+          // Chains after the root are independent per destination, so each destination's
+          // reply gets its own claim. A replay after one chain recovers then submits the
+          // same per-destination requests instead of a different target set under one key.
+          result =
+            chained && original.length > 1
+              ? await publishDestinations(publishRequest, submitted, callOptions)
+              : await publish(nextRequest, callOptions);
         } catch (error) {
           if (error instanceof SocialError) {
             failures.push({ index, code: error.code, message: error.message });

@@ -16,7 +16,8 @@ OpenAI function calling (`toOpenAIChatTools`, `toOpenAIResponsesTools`, `runOpen
 
 `createMcpServer` serves a toolkit over MCP 2025-06-18 (also 2025-03-26 and 2024-11-05) through
 `serveMcpStdio` or `createMcpHttpHandler`, a stateless Streamable HTTP handler for Web `Request`
-runtimes that requires an `authorize` callback and rejects untrusted origins.
+runtimes that requires an `authorize` callback and rejects untrusted origins. Each element of a
+stdio JSON-RPC batch counts against `maxInFlight` and `maxQueued`.
 
 The CLI adds `social-sdk mcp [--adapter NAME]`, an offline stdio server with capability, doctor,
 validation and planning tools only.

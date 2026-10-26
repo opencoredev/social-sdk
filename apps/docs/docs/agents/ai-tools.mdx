@@ -8,8 +8,9 @@ description: Expose a Social SDK client to AI agents as JSON Schema tools for th
 ```ts
 import { createSocial } from "@opencoredev/social-sdk";
 import { createSocialToolkit } from "@opencoredev/social-sdk/ai";
+import { idempotencyStore } from "./stores"; // your durable IdempotencyStore
 
-const social = createSocial({ backend, authorization: policy });
+const social = createSocial({ backend, authorization: policy, idempotencyStore });
 
 const toolkit = createSocialToolkit(social, {
   policy, // the same AuthorizationPolicy, for plans, previews and native tools
@@ -46,7 +47,7 @@ Pass `tools: [...]` to expose a subset. Local tools make no provider request.
 - `"preview"`: writes never send, even with `confirmWrite: true`.
 - `"allow"`: writes send without confirmation. Use it only when your application runs its own approval step.
 
-Executing `social_publish` also requires `request.idempotencyKey`, so an agent that retries after a timeout reuses the same logical post. Previews report text length and media counts, not the text or URLs.
+Executing `social_publish` also requires `request.idempotencyKey`. The key prevents a duplicate only when the client has a durable `idempotencyStore` that every process shares, as in the setup above: a retry after a timeout then reads the saved claim instead of posting again. Without a store, every confirmed call dispatches again, key or not. The [Neon guide](/integrations/neon#durable-stores) shows a Postgres store. Previews report text length and media counts, not the text or URLs.
 
 Treat `scheduled`, `accepted`, `processing`, and `unknown` outcomes as not published. Reconcile with `social_get_delivery` before retrying.
 

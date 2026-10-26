@@ -14,7 +14,10 @@ Add `posts.reconcile`, `posts.retryFailed`, and `posts.authorize` to the client,
 `OutcomeReconciler`. Reconcile and retry are opt-in: create the client with
 `recovery: outcomeRecovery()` from `/server`, which the scheduler and `OutcomeReconciler` also
 need. Clients without it do not bundle recovery, and both methods reject with `invalid_config`. Recovery takes the full original request, saves validated poll results into
-the original idempotency claim, and re-sends only destinations whose outcome proves nothing is live.
+the original idempotency claim, and re-sends only destinations whose outcome proves nothing is live. `failed` outcomes marked
+`reconcile-first` that carry a `delivery` reference are polled and reported as unresolved until a
+poll replaces them. `scheduler.reconcile(id)` advances a job only for a caller who may also publish;
+a caller who may only read deliveries gets a poll.
 
 `IdempotencyStore` gains an optional `compareAndSetOutcome`. Existing stores still compile;
 recovery requires it and fails with `invalid_config` without it. Configure it for scheduler recovery.

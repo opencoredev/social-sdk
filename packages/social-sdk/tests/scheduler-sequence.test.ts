@@ -52,7 +52,9 @@ interface Sent {
 type Behavior = (
   target: PreparedPublishTarget,
   attempt: number,
-) => "publish" | "accept" | "unknown" | "fail";
+) => BehaviorResult | Promise<BehaviorResult>;
+
+type BehaviorResult = "publish" | "accept" | "unknown" | "fail";
 
 /** Each account's behavior is chosen per call; accepted deliveries publish when `release` runs. */
 function chainHarness(behavior: Behavior = () => "publish") {
@@ -100,7 +102,7 @@ function chainHarness(behavior: Behavior = () => "publish") {
           observedAt: start.toISOString(),
         };
 
-        switch (behavior(target, attempt)) {
+        switch (await behavior(target, attempt)) {
           case "publish":
             return publishedOutcome(target.account, target.targetIndex, id);
           case "accept": {
@@ -360,6 +362,59 @@ describe("scheduled reply chains", () => {
       ["alpha:1/", "beta:1/", "beta:2/", "alpha:1/", "alpha:2/"],
     );
     assert.equal(h.sent.filter((entry) => entry.accountId === "beta").length, 2);
+  });
+
+  test("a cancel during a retry reports the retried parent in flight", async () => {
+    let release: () => void = () => {};
+
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let entered: () => void = () => {};
+
+    const retrying = new Promise<void>((resolve) => (entered = resolve));
+
+    const h = chainHarness(async (target, attempt) => {
+      if (target.account.accountId !== "alpha" || target.content.text !== "1/") return "publish";
+
+      if (attempt === 1) return "fail";
+
+      entered();
+      await gate;
+
+      return "publish";
+    });
+
+    const job = await h.scheduler.schedule({
+      work: {
+        kind: "sequence",
+        request: thread([
+          { targets: [alpha, beta], text: "1/" },
+          { targets: [alpha, beta], text: "2/" },
+        ]),
+      },
+      at,
+    });
+
+    h.setNow(due);
+    await h.scheduler.runDue({ now: due });
+
+    const retry = h.scheduler.retryFailed(job.id);
+    await retrying;
+
+    const cancelled = await h.scheduler.cancel(job.id);
+    assert.equal(cancelled.state, "unresolved");
+    assert.deepEqual(cancelled.state === "unresolved" ? cancelled.unresolved : [], [
+      { itemIndex: 0, targetIndex: 0, reason: "in-flight" },
+    ]);
+
+    release();
+    assert.equal((await retry)?.status, "cancel-unresolved");
+    assert.deepEqual(
+      h.sent.map((entry) => `${entry.accountId}:${entry.text}`),
+      ["alpha:1/", "beta:1/", "beta:2/", "alpha:1/"],
+    );
+
+    // The retried parent published, so nothing can still publish and cancel settles.
+    assert.equal((await h.scheduler.cancel(job.id)).state, "cancelled");
   });
 
   test("a non-chained sequence stops after a failed item by default", async () => {
