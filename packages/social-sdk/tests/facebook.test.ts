@@ -398,14 +398,16 @@ describe("facebook pages adapter", () => {
       { video_id: "reel1", upload_url: "https://attacker.example/upload" },
     ]);
 
-    await assert.rejects(
-      fb.native!.publishReel({
-        account: page,
-        videoUrl: "https://cdn.example.com/reel.mp4",
-        context,
-      }),
-      { code: "upstream_failure" },
-    );
+    const outcome = await fb.native!.publishReel({
+      account: page,
+      videoUrl: "https://cdn.example.com/reel.mp4",
+      context,
+    });
+
+    // The container exists, so the refusal is an outcome that keeps its delivery.
+    assert.equal(outcome.state, "failed");
+    assert.equal(outcome.state === "failed" ? outcome.code : undefined, "upstream_failure");
+    assert.equal(outcome.delivery?.deliveryId, "reel1");
     assert.equal(calls.length, 1);
   });
 
@@ -695,6 +697,24 @@ describe("facebook pages adapter", () => {
     assert.deepEqual(failed?.state === "failed" ? failed.retryDisposition : undefined, {
       kind: "reconcile-first",
     });
+  });
+
+  it("keeps the Reel delivery when Facebook returns an unusable upload URL", async () => {
+    for (const upload_url of ["https://uploads.example.test/reel8", "not a url", null]) {
+      const bad = statusAdapter([{ status: 200, body: { video_id: "reel8", upload_url } }]);
+
+      const outcome = (
+        await createSocial({ backend: bad.adapter, clock }).posts.publish(reelRequest)
+      ).outcomes[0];
+
+      assert.equal(outcome?.state, "failed", String(upload_url));
+      assert.equal(outcome?.delivery?.deliveryId, "reel8");
+      assert.deepEqual(outcome?.state === "failed" ? outcome.retryDisposition : undefined, {
+        kind: "reconcile-first",
+      });
+      // Nothing is sent to a host outside rupload.facebook.com.
+      assert.equal(bad.urls.length, 1);
+    }
   });
 
   it("reads post engagement, Page counts, and a bounded daily report", async () => {

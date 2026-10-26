@@ -481,17 +481,19 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     const page = `/${encodeURIComponent(pageId)}/video_reels`;
     const started = object(await request(page, input.context, { upload_phase: "start" }));
     const videoId = string(started["video_id"]);
-    const uploadUrl = new URL(string(started["upload_url"]));
-
-    if (uploadUrl.protocol !== "https:" || uploadUrl.hostname !== "rupload.facebook.com")
-      throw new SocialError({
-        code: "upstream_failure",
-        operation: "facebook.reels.publish",
-        message: "Facebook returned a Reels upload URL outside rupload.facebook.com.",
-        details: { videoId },
-      });
 
     try {
+      // Validated inside the try: the container already exists, so a bad upload URL must
+      // still return its delivery instead of losing the only reference to it.
+      const uploadUrl = URL.parse(isString(started["upload_url"]) ? started["upload_url"] : "");
+
+      if (uploadUrl?.protocol !== "https:" || uploadUrl.hostname !== "rupload.facebook.com")
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "facebook.reels.publish",
+          message: "Facebook returned a Reels upload URL outside rupload.facebook.com.",
+        });
+
       confirmSuccess(
         await ruploadRequest(uploadUrl.pathname, input.context, undefined, {}, "POST", {
           file_url: videoUrl,
