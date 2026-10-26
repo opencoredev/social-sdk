@@ -45,7 +45,7 @@ export const POST = handler; // Next.js app/api/mcp/route.ts
 
 ## Stdio
 
-`serveMcpStdio` reads newline-delimited JSON-RPC from an input stream and writes responses to stdout. Requests run concurrently (`maxInFlight`, default 16) and wait in a bounded queue (`maxQueued`, default 256) beyond that. Reading never waits on them, so `notifications/cancelled` aborts the matching call whether it is queued or running.
+`serveMcpStdio` reads newline-delimited JSON-RPC from an input stream and writes responses to stdout. Requests run concurrently (`maxInFlight`, default 16) and wait in a bounded queue (`maxQueued`, default 256) beyond that. Each element of a JSON-RPC batch counts as one request against both limits, and the batch's replies are still sent together. A batch that does not fit gets a `Server busy` error for each of its requests. Reading never waits on them, so `notifications/cancelled` aborts the matching call whether it is queued or running.
 
 ```ts
 import { serveMcpStdio } from "@opencoredev/social-sdk/mcp";
