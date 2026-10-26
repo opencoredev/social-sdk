@@ -299,7 +299,20 @@ describe("expiry-aware resolve", () => {
   });
 
   test("token expiry never deletes the stored record", async () => {
-    const h = harness();
+    const h = harness({
+      // Mirrors a provider that refreshes only with a refresh token.
+      refresh: async (request) => {
+        if (request.credential.refreshToken === undefined)
+          throw new SocialError({
+            code: "reconnect_required",
+            operation: "x.oauth.refresh",
+            message: "No refresh token is available; reconnect the account",
+          });
+
+        return request.credential;
+      },
+    });
+
     const manager = h.manager();
     const value = { accessToken: secretAccess, expiresAt: iso(start - 1) };
     await manager.save("a", value);
@@ -308,9 +321,22 @@ describe("expiry-aware resolve", () => {
     assert.deepEqual((await h.store.get("a"))?.value, value);
     assert.deepEqual(
       h.reconnects.map((event) => event.reason),
-      ["missing-refresh-token"],
+      ["refresh-rejected"],
     );
-    assert.equal(h.requests.length, 0);
+  });
+
+  test("a refresh hook can refresh with the access token when no refresh token is stored", async () => {
+    const h = harness();
+    const manager = h.manager();
+    await manager.save("a", { accessToken: secretAccess, expiresAt: iso(start + 30_000) });
+
+    const resolved = await manager.resolve("a");
+
+    assert.equal(resolved.freshness, "refreshed");
+    assert.equal(resolved.value.accessToken, "access-2");
+    assert.equal(resolved.value.refreshToken, undefined);
+    assert.equal(h.requests[0]?.credential.accessToken, secretAccess);
+    assert.deepEqual(h.reconnects, []);
   });
 
   test("requires reconnect when no refresher is configured or nothing is stored", async () => {
@@ -324,13 +350,16 @@ describe("expiry-aware resolve", () => {
     });
 
     await manager.save("a", expiring);
+    await manager.save("b", { accessToken: secretAccess, expiresAt: iso(start + 30_000) });
 
     await assert.rejects(manager.resolve("a"), isCode("reconnect_required"));
+    await assert.rejects(manager.resolve("b"), isCode("reconnect_required"));
     await assert.rejects(manager.resolve("missing"), isCode("reconnect_required"));
     assert.deepEqual(
       h.reconnects.map((event) => [event.key, event.reason]),
       [
         ["a", "refresh-unavailable"],
+        ["b", "missing-refresh-token"],
         ["missing", "missing-credential"],
       ],
     );

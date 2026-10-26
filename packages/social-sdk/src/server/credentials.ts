@@ -229,6 +229,9 @@ export interface CredentialRefreshRequest {
 /**
  * Calls the provider token endpoint. Return the complete next credential,
  * carrying over the previous refresh token when the provider does not rotate it.
+ * It runs even when the credential has no refresh token, because some providers
+ * refresh with the access token. If yours needs one, throw a `SocialError` with
+ * code `reconnect_required`.
  * Throw a `SocialError` for a definite provider answer. Any other error, or a
  * `SocialError` with code `ambiguous_outcome`, `timeout`, or `cancelled`, leaves
  * the credential marked uncertain because the provider may have rotated tokens.
@@ -623,11 +626,13 @@ export class CredentialManager {
 
       if (assessment.kind !== "refresh-due") return this.#blocked(key, assessment, operation);
 
-      if (latest.value.refreshToken === undefined)
-        return this.#reconnect(key, "missing-refresh-token", operation);
-
+      // The hook owns its prerequisites: Threads and Instagram refresh with the access token.
       if (this.#options.refresh === undefined)
-        return this.#reconnect(key, "refresh-unavailable", operation);
+        return this.#reconnect(
+          key,
+          latest.value.refreshToken === undefined ? "missing-refresh-token" : "refresh-unavailable",
+          operation,
+        );
       refresher = this.#options.refresh;
     }
 
