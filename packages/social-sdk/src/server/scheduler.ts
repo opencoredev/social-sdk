@@ -638,8 +638,16 @@ export class SocialScheduler {
 
     validateQueue(at);
 
-    const runAt = await this.#reserveQueueSlot({ key: { scope, id }, at, now: now.getTime() });
-    const slot = { scope, queueId: at.queueId, at: runAt, jobId: id };
+    const token = crypto.randomUUID();
+
+    const runAt = await this.#reserveQueueSlot({
+      key: { scope, id },
+      at,
+      now: now.getTime(),
+      token,
+    });
+
+    const slot = { scope, queueId: at.queueId, at: runAt, jobId: id, token };
 
     // Routes check the real slot (Facebook needs ten minutes of notice), and a failed
     // check or an existing job ID must not leave the slot held by a job that was never saved.
@@ -809,8 +817,10 @@ export class SocialScheduler {
 
     try {
       if (at.kind === "queue") {
-        runAt = await this.#reserveQueueSlot({ key, at, now, skip: job.runAt });
-        reserved = { scope: key.scope, queueId: at.queueId, at: runAt, jobId: id };
+        const token = crypto.randomUUID();
+
+        runAt = await this.#reserveQueueSlot({ key, at, now, skip: job.runAt, token });
+        reserved = { scope: key.scope, queueId: at.queueId, at: runAt, jobId: id, token };
       } else runAt = fixed ?? job.runAt;
 
       // Check the work exactly as it will be sent after the move, including native steps
@@ -1148,6 +1158,8 @@ export class SocialScheduler {
     readonly at: Extract<ScheduleTime, { readonly kind: "queue" }>;
     readonly now: number;
     readonly skip?: string;
+    /** This operation's reservation identity; see `ScheduleStore.reserveSlot`. */
+    readonly token: string;
   }): Promise<string> {
     const { scope, id } = input.key;
 
@@ -1176,6 +1188,7 @@ export class SocialScheduler {
           queueId: input.at.queueId,
           at: candidate,
           jobId: id,
+          token: input.token,
           now: new Date(input.now).toISOString(),
         })
       )

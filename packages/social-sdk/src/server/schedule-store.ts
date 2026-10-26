@@ -14,7 +14,7 @@ import type {
   PublishSequenceRequest,
 } from "../core/types.js";
 import { parseJson } from "../transport/json.js";
-import type { JsonField } from "../transport/validation.js";
+import { isJsonArray, isString, type JsonField } from "../transport/validation.js";
 import {
   ScheduleDecodeError,
   codec,
@@ -148,19 +148,26 @@ export interface ScheduleStore {
     readonly queueId: string;
     readonly at: string;
     readonly jobId: string;
+    /**
+     * Identifies the schedule or reschedule operation making the reservation. Two
+     * operations on the same job ID hold separate reservations, so one's cleanup can never
+     * free the other's slot.
+     */
+    readonly token: string;
     /** Current UTC instant, used to tell a live holder lease from an expired one. */
     readonly now: string;
   }): Promise<boolean>;
   /**
-   * Frees a reservation the job holds but does not occupy, after a schedule or reschedule
-   * reserved the slot and then failed. A slot the job's saved record occupies, or one
-   * another job holds, is left unchanged.
+   * Frees a reservation this operation (`token`) holds but its job does not occupy, after a
+   * schedule or reschedule reserved the slot and then failed. A slot the job's saved record
+   * occupies, or one another operation holds, is left unchanged.
    */
   releaseSlot(input: {
     readonly scope: string;
     readonly queueId: string;
     readonly at: string;
     readonly jobId: string;
+    readonly token: string;
   }): Promise<void>;
 }
 
@@ -566,20 +573,22 @@ export function createKeyValueScheduleStore(
       for (let attempt = 0; attempt < 3; attempt++) {
         const current = await kv.get(key);
 
+        const value = encodeReservation({ jobId: input.jobId, token: input.token });
+
         if (current === undefined) {
-          if (
-            (await kv.compareAndSet({ key, expectedVersion: undefined, value: input.jobId }))
-              .updated
-          )
+          if ((await kv.compareAndSet({ key, expectedVersion: undefined, value })).updated)
             return true;
           continue;
         }
 
-        if (current.value === input.jobId) return true;
+        const owner = decodeReservation(current.value);
+
+        if (owner.jobId === input.jobId && owner.token === input.token) return true;
 
         // A reservation whose job was never written is treated as held, and so is one
         // whose job holds a live lease: a reschedule reserves before it saves the move.
-        const holder = await read(input.scope, current.value);
+        // This applies to another operation on the same job ID too.
+        const holder = await read(input.scope, owner.jobId);
 
         if (
           holder === undefined ||
@@ -590,10 +599,7 @@ export function createKeyValueScheduleStore(
         )
           return false;
 
-        if (
-          (await kv.compareAndSet({ key, expectedVersion: current.version, value: input.jobId }))
-            .updated
-        )
+        if ((await kv.compareAndSet({ key, expectedVersion: current.version, value })).updated)
           return true;
       }
 
@@ -603,7 +609,11 @@ export function createKeyValueScheduleStore(
       const key = slotKey(input.scope, input.queueId, input.at);
       const current = await kv.get(key);
 
-      if (current === undefined || current.value !== input.jobId) return;
+      if (current === undefined) return;
+
+      const owner = decodeReservation(current.value);
+
+      if (owner.jobId !== input.jobId || owner.token !== input.token) return;
 
       const holder = await read(input.scope, input.jobId);
 
@@ -619,6 +629,35 @@ export function createKeyValueScheduleStore(
       await kv.delete({ key, expectedVersion: current.version });
     },
   };
+}
+
+interface Reservation {
+  readonly jobId: string;
+  /** Absent only for a reservation written without an operation token. */
+  readonly token: string | undefined;
+}
+
+function encodeReservation(reservation: {
+  readonly jobId: string;
+  readonly token: string;
+}): string {
+  return JSON.stringify([reservation.jobId, reservation.token]);
+}
+
+function decodeReservation(value: string): Reservation {
+  try {
+    const parsed = parseJson(value);
+
+    if (isJsonArray(parsed) && parsed.length === 2) {
+      const [jobId, token] = parsed;
+
+      if (isString(jobId) && isString(token)) return { jobId, token };
+    }
+  } catch {
+    // Not an encoded reservation: the value is a bare job ID.
+  }
+
+  return { jobId: value, token: undefined };
 }
 
 /** An in-process schedule store. It serializes every record, like a durable adapter would. */

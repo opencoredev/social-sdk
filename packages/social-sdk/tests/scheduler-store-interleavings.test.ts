@@ -119,7 +119,12 @@ test("a slot reserved by a reschedule stays held until the job moves into it", a
       const result = await memory.compareAndSet(input);
 
       // Pause the reschedule after it reserves its new slot and before it saves the move.
-      if (pauseOnce && input.key === contested && input.value === "job-a" && result.updated) {
+      if (
+        pauseOnce &&
+        input.key === contested &&
+        input.value.startsWith('["job-a",') &&
+        result.updated
+      ) {
         pauseOnce = false;
         reserved();
         await resumed;

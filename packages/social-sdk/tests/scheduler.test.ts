@@ -991,8 +991,8 @@ describe("scheduled times are checked as they will be sent", () => {
     );
 
     assert.equal(await h.store.get({ scope: "credential-ready", id: "queued" }), undefined);
-    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "probe-1" }), true);
-    await h.store.releaseSlot({ ...slot, jobId: "probe-1" });
+    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "probe-1", token: "probe" }), true);
+    await h.store.releaseSlot({ ...slot, jobId: "probe-1", token: "probe" });
 
     const job = await h.scheduler.schedule({
       work: { kind: "publish", request: publication("to-queue", xAccount) },
@@ -1004,7 +1004,7 @@ describe("scheduled times are checked as they will be sent", () => {
     const kept = await h.scheduler.get(job.id);
     assert.equal(kept?.runAt, "2026-03-01T11:00:00.000Z");
     assert.equal(kept?.lease, undefined);
-    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "probe-2" }), true);
+    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "probe-2", token: "probe" }), true);
   });
 
   test("releasing a slot never frees one the job's saved record occupies", async () => {
@@ -1035,7 +1035,7 @@ describe("scheduled times are checked as they will be sent", () => {
     );
 
     const slot = { scope: job.scope, queueId: "daily", at: job.runAt, now: start.toISOString() };
-    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "other" }), false);
+    assert.equal(await h.store.reserveSlot({ ...slot, jobId: "other", token: "probe" }), false);
   });
 });
 
@@ -1062,6 +1062,37 @@ describe("key-value schedule store", () => {
       updatedAt: start.toISOString(),
     };
   }
+
+  test("a second operation on a leased job's ID cannot take or free its reservation", async () => {
+    const store = createKeyValueScheduleStore(new MemoryKeyValueStore());
+
+    // A reschedule of J holds its fence lease while it checks the slot it reserved.
+    await store.create({
+      ...sampleJob("J"),
+      queueId: "daily",
+      lease: { owner: "reschedule:1", until: "2026-03-01T12:00:00.000Z" },
+    });
+
+    const slot = {
+      scope: "t1",
+      queueId: "daily",
+      at: "2026-03-02T09:00:00.000Z",
+      now: start.toISOString(),
+    };
+
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "J", token: "reschedule" }), true);
+
+    // A concurrent schedule({ id: "J" }) does not share the reschedule's reservation...
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "J", token: "duplicate" }), false);
+
+    // ...so its cleanup cannot free it, and another job still cannot take the slot.
+    await store.releaseSlot({ ...slot, jobId: "J", token: "duplicate" });
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "K", token: "k" }), false);
+
+    // The owning operation can still release its own reservation.
+    await store.releaseSlot({ ...slot, jobId: "J", token: "reschedule" });
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "K", token: "k" }), true);
+  });
 
   test("uses compare-and-set revisions and lists only due, unleased jobs", async () => {
     const store = createKeyValueScheduleStore(new MemoryKeyValueStore());
@@ -1111,15 +1142,15 @@ describe("key-value schedule store", () => {
 
     await store.create(job);
     const slot = { scope: job.scope, queueId: "daily", at: job.runAt, now: job.createdAt };
-    assert.equal(await store.reserveSlot({ ...slot, jobId: job.id }), true);
-    assert.equal(await store.reserveSlot({ ...slot, jobId: "other" }), false);
+    assert.equal(await store.reserveSlot({ ...slot, jobId: job.id, token: "probe" }), true);
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "other", token: "probe" }), false);
     const saved = await store.get({ scope: job.scope, id: job.id });
     assert.ok(saved !== undefined);
     await store.compareAndSet({
       expectedRevision: saved.revision,
       job: { ...job, status: "cancelled" },
     });
-    assert.equal(await store.reserveSlot({ ...slot, jobId: "other" }), true);
+    assert.equal(await store.reserveSlot({ ...slot, jobId: "other", token: "probe" }), true);
   });
 
   test("rejects a corrupted stored record without trusting it", async () => {
