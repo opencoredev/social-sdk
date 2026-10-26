@@ -663,11 +663,8 @@ export class CredentialManager {
       } catch {
         return this.#failUncertain(key, markerRevision, latest.value, {
           code: "upstream_failure",
-          error: new SocialError({
-            code: "upstream_failure",
-            operation,
-            message: "Credential refresh returned an invalid credential",
-          }),
+          operation,
+          message: "Credential refresh returned an invalid credential",
         });
       }
 
@@ -679,11 +676,12 @@ export class CredentialManager {
           expectedRevision: markerRevision,
           value: next,
         });
-      } catch (cause) {
+      } catch {
         // The write may or may not have landed; the provider may have rotated tokens.
         return this.#failUncertain(key, markerRevision, latest.value, {
           code: "ambiguous_outcome",
-          error: cause,
+          operation,
+          message: "Saving the refreshed credential failed; reconnect the account",
         });
       }
 
@@ -705,21 +703,15 @@ export class CredentialManager {
     if (attempt.kind === "timeout")
       return this.#failUncertain(key, markerRevision, latest.value, {
         code: "timeout",
-        error: new SocialError({
-          code: "timeout",
-          operation,
-          message: "Credential refresh did not finish before its deadline",
-        }),
+        operation,
+        message: "Credential refresh did not finish before its deadline",
       });
 
     if (attempt.kind === "cancelled")
       return this.#failUncertain(key, markerRevision, latest.value, {
         code: "cancelled",
-        error: new SocialError({
-          code: "cancelled",
-          operation,
-          message: "Credential refresh was cancelled after the provider request started",
-        }),
+        operation,
+        message: "Credential refresh was cancelled after the provider request started",
       });
 
     const error = attempt.cause;
@@ -736,15 +728,24 @@ export class CredentialManager {
 
     return this.#failUncertain(key, markerRevision, latest.value, {
       code: error instanceof SocialError ? error.code : "ambiguous_outcome",
-      error,
+      operation,
+      message: "Credential refresh ended without a definite answer; reconnect the account",
     });
   }
 
+  /**
+   * Marks the credential uncertain and throws a fresh error. The provider or
+   * store error is never attached, because it may echo tokens.
+   */
   async #failUncertain(
     key: string,
     markerRevision: string,
     previous: StoredCredential,
-    failure: { readonly code: SocialErrorCode; readonly error: unknown },
+    failure: {
+      readonly code: SocialErrorCode;
+      readonly operation: string;
+      readonly message: string;
+    },
   ): Promise<never> {
     await this.#compareAndSetQuietly(key, markerRevision, {
       ...previous,
@@ -753,7 +754,12 @@ export class CredentialManager {
     await this.#notifyFailure(key, "uncertain", failure.code);
     await this.#notifyReconnect(key, "refresh-uncertain");
 
-    throw failure.error;
+    throw new SocialError({
+      code: failure.code,
+      operation: failure.operation,
+      message: failure.message,
+      retryDisposition: { kind: "after-reconnect" },
+    });
   }
 
   async #attempt(
