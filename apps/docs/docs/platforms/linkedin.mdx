@@ -3,10 +3,10 @@ title: LinkedIn
 description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image, video, and document processing states, comments, and metrics.
 seo:
   title: Post to LinkedIn from Node.js and TypeScript
-  description: Post to LinkedIn from Node.js or Bun with the versioned LinkedIn Posts API. Member or organization authors, images, video, documents, comments, and typed per-post results.
+  description: Post to LinkedIn from Node.js or Bun with the versioned Posts API, as a member or a Page, with images, video, documents, comments and typed results.
 ---
 
-To post to LinkedIn from a server, call the versioned Posts API (`/rest/posts`) with an access token for the author: `w_member_social` to post as a member, or `w_organization_social` to post as a Page where you hold a posting role. The Social SDK LinkedIn adapter sends that request through `social.posts.publish` with the monthly API version you pin, uploads images, video and documents first, and returns a typed outcome per post.
+To post to LinkedIn from a server, call the versioned Posts API (`/rest/posts`) with an access token for the author: `w_member_social` to post as a member, or `w_organization_social` to post as a Page where you hold a posting role. The Social SDK LinkedIn adapter sends that request through `social.posts.publish` with the monthly API version you pin and returns a typed outcome per post. Images, video and documents are uploaded first with `social.media.upload` and published by reference.
 
 ```package-install
 @opencoredev/social-sdk

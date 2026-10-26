@@ -3,10 +3,10 @@ title: Bluesky
 description: Connect Bluesky accounts with AT Protocol OAuth, publish records, and use typed AT Protocol operations with explicit reconciliation.
 seo:
   title: Post to Bluesky from TypeScript with the AT Protocol
-  description: Post to Bluesky from Node.js or Bun through the AT Protocol. App password or OAuth sessions, automatic link facets, image and video uploads, and typed per-post results.
+  description: Post to Bluesky from Node.js or Bun through the AT Protocol, with app password or OAuth sessions, automatic link facets, images, video and typed results.
 ---
 
-To post to Bluesky from a server, create an `app.bsky.feed.post` record in the account's repository with `com.atproto.repo.createRecord`, authenticated as that account. The Social SDK Bluesky adapter makes that call through `social.posts.publish`, adds link facets for URLs in the text, uploads images and video first, and returns the new record's URI and CID as a typed outcome.
+To post to Bluesky from a server, create an `app.bsky.feed.post` record in the account's repository with `com.atproto.repo.createRecord`, authenticated as that account. The Social SDK Bluesky adapter makes that call through `social.posts.publish`, adds link facets for URLs in the text, uploads attached images, and returns the new record's URI and CID as a typed outcome.
 
 ```package-install
 @opencoredev/social-sdk
