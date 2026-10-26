@@ -5,6 +5,7 @@ import {
   createSocial,
   defineAdapter,
   type CapabilityManifest,
+  type ConnectedAccountRef,
   type DeliveryOutcome,
   type PreparedPublishTarget,
   SocialError,
@@ -12,6 +13,8 @@ import {
 import { zernio } from "../src/cloud/zernio.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
 import { uploadPost } from "../src/cloud/upload-post.js";
+import { outcomeRecovery } from "../src/server/index.js";
+import { MemoryIdempotencyStore } from "../src/testing/index.js";
 
 const manifest: CapabilityManifest = {
   schemaVersion: 1,
@@ -366,4 +369,108 @@ describe("managed backend reply chains", () => {
     assert.ok(codes.includes("reply.use_comments"));
     assert.equal(calls, 0);
   });
+});
+
+test("a sequence replay after reconciling one chain continues it without a key conflict", async () => {
+  let released = false;
+  const sent: string[] = [];
+
+  const posted = (
+    account: ConnectedAccountRef,
+    postId: string,
+    targetIndex: number,
+  ): DeliveryOutcome => ({
+    state: "published",
+    targetIndex,
+    account,
+    observedAt: "2026-10-24T12:00:00.000Z",
+    post: {
+      kind: "platform-post",
+      version: 1,
+      backend: account.backend,
+      platform: account.platform,
+      accountId: account.accountId,
+      postId,
+    },
+  });
+
+  const adapter = defineAdapter({
+    id: "test",
+    capabilities: {
+      ...manifest,
+      capabilities: [
+        ...manifest.capabilities,
+        { operation: "posts.getDelivery", platform: "*", availability: "available" },
+      ],
+    },
+    posts: {
+      prepareTarget: () => [],
+      async publishTarget(target): Promise<DeliveryOutcome> {
+        const text = target.content.text ?? "";
+        sent.push(`${target.account.accountId}:${text}`);
+
+        if (target.account.accountId !== "bob" || text !== "1")
+          return posted(target.account, `${target.account.accountId}:${text}`, target.targetIndex);
+
+        return {
+          state: "accepted",
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: "2026-10-24T12:00:00.000Z",
+          delivery: {
+            kind: "delivery",
+            version: 1,
+            backend: "default",
+            platform: "bluesky",
+            accountId: "bob",
+            deliveryId: "bob-root",
+          },
+        };
+      },
+      async getDelivery(ref): Promise<DeliveryOutcome> {
+        return released
+          ? { ...posted(bob, "bob:1", 0), delivery: ref }
+          : {
+              state: "processing",
+              targetIndex: 0,
+              account: bob,
+              observedAt: "2026-10-24T12:00:00.000Z",
+              delivery: ref,
+            };
+      },
+    },
+  });
+
+  const social = createSocial({
+    recovery: outcomeRecovery(),
+    backend: adapter,
+    idempotencyStore: new MemoryIdempotencyStore(),
+  });
+
+  const sequence = {
+    idempotencyKey: "thread-recover",
+    replyToPrevious: true,
+    stopOnFailure: false,
+    items: [item("1"), item("2")],
+  };
+
+  const first = await social.posts.publishSequence(sequence);
+  assert.equal(first.status, "partial");
+  assert.deepEqual(sent, ["alice:1", "bob:1", "alice:2"]);
+
+  released = true;
+
+  const root = await social.posts.reconcile({
+    ...item("1"),
+    idempotencyKey: "thread-recover:0",
+  });
+
+  assert.equal(root.status, "complete");
+
+  const replay = await social.posts.publishSequence(sequence);
+  assert.deepEqual(replay.failures, []);
+  assert.equal(replay.status, "complete");
+  assert.deepEqual(sent, ["alice:1", "bob:1", "alice:2", "bob:2"]);
+  const reply = replay.items[1]?.outcomes[1];
+  assert.equal(reply?.state, "published");
 });
