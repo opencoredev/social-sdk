@@ -76,6 +76,19 @@ function chainAdapter(fails: (target: PreparedPublishTarget) => boolean = () => 
 }
 
 /** Each destination's sends in order. Destinations publish concurrently, so only per-account order holds. */
+/** `account:text` sends grouped by account, in order. Destinations publish concurrently. */
+function sendsByAccount(sent: readonly string[]) {
+  const byAccount: Record<string, string[]> = {};
+
+  for (const entry of sent) {
+    const [account = "", text = ""] = entry.split(":");
+
+    (byAccount[account] ??= []).push(text);
+  }
+
+  return byAccount;
+}
+
 function chains(
   sent: readonly { account: string; text: string | undefined; parent: string | undefined }[],
 ) {
@@ -456,7 +469,7 @@ test("a sequence replay after reconciling one chain continues it without a key c
 
   const first = await social.posts.publishSequence(sequence);
   assert.equal(first.status, "partial");
-  assert.deepEqual(sent, ["alice:1", "bob:1", "alice:2"]);
+  assert.deepEqual(sendsByAccount(sent), { alice: ["1", "2"], bob: ["1"] });
 
   released = true;
 
@@ -470,7 +483,7 @@ test("a sequence replay after reconciling one chain continues it without a key c
   const replay = await social.posts.publishSequence(sequence);
   assert.deepEqual(replay.failures, []);
   assert.equal(replay.status, "complete");
-  assert.deepEqual(sent, ["alice:1", "bob:1", "alice:2", "bob:2"]);
+  assert.deepEqual(sendsByAccount(sent), { alice: ["1", "2"], bob: ["1", "2"] });
   const reply = replay.items[1]?.outcomes[1];
   assert.equal(reply?.state, "published");
 });
