@@ -1,7 +1,44 @@
 ---
 title: LinkedIn
 description: Publish as an explicit LinkedIn author while preserving native URNs, permissions, image, video, and document processing states, comments, and metrics.
+seo:
+  title: Post to LinkedIn from Node.js and TypeScript
+  description: Post to LinkedIn from Node.js or Bun with the versioned LinkedIn Posts API. Member or organization authors, images, video, documents, comments, and typed per-post results.
 ---
+
+To post to LinkedIn from a server, call the versioned Posts API (`/rest/posts`) with an access token for the author: `w_member_social` to post as a member, or `w_organization_social` to post as a Page where you hold a posting role. The Social SDK LinkedIn adapter sends that request through `social.posts.publish` with the monthly API version you pin, uploads images, video and documents first, and returns a typed outcome per post.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+```ts
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { linkedin } from "@opencoredev/social-sdk/linkedin";
+
+const social = createSocial({
+  backend: linkedin({
+    auth: {
+      accessToken: process.env.LINKEDIN_ACCESS_TOKEN!,
+      author: "urn:li:person:abc123",
+    },
+    apiVersion: "202609",
+  }),
+});
+
+const account = connectedAccountRef({
+  backend: "default",
+  platform: "linkedin",
+  accountId: "urn:li:person:abc123",
+});
+
+const result = await social.posts.publish({
+  targets: [{ account }],
+  content: { text: "Posted from TypeScript with Social SDK" },
+});
+```
+
+Replace `urn:li:person:abc123` with the member URN of the token's owner, or use an `urn:li:organization:` URN for a Page. The setup below covers app approval, scopes and version upkeep.
 
 The direct LinkedIn adapter supports account reads, normalized text, article links, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, image, video and document status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
 
