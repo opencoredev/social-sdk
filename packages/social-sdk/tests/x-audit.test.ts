@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
+import { beforeEach, it } from "node:test";
 import { connectedAccountRef, createSocial, platformPostRef, SocialError } from "../src/index.js";
 import type { AdapterOperationContext, Page, JsonObject } from "../src/index.js";
 import { x } from "../src/platforms/x.js";
+import { remainingBudget } from "../src/transport/budget.js";
 
 interface MediaStatusFixture {
   id: string;
@@ -11,11 +12,25 @@ interface MediaStatusFixture {
 
 const account = connectedAccountRef({ backend: "default", platform: "x", accountId: "1" });
 
-const context: AdapterOperationContext = {
-  backendInstance: "default",
-  correlationId: "audit",
-  retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
-};
+let context: AdapterOperationContext;
+
+// The elapsed budget is keyed by context object, so each test starts its own operation.
+beforeEach(() => {
+  context = {
+    backendInstance: "default",
+    correlationId: "audit",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+});
+
+it("spends one test's elapsed budget", () => {
+  remainingBudget(context, performance.now() - 2000);
+  assert.throws(() => remainingBudget(context), { code: "timeout" });
+});
+
+it("starts the next test with a fresh elapsed budget", () => {
+  assert.ok(remainingBudget(context) > 0);
+});
 
 const auth = { userId: "1", accessToken: "fixture" };
 
