@@ -1,7 +1,79 @@
 ---
 title: Platforms
 description: Compare the social operations, content formats, permissions, and evidence available through each direct platform adapter.
+seo:
+  title: Post to X, Bluesky and Threads from Node.js
+  description: Post to X, Bluesky and Threads from Node.js or Bun with one typed call that uses each platform's own API and returns one outcome per network.
 ---
+
+To post to X, Bluesky and Threads from Node.js with one API, register each platform's adapter in one Social SDK client and pass all three accounts to a single `social.posts.publish` call. The SDK sends the post through each platform's own API and returns one outcome per destination, so you can see which networks published and which failed.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+```ts
+import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
+import { bluesky } from "@opencoredev/social-sdk/bluesky";
+import { threads } from "@opencoredev/social-sdk/threads";
+import { x } from "@opencoredev/social-sdk/x";
+
+const social = createSocial({
+  backends: {
+    x: x({
+      auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
+    }),
+    bluesky: bluesky({
+      backend: "bluesky",
+      auth: {
+        service: "https://bsky.social",
+        did: process.env.BLUESKY_DID!,
+        accessJwt: process.env.BLUESKY_ACCESS_JWT!,
+      },
+    }),
+    threads: threads({
+      backend: "threads",
+      auth: {
+        userId: process.env.THREADS_USER_ID!,
+        accessToken: process.env.THREADS_ACCESS_TOKEN!,
+      },
+    }),
+  },
+});
+
+const result = await social.posts.publish({
+  targets: [
+    {
+      account: connectedAccountRef({
+        backend: "x",
+        platform: "x",
+        accountId: process.env.X_USER_ID!,
+      }),
+    },
+    {
+      account: connectedAccountRef({
+        backend: "bluesky",
+        platform: "bluesky",
+        accountId: process.env.BLUESKY_DID!,
+      }),
+    },
+    {
+      account: connectedAccountRef({
+        backend: "threads",
+        platform: "threads",
+        accountId: process.env.THREADS_USER_ID!,
+      }),
+    },
+  ],
+  content: { text: "Shipped from one TypeScript call with Social SDK" },
+});
+
+for (const outcome of result.outcomes) {
+  console.log(outcome.account.platform, outcome.state);
+}
+```
+
+Give the Bluesky and Threads adapters a `backend` name that matches their key in `backends`, and use the same name in each account reference. Without it, the adapter rejects its account reference: a mismatched Threads reference fails the whole call before anything is sent, and a mismatched Bluesky reference returns a failed Bluesky outcome. The sample uses tokens for accounts you own; for accounts your users connect, follow the OAuth setup in each platform guide below.
 
 Use this page to choose a platform adapter before you read its setup guide. The matrix describes the normalized surface currently implemented in Social SDK. Platform-native parity operations are listed in the capability matrix and each platform guide; they do not certify credentials, app review, account eligibility, or a successful live request.
 
