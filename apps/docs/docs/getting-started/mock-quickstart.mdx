@@ -1,11 +1,20 @@
 ---
 title: Quickstart
 description: Build and verify your first Social SDK flow without credentials, platform calls, or billable provider requests.
+seo:
+  title: Test social posting without API keys
+  description: Test social media posting code without API keys or network calls. Social SDK's mock backend returns scripted published, processing and failed outcomes.
 ---
+
+To test social posting code without real API keys, give `createSocial` the `mockBackend` from `@opencoredev/social-sdk/testing` instead of a platform adapter. Your code makes the same `social.posts.publish` call it makes in production, with no credentials and no network request, and the scenario you pick decides the result: an immediate `published` outcome, media that reports `processing` until your test calls `mock.testing.advanceProcessing()`, a rate-limited `failed` outcome, or a mixed batch where every second target fails.
 
 The deterministic testing backend is the safe first integration target. It accepts explicit accounts, fixtures, scenarios, and a fake clock so the same input produces the same observable result in local development and CI.
 
-Save this as `quickstart.ts` in a project that has the package installed:
+```package-install
+@opencoredev/social-sdk
+```
+
+Save this as `quickstart.ts`:
 
 ```ts
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
