@@ -1,7 +1,12 @@
 ---
 title: Inngest
 description: Drive event-based social publishing flows with durable Inngest steps, retries, and Social SDK idempotency keys.
+seo:
+  title: Schedule social posts with Inngest
+  description: Schedule and publish social media posts with Inngest and Social SDK, using durable steps, a future event timestamp and idempotency keys against double posts.
 ---
+
+To schedule a social post with Inngest, send the publish event with a future `ts` timestamp, and Inngest runs the publishing function at that time. Inside the function, Social SDK's `posts.publish` claims the idempotency key before it calls the platform, so a retried step does not post twice. [Scheduled publishing](#scheduled-publishing) shows the call.
 
 Inngest gives Social SDK applications durable, event-driven execution: a publish request becomes an event, each SDK call becomes a step with its own retry state, and status checks become follow-up steps instead of a background poller the SDK refuses to own.
 

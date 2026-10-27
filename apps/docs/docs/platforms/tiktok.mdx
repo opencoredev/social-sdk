@@ -1,7 +1,18 @@
 ---
 title: TikTok
 description: Prepare TikTok creator choices and publish verified media URLs or local videos with Social SDK, covering consent, privacy, drafts, and processing checks.
+seo:
+  title: Post to TikTok from Node.js and TypeScript
+  description: Post videos and photos to TikTok from Node.js or Bun with the Content Posting API, including creator info, privacy choice, consent and publish status.
 ---
+
+To post to TikTok from a Node.js or Bun server, use TikTok's Content Posting API: query the creator's info, show the creator a preview where they choose a privacy level and consent, then initialize a Direct Post or an inbox upload and check the publish status. The Social SDK TikTok adapter makes those calls through `social.posts.publish` and `social.posts.getDelivery`, rejects a post without the creator's consent or, for Direct Post, with a privacy level the creator info does not offer, and reports `processing` or `accepted` until TikTok returns a public post ID.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+Until TikTok audits your app, Direct Post can publish only to private accounts with `SELF_ONLY` visibility. The setup sample below configures the adapter, and the examples after it [fetch creator info](#fetch-creator-info-before-publishing), [publish a video](#publish-a-video) and [reconcile the publish ID](#reconcile-the-publish-id).
 
 The direct TikTok adapter accepts an existing access token and creator `openId`. The server package also provides `tiktokOAuth` for TikTok Login Kit web authorization and creator discovery. OAuth consent does not replace the creator preview and publish consent requirements.
 
