@@ -92,7 +92,7 @@ export const threadsApi: Guide = {
             <tbody>
               <tr><td><code>threads_basic</code></td><td>Required for every endpoint</td></tr>
               <tr><td><code>threads_content_publish</code></td><td>Creating and publishing posts</td></tr>
-              <tr><td><code>threads_manage_replies</code></td><td>POST calls to reply endpoints</td></tr>
+              <tr><td><code>threads_manage_replies</code></td><td>POST calls to reply endpoints, such as hiding replies</td></tr>
               <tr><td><code>threads_read_replies</code></td><td>GET calls to reply endpoints</td></tr>
               <tr><td><code>threads_manage_insights</code></td><td>Insights endpoints</td></tr>
               <tr><td><code>threads_delete</code></td><td>Deleting posts</td></tr>
