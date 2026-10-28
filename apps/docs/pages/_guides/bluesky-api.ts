@@ -90,7 +90,7 @@ export const blueskyApi: Guide = {
   summary:
     "The Bluesky API end to end: hosts, app passwords and OAuth, posting with createRecord, links and mentions as facets, images and video, rate limits, and a TypeScript example.",
   heading: "The Bluesky API, explained",
-  lede: "The Bluesky API is the set of AT Protocol endpoints that Bluesky's servers expose. It is free and needs no developer account or API key: to post, you log in as the account and create an app.bsky.feed.post record in its repository. A post holds up to 300 characters and four images, and an account can create about 1,666 records an hour.",
+  lede: "The Bluesky API is the set of AT Protocol endpoints that Bluesky's servers expose. It needs no developer account or API key: to post, you log in as the account and create an app.bsky.feed.post record in its repository. A post holds up to 300 characters and four images, and an account can create about 1,666 records an hour.",
   published: "2026-10-28",
   updated: "2026-10-28",
   content: `
@@ -259,14 +259,10 @@ export const blueskyApi: Guide = {
 
           <h2 id="faq">Common questions</h2>
           <dl class="faq">
-            <dt>Is the Bluesky API free?</dt>
+            <dt>Do I need an API key or developer account for Bluesky?</dt>
             <dd>
-              Yes. There is no paid tier, developer account, or API key. You authenticate as a
-              Bluesky account, and the rate limits above apply.
-            </dd>
-            <dt>Do I need an API key for Bluesky?</dt>
-            <dd>
-              No. Bots and scripts log in with the account's handle and an app password. Apps
+              No. You authenticate as a Bluesky account, and the rate limits above apply. Bots
+              and scripts log in with the account's handle and an app password. Apps
               where other people sign in use AT Protocol OAuth, where your client ID is the URL
               of your client metadata document.
             </dd>
