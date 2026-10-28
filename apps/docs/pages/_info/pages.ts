@@ -17,9 +17,9 @@ const repo = "https://github.com/opencoredev/social-sdk";
 
 export const about: InfoPage = {
   path: "/about",
-  title: "About Social SDK, the open-source social platform toolkit",
+  title: "Social SDK: open-source TypeScript SDK for social posting",
   description:
-    "Social SDK is an MIT-licensed TypeScript library for publishing, reading, and handling comments and webhooks across social platforms from your own server.",
+    "Social SDK is an MIT-licensed TypeScript SDK for posting to X, Bluesky, Threads, LinkedIn, Instagram, TikTok, and YouTube from your own server.",
   kicker: "who makes this, and why",
   heading: "About",
   lede: "Social SDK is an open-source TypeScript library for adding social platform features to your own application. You install it from npm, run it on your server, and keep your own credentials.",
@@ -69,6 +69,7 @@ export const about: InfoPage = {
             <li><a href="/docs/getting-started/installation">Install the package</a></li>
             <li><a href="/docs/getting-started/mock-quickstart">Run the mock quickstart</a></li>
             <li><a href="/docs/platforms">Compare platforms</a></li>
+            <li><a href="/guides">Read the platform API guides</a></li>
             <li><a href="/blog">Read the blog</a></li>
             <li><a href="/contact">Contact the maintainers</a></li>
           </ul>
@@ -77,9 +78,9 @@ export const about: InfoPage = {
 
 export const contact: InfoPage = {
   path: "/contact",
-  title: "Contact Social SDK for bugs, questions, and security",
+  title: "Contact Social SDK: GitHub issues, security, and help",
   description:
-    "How to reach the Social SDK maintainers: GitHub issues for bugs and questions, with guidance for security reports and platform access problems.",
+    "Reach the Social SDK maintainers on GitHub. Open an issue for bugs, questions, or feature requests, and learn how to report a security problem safely.",
   kicker: "how to reach us",
   heading: "Contact",
   lede: "Social SDK is maintained in the open, so almost every conversation happens on GitHub where others can find the answer later.",

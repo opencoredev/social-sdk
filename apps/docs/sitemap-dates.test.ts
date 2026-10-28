@@ -77,3 +77,17 @@ test("dates the empty blog index by the shell helpers only", () => {
     ["^export type Shell"],
   );
 });
+
+test("dates every guide by its page, its copy, and the shared shell", () => {
+  for (const path of ["/guides", "/guides/threads-api"]) {
+    const source = pageSources.get(path);
+
+    assert.ok(source?.files.includes("_info/info.html"), path);
+    assert.deepEqual(
+      source?.ranges.map((range) => range.from),
+      ["^export type Shell"],
+    );
+  }
+
+  assert.ok(pageSources.get("/guides/threads-api")?.files.includes("_guides/threads-api.ts"));
+});

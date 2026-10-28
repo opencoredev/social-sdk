@@ -43,6 +43,22 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   ["/brand", { files: ["brand.astro", "_brand"], ranges: [] }],
   // Only used while the blog is empty; with posts, the blog sitemap dates it.
   [
+    "/guides",
+    { files: ["guides/index.astro", "_guides", "_info/info.html"], ranges: [shellHelpers] },
+  ],
+  [
+    "/guides/threads-api",
+    {
+      files: [
+        "guides/threads-api.astro",
+        "_guides/threads-api.ts",
+        "_guides/guides.ts",
+        "_info/info.html",
+      ],
+      ranges: [shellHelpers],
+    },
+  ],
+  [
     "/blog",
     { files: ["blog/index.astro", "_blog/render.ts", "_info/info.html"], ranges: [shellHelpers] },
   ],
