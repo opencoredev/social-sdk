@@ -1,7 +1,12 @@
 ---
 title: TanStack Start
 description: Publish to social platforms from TanStack Start server functions and API routes with Social SDK, keeping credentials in server-only code.
+seo:
+  title: Post to social media from TanStack Start
+  description: Post to Bluesky, X, Threads and more from a TanStack Start server function with Social SDK, keeping tokens and account lookups in server-only code.
 ---
+
+To post to social media from TanStack Start, create the Social SDK client in a server-only module and call `social.posts.publish` from a server function made with `createServerFn`. Tokens and account lookups never reach the browser bundle, and the draft ID is the idempotency key, so with a durable idempotency store a retried call does not post twice. [Publish from a server function](#publish-from-a-server-function) shows the code. For scheduled posts, have a durable job runner such as [Trigger.dev](/integrations/trigger-dev) or [Inngest](/integrations/inngest) run the same publish call at the publish time.
 
 TanStack Start runs its server functions and server routes on Node, so Social SDK slots in directly: construct the client in server-only code, call it from server functions, and keep webhook verification on the raw request.
 
