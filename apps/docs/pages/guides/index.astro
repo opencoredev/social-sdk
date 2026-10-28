@@ -1,0 +1,8 @@
+---
+// Guides index. The copy and rendering live in _guides/guides.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuidesIndex } from "../_guides/guides";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuidesIndex()))} />

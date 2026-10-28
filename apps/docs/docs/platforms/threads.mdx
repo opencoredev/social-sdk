@@ -8,6 +8,8 @@ seo:
 
 To post to Threads from a server, create a media container with `POST /{threads-user-id}/threads`, then publish it with `POST /{threads-user-id}/threads_publish`, using a user access token with the `threads_basic` and `threads_content_publish` scopes. The Social SDK Threads adapter runs both steps through `social.posts.publish`, checks the container's status in between, and returns `published` with the new post ID, or `processing` while Meta is still preparing the container.
 
+For Meta's access rules, token lifetimes, and daily limits in one place, read the <a href="/guides/threads-api">Threads API guide</a>.
+
 ```package-install
 @opencoredev/social-sdk
 ```
