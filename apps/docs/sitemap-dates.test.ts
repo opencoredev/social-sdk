@@ -79,23 +79,31 @@ test("dates the empty blog index by the shell helpers only", () => {
 });
 
 test("dates every guide by its page, its copy, and the shared shell", () => {
-  const threads = pageSources.get("/guides/threads-api");
+  for (const slug of ["bluesky-api", "threads-api"]) {
+    const guide = pageSources.get(`/guides/${slug}`);
 
-  assert.ok(threads?.files.includes("_info/info.html"));
-  assert.ok(threads?.files.includes("_guides/threads-api.ts"));
-  assert.deepEqual(
-    threads?.ranges.map((range) => range.from),
-    ["^export type Shell"],
-  );
+    assert.ok(guide?.files.includes("_info/info.html"));
+    assert.ok(guide?.files.includes(`guides/${slug}.astro`));
+    assert.ok(guide?.files.includes(`_guides/${slug}.ts`));
+    assert.deepEqual(
+      guide?.ranges.map((range) => range.from),
+      ["^export type Shell"],
+    );
+  }
 });
 
 test("dates the guides index by guide metadata, not guide bodies", () => {
   const index = pageSources.get("/guides");
 
   assert.ok(!index?.files.includes("_guides"));
+  assert.ok(!index?.files.includes("_guides/bluesky-api.ts"));
   assert.ok(!index?.files.includes("_guides/threads-api.ts"));
   assert.deepEqual(
     index?.ranges.map((range) => `${range.file} ${range.from}`),
-    ["_info/pages.ts ^export type Shell", "_guides/threads-api.ts ^  slug:"],
+    [
+      "_info/pages.ts ^export type Shell",
+      "_guides/bluesky-api.ts ^  slug:",
+      "_guides/threads-api.ts ^  slug:",
+    ],
   );
 });

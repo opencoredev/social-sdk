@@ -2,6 +2,7 @@
 // hand-drawn shell, with TechArticle and BreadcrumbList structured data.
 import { escapeHtml } from "../_blog/render";
 import { renderShell, siteMeta } from "../_info/pages";
+import { blueskyApi } from "./bluesky-api";
 import { threadsApi } from "./threads-api";
 
 export type Guide = {
@@ -23,7 +24,7 @@ const SITE = "https://social-sdk.dev";
 
 const GUIDES_PATH = "/guides";
 
-export const guides: readonly Guide[] = [threadsApi];
+export const guides: readonly Guide[] = [blueskyApi, threadsApi];
 
 export function guidePath(guide: Pick<Guide, "slug">): string {
   return `${GUIDES_PATH}/${guide.slug}`;

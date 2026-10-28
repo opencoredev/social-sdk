@@ -49,8 +49,21 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       files: ["guides/index.astro", "_guides/guides.ts", "_info/info.html"],
       ranges: [
         shellHelpers,
+        { file: "_guides/bluesky-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/threads-api.ts", from: "^  slug:", to: "^  updated:" },
       ],
+    },
+  ],
+  [
+    "/guides/bluesky-api",
+    {
+      files: [
+        "guides/bluesky-api.astro",
+        "_guides/bluesky-api.ts",
+        "_guides/guides.ts",
+        "_info/info.html",
+      ],
+      ranges: [shellHelpers],
     },
   ],
   [
