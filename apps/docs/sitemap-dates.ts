@@ -44,7 +44,14 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   // Only used while the blog is empty; with posts, the blog sitemap dates it.
   [
     "/guides",
-    { files: ["guides/index.astro", "_guides", "_info/info.html"], ranges: [shellHelpers] },
+    // The index renders each guide's metadata, not its body.
+    {
+      files: ["guides/index.astro", "_guides/guides.ts", "_info/info.html"],
+      ranges: [
+        shellHelpers,
+        { file: "_guides/threads-api.ts", from: "^  slug:", to: "^  updated:" },
+      ],
+    },
   ],
   [
     "/guides/threads-api",

@@ -38,7 +38,6 @@ const account = connectedAccountRef({ backend: "default", platform: "threads", a
 const result = await social.posts.publish({
   targets: [{ account }],
   content: { text: "Posted to Threads from TypeScript" },
-  idempotencyKey: "draft-42",
 });
 
 for (const outcome of result.outcomes) {
@@ -142,7 +141,8 @@ export const threadsApi: Guide = {
           </p>
           ${code(createContainer)}
           <p>
-            Meta recommends waiting about 30 seconds before publishing so it can process the
+            Meta's examples pass the token as the <code>access_token</code> parameter, so keep
+            these requests out of URL and proxy logs. Meta recommends waiting about 30 seconds before publishing so it can process the
             media. Rather than sleeping blindly, read the container's status. It moves from
             <code>IN_PROGRESS</code> to <code>FINISHED</code>, or to <code>ERROR</code> with an
             <code>error_message</code> such as <code>FAILED_DOWNLOADING_VIDEO</code>. A container
@@ -210,7 +210,10 @@ export const threadsApi: Guide = {
             We type-checked this example against <code>@opencoredev/social-sdk</code> 0.5.0 from npm
             and ran it on ${fetched} with a stub <code>fetch</code> standing in for Meta. It made
             the three calls above in order and printed the new post ID. It runs on Node.js 22.12
-            or later and Bun. The token comes from your own OAuth flow; the
+            or later and Bun. Running the script again is a new publish. To make retries safe,
+            give the client a durable <a href="/docs/concepts/idempotency">idempotency store</a>
+            and pass an <code>idempotencyKey</code>; without the store, the key doesn't
+            deduplicate anything. The token comes from your own OAuth flow; the
             <a href="/docs/authentication">authentication guide</a> covers the SDK's
             <code>threadsOAuth</code> and token refresh helpers.
           </p>
