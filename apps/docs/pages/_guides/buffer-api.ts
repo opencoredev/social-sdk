@@ -29,10 +29,12 @@ const helpCenter = "https://support.buffer.com/articles/using-buffers-api-GtIYIQ
 const bufferExample = `const apiKey = process.env["BUFFER_API_KEY"];
 if (!apiKey) throw new Error("Set BUFFER_API_KEY");
 
-type GraphqlResponse<T> = { data?: T; errors?: { message: string }[] };
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
 // Every Buffer API call is a POST of a GraphQL document to one endpoint.
-async function bufferGraphql<T>(query: string, variables: object = {}): Promise<T> {
+// The response is checked before use, so it starts as unknown.
+async function bufferGraphql(query: string, variables: object = {}): Promise<Record<string, unknown>> {
   const response = await fetch("https://api.buffer.com", {
     method: "POST",
     headers: { Authorization: \`Bearer \${apiKey}\`, "Content-Type": "application/json" },
@@ -42,30 +44,33 @@ async function bufferGraphql<T>(query: string, variables: object = {}): Promise<
     // Retry-After is in seconds. A 30-day window can be weeks away, so surface it.
     throw new Error(\`Rate limited; retry after \${response.headers.get("retry-after")} s\`);
   }
-  const body = (await response.json()) as GraphqlResponse<T>;
-  if (body.errors?.length || !body.data) {
-    throw new Error(body.errors?.map((error) => error.message).join("; ") ?? "No data");
+  const body: unknown = await response.json();
+  if (!isRecord(body)) throw new Error("Unexpected response");
+  if (Array.isArray(body["errors"]) && body["errors"].length > 0) {
+    throw new Error(JSON.stringify(body["errors"]));
   }
-  return body.data;
+  if (!isRecord(body["data"])) throw new Error("No data");
+  return body["data"];
 }
 
-const { account } = await bufferGraphql<{ account: { organizations: { id: string }[] } }>(
-  \`{ account { organizations { id name } } }\`,
-);
-const organizationId = account.organizations[0]?.id;
-if (!organizationId) throw new Error("No Buffer organization");
+const { account } = await bufferGraphql(\`{ account { organizations { id name } } }\`);
+const organizations = isRecord(account) ? account["organizations"] : undefined;
+const organization = Array.isArray(organizations) ? organizations[0] : undefined;
+const organizationId = isRecord(organization) ? organization["id"] : undefined;
+if (typeof organizationId !== "string") throw new Error("No Buffer organization");
 
-const { channels } = await bufferGraphql<{ channels: { id: string; service: string }[] }>(
+const { channels } = await bufferGraphql(
   \`query Channels($organizationId: OrganizationId!) {
     channels(input: { organizationId: $organizationId }) { id service }
   }\`,
   { organizationId },
 );
-const channel = channels.find((item) => item.service === "bluesky");
-if (!channel) throw new Error("Connect a Bluesky channel in Buffer first");
+const channel = (Array.isArray(channels) ? channels : []).find(
+  (item) => isRecord(item) && item["service"] === "bluesky",
+);
+if (!isRecord(channel)) throw new Error("Connect a Bluesky channel in Buffer first");
 
-type CreatePostResult = { post?: { id: string; dueAt: string }; message?: string };
-const { createPost } = await bufferGraphql<{ createPost: CreatePostResult }>(
+const { createPost } = await bufferGraphql(
   \`mutation CreatePost($input: CreatePostInput!) {
     createPost(input: $input) {
       ... on PostActionSuccess { post { id status dueAt } }
@@ -74,7 +79,7 @@ const { createPost } = await bufferGraphql<{ createPost: CreatePostResult }>(
   }\`,
   {
     input: {
-      channelId: channel.id,
+      channelId: channel["id"],
       text: "Release notes for v2 are up.",
       schedulingType: "automatic",
       mode: "customScheduled",
@@ -82,9 +87,12 @@ const { createPost } = await bufferGraphql<{ createPost: CreatePostResult }>(
     },
   },
 );
+if (!isRecord(createPost)) throw new Error("Unexpected createPost result");
 // Validation problems arrive as a MutationError on HTTP 200, not in \`errors\`.
-if (!createPost.post) throw new Error(createPost.message ?? "Post not created");
-console.log("scheduled", createPost.post.id, createPost.post.dueAt);`;
+if (!isRecord(createPost["post"])) throw new Error(String(createPost["message"]));
+const post = createPost["post"];
+// A channel that requires approval returns a draft (needs_approval), not a scheduled post.
+console.log(post["status"], post["id"], post["dueAt"]);`;
 
 const sdkExample = `import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
 import { mockBackend } from "@opencoredev/social-sdk/testing";
@@ -200,8 +208,10 @@ export const bufferApi: Guide = {
             We type-checked this against Buffer's
             <a href="${docs}/reference">GraphQL reference</a> types and ran it on ${fetched} with
             a stub <code>fetch</code> standing in for <code>api.buffer.com</code>: three requests,
-            then the scheduled post's ID. A stubbed <code>MutationError</code> and a stubbed
-            <code>429</code> each stopped the script with the message shown. It runs on Node.js
+            then <code>scheduled</code> with the post's ID and time. A stubbed
+            <code>needs_approval</code> draft printed that status instead, and a stubbed
+            <code>MutationError</code> and <code>429</code> each stopped the script with the
+            message shown. It runs on Node.js
             22.12 or later and Bun.
           </p>
           <p>Two details catch people out:</p>
@@ -210,8 +220,10 @@ export const bufferApi: Guide = {
               <strong>Two kinds of error.</strong> Problems with your input, such as text over a
               channel's limit, come back as a <code>MutationError</code> inside
               <code>data</code> with HTTP 200. Authentication failures, missing records, and rate
-              limits come back in <code>errors</code>. Select both
-              <code>PostActionSuccess</code> and <code>MutationError</code> on every mutation.
+              limits come back in <code>errors</code>. On post mutations
+              such as <code>createPost</code>, select both <code>PostActionSuccess</code> and
+              <code>MutationError</code>; other mutations name their own success and error types
+              in the reference.
             </li>
             <li>
               <strong>Media is a URL, not an upload.</strong> There is no upload endpoint.
