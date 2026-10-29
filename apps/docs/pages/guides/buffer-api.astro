@@ -1,0 +1,9 @@
+---
+// Buffer API guide. The copy lives in _guides/buffer-api.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuide } from "../_guides/guides";
+import { bufferApi } from "../_guides/buffer-api";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(bufferApi)))} />

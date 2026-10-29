@@ -5,6 +5,8 @@ description: Configure the Buffer managed backend with an API key or OAuth acces
 
 [Buffer](https://buffer.com) is an optional managed backend. Buffer holds the social channels connected to a Buffer organization and publishes or queues posts through its GraphQL API at `https://api.buffer.com`. Create a personal API key under Settings → API, or let other people approve your Buffer OAuth app. The key or access token stays on the server and is sent as `Authorization: Bearer`.
 
+For Buffer's API access rules, scheduling modes, and rate limits per plan in one place, read the <a href="/guides/buffer-api">Buffer API guide</a>.
+
 ```ts
 import {
   createSocial,
