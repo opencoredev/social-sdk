@@ -11,6 +11,11 @@
     />
     <script>
       (() => {
+        // Halloween runs through October and switches itself off on November 1.
+        // ?halloween=1 or ?halloween=0 forces it either way for previews.
+        const forced = new URLSearchParams(location.search).get("halloween");
+        const halloween = forced ? forced === "1" : new Date().getMonth() === 9;
+        document.documentElement.classList.toggle("halloween", halloween);
         const stored = localStorage.getItem("blume-theme");
         const dark = stored
           ? stored === "dark"
@@ -900,6 +905,459 @@
       html.dark .brush-btn {
         color: var(--paper);
       }
+
+      /* ---------- halloween: the same page and colors, with doodles in the margins ---------- */
+      /* Everything marked .hw only exists in October; see the theme script in <head>. */
+      html:not(.halloween) .hw {
+        display: none;
+      }
+      html.halloween .hw-off {
+        display: none;
+      }
+      html.halloween .paper-note .tape {
+        background: repeating-linear-gradient(
+          -45deg,
+          color-mix(in srgb, var(--marker) 55%, transparent) 0 9px,
+          color-mix(in srgb, var(--ink) 55%, transparent) 9px 18px
+        );
+        border: 0;
+      }
+      /* paint drips run down from the underline once the page loads */
+      html.halloween h1 .scribbled::before {
+        content: "";
+        position: absolute;
+        left: -2%;
+        bottom: -0.408em;
+        width: 104%;
+        height: 0.55em;
+        background: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 165 30" preserveAspectRatio="none"%3E%3Cpath d="M24 7 Q28.2 8 28.2 14 L28.2 16 C28.2 18 27 19 27 21 A3 3 0 0 0 33 21 C33 19 31.8 18 31.8 16 L31.8 14 Q31.8 8 36 7 Z M90 7 Q94.2 8 94.2 14 L94.2 10 C94.2 12 93 13 93 15 A3 3 0 0 0 99 15 C99 13 97.8 12 97.8 10 L97.8 14 Q97.8 8 102 7 Z M127 7 Q131.2 8 131.2 14 L131.2 21 C131.2 23 130 24 130 26 A3 3 0 0 0 136 26 C136 24 134.8 23 134.8 21 L134.8 14 Q134.8 8 139 7 Z" fill="%23e8542f"/%3E%3C/svg%3E')
+          no-repeat center / 100% 100%;
+        clip-path: inset(0 0 0 0);
+        animation: hw-drip 2.2s cubic-bezier(0.55, 0, 0.75, 0.6) 0.9s both;
+      }
+      @keyframes hw-drip {
+        from {
+          clip-path: inset(0 0 100% 0);
+        }
+      }
+      /* platform nodes become pumpkins, and light up when the ghost delivers */
+      html.halloween .node circle {
+        stroke: var(--marker);
+      }
+      html.halloween .node.deliver circle {
+        animation: hw-lit 0.7s ease-out;
+      }
+      html.dark.halloween .node.deliver circle {
+        animation-name: hw-lit-dark;
+      }
+      /* literal colours: var() inside keyframes on an SVG fill resolves to black in Chromium */
+      @keyframes hw-lit {
+        30% {
+          fill: #f9cfc5;
+        }
+      }
+      @keyframes hw-lit-dark {
+        30% {
+          fill: #4f2419;
+        }
+      }
+
+      header {
+        position: relative;
+      }
+      .hw-sky {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      /* a harvest moon over a haunted house, filling the empty right side of the hero */
+      .hw-moon {
+        position: absolute;
+        top: 14px;
+        right: 26px;
+        width: 176px;
+      }
+      .hw-witch {
+        animation: hw-fly 9s linear 1.2s infinite;
+        translate: 140px 0;
+      }
+      @keyframes hw-fly {
+        0% {
+          translate: 140px 6px;
+        }
+        40% {
+          translate: -150px -10px;
+        }
+        40.1%,
+        100% {
+          translate: 140px 6px;
+        }
+      }
+      .hw-house {
+        position: absolute;
+        top: 150px;
+        right: -12px;
+        width: 360px;
+        overflow: visible;
+      }
+      .hw-lit {
+        animation: hw-flicker 3.1s linear infinite;
+      }
+      .hw-bat {
+        position: absolute;
+        top: 54px;
+        right: 236px;
+        width: 88px;
+        rotate: -7deg;
+        animation: hw-bob 3.8s ease-in-out infinite;
+      }
+      .hw-bat.b2 {
+        top: 196px;
+        right: 10px;
+        width: 50px;
+        rotate: 11deg;
+        animation-duration: 4.6s;
+        animation-delay: -1.7s;
+      }
+      /* two drawn frames swapped like a flipbook, so the wings beat without morphing */
+      .hw-bat .down {
+        opacity: 0;
+      }
+      .hw-bat .up {
+        animation: hw-frame-a 0.36s steps(1, end) infinite;
+      }
+      .hw-bat .down {
+        animation: hw-frame-b 0.36s steps(1, end) infinite;
+      }
+      .hw-bat.b2 .up,
+      .hw-bat.b2 .down {
+        animation-duration: 0.3s;
+      }
+      @keyframes hw-frame-a {
+        50% {
+          opacity: 0;
+        }
+      }
+      @keyframes hw-frame-b {
+        0% {
+          opacity: 0;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      @keyframes hw-bob {
+        0%,
+        100% {
+          translate: 0 0;
+        }
+        50% {
+          translate: 0 -7px;
+        }
+      }
+      /* the spider lowers itself onto the K of "SDK", then climbs a little now and then */
+      .hw-spider {
+        position: absolute;
+        top: 58px;
+        left: 300px;
+        width: 40px;
+        overflow: visible;
+        animation:
+          hw-lower 1.6s cubic-bezier(0.3, 1.35, 0.5, 1) 0.4s both,
+          hw-climb 7s ease-in-out 3s infinite;
+      }
+      @keyframes hw-lower {
+        from {
+          translate: 0 -170px;
+        }
+      }
+      @keyframes hw-climb {
+        0%,
+        70%,
+        100% {
+          transform: translateY(0);
+        }
+        78% {
+          transform: translateY(-34px);
+        }
+        86% {
+          transform: translateY(-30px);
+        }
+      }
+      .kicker.hw {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 31px;
+        color: var(--marker-text);
+      }
+      .hw-letters span {
+        display: inline-block;
+        white-space: pre;
+        animation:
+          hw-letter-in 0.7s cubic-bezier(0.2, 1.5, 0.4, 1) calc(var(--i) * 45ms + 0.2s) both,
+          hw-float 2.8s ease-in-out calc(var(--i) * -0.17s) infinite;
+      }
+      @keyframes hw-letter-in {
+        from {
+          opacity: 0;
+          transform: translateY(-16px) rotate(-14deg);
+        }
+      }
+      @keyframes hw-float {
+        0%,
+        100% {
+          translate: 0 0;
+        }
+        50% {
+          translate: 0 -2.5px;
+        }
+      }
+      .hw-pumpkin {
+        transform-origin: 50% 90%;
+        animation: hw-rock 4s ease-in-out infinite;
+      }
+      /* jack-o'-lantern faces are drawn in currentColor, so animating color flickers the candle */
+      .hw-pumpkin,
+      .hw-candle {
+        color: #f2a23a;
+        animation: hw-candle 2.3s linear infinite;
+      }
+      .hw-pumpkin {
+        animation:
+          hw-candle 2.3s linear infinite,
+          hw-rock 4s ease-in-out infinite;
+      }
+      @keyframes hw-candle {
+        0%,
+        100% {
+          color: #f2a23a;
+        }
+        9% {
+          color: #c9441f;
+        }
+        13% {
+          color: #f6b552;
+        }
+        31% {
+          color: #dd7a2a;
+        }
+        35% {
+          color: #f2a23a;
+        }
+        61% {
+          color: #cf5f26;
+        }
+        66% {
+          color: #f6b552;
+        }
+      }
+      .logo {
+        position: relative;
+      }
+      .hw-hat {
+        position: absolute;
+        left: 3px;
+        top: -12px;
+        width: 22px;
+        rotate: -8deg;
+      }
+      .brush-btn svg.hw-btn-drips {
+        inset: auto;
+        left: 46px;
+        bottom: -73px;
+        width: 130px;
+        height: 80px;
+        clip-path: inset(0);
+        animation: hw-drip 2s cubic-bezier(0.55, 0, 0.75, 0.6) 1.4s both;
+      }
+      .hw-btn-drips .drop {
+        animation: hw-fall 3.4s ease-in 3.6s infinite;
+      }
+      @keyframes hw-fall {
+        0%,
+        55% {
+          opacity: 0;
+          transform: translateY(-6px);
+        }
+        62% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+        100% {
+          opacity: 0;
+          transform: translateY(46px);
+        }
+      }
+      html.halloween .feat .doodle svg {
+        overflow: visible;
+      }
+      /* scoped to halloween: Chromium still animates SVG children of a display:none group */
+      html.halloween .hw-bubbles circle {
+        animation: hw-bubble 2.6s ease-in infinite;
+      }
+      @keyframes hw-bubble {
+        0% {
+          opacity: 0;
+          transform: translateY(0);
+        }
+        20% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+          transform: translateY(-34px);
+        }
+      }
+      footer {
+        position: relative;
+      }
+      .hw-patch {
+        position: absolute;
+        right: 8px;
+        top: 6px;
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+      }
+      @keyframes hw-rock {
+        0%,
+        80%,
+        100% {
+          rotate: 0deg;
+        }
+        86% {
+          rotate: -9deg;
+        }
+        92% {
+          rotate: 6deg;
+        }
+      }
+      @keyframes hw-flicker {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        9% {
+          opacity: 0.5;
+        }
+        13% {
+          opacity: 0.95;
+        }
+        31% {
+          opacity: 0.7;
+        }
+        35% {
+          opacity: 1;
+        }
+        61% {
+          opacity: 0.6;
+        }
+        66% {
+          opacity: 1;
+        }
+      }
+      .plane .ghost {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: hw-wobble 0.9s ease-in-out infinite alternate;
+      }
+      @keyframes hw-wobble {
+        from {
+          transform: rotate(-7deg);
+        }
+        to {
+          transform: rotate(7deg);
+        }
+      }
+      html.halloween .phon {
+        margin-top: 28px;
+      }
+      .hw-grave {
+        display: block;
+        margin: 0 auto 6px;
+      }
+      /* a small ghost drifts up out of the grave every few seconds */
+      .hw-grave .riser {
+        opacity: 0;
+        animation: hw-rise 6.5s ease-out 1s infinite;
+      }
+      @keyframes hw-rise {
+        0% {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        10% {
+          opacity: 1;
+          transform: translateY(18px);
+        }
+        42% {
+          opacity: 1;
+          transform: translate(4px, -30px);
+        }
+        62%,
+        100% {
+          opacity: 0;
+          transform: translate(10px, -52px);
+        }
+      }
+      .construction .hw-epitaph {
+        font-size: 22px;
+        max-width: 44ch;
+        margin-bottom: 22px;
+        text-wrap: balance;
+      }
+      /* below this the house would run into the definitions */
+      @media (max-width: 1120px) {
+        .hw-house {
+          display: none;
+        }
+      }
+      @media (max-width: 560px) {
+        .hw-moon {
+          top: 4px;
+          right: 0;
+          width: 96px;
+        }
+        .hw-bat {
+          top: 30px;
+          right: 96px;
+          width: 50px;
+        }
+        .hw-bat.b2,
+        .hw-spider {
+          display: none;
+        }
+        .hw-patch {
+          top: 10px;
+          scale: 0.8;
+          transform-origin: right bottom;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html.halloween h1 .scribbled::before,
+        html.halloween .node.deliver circle,
+        .hw-bat,
+        .hw-bat .up,
+        .hw-bat .down,
+        .hw-spider,
+        .hw-letters span,
+        .hw-pumpkin,
+        .hw-candle,
+        .hw-witch,
+        .hw-lit,
+        .brush-btn svg.hw-btn-drips,
+        .hw-btn-drips .drop,
+        html.halloween .hw-bubbles circle,
+        .plane .ghost,
+        .hw-grave .riser {
+          animation: none;
+        }
+        .hw-witch {
+          translate: 0 0;
+        }
+      }
     </style>
   </head>
   <body>
@@ -938,12 +1396,91 @@
             yChannelSelector="G"
           />
         </filter>
+        <!-- halloween: a stem and leaf that sit on top of each platform node -->
+        <g id="hw-stem">
+          <path
+            d="M-4 3 C-4 -4 -2 -9 1 -13 L5 -11 C3 -7 2 -2 3 3 Z"
+            fill="#5d8a3a"
+            stroke="#1c1a17"
+            stroke-width="1.6"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M-3 -4 C-11 -11 -19 -7 -21 -2 C-14 0 -8 -1 -3 -4 Z"
+            fill="#5d8a3a"
+            stroke="#1c1a17"
+            stroke-width="1.4"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M3 -6 C10 -10 14 -4 10 -1 C7 1 6 -3 9 -4"
+            stroke="#9be15d"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            fill="none"
+          />
+        </g>
+        <g id="hw-ribs">
+          <path
+            d="M-24 -38 C-37 -22 -37 22 -24 38 M24 -38 C37 -22 37 22 24 38"
+            stroke="#e8542f"
+            stroke-width="2"
+            stroke-linecap="round"
+            opacity="0.55"
+            fill="none"
+          />
+        </g>
+        <symbol id="hw-pumpkin" viewBox="0 0 44 40">
+          <g fill="none" filter="url(#roughen)">
+            <path
+              d="M22 10 C14 9 5 14 5 24 C5 33 14 37 22 36 C30 37 39 33 39 24 C39 14 30 9 22 10 Z"
+              stroke="#e8542f"
+              stroke-width="2.4"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M15 12 C10 18 10 30 15 35 M29 12 C34 18 34 30 29 35"
+              stroke="#e8542f"
+              stroke-width="1.6"
+              opacity="0.7"
+            />
+            <path
+              d="M21.5 10 C21 6 22 4 25 2"
+              style="stroke: var(--ink)"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            />
+            <path d="M15 20 L19.5 20 L17.2 16 Z M24.5 20 L29 20 L26.8 16 Z" fill="currentColor" />
+            <path
+              d="M15 26 L18 28 L20.5 26 L23.5 28 L26 26 L29 26 C27 31 17 31 15 26 Z"
+              fill="currentColor"
+            />
+          </g>
+        </symbol>
+        <clipPath id="hw-moon-clip"><circle cx="60" cy="60" r="50" /></clipPath>
       </defs>
     </svg>
 
     <div class="wrap">
       <nav>
         <a class="logo" href="#">
+          <svg class="hw hw-hat" viewBox="0 0 24 22" fill="none" aria-hidden="true">
+            <g filter="url(#roughen)">
+              <path
+                d="M1 18.5 Q11 13 23 10"
+                stroke="#1c1a17"
+                stroke-width="2.4"
+                stroke-linecap="round"
+              />
+              <path d="M5 16.5 C7 10 6 5 12 1 C12.5 6 14 10 17 13 Z" fill="#1c1a17" />
+              <path
+                d="M6.5 15 L15.5 11.6"
+                stroke="#e8542f"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </g>
+          </svg>
           <!-- doodle: megaphone stick-drawn -->
           <svg width="36" height="30" viewBox="3 5 30 25" fill="none" filter="url(#roughen)">
             <path
@@ -1034,6 +1571,207 @@
 
       <main>
         <header>
+          <div class="hw hw-sky" aria-hidden="true">
+            <svg class="hw-moon" viewBox="0 0 120 120" fill="none">
+              <circle cx="60" cy="60" r="50" fill="#e8542f" filter="url(#roughen2)" />
+              <g clip-path="url(#hw-moon-clip)">
+                <g class="hw-witch">
+                  <g transform="translate(14 50) scale(0.7)">
+                    <g fill="#211a14">
+                      <path
+                        d="M6 44 L100 36"
+                        stroke="#211a14"
+                        stroke-width="3.2"
+                        stroke-linecap="round"
+                      />
+                      <path
+                        d="M98 32 C106 29 113 25 120 20 L117 31 L121 43 C113 41 105 41 98 40 Z"
+                      />
+                      <path d="M36 42 C38 32 44 24 52 22 C60 22 64 30 66 40 Z" />
+                      <path d="M58 24 C70 21 82 27 94 21 C88 32 76 37 63 36 Z" />
+                      <circle cx="50" cy="18" r="5" />
+                      <path d="M45 17 L40 19.5 L45 20.5 Z" />
+                      <path
+                        d="M40 14.5 L61 12"
+                        stroke="#211a14"
+                        stroke-width="2.6"
+                        stroke-linecap="round"
+                      />
+                      <path d="M44 14 C48 6 53 -1 61 -5 C58 2 56 8 57.5 12.6 Z" />
+                      <path d="M38 41 L29 46.5 L34 47.5 L41 43.5 Z" />
+                    </g>
+                  </g>
+                </g>
+              </g>
+            </svg>
+            <svg class="hw-house" viewBox="0 0 360 300" fill="none">
+              <g fill="none" stroke-linejoin="round" stroke-linecap="round" filter="url(#roughen)">
+                <path d="M34 284 C100 252 200 238 380 262" stroke="#1c1a17" stroke-width="2.6" />
+                <g transform="rotate(-2.5 210 240)">
+                  <path
+                    d="M168 248 L168 150 L252 150 L252 246"
+                    fill="#fff"
+                    stroke="#1c1a17"
+                    stroke-width="2.6"
+                  />
+                  <path
+                    d="M158 156 L206 104 L262 154"
+                    fill="#fff"
+                    stroke="#1c1a17"
+                    stroke-width="2.6"
+                  />
+                  <path
+                    d="M232 128 L232 108 L244 108 L244 140"
+                    fill="#fff"
+                    stroke="#1c1a17"
+                    stroke-width="2.4"
+                  />
+                  <path
+                    d="M146 250 L146 122 L178 122 L178 250"
+                    fill="#fff"
+                    stroke="#1c1a17"
+                    stroke-width="2.6"
+                  />
+                  <path
+                    d="M140 126 L163 66 L185 126 Z"
+                    fill="#fff"
+                    stroke="#1c1a17"
+                    stroke-width="2.6"
+                  />
+                  <path
+                    d="M163 66 L163 54 M163 56 L171 59 L163 62"
+                    stroke="#1c1a17"
+                    stroke-width="2"
+                  />
+                  <g class="hw-lit">
+                    <path
+                      d="M156 140 h12 v18 h-12 Z M186 170 h18 v20 h-18 Z M220 170 h18 v20 h-18 Z"
+                      fill="#f2a23a"
+                      stroke="#1c1a17"
+                      stroke-width="2"
+                    />
+                  </g>
+                  <path
+                    d="M195 170 v20 M186 180 h18 M229 170 v20 M220 180 h18"
+                    stroke="#1c1a17"
+                    stroke-width="1.6"
+                  />
+                  <path
+                    d="M200 246 L200 220 C200 210 220 210 220 220 L220 246"
+                    fill="#211a14"
+                    stroke="#1c1a17"
+                    stroke-width="2.2"
+                  />
+                  <path
+                    d="M152 186 L172 196 M150 214 L174 206"
+                    stroke="#1c1a17"
+                    stroke-width="1.6"
+                    opacity="0.6"
+                  />
+                </g>
+                <path
+                  d="M74 282 C78 248 72 222 80 188 C82 176 80 166 84 152"
+                  stroke="#1c1a17"
+                  stroke-width="3"
+                />
+                <path
+                  d="M79 206 C64 196 54 182 42 176 M50 180 C46 172 47 166 44 160 M80 194 C92 182 102 174 116 172 M106 173 C110 166 116 164 120 158 M83 172 C90 162 96 160 102 150"
+                  stroke="#1c1a17"
+                  stroke-width="2.2"
+                />
+                <path
+                  d="M284 262 L284 242 C284 230 304 230 304 242 L304 263 M290 246 h8 M294 241 v12"
+                  stroke="#1c1a17"
+                  stroke-width="2.2"
+                  fill="#fff"
+                />
+                <path
+                  d="M322 266 L322 252 C322 244 336 244 336 252 L336 267"
+                  stroke="#1c1a17"
+                  stroke-width="2.2"
+                  fill="#fff"
+                />
+                <path d="M352 268 L352 246 M344 254 h16" stroke="#1c1a17" stroke-width="2.4" />
+                <path
+                  d="M64 271 l-3 -8 M68 270 l2 -7 M262 257 l-2 -8 M267 257 l2 -7"
+                  stroke="#1c1a17"
+                  stroke-width="1.8"
+                />
+              </g>
+            </svg>
+            <svg class="hw-bat" viewBox="0 0 100 48" fill="none">
+              <path
+                class="up"
+                d="M50 19 L53 13 L55.5 20 Q60 20 62.5 17 Q74 7 97 6 Q90 12 89 22 Q82 18 76 27 Q68 24 62 32 Q57 31 53.5 37 L50 42 L46.5 37 Q43 31 38 32 Q32 24 24 27 Q18 18 11 22 Q10 12 3 6 Q26 7 37.5 17 Q40 20 44.5 20 L47 13 L50 19 Z"
+                fill="#fff"
+                stroke="#1c1a17"
+                stroke-width="2.2"
+                stroke-linejoin="round"
+                filter="url(#roughen)"
+              />
+              <path
+                class="down"
+                d="M50 19 L53 13 L55.5 20 Q59.9 20.9 62.3 19.3 Q72.9 16.9 91.8 33.5 Q86.3 33.9 85.5 43.2 Q79.8 33.8 74.7 38.3 Q67.5 29.8 61.9 34 Q57 31 53.5 37 L50 42 L46.5 37 Q43 31 38.1 34 Q32.5 29.8 25.3 38.3 Q20.2 33.8 14.5 43.2 Q13.7 33.9 8.2 33.5 Q27.1 16.9 37.7 19.3 Q40.1 20.9 44.5 20 L47 13 L50 19 Z"
+                fill="#fff"
+                stroke="#1c1a17"
+                stroke-width="2.2"
+                stroke-linejoin="round"
+                filter="url(#roughen)"
+              />
+            </svg>
+            <svg class="hw-bat b2" viewBox="0 0 100 48" fill="none">
+              <path
+                class="up"
+                d="M50 19 L53 13 L55.5 20 Q60 20 62.5 17 Q74 7 97 6 Q90 12 89 22 Q82 18 76 27 Q68 24 62 32 Q57 31 53.5 37 L50 42 L46.5 37 Q43 31 38 32 Q32 24 24 27 Q18 18 11 22 Q10 12 3 6 Q26 7 37.5 17 Q40 20 44.5 20 L47 13 L50 19 Z"
+                fill="#fff"
+                stroke="#1c1a17"
+                stroke-width="2.6"
+                stroke-linejoin="round"
+                filter="url(#roughen)"
+              />
+              <path
+                class="down"
+                d="M50 19 L53 13 L55.5 20 Q59.9 20.9 62.3 19.3 Q72.9 16.9 91.8 33.5 Q86.3 33.9 85.5 43.2 Q79.8 33.8 74.7 38.3 Q67.5 29.8 61.9 34 Q57 31 53.5 37 L50 42 L46.5 37 Q43 31 38.1 34 Q32.5 29.8 25.3 38.3 Q20.2 33.8 14.5 43.2 Q13.7 33.9 8.2 33.5 Q27.1 16.9 37.7 19.3 Q40.1 20.9 44.5 20 L47 13 L50 19 Z"
+                fill="#fff"
+                stroke="#1c1a17"
+                stroke-width="2.6"
+                stroke-linejoin="round"
+                filter="url(#roughen)"
+              />
+            </svg>
+            <svg class="hw-spider" viewBox="0 0 60 150" fill="none">
+              <g filter="url(#roughen)">
+                <path d="M30 -90 V104" stroke="#57534c" stroke-width="1.4" />
+                <path
+                  d="M23 116 L11 103 L4 112 M22 120 L6 113 L0 124 M22 125 L8 131 L4 143 M24 129 L15 141 L13 150 M37 116 L49 103 L56 112 M38 120 L54 113 L60 124 M38 125 L52 131 L56 143 M36 129 L45 141 L47 150"
+                  stroke="#1c1a17"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <circle cx="30" cy="108" r="6" fill="#1c1a17" />
+                <ellipse cx="30" cy="123" rx="9" ry="10.5" fill="#1c1a17" />
+                <circle cx="27.6" cy="107" r="1.4" fill="#e8542f" />
+                <circle cx="32.4" cy="107" r="1.4" fill="#e8542f" />
+              </g>
+            </svg>
+          </div>
+          <p class="kicker hw">
+            <svg class="hw-pumpkin" width="42" height="38" viewBox="0 0 44 40" aria-hidden="true">
+              <use href="#hw-pumpkin" />
+            </svg>
+            <span class="sr-only">happy halloween</span>
+            <span class="hw-letters" aria-hidden="true"
+              ><span style="--i: 0">h</span><span style="--i: 1">a</span
+              ><span style="--i: 2">p</span><span style="--i: 3">p</span
+              ><span style="--i: 4">y</span><span style="--i: 5"> </span
+              ><span style="--i: 6">h</span><span style="--i: 7">a</span
+              ><span style="--i: 8">l</span><span style="--i: 9">l</span
+              ><span style="--i: 10">o</span><span style="--i: 11">w</span
+              ><span style="--i: 12">e</span><span style="--i: 13">e</span
+              ><span style="--i: 14">n</span></span
+            >
+          </p>
           <h1><span class="scribbled">social</span> SDK</h1>
           <p class="phon">/ˈsoʊ·ʃəl ˌɛs·diː·ˈkeɪ/ · <em>noun</em></p>
           <ol class="senses">
@@ -1045,6 +1783,11 @@
               <span class="num">2.</span>
               the route from your code to every platform, with a real answer from each.
             </li>
+            <li class="hw">
+              <span class="num">3.</span>
+              <em>seasonal.</em> a friendly ghost that carries your post to each platform and
+              reports back.
+            </li>
           </ol>
           <div class="cta-row">
             <a class="brush-btn" href="/docs/getting-started/mock-quickstart">
@@ -1054,6 +1797,13 @@
                   fill="#1c1a17"
                   filter="url(#roughen2)"
                 />
+              </svg>
+              <svg class="hw hw-btn-drips" viewBox="0 0 130 80" aria-hidden="true">
+                <path
+                  d="M14 0 Q19 2 19 8 L19 12 C19 15 17.6 16 17.6 18 A3.4 3.4 0 0 0 24.4 18 C24.4 16 23 15 23 12 L23 8 Q23 2 28 0 Z M58 0 Q63 2 63 8 L63 20 C63 23 61.4 24 61.4 26.5 A3.6 3.6 0 0 0 68.6 26.5 C68.6 24 67 23 67 20 L67 8 Q67 2 72 0 Z M100 0 Q104 2 104 6 C104 8 103 9 103 10.5 A3 3 0 0 0 109 10.5 C109 9 108 8 108 6 Q108 2 112 0 Z"
+                  fill="#1c1a17"
+                />
+                <circle class="drop" cx="65" cy="27" r="2.6" fill="#1c1a17" />
               </svg>
               Read the quickstart
             </a>
@@ -1174,12 +1924,25 @@
             <!-- paper plane: JS flies it one-way along a wire, it lands, a new one spawns -->
             <g class="plane" opacity="0">
               <path
+                class="hw-off"
                 d="M-13 -4 L13 0 L-9 8 L-5 0 Z M-9 8 L-8 13 L-4 5"
                 stroke="#1c1a17"
                 stroke-width="1.8"
                 fill="#fff"
                 stroke-linejoin="round"
               />
+              <g class="ghost hw">
+                <path
+                  d="M-12 13 L-12 -2 C-12 -11 -6.5 -15 0 -15 C6.5 -15 12 -11 12 -2 L12 13 L8 10 L4 13 L0 10 L-4 13 L-8 10 Z"
+                  fill="#fff"
+                  stroke="#1c1a17"
+                  stroke-width="1.6"
+                  stroke-linejoin="round"
+                />
+                <ellipse cx="-4.5" cy="-4" rx="2" ry="2.8" fill="#1c1a17" />
+                <ellipse cx="4.5" cy="-4" rx="2" ry="2.8" fill="#1c1a17" />
+                <ellipse cx="0" cy="3.5" rx="2.2" ry="2.8" fill="#1c1a17" />
+              </g>
             </g>
 
             <!-- your app -->
@@ -1221,6 +1984,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(640 92) scale(1)" />
+                <use class="hw" href="#hw-stem" x="640" y="48" />
                 <g transform="translate(622,74) scale(1.5)">
                   <path
                     fill="#1185fe"
@@ -1252,6 +2017,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(856 152) scale(1)" />
+                <use class="hw" href="#hw-stem" x="856" y="108" />
                 <g transform="translate(838,134) scale(1.5)">
                   <path
                     fill="#111111"
@@ -1283,6 +2050,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(1052 112) scale(1)" />
+                <use class="hw" href="#hw-stem" x="1052" y="68" />
                 <g transform="translate(1034,94) scale(1.5)">
                   <path
                     fill="#ff0033"
@@ -1314,6 +2083,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(700 306) scale(1)" />
+                <use class="hw" href="#hw-stem" x="700" y="262" />
                 <g transform="translate(682,288) scale(1.5)">
                   <path
                     fill="#111111"
@@ -1349,6 +2120,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(944 322) scale(1)" />
+                <use class="hw" href="#hw-stem" x="944" y="278" />
                 <g transform="translate(926,304) scale(1.5)">
                   <path
                     fill="#e4405f"
@@ -1380,6 +2153,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(596 524) scale(1)" />
+                <use class="hw" href="#hw-stem" x="596" y="480" />
                 <g transform="translate(578,506) scale(1.5)">
                   <path
                     fill="#111111"
@@ -1415,6 +2190,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(836 548) scale(1)" />
+                <use class="hw" href="#hw-stem" x="836" y="504" />
                 <g transform="translate(818,530) scale(1.5)">
                   <rect width="24" height="24" rx="4" fill="#0A66C2" />
                   <path
@@ -1479,12 +2256,25 @@
             </g>
             <g class="plane" opacity="0">
               <path
+                class="hw-off"
                 d="M-13 -4 L13 0 L-9 8 L-5 0 Z M-9 8 L-8 13 L-4 5"
                 stroke="#1c1a17"
                 stroke-width="1.8"
                 fill="#fff"
                 stroke-linejoin="round"
               />
+              <g class="ghost hw">
+                <path
+                  d="M-12 13 L-12 -2 C-12 -11 -6.5 -15 0 -15 C6.5 -15 12 -11 12 -2 L12 13 L8 10 L4 13 L0 10 L-4 13 L-8 10 Z"
+                  fill="#fff"
+                  stroke="#1c1a17"
+                  stroke-width="1.6"
+                  stroke-linejoin="round"
+                />
+                <ellipse cx="-4.5" cy="-4" rx="2" ry="2.8" fill="#1c1a17" />
+                <ellipse cx="4.5" cy="-4" rx="2" ry="2.8" fill="#1c1a17" />
+                <ellipse cx="0" cy="3.5" rx="2.2" ry="2.8" fill="#1c1a17" />
+              </g>
             </g>
             <g>
               <rect
@@ -1521,6 +2311,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(110 290) scale(0.826087)" />
+                <use class="hw" href="#hw-stem" x="110" y="254" />
                 <g transform="translate(95,275) scale(1.25)">
                   <path
                     fill="#1185fe"
@@ -1550,6 +2342,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(290 290) scale(0.826087)" />
+                <use class="hw" href="#hw-stem" x="290" y="254" />
                 <g transform="translate(275,275) scale(1.25)">
                   <path
                     fill="#111111"
@@ -1579,6 +2373,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(200 425) scale(0.826087)" />
+                <use class="hw" href="#hw-stem" x="200" y="389" />
                 <g transform="translate(185,410) scale(1.25)">
                   <path
                     fill="#ff0033"
@@ -1608,6 +2404,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(70 425) scale(0.826087)" />
+                <use class="hw" href="#hw-stem" x="70" y="389" />
                 <g transform="translate(55,410) scale(1.25)">
                   <path
                     fill="#111111"
@@ -1641,6 +2439,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(330 425) scale(0.826087)" />
+                <use class="hw" href="#hw-stem" x="330" y="389" />
                 <g transform="translate(315,410) scale(1.25)">
                   <path
                     fill="#e4405f"
@@ -1670,6 +2470,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(110 570) scale(0.826087)" />
+                <use class="hw" href="#hw-stem" x="110" y="534" />
                 <g transform="translate(95,555) scale(1.25)">
                   <path
                     fill="#111111"
@@ -1703,6 +2505,8 @@
                   fill="#fff"
                   filter="url(#roughen2)"
                 />
+                <use class="hw" href="#hw-ribs" transform="translate(290 570) scale(0.826087)" />
+                <use class="hw" href="#hw-stem" x="290" y="534" />
                 <g transform="translate(275,555) scale(1.25)">
                   <rect width="24" height="24" rx="4" fill="#0A66C2" />
                   <path
@@ -1778,7 +2582,7 @@
   <span class="c-kw">const</span> social = createSocial({ backend });
 
   <span class="c-kw">const</span> result = <span class="c-kw">await</span> social.posts.publish({
-    content: { text: <span class="c-str">"we drew our landing page"</span> },
+    content: { text: <span class="c-str" data-hw="&quot;we carved our landing page&quot;">"we drew our landing page"</span> },
     targets: accounts.map((account) => ({ account })),
   });
 
@@ -1795,7 +2599,7 @@
 
   <span class="c-kw">const</span> result =
     <span class="c-kw">await</span> social.posts.publish({
-      content: { text: <span class="c-str">"we drew this"</span> },
+      content: { text: <span class="c-str" data-hw="&quot;we carved this&quot;">"we drew this"</span> },
       targets: accounts.map(
         (account) => ({ account }),
       ),
@@ -1841,6 +2645,18 @@
                     stroke-width="2.4"
                     stroke-linecap="round"
                   />
+                  <g class="hw">
+                    <path
+                      d="M11 23 Q22 16.5 35 11"
+                      stroke="#1c1a17"
+                      stroke-width="2.6"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M15 20.5 C16.5 12 15 5 22 0.5 C22.5 6 24.5 11 28 15 Z"
+                      fill="#1c1a17"
+                    />
+                  </g>
                 </svg>
               </div>
               <h3>Publishing</h3>
@@ -1862,6 +2678,14 @@
                   <circle cx="31" cy="28" r="8" stroke="#1c1a17" stroke-width="2.4" />
                   <circle cx="34" cy="25" r="2" fill="#1c1a17" />
                   <path
+                    class="hw"
+                    d="M10 27 L14 26 L16 28 M12 31 L16 30.5 M52 27 L48 26 L46.5 28.5 M50 31.5 L46 30.5 M23 18 L24 21 M38 37 L37 34"
+                    stroke="#e8542f"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
                     d="M48 10 L53 4"
                     stroke="#e8542f"
                     stroke-width="2.4"
@@ -1879,14 +2703,32 @@
             </div>
             <div class="feat">
               <div class="doodle">
-                <svg width="60" height="56" viewBox="0 0 60 56" fill="none" filter="url(#roughen)">
+                <svg
+                  width="60"
+                  height="56"
+                  viewBox="0 0 60 56"
+                  fill="none"
+                  filter="url(#roughen)"
+                  aria-hidden="true"
+                >
                   <path
                     d="M8 10 H48 V36 H24 L12 46 L15 36 H8 Z"
                     stroke="#1c1a17"
                     stroke-width="2.4"
                     stroke-linejoin="round"
                   />
+                  <text
+                    class="hand hw"
+                    x="28"
+                    y="29"
+                    font-size="19"
+                    fill="#e8542f"
+                    text-anchor="middle"
+                  >
+                    boo!
+                  </text>
                   <path
+                    class="hw-off"
                     d="M17 20 H39 M17 27 H33"
                     stroke="#e8542f"
                     stroke-width="2.4"
@@ -1914,6 +2756,11 @@
                   <path d="M17 38 H35" stroke="#e8542f" stroke-width="2.4" stroke-linecap="round" />
                   <circle cx="22" cy="43" r="1.8" fill="#e8542f" />
                   <circle cx="30" cy="45" r="1.8" fill="#e8542f" />
+                  <g class="hw hw-bubbles" stroke="#2f6f4f" stroke-width="1.6">
+                    <circle cx="25" cy="34" r="2.2" />
+                    <circle cx="28" cy="38" r="1.6" style="animation-delay: -0.9s" />
+                    <circle cx="26" cy="30" r="1.4" style="animation-delay: -1.7s" />
+                  </g>
                 </svg>
               </div>
               <h3>Deterministic testing</h3>
@@ -1950,6 +2797,49 @@
 
         <!-- ================= construction ================= -->
         <section class="construction">
+          <svg
+            class="hw hw-grave"
+            width="200"
+            height="170"
+            viewBox="0 -40 200 170"
+            fill="none"
+            aria-hidden="true"
+          >
+            <g class="riser">
+              <path
+                d="M86 74 L86 52 C86 40 92 34 100 34 C108 34 114 40 114 52 L114 74 L109 70 L104.5 74 L100 70 L95.5 74 L91 70 Z"
+                fill="#fff"
+                stroke="#1c1a17"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+              />
+              <ellipse cx="95" cy="50" rx="2" ry="3" fill="#1c1a17" />
+              <ellipse cx="105" cy="50" rx="2" ry="3" fill="#1c1a17" />
+            </g>
+            <path
+              d="M58 120 L58 52 C58 20 142 20 142 52 L142 120"
+              fill="#fff"
+              stroke="#1c1a17"
+              stroke-width="2.4"
+              stroke-linejoin="round"
+              filter="url(#roughen2)"
+            />
+            <text class="hand" x="100" y="68" font-size="30" fill="#1c1a17" text-anchor="middle">
+              RIP
+            </text>
+            <text class="hand" x="100" y="96" font-size="18" fill="#57534c" text-anchor="middle">
+              "all good"
+            </text>
+            <path
+              d="M14 121 Q100 115 186 122 M30 121 L27 112 M34 121 L36 113 M164 121 L161 111 M169 121 L171 114"
+              stroke="#1c1a17"
+              stroke-width="2"
+              stroke-linecap="round"
+              filter="url(#roughen)"
+            />
+            <use class="hw-candle" href="#hw-pumpkin" x="146" y="90" width="36" height="33" />
+          </svg>
+          <p class="hw hw-epitaph">here lies "all good." it never said which post failed.</p>
           <p>
             open source, MIT licensed, and on npm today. if it saves you a weekend,
             <a
@@ -1979,6 +2869,29 @@
       </main>
 
       <footer>
+        <div class="hw hw-patch" aria-hidden="true">
+          <svg class="hw-candle" width="34" height="31" viewBox="0 0 44 40">
+            <use href="#hw-pumpkin" />
+          </svg>
+          <svg
+            class="hw-candle"
+            width="58"
+            height="53"
+            viewBox="0 0 44 40"
+            style="animation-delay: -0.8s"
+          >
+            <use href="#hw-pumpkin" />
+          </svg>
+          <svg
+            class="hw-candle"
+            width="42"
+            height="38"
+            viewBox="0 0 44 40"
+            style="animation-delay: -1.5s"
+          >
+            <use href="#hw-pumpkin" />
+          </svg>
+        </div>
         <svg class="rule" viewBox="0 0 1080 14" preserveAspectRatio="none">
           <path
             d="M4 8 Q140 3 280 8 T560 7 T840 9 T1076 6"
@@ -2021,6 +2934,11 @@
     </div>
 
     <script>
+      const halloween = document.documentElement.classList.contains("halloween");
+      if (halloween) {
+        document.querySelectorAll("[data-hw]").forEach((el) => (el.textContent = el.dataset.hw));
+      }
+
       // the wires fade in when the diagram scrolls into view
       const stage = document.querySelector(".stage");
       const io = new IntersectionObserver(
@@ -2091,7 +3009,8 @@
               const d = from + (to - from) * ease(t);
               const p = wire.getPointAtLength(d);
               const q = wire.getPointAtLength(Math.min(d + 2, len));
-              const a = (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;
+              // the halloween ghost floats upright instead of banking along the wire
+              const a = halloween ? 0 : (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;
               plane.setAttribute("transform", `translate(${p.x} ${p.y}) rotate(${a})`);
               plane.setAttribute("opacity", t < 0.08 ? t / 0.08 : t > 0.94 ? (1 - t) / 0.06 : 1);
               if (t < 1) tick(frame);
