@@ -79,7 +79,7 @@ test("dates the empty blog index by the shell helpers only", () => {
 });
 
 test("dates every guide by its page, its copy, and the shared shell", () => {
-  for (const slug of ["bluesky-api", "threads-api"]) {
+  for (const slug of ["bluesky-api", "threads-api", "x-api-pricing"]) {
     const guide = pageSources.get(`/guides/${slug}`);
 
     assert.ok(guide?.files.includes("_info/info.html"));
@@ -98,12 +98,14 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
   assert.ok(!index?.files.includes("_guides"));
   assert.ok(!index?.files.includes("_guides/bluesky-api.ts"));
   assert.ok(!index?.files.includes("_guides/threads-api.ts"));
+  assert.ok(!index?.files.includes("_guides/x-api-pricing.ts"));
   assert.deepEqual(
     index?.ranges.map((range) => `${range.file} ${range.from}`),
     [
       "_info/pages.ts ^export type Shell",
       "_guides/bluesky-api.ts ^  slug:",
       "_guides/threads-api.ts ^  slug:",
+      "_guides/x-api-pricing.ts ^  slug:",
     ],
   );
 });

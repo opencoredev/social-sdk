@@ -1,0 +1,9 @@
+---
+// X API pricing guide. The copy lives in _guides/x-api-pricing.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuide } from "../_guides/guides";
+import { xApiPricing } from "../_guides/x-api-pricing";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(xApiPricing)))} />

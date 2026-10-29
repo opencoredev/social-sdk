@@ -51,6 +51,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
         shellHelpers,
         { file: "_guides/bluesky-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/threads-api.ts", from: "^  slug:", to: "^  updated:" },
+        { file: "_guides/x-api-pricing.ts", from: "^  slug:", to: "^  updated:" },
       ],
     },
   ],
@@ -72,6 +73,18 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       files: [
         "guides/threads-api.astro",
         "_guides/threads-api.ts",
+        "_guides/guides.ts",
+        "_info/info.html",
+      ],
+      ranges: [shellHelpers],
+    },
+  ],
+  [
+    "/guides/x-api-pricing",
+    {
+      files: [
+        "guides/x-api-pricing.astro",
+        "_guides/x-api-pricing.ts",
         "_guides/guides.ts",
         "_info/info.html",
       ],
