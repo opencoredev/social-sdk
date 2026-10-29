@@ -93,6 +93,7 @@ test("dates every guide by its page, its copy, and the shared rendering", () => 
       [
         "_guides/guides.ts ^export type Guide",
         "_guides/guides.ts ^export function guidePath",
+        "_guides/guides.ts ^export function renderGuide[(]",
         "_info/pages.ts ^export type Shell",
       ],
     );

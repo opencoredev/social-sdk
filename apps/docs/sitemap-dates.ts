@@ -35,14 +35,15 @@ function infoPage(name: string): PageSource {
   };
 }
 
-// A guide page renders its own copy through renderGuide and the helpers above it
-// in guides.ts. The guide list and imports in guides.ts change whenever a guide
-// is added, so they date only the index, not every guide.
+// A guide page renders its own copy through renderGuide and the helpers in
+// guides.ts. The guide list, the imports, and the index's own title change
+// without touching a guide, so they date only the index, not every guide.
 const guideRendering: LineRange[] = [
   { file: "_guides/guides.ts", from: "^export type Guide", to: "^const GUIDES_PATH" },
+  { file: "_guides/guides.ts", from: "^export function guidePath", to: "^const index" },
   {
     file: "_guides/guides.ts",
-    from: "^export function guidePath",
+    from: "^export function renderGuide[(]",
     to: "^export function renderGuidesIndex",
   },
 ];

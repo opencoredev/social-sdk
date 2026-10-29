@@ -55,20 +55,26 @@ async function bufferGraphql(query: string, variables: object = {}): Promise<Rec
 
 const { account } = await bufferGraphql(\`{ account { organizations { id name } } }\`);
 const organizations = isRecord(account) ? account["organizations"] : undefined;
-const organization = Array.isArray(organizations) ? organizations[0] : undefined;
-const organizationId = isRecord(organization) ? organization["id"] : undefined;
-if (typeof organizationId !== "string") throw new Error("No Buffer organization");
 
-const { channels } = await bufferGraphql(
-  \`query Channels($organizationId: OrganizationId!) {
-    channels(input: { organizationId: $organizationId }) { id service }
-  }\`,
-  { organizationId },
-);
-const channel = (Array.isArray(channels) ? channels : []).find(
-  (item) => isRecord(item) && item["service"] === "bluesky",
-);
-if (!isRecord(channel)) throw new Error("Connect a Bluesky channel in Buffer first");
+// A key can reach several organizations; use the first Bluesky channel in any of them.
+let channel: Record<string, unknown> | undefined;
+for (const organization of Array.isArray(organizations) ? organizations : []) {
+  if (!isRecord(organization)) continue;
+  const { channels } = await bufferGraphql(
+    \`query Channels($organizationId: OrganizationId!) {
+      channels(input: { organizationId: $organizationId }) { id service }
+    }\`,
+    { organizationId: organization["id"] },
+  );
+  const found = (Array.isArray(channels) ? channels : []).find(
+    (item) => isRecord(item) && item["service"] === "bluesky",
+  );
+  if (isRecord(found)) {
+    channel = found;
+    break;
+  }
+}
+if (!channel) throw new Error("Connect a Bluesky channel in Buffer first");
 
 const { createPost } = await bufferGraphql(
   \`mutation CreatePost($input: CreatePostInput!) {
@@ -200,15 +206,17 @@ export const bufferApi: Guide = {
           <p>
             Every call is a <code>POST</code> of a GraphQL document to
             <code>https://api.buffer.com</code>. To post, you need an organization ID, then a
-            channel ID, then a <code>createPost</code> mutation. This example schedules a Bluesky
+            channel ID from that organization, then a <code>createPost</code> mutation. A key can
+            reach several organizations, so the example checks each one for a channel. This example schedules a Bluesky
             post an hour from now with plain <code>fetch</code>:
           </p>
           ${code(bufferExample)}
           <p>
             We type-checked this against Buffer's
             <a href="${docs}/reference">GraphQL reference</a> types and ran it on ${fetched} with
-            a stub <code>fetch</code> standing in for <code>api.buffer.com</code>: three requests,
-            then <code>scheduled</code> with the post's ID and time. A stubbed
+            a stub <code>fetch</code> standing in for <code>api.buffer.com</code>. With the
+            Bluesky channel in the second of two organizations, it made four requests and printed
+            <code>scheduled</code> with the post's ID and time. A stubbed
             <code>needs_approval</code> draft printed that status instead, and a stubbed
             <code>MutationError</code> and <code>429</code> each stopped the script with the
             message shown. It runs on Node.js
