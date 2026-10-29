@@ -78,16 +78,23 @@ test("dates the empty blog index by the shell helpers only", () => {
   );
 });
 
-test("dates every guide by its page, its copy, and the shared shell", () => {
-  for (const slug of ["bluesky-api", "threads-api", "x-api-pricing"]) {
+test("dates every guide by its page, its copy, and the shared rendering", () => {
+  for (const slug of ["buffer-api", "bluesky-api", "threads-api", "x-api-pricing"]) {
     const guide = pageSources.get(`/guides/${slug}`);
 
     assert.ok(guide?.files.includes("_info/info.html"));
     assert.ok(guide?.files.includes(`guides/${slug}.astro`));
     assert.ok(guide?.files.includes(`_guides/${slug}.ts`));
+    // The guide list in guides.ts changes when any guide is added; it must not
+    // re-date the other guides.
+    assert.ok(!guide?.files.includes("_guides/guides.ts"));
     assert.deepEqual(
-      guide?.ranges.map((range) => range.from),
-      ["^export type Shell"],
+      guide?.ranges.map((range) => `${range.file} ${range.from}`),
+      [
+        "_guides/guides.ts ^export type Guide",
+        "_guides/guides.ts ^export function guidePath",
+        "_info/pages.ts ^export type Shell",
+      ],
     );
   }
 });
@@ -96,6 +103,7 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
   const index = pageSources.get("/guides");
 
   assert.ok(!index?.files.includes("_guides"));
+  assert.ok(!index?.files.includes("_guides/buffer-api.ts"));
   assert.ok(!index?.files.includes("_guides/bluesky-api.ts"));
   assert.ok(!index?.files.includes("_guides/threads-api.ts"));
   assert.ok(!index?.files.includes("_guides/x-api-pricing.ts"));
@@ -103,6 +111,7 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
     index?.ranges.map((range) => `${range.file} ${range.from}`),
     [
       "_info/pages.ts ^export type Shell",
+      "_guides/buffer-api.ts ^  slug:",
       "_guides/bluesky-api.ts ^  slug:",
       "_guides/threads-api.ts ^  slug:",
       "_guides/x-api-pricing.ts ^  slug:",

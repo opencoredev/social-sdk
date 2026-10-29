@@ -35,6 +35,25 @@ function infoPage(name: string): PageSource {
   };
 }
 
+// A guide page renders its own copy through renderGuide and the helpers above it
+// in guides.ts. The guide list and imports in guides.ts change whenever a guide
+// is added, so they date only the index, not every guide.
+const guideRendering: LineRange[] = [
+  { file: "_guides/guides.ts", from: "^export type Guide", to: "^const GUIDES_PATH" },
+  {
+    file: "_guides/guides.ts",
+    from: "^export function guidePath",
+    to: "^export function renderGuidesIndex",
+  },
+];
+
+function guidePage(slug: string): PageSource {
+  return {
+    files: [`guides/${slug}.astro`, `_guides/${slug}.ts`, "_info/info.html"],
+    ranges: [...guideRendering, shellHelpers],
+  };
+}
+
 export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   ["/", { files: ["index.astro", "_home"], ranges: [] }],
   ["/about", infoPage("about")],
@@ -49,48 +68,17 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       files: ["guides/index.astro", "_guides/guides.ts", "_info/info.html"],
       ranges: [
         shellHelpers,
+        { file: "_guides/buffer-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/bluesky-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/threads-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/x-api-pricing.ts", from: "^  slug:", to: "^  updated:" },
       ],
     },
   ],
-  [
-    "/guides/bluesky-api",
-    {
-      files: [
-        "guides/bluesky-api.astro",
-        "_guides/bluesky-api.ts",
-        "_guides/guides.ts",
-        "_info/info.html",
-      ],
-      ranges: [shellHelpers],
-    },
-  ],
-  [
-    "/guides/threads-api",
-    {
-      files: [
-        "guides/threads-api.astro",
-        "_guides/threads-api.ts",
-        "_guides/guides.ts",
-        "_info/info.html",
-      ],
-      ranges: [shellHelpers],
-    },
-  ],
-  [
-    "/guides/x-api-pricing",
-    {
-      files: [
-        "guides/x-api-pricing.astro",
-        "_guides/x-api-pricing.ts",
-        "_guides/guides.ts",
-        "_info/info.html",
-      ],
-      ranges: [shellHelpers],
-    },
-  ],
+  ["/guides/buffer-api", guidePage("buffer-api")],
+  ["/guides/bluesky-api", guidePage("bluesky-api")],
+  ["/guides/threads-api", guidePage("threads-api")],
+  ["/guides/x-api-pricing", guidePage("x-api-pricing")],
   [
     "/blog",
     { files: ["blog/index.astro", "_blog/render.ts", "_info/info.html"], ranges: [shellHelpers] },

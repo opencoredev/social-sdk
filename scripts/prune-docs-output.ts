@@ -166,6 +166,7 @@ const site = `
 - [Privacy](https://social-sdk.dev/privacy): What the website records and what the SDK never collects.
 - [Blog](https://social-sdk.dev/blog): Guides and updates, with an RSS feed at https://social-sdk.dev/blog/rss.xml.
 - [Guides](https://social-sdk.dev/guides): How each social platform's API works, with sources and tested TypeScript examples.
+- [Buffer API guide](https://social-sdk.dev/guides/buffer-api): Buffer's GraphQL API, API keys versus OAuth apps, scheduling posts, rate limits per plan, and alternatives.
 - [Bluesky API guide](https://social-sdk.dev/guides/bluesky-api): Hosts, app passwords and OAuth, posting with createRecord, link facets, images, video, and rate limits.
 - [Threads API guide](https://social-sdk.dev/guides/threads-api): Access and App Review, tokens, the container and publish flow, and daily publishing limits.
 - [X API pricing guide](https://social-sdk.dev/guides/x-api-pricing): Pay-per-use credits, what a post and a read cost, free credits for new accounts, spending limits, and posting rate limits.
