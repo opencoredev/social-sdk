@@ -4,6 +4,7 @@ import { escapeHtml } from "../_blog/render";
 import { renderShell, siteMeta } from "../_info/pages";
 import { blueskyApi } from "./bluesky-api";
 import { threadsApi } from "./threads-api";
+import { xApiPricing } from "./x-api-pricing";
 
 export type Guide = {
   slug: string;
@@ -24,7 +25,7 @@ const SITE = "https://social-sdk.dev";
 
 const GUIDES_PATH = "/guides";
 
-export const guides: readonly Guide[] = [blueskyApi, threadsApi];
+export const guides: readonly Guide[] = [xApiPricing, blueskyApi, threadsApi];
 
 export function guidePath(guide: Pick<Guide, "slug">): string {
   return `${GUIDES_PATH}/${guide.slug}`;

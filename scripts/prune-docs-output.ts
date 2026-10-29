@@ -168,6 +168,7 @@ const site = `
 - [Guides](https://social-sdk.dev/guides): How each social platform's API works, with sources and tested TypeScript examples.
 - [Bluesky API guide](https://social-sdk.dev/guides/bluesky-api): Hosts, app passwords and OAuth, posting with createRecord, link facets, images, video, and rate limits.
 - [Threads API guide](https://social-sdk.dev/guides/threads-api): Access and App Review, tokens, the container and publish flow, and daily publishing limits.
+- [X API pricing guide](https://social-sdk.dev/guides/x-api-pricing): Pay-per-use credits, what a post and a read cost, free credits for new accounts, spending limits, and posting rate limits.
 `;
 
 for (const name of ["llms.txt", "index.md"]) {
