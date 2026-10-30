@@ -74,22 +74,6 @@ const index = {
     "Practical guides to social platform APIs: access rules, tokens, rate limits, and tested TypeScript examples with Social SDK.",
 };
 
-function relatedGuides(guide: Guide): string {
-  const items = guides
-    .flatMap((other) =>
-      other.slug === guide.slug
-        ? []
-        : [`<li><a href="${guidePath(other)}">${escapeHtml(other.heading)}</a></li>`],
-    )
-    .join("\n            ");
-
-  return `
-          <h2 id="related-guides">Related guides</h2>
-          <ul>
-            ${items}
-          </ul>`;
-}
-
 export function renderGuide(guide: Guide): string {
   const path = guidePath(guide);
   const url = `${SITE}${path}`;
@@ -128,6 +112,22 @@ export function renderGuide(guide: Guide): string {
     lede: guide.lede,
     content: `<div class="prose">${guide.content}${relatedGuides(guide)}</div>`,
   });
+}
+
+function relatedGuides(guide: Guide): string {
+  const items = guides
+    .flatMap((other) =>
+      other.slug === guide.slug
+        ? []
+        : [`<li><a href="${guidePath(other)}">${escapeHtml(other.heading)}</a></li>`],
+    )
+    .join("\n            ");
+
+  return `
+          <h2 id="related-guides">Related guides</h2>
+          <ul>
+            ${items}
+          </ul>`;
 }
 
 export function renderGuidesIndex(): string {
