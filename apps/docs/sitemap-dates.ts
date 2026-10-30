@@ -60,6 +60,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   ["/about", infoPage("about")],
   ["/contact", infoPage("contact")],
   ["/privacy", infoPage("privacy")],
+  ["/terms", infoPage("terms")],
   ["/brand", { files: ["brand.astro", "_brand"], ranges: [] }],
   // Only used while the blog is empty; with posts, the blog sitemap dates it.
   [
