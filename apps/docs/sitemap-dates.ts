@@ -38,6 +38,8 @@ function infoPage(name: string): PageSource {
 // A guide page renders its own copy through renderGuide and the helpers in
 // guides.ts. The guide list, the imports, and the index's own title change
 // without touching a guide, so they date only the index, not every guide.
+// The "Related guides" list is generated from the guide list too; adding a
+// guide only adds a link there, so it is not treated as a content change.
 const guideRendering: LineRange[] = [
   { file: "_guides/guides.ts", from: "^export type Guide", to: "^const GUIDES_PATH" },
   { file: "_guides/guides.ts", from: "^export function guidePath", to: "^const index" },

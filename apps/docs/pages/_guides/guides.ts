@@ -110,8 +110,24 @@ export function renderGuide(guide: Guide): string {
     kicker: `updated ${escapeHtml(longDate(guide.updated))}`,
     heading: escapeHtml(guide.heading),
     lede: guide.lede,
-    content: `<div class="prose">${guide.content}</div>`,
+    content: `<div class="prose">${guide.content}${relatedGuides(guide)}</div>`,
   });
+}
+
+function relatedGuides(guide: Guide): string {
+  const items = guides
+    .flatMap((other) =>
+      other.slug === guide.slug
+        ? []
+        : [`<li><a href="${guidePath(other)}">${escapeHtml(other.heading)}</a></li>`],
+    )
+    .join("\n            ");
+
+  return `
+          <h2 id="related-guides">Related guides</h2>
+          <ul>
+            ${items}
+          </ul>`;
 }
 
 export function renderGuidesIndex(): string {
