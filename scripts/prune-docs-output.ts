@@ -128,7 +128,7 @@ console.log(`Merged ${blogUrls.length} blog URL(s) into sitemap.xml.`);
 // Blume writes the same index to llms.txt and to index.md, which is what the
 // homepage serves to agents that ask for Markdown. Both get when-to-use guidance
 // under the summary, and the custom Astro routes (landing, about, contact,
-// privacy) that Blume's generated index leaves out.
+// privacy, terms) that Blume's generated index leaves out.
 const guidance = `
 ## When to use Social SDK
 
@@ -163,7 +163,8 @@ const site = `
 - [Social SDK home](https://social-sdk.dev/): The landing page for the typed social platform toolkit.
 - [About](https://social-sdk.dev/about): What Social SDK is, what it is not, and who maintains it.
 - [Contact](https://social-sdk.dev/contact): Where to report bugs, ask questions, and raise security issues.
-- [Privacy](https://social-sdk.dev/privacy): What the website records and what the SDK never collects.
+- [Privacy](https://social-sdk.dev/privacy): What the website records, what the SDK never collects, and how Social SDK Cloud handles connected accounts.
+- [Terms](https://social-sdk.dev/terms): Terms for the website, the MIT-licensed package, and Social SDK Cloud.
 - [Blog](https://social-sdk.dev/blog): Guides and updates, with an RSS feed at https://social-sdk.dev/blog/rss.xml.
 - [Guides](https://social-sdk.dev/guides): How each social platform's API works, with sources and tested TypeScript examples.
 - [Buffer API guide](https://social-sdk.dev/guides/buffer-api): Buffer's GraphQL API, API keys versus OAuth apps, scheduling posts, rate limits per plan, and alternatives.
