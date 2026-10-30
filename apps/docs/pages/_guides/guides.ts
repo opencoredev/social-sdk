@@ -79,9 +79,7 @@ function relatedGuides(guide: Guide): string {
     .flatMap((other) =>
       other.slug === guide.slug
         ? []
-        : [
-            `<li><a href="${guidePath(other)}">${escapeHtml(other.heading)}</a>: ${escapeHtml(other.summary)}</li>`,
-          ],
+        : [`<li><a href="${guidePath(other)}">${escapeHtml(other.heading)}</a></li>`],
     )
     .join("\n            ");
 
