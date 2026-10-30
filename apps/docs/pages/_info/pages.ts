@@ -114,6 +114,11 @@ export const contact: InfoPage = {
             backends. Questions about API access, rate limits, or account eligibility belong with
             the platform (for example X, Meta, TikTok, or Google) or with Zernio, Post for Me, PostFast, Postiz, or Buffer.
           </p>
+          <p>
+            Social SDK Cloud is the exception: it runs its own OAuth apps under the name Social SDK
+            Cloud. For questions about those apps, connected accounts, or deleting your data, email
+            <a href="mailto:leo@social-sdk.dev">leo@social-sdk.dev</a>.
+          </p>
         </section>
         <section>
           <h2>Elsewhere</h2>
