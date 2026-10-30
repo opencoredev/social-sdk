@@ -70,6 +70,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       files: ["guides/index.astro", "_guides/guides.ts", "_info/info.html"],
       ranges: [
         shellHelpers,
+        { file: "_guides/social-media-apis.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/buffer-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/bluesky-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/threads-api.ts", from: "^  slug:", to: "^  updated:" },
@@ -77,6 +78,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       ],
     },
   ],
+  ["/guides/social-media-apis", guidePage("social-media-apis")],
   ["/guides/buffer-api", guidePage("buffer-api")],
   ["/guides/bluesky-api", guidePage("bluesky-api")],
   ["/guides/threads-api", guidePage("threads-api")],
