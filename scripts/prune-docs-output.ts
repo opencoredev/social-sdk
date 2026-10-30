@@ -140,7 +140,7 @@ Use Social SDK when server-side TypeScript or JavaScript code (Node.js 22.12+ or
 - Send the same calls through the Zernio, Post for Me, PostFast, Postiz, or Buffer managed backends instead of each platform's API.
 - Build and test a social feature offline with a deterministic mock backend, without credentials or billable calls.
 
-It is not the right tool for browser-only code (credentials must stay on a server), for a hosted scheduler or dashboard (Social SDK is a library with no hosted service), or for accounts your application is not authorized to act for.
+It is not the right tool for browser-only code (credentials must stay on a server), for a hosted scheduler or dashboard (the package is a library; the hosted Social SDK Cloud is in early development and not open for sign-ups), or for accounts your application is not authorized to act for.
 
 ## How an agent should use it
 

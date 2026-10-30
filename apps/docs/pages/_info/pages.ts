@@ -43,7 +43,7 @@ export const about: InfoPage = {
         <section>
           <h2>What it is not</h2>
           <p>
-            Social SDK is not a hosted service. It doesn't need a Social SDK account, database,
+            The Social SDK package is not a hosted service. It doesn't need a Social SDK account, database,
             queue, or UI framework, and importing it makes no network request and sends no
             telemetry. Your application decides which platform calls happen, and your server holds
             the tokens.
@@ -195,9 +195,10 @@ export const privacy: InfoPage = {
           <h2>Social SDK Cloud</h2>
           <p>
             Social SDK Cloud is a hosted version of Social SDK. It is in early development and not
-            open for sign-ups. When an app built on it asks you to connect a social account, you
-            sign in on the platform's own page and approve an app named Social SDK Cloud. This
-            section and the ones after it describe what the service keeps from then on.
+            open for sign-ups, and no accounts are connected to it yet. When an app built on it asks
+            you to connect a social account, you sign in on the platform's own page and approve an
+            app named Social SDK Cloud. This section and the ones after it set the rules the service
+            follows from the first connected account.
           </p>
           <p>For a connected account, Social SDK Cloud stores:</p>
           <ul>
@@ -216,8 +217,9 @@ export const privacy: InfoPage = {
             </li>
           </ul>
           <p>
-            For developers who use the service, it also stores an account email, API key metadata,
-            and billing records. Stripe processes payments, and we never see full card numbers.
+            For developers who use the service, it also stores an account email and API key
+            metadata. Paid access isn't available yet; this page will say how billing data is
+            handled before it is.
           </p>
         </section>
         <section>
@@ -229,12 +231,12 @@ export const privacy: InfoPage = {
           </p>
           <ul>
             <li><b>Tokens</b> are kept until you disconnect the account or revoke access on the platform.</li>
+            <li><b>Account details</b> (ID, username, display name) are refreshed from the platform or deleted within 30 days.</li>
             <li><b>Post content and media</b> are deleted once delivery finishes, and within 7 days at most.</li>
-            <li><b>Delivery records</b> are kept for 90 days.</li>
-            <li><b>Billing records</b> are kept as long as tax law requires.</li>
+            <li><b>Delivery records</b> are deleted after 30 days.</li>
           </ul>
           <p>
-            Cloudflare hosts the service and stores its data. Each platform you post to receives
+            Social SDK Cloud runs on Cloudflare, which stores its data. Each platform you post to receives
             the content you send it and handles it under its own privacy policy.
           </p>
         </section>
@@ -243,13 +245,15 @@ export const privacy: InfoPage = {
           <p>
             Disconnect the account in the app you connected it through, or remove Social SDK Cloud
             from the connected apps in the platform's own settings. When an account is disconnected
-            or its access is revoked, we delete its tokens and any content still waiting to be
-            sent.
+            or its access is revoked, we delete everything stored for it, including its tokens,
+            account details, queued content, and delivery records, within 7 days.
           </p>
           <p>
             To have everything tied to an account deleted, email
             <a href="mailto:leo@social-sdk.dev">leo@social-sdk.dev</a> with the platform and the
-            username. We confirm by email when it's done, within 30 days.
+            username. We delete it within 7 days and confirm by email. Deleting our copy doesn't
+            remove anything already published: posts stay on the platform until you delete them
+            there.
           </p>
         </section>
         <section>
@@ -296,7 +300,7 @@ export const terms: InfoPage = {
   path: "/terms",
   title: "Terms of service for Social SDK and Social SDK Cloud",
   description:
-    "The terms for social-sdk.dev, the MIT-licensed Social SDK package, and Social SDK Cloud: platform rules, acceptable use, prepaid billing, and liability.",
+    "The terms for social-sdk.dev, the MIT-licensed Social SDK package, and Social SDK Cloud: platform rules, acceptable use, your content, and liability.",
   kicker: "last updated 29 October 2026",
   heading: "Terms",
   lede: "These terms cover the social-sdk.dev website, the open-source Social SDK package, and Social SDK Cloud. If anything here is unclear, email leo@social-sdk.dev.",
@@ -381,10 +385,9 @@ export const terms: InfoPage = {
         <section>
           <h2>Billing</h2>
           <p>
-            Paid use of Social SDK Cloud is prepaid, and you see the price of each kind of action
-            before you pay. When a balance reaches zero, requests stop. We never bill you after the
-            fact. Unused balance stays on your account while it's open. Stripe processes payments.
-            If you think a charge is wrong, email us and we'll look into it.
+            Paid access to Social SDK Cloud isn't available yet. Before it is, we'll add its prices
+            and billing terms to this page and email account holders. Nothing is charged until
+            then.
           </p>
         </section>
         <section>
@@ -418,8 +421,7 @@ export const terms: InfoPage = {
           <h2>Ending and changes</h2>
           <p>
             You can stop using Social SDK Cloud and ask us to delete your account at any time. We
-            may end your access, or the service, with notice. If we shut the service down, we
-            refund any unused prepaid balance.
+            may end your access, or the service, with notice.
           </p>
           <p>
             We post changes to these terms on this page and update the date at the top. For a
