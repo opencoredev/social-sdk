@@ -74,7 +74,7 @@ export const socialMediaApis: Guide = {
   summary:
     "Native platform APIs, unified posting APIs, and open-source libraries compared: what each platform requires before you can post, daily limits, the unified API providers, and a tested TypeScript example.",
   heading: "Social media APIs for developers",
-  lede: "A social media API lets your code publish, read, or manage posts on a social network. There are three ways to get one: call each platform's own API (X, Bluesky, Threads, Instagram, LinkedIn, TikTok, YouTube) with your own developer app, pay a unified social media API provider that holds the platform apps and gives you one endpoint, or use an open-source library that wraps the platform APIs in one interface while you keep your own apps and tokens. This page compares the three, lists what each platform requires before you can post, and ends with a tested example.",
+  lede: "A social media API lets your code publish, read, or manage posts on a social network. There are three ways to get one: call each platform's own API (X, Bluesky, Threads, Instagram, LinkedIn, TikTok, YouTube) with your own developer app, pay a unified social media API provider that stores the account connections and gives you one endpoint, or use an open-source library that wraps the platform APIs in one interface while you keep your own apps and tokens. This page compares the three, lists what each platform requires before you can post, and ends with a tested example.",
   published: "2026-10-30",
   updated: "2026-10-30",
   content: `
@@ -90,7 +90,7 @@ export const socialMediaApis: Guide = {
             <thead><tr><th>Option</th><th>What it means for you</th></tr></thead>
             <tbody>
               <tr><td>Native platform APIs</td><td>Your own developer app on each network, its own review, tokens, limits, and billing. No intermediary, most control, most work.</td></tr>
-              <tr><td>Unified social media API</td><td>One provider, one API key, one request shape. The provider owns the platform apps and account connections and passes on each network's rules.</td></tr>
+              <tr><td>Unified social media API</td><td>One provider, one API key, one request shape. The provider stores account connections and usually the platform apps, and passes on each network's rules.</td></tr>
               <tr><td>Open-source library</td><td>One interface in your code over the native APIs, with your own apps and tokens. Some libraries can also call a unified provider behind the same interface.</td></tr>
             </tbody>
           </table>
@@ -136,10 +136,11 @@ export const socialMediaApis: Guide = {
 
           <h2 id="unified">Unified social media APIs</h2>
           <p>
-            A unified API provider registers the platform apps, passes their reviews, and stores
-            your users' account connections. You send one request and the provider fans it out.
-            The trade-off is a dependency: your users connect accounts to the provider's apps,
-            and its platform coverage, limits, and pricing become yours. Providers describe
+            A unified API provider stores your users' account connections and, for most
+            networks, registers the platform apps and passes their reviews. Some ask you to bring
+            your own developer app for certain networks, so check each provider's docs per
+            platform. You send one request and the provider fans it out. The trade-off is a
+            dependency: the provider's coverage, limits, and pricing become yours. Providers describe
             themselves on their own sites (read ${fetched}) as:
           </p>
           <ul>
@@ -182,9 +183,10 @@ export const socialMediaApis: Guide = {
 
           <h2 id="example">Posting to two networks from TypeScript</h2>
           <p>
-            This posts the same text to X and Bluesky with Social SDK's direct adapters. Swap a
-            managed backend into <code>backends</code> and the <code>publish</code> call stays the
-            same.
+            This posts the same text to X and Bluesky with Social SDK's direct adapters. A
+            managed backend uses the same <code>publish</code> call shape, but its accounts are
+            the provider's account references and each provider adds its own requirements (the
+            backend pages list them), so moving between them is a mapping step, not a rewrite.
           </p>
           <pre><code>npm install @opencoredev/social-sdk</code></pre>
           ${code(sdkExample)}
@@ -225,8 +227,8 @@ export const socialMediaApis: Guide = {
             </dd>
             <dt>What is a unified social media API?</dt>
             <dd>
-              One API from a provider that posts to many networks for you. The provider holds the
-              platform apps and account connections.
+              One API from a provider that posts to many networks for you. The provider stores
+              the account connections and, for most networks, the platform apps.
             </dd>
             <dt>Can I post to several networks with one API call?</dt>
             <dd>
