@@ -76,10 +76,12 @@ const index = {
 
 function relatedGuides(guide: Guide): string {
   const items = guides
-    .filter((other) => other.slug !== guide.slug)
-    .map(
-      (other) =>
-        `<li><a href="${guidePath(other)}">${escapeHtml(other.heading)}</a>: ${escapeHtml(other.summary)}</li>`,
+    .flatMap((other) =>
+      other.slug === guide.slug
+        ? []
+        : [
+            `<li><a href="${guidePath(other)}">${escapeHtml(other.heading)}</a>: ${escapeHtml(other.summary)}</li>`,
+          ],
     )
     .join("\n            ");
 
