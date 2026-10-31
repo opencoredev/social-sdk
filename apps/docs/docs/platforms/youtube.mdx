@@ -8,6 +8,8 @@ seo:
 
 To upload a video to YouTube from a server, start a resumable upload with the Data API's `videos.insert` method, send the file to the upload URL it returns, and authorize both calls with an OAuth access token that has the `youtube.upload` scope. The Social SDK YouTube adapter does this through `social.posts.publish`: you pass the video, a title, a visibility and the made-for-kids declaration, and it returns `processing` while YouTube processes the upload, or `published` with the video ID once processing is done.
 
+For how YouTube's upload quota compares with the other platform APIs and unified social media APIs, read the <a href="/guides/social-media-apis">social media APIs guide</a>.
+
 ```package-install
 @opencoredev/social-sdk
 ```
