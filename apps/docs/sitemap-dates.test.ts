@@ -80,6 +80,7 @@ test("dates the empty blog index by the shell helpers only", () => {
 
 test("dates every guide by its page, its copy, and the shared rendering", () => {
   for (const slug of [
+    "linkedin-posts-api",
     "social-media-apis",
     "buffer-api",
     "bluesky-api",
@@ -110,6 +111,7 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
   const index = pageSources.get("/guides");
 
   assert.ok(!index?.files.includes("_guides"));
+  assert.ok(!index?.files.includes("_guides/linkedin-posts-api.ts"));
   assert.ok(!index?.files.includes("_guides/social-media-apis.ts"));
   assert.ok(!index?.files.includes("_guides/buffer-api.ts"));
   assert.ok(!index?.files.includes("_guides/bluesky-api.ts"));
@@ -119,6 +121,7 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
     index?.ranges.map((range) => `${range.file} ${range.from}`),
     [
       "_info/pages.ts ^export type Shell",
+      "_guides/linkedin-posts-api.ts ^  slug:",
       "_guides/social-media-apis.ts ^  slug:",
       "_guides/buffer-api.ts ^  slug:",
       "_guides/bluesky-api.ts ^  slug:",
