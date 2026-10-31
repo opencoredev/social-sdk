@@ -8,6 +8,8 @@ seo:
 
 Instagram publishing goes through its content publishing API: create a media container for a professional (Business or Creator) account, wait for Instagram to process it, then call `media_publish`. The Social SDK Instagram adapter runs that container flow from your Node.js or Bun server for images, single videos (published as Reels), and carousels through `social.posts.publish`, and for Stories through a native method. Each post returns a typed outcome, including `processing` while Instagram is still working on the media.
 
+For how Instagram's publishing rules compare with the other platform APIs and unified social media APIs, read the <a href="/guides/social-media-apis">social media APIs guide</a>.
+
 The direct Instagram adapter uses Instagram Login for a professional account by default. Supply an access token and the account ID on the server; the adapter does not perform OAuth, account discovery, or tenant membership checks. For Facebook Login, set `auth.flavor` to `"facebook-login"` and supply the access token for the Facebook Page linked to the professional Instagram account. This flavor uses `graph.facebook.com`.
 
 ## Setup
