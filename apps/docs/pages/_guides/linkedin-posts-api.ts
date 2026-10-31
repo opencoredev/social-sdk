@@ -190,9 +190,9 @@ export const linkedinPostsApi: Guide = {
             you request at once, and the authorization code lasts 30 minutes, so exchange it right
             away (<a href="${authCodeFlow}">authorization code flow</a>). Access tokens last 60 days
             by default. Refresh tokens are offered to approved Marketing Developer Platform
-            partners and last a year from the first consent; refreshing gives a new 60-day access
-            token but doesn't extend the refresh token
-            (<a href="${refreshTokens}">programmatic refresh tokens</a>). Without one, the member
+            partners and last a year from the first consent. Refreshing gives a new access token
+            for up to 60 days, never past the refresh token's own expiry, and doesn't extend the
+            refresh token (<a href="${refreshTokens}">programmatic refresh tokens</a>). Without one, the member
             has to authorize your app again when the access token expires.
           </p>
           <p>
@@ -245,9 +245,12 @@ export const linkedinPostsApi: Guide = {
             <code>content.media.id</code> set to the <code>urn:li:image:</code> value
             (<a href="${imagesApi}">Images API</a>). The image must be a JPG, GIF, or PNG under
             36,152,320 pixels, and a GIF can have up to 250 frames. Images report
-            <code>PROCESSING</code>, <code>AVAILABLE</code>, or <code>PROCESSING_FAILED</code>;
-            attach one once it is <code>AVAILABLE</code>. Video and documents work the same way
-            through the Videos and Documents APIs.
+            <code>PROCESSING</code>, <code>AVAILABLE</code>, or <code>PROCESSING_FAILED</code>.
+            One catch for member posting: <code>w_member_social</code> is write-only, so a token
+            with only that scope can upload an image but can't read its status back through the
+            versioned <code>GET /rest/images</code>; a Page token with
+            <code>w_organization_social</code> can. Video and documents work the same way through
+            the Videos and Documents APIs.
           </p>
           ${code(initializeUpload)}
 
@@ -257,7 +260,7 @@ export const linkedinPostsApi: Guide = {
             midnight UTC, and returns <code>429</code> when you go over
             (<a href="${rateLimits}">rate limits</a>). It doesn't publish the standard limits.
             Each app's limits appear on its Analytics tab in the Developer Portal, but only for
-            endpoints the app has already called at least once. Developer admins get an email
+            endpoints the app has called at least once today (UTC). Developer admins get an email
             when an app passes 75% of its quota, usually one to two hours later. Back off on
             <code>429</code> rather than retrying in a loop, and don't retry a create call blindly
             after a timeout: the post may already exist.
@@ -328,15 +331,15 @@ export const linkedinPostsApi: Guide = {
           <p>LinkedIn's pages on Microsoft Learn, read on ${fetched}, with the update date each page showed:</p>
           <ul>
             <li><a href="${postsApi}">Posts API</a> (updated 13 May 2026): permissions, roles, creating and deleting posts, URNs, view URLs, mentions</li>
-            <li><a href="${versioning}">Marketing API versioning</a> (updated 14 October 2026): version header, monthly cadence, latest version</li>
+            <li><a href="${versioning}">Marketing API versioning</a> (updated 15 October 2026): version header, monthly cadence, latest version</li>
             <li><a href="${littleText}">little text format</a> (updated 16 October 2025): reserved characters, mentions, hashtags</li>
             <li><a href="${imagesApi}">Images API</a> (updated 24 June 2026): initializeUpload, formats, statuses</li>
             <li><a href="${increasingAccess}">Increasing access</a> (updated 19 October 2026): Development and Standard tiers</li>
             <li><a href="${communityManagement}">Community Management overview</a> (updated 15 May 2026): use cases, tier limits, closed <code>r_member_social</code></li>
             <li><a href="${rateLimits}">Rate limits</a> (updated 20 August 2025)</li>
-            <li><a href="${shareOnLinkedIn}">Share on LinkedIn</a> (updated 14 December 2023): <code>w_member_social</code></li>
-            <li><a href="${signIn}">Sign In with LinkedIn using OpenID Connect</a> (updated 8 August 2024): <code>openid</code>, <code>profile</code>, userinfo</li>
-            <li><a href="${authCodeFlow}">Authorization code flow</a> (updated 15 May 2026): scopes, code lifetime, token lifetime</li>
-            <li><a href="${refreshTokens}">Programmatic refresh tokens</a> (updated 8 October 2025)</li>
+            <li><a href="${shareOnLinkedIn}">Share on LinkedIn</a> (updated 5 February 2025): <code>w_member_social</code></li>
+            <li><a href="${signIn}">Sign In with LinkedIn using OpenID Connect</a> (updated 5 February 2025): <code>openid</code>, <code>profile</code>, userinfo</li>
+            <li><a href="${authCodeFlow}">Authorization code flow</a> (updated 17 November 2025): scopes, code lifetime, token lifetime</li>
+            <li><a href="${refreshTokens}">Programmatic refresh tokens</a> (updated 31 May 2025)</li>
           </ul>`,
 };
