@@ -8,16 +8,27 @@ import type { Guide } from "./guides";
 const fetched = "31 October 2026";
 
 const learn = "https://learn.microsoft.com/en-us/linkedin";
+
 const postsApi = `${learn}/marketing/community-management/shares/posts-api`;
+
 const imagesApi = `${learn}/marketing/community-management/shares/images-api`;
+
 const littleText = `${learn}/marketing/community-management/shares/little-text-format`;
+
 const versioning = `${learn}/marketing/versioning`;
+
 const rateLimits = `${learn}/shared/api-guide/concepts/rate-limits`;
+
 const increasingAccess = `${learn}/marketing/increasing-access`;
+
 const communityManagement = `${learn}/marketing/community-management/community-management-overview`;
+
 const shareOnLinkedIn = `${learn}/consumer/integrations/self-serve/share-on-linkedin`;
+
 const signIn = `${learn}/consumer/integrations/self-serve/sign-in-with-linkedin-v2`;
+
 const authCodeFlow = `${learn}/shared/authentication/authorization-code-flow`;
+
 const refreshTokens = `${learn}/shared/authentication/programmatic-refresh-tokens`;
 
 const readUserinfo = `curl "https://api.linkedin.com/v2/userinfo" \\
