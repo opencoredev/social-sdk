@@ -17,6 +17,8 @@ The integration route owns authentication, limits, lifecycle mapping, and the ne
 
 Mixed mode does not provide failover. An X failure cannot authorize a Bluesky post, and a managed-provider failure cannot move a connected account to another provider. Account authorizations and provider records do not migrate when application code changes adapters.
 
+To compare calling each platform's API directly with unified social media API providers, read the <a href="/guides/social-media-apis">social media APIs guide</a>. For Buffer's API keys, OAuth apps, and rate limits, read the <a href="/guides/buffer-api">Buffer API guide</a>.
+
 Before selecting a production route, consult its capability page for the exact operation, format, runtime, permissions, account eligibility, asynchronous behavior, cost ownership, and evidence level.
 
 The [architecture diagrams](/concepts/architecture) show how route selection and per-target outcomes stay explicit.

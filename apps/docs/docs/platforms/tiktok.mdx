@@ -14,6 +14,8 @@ To post to TikTok from a Node.js or Bun server, use TikTok's Content Posting API
 
 Until TikTok audits your app, Direct Post can publish only to private accounts with `SELF_ONLY` visibility. The setup sample below configures the adapter, and the examples after it [fetch creator info](#fetch-creator-info-before-publishing), [publish a video](#publish-a-video) and [reconcile the publish ID](#reconcile-the-publish-id).
 
+For how TikTok's app audit and posting rules compare with the other platform APIs and unified social media APIs, read the <a href="/guides/social-media-apis">social media APIs guide</a>.
+
 The direct TikTok adapter accepts an existing access token and creator `openId`. The server package also provides `tiktokOAuth` for TikTok Login Kit web authorization and creator discovery. OAuth consent does not replace the creator preview and publish consent requirements.
 
 ## Setup
