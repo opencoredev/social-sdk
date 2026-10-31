@@ -13,6 +13,8 @@ const postsApi = `${learn}/marketing/community-management/shares/posts-api`;
 
 const imagesApi = `${learn}/marketing/community-management/shares/images-api`;
 
+const videosApi = `${learn}/marketing/community-management/shares/videos-api`;
+
 const littleText = `${learn}/marketing/community-management/shares/little-text-format`;
 
 const versioning = `${learn}/marketing/versioning`;
@@ -36,7 +38,7 @@ const readUserinfo = `curl "https://api.linkedin.com/v2/userinfo" \\
 # {"sub": "abc123", "name": "...", ...}
 # The member's author URN is urn:li:person:abc123`;
 
-const createPost = `curl -X POST "https://api.linkedin.com/rest/posts" \\
+const createPost = `curl -i -X POST "https://api.linkedin.com/rest/posts" \\
   -H "Authorization: Bearer <ACCESS_TOKEN>" \\
   -H "Linkedin-Version: 202610" \\
   -H "X-Restli-Protocol-Version: 2.0.0" \\
@@ -249,8 +251,11 @@ export const linkedinPostsApi: Guide = {
             One catch for member posting: <code>w_member_social</code> is write-only, so a token
             with only that scope can upload an image but can't read its status back through the
             versioned <code>GET /rest/images</code>; a Page token with
-            <code>w_organization_social</code> can. Video and documents work the same way through
-            the Videos and Documents APIs.
+            <code>w_organization_social</code> can. Videos take more steps
+            (<a href="${videosApi}">Videos API</a>): initialize the upload, send each part LinkedIn
+            asks for and keep the <code>ETag</code> from each response, then call
+            <code>finalizeUpload</code> with those part IDs before attaching the video. Documents
+            go through the Documents API.
           </p>
           ${code(initializeUpload)}
 
@@ -334,6 +339,7 @@ export const linkedinPostsApi: Guide = {
             <li><a href="${versioning}">Marketing API versioning</a> (updated 15 October 2026): version header, monthly cadence, latest version</li>
             <li><a href="${littleText}">little text format</a> (updated 16 October 2025): reserved characters, mentions, hashtags</li>
             <li><a href="${imagesApi}">Images API</a> (updated 24 June 2026): initializeUpload, formats, statuses</li>
+            <li><a href="${videosApi}">Videos API</a> (updated 2 March 2026): multipart upload, ETags, finalizeUpload</li>
             <li><a href="${increasingAccess}">Increasing access</a> (updated 19 October 2026): Development and Standard tiers</li>
             <li><a href="${communityManagement}">Community Management overview</a> (updated 15 May 2026): use cases, tier limits, closed <code>r_member_social</code></li>
             <li><a href="${rateLimits}">Rate limits</a> (updated 20 August 2025)</li>
