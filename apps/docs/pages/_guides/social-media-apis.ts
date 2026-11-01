@@ -198,7 +198,13 @@ export const socialMediaApis: Guide = {
             printed <code>x published</code> and <code>bluesky published</code>. To try it with no
             keys at all, use the <a href="/docs/getting-started/mock-quickstart">mock backend</a>.
             The <a href="/docs/platforms">platforms overview</a> adds Threads to the same call,
-            and <a href="/docs/backends">managed backends</a> compares the providers.
+            and <a href="/docs/backends">managed backends</a> compares the providers. To call it
+            from a web app, follow the <a href="/docs/integrations/nextjs">Next.js</a>,
+            <a href="/docs/integrations/hono">Hono</a>,
+            <a href="/docs/integrations/express">Express</a> or
+            <a href="/docs/integrations/tanstack-start">TanStack Start</a> recipe; to send posts
+            later, use <a href="/docs/integrations/inngest">Inngest</a> or
+            <a href="/docs/integrations/trigger-dev">Trigger.dev</a>.
           </p>
 
           <h2 id="choose">How to choose</h2>

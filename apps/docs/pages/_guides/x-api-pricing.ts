@@ -252,7 +252,8 @@ export const xApiPricing: Guide = {
             It uses your own X app and tokens, so X bills your developer account directly at the
             rates above. The adapter checks X's weighted 280-character count before sending,
             uploads media, and returns a typed outcome for each post. When the result of a
-            create request is unclear, the outcome is <code>unknown</code> rather than a retry.
+            create request is unclear, the outcome is <code>unknown</code> rather than a retry;
+            <a href="/docs/publishing">publishing</a> explains how to reconcile it.
           </p>
           <pre><code>npm install @opencoredev/social-sdk</code></pre>
           ${code(sdkExample)}
