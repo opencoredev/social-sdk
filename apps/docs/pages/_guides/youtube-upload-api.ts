@@ -60,7 +60,7 @@ const resume = `curl -i -X PUT "<SESSION_URI>" \\
   -H "Content-Range: bytes 8388608-19999999/20000000" \\
   --data-binary @rest-of-video.bin`;
 
-const sdkExample = `import { readFile, writeFile } from "node:fs/promises";
+const sdkExample = `import { chmod, readFile, writeFile } from "node:fs/promises";
 import { createSocial, connectedAccountRef } from "@opencoredev/social-sdk";
 import { youtube } from "@opencoredev/social-sdk/youtube";
 
@@ -75,6 +75,7 @@ const social = createSocial({
     // so an interrupted upload can be resumed instead of creating a second video.
     saveUploadSession: async (session) => {
       await writeFile("./upload-session.json", JSON.stringify(session), { mode: 0o600 });
+      await chmod("./upload-session.json", 0o600); // mode only applies when the file is new
     },
   }),
 });
@@ -248,7 +249,9 @@ export const youtubeUploadApi: Guide = {
             <code>Retry-After</code> if the response has one. Other <code>4xx</code> and
             <code>5xx</code> codes are permanent failures. Session URIs expire: an expired one
             returns <code>404</code>, and you have to start a new session and upload from the
-            beginning. If you send the file in chunks, every chunk except the last must be a
+            beginning. One exception: if you had sent the last byte and lost the response, the
+            video may already exist, so look for it in the channel's uploads before you upload
+            again. If you send the file in chunks, every chunk except the last must be a
             multiple of 256 KB and the same size. Google calls chunking rarely necessary, though
             it does let you show progress and limits how much a dropped request costs you.
           </p>
@@ -299,8 +302,9 @@ export const youtubeUploadApi: Guide = {
             video from a <code>Blob</code> or a replayable stream (it doesn't fetch remote URLs),
             caps titles at 100 characters and descriptions at 5,000 UTF-8 bytes, rejects
             <code>&lt;</code> and <code>&gt;</code> in titles, and doesn't set tags or a category.
-            Add a <code>schedule</code> to the target and it uploads the video private with that
-            <code>publishAt</code> time.
+            Pass <code>schedule: { at: "2026-12-01T15:00:00Z" }</code> to
+            <code>posts.publish</code>, next to <code>targets</code>, and it uploads the video
+            private with that <code>publishAt</code> time.
           </p>
           <p>
             The adapter takes an existing access token and doesn't refresh it. The SDK's
