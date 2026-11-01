@@ -167,6 +167,7 @@ const site = `
 - [Terms](https://social-sdk.dev/terms): Terms for the website, the MIT-licensed package, and Social SDK Cloud.
 - [Blog](https://social-sdk.dev/blog): Guides and updates, with an RSS feed at https://social-sdk.dev/blog/rss.xml.
 - [Guides](https://social-sdk.dev/guides): How each social platform's API works, with sources and tested TypeScript examples.
+- [YouTube upload API guide](https://social-sdk.dev/guides/youtube-upload-api): Uploading videos with videos.insert: OAuth scopes, the resumable protocol, the 100-uploads-a-day quota, and processing states.
 - [LinkedIn Posts API guide](https://social-sdk.dev/guides/linkedin-posts-api): Posting as a member or a Page with the versioned Posts API: scopes, access tiers, author URNs, text escaping, images, and rate limits.
 - [Social media APIs guide](https://social-sdk.dev/guides/social-media-apis): Native platform APIs, unified social media APIs, and open-source libraries compared, with access rules and limits per platform.
 - [Buffer API guide](https://social-sdk.dev/guides/buffer-api): Buffer's GraphQL API, API keys versus OAuth apps, scheduling posts, rate limits per plan, and alternatives.

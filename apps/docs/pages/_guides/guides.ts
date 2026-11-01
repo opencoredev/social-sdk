@@ -8,6 +8,7 @@ import { linkedinPostsApi } from "./linkedin-posts-api";
 import { socialMediaApis } from "./social-media-apis";
 import { threadsApi } from "./threads-api";
 import { xApiPricing } from "./x-api-pricing";
+import { youtubeUploadApi } from "./youtube-upload-api";
 
 export type Guide = {
   slug: string;
@@ -29,6 +30,7 @@ const SITE = "https://social-sdk.dev";
 const GUIDES_PATH = "/guides";
 
 export const guides: readonly Guide[] = [
+  youtubeUploadApi,
   linkedinPostsApi,
   socialMediaApis,
   bufferApi,
