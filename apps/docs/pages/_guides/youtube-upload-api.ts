@@ -37,21 +37,23 @@ const startSession = `curl -i -X POST \\
     "snippet": { "title": "Release notes", "description": "What changed this week." },
     "status": { "privacyStatus": "private", "selfDeclaredMadeForKids": false }
   }'
-# HTTP 200, with the session URI in the Location header:
-# Location: https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=...`;
+# HTTP 200. The Location header holds the session URI:
+# Location: https://www.googleapis.com/upload/youtube/v3/videos?...&upload_id=...`;
 
 const sendFile = `curl -i -X PUT "<SESSION_URI>" \\
   -H "Authorization: Bearer <ACCESS_TOKEN>" \\
   -H "Content-Type: video/mp4" \\
   --data-binary @video.mp4
-# HTTP 201 with the new video resource: {"id": "...", "status": {"uploadStatus": "uploaded", ...}}`;
+# HTTP 201. The body is the new video resource:
+# {"id": "...", "status": {"uploadStatus": "uploaded", ...}}`;
 
 const checkStatus = `curl -i -X PUT "<SESSION_URI>" \\
   -H "Authorization: Bearer <ACCESS_TOKEN>" \\
   -H "Content-Length: 0" \\
   -H "Content-Range: bytes */20000000"
 # HTTP 308 Resume Incomplete
-# Range: bytes=0-8388607    <- the first 8,388,608 bytes arrived; resume at byte 8388608`;
+# Range: bytes=0-8388607
+# The first 8,388,608 bytes arrived, so resume at byte 8388608.`;
 
 const resume = `curl -i -X PUT "<SESSION_URI>" \\
   -H "Authorization: Bearer <ACCESS_TOKEN>" \\
@@ -174,9 +176,8 @@ export const youtubeUploadApi: Guide = {
           <h2 id="quota">The upload quota</h2>
           <p>
             On 1 June 2026 Google moved <code>videos.insert</code> and <code>search.list</code>
-            to their own quota buckets (<a href="${revisionHistory}">revision history</a>). A
-            project now gets three separate daily allowances by default
-            (<a href="${quotaCost}">quota costs</a>):
+            to their own quota buckets (<a href="${revisionHistory}">revision history</a>). These
+            are a project's default daily allowances (<a href="${quotaCost}">quota costs</a>):
           </p>
           <table>
             <thead><tr><th>Bucket</th><th>Default per day</th></tr></thead>
@@ -184,6 +185,7 @@ export const youtubeUploadApi: Guide = {
               <tr><td><code>videos.insert</code></td><td>100 calls, 1 unit each</td></tr>
               <tr><td><code>search.list</code></td><td>100 calls, 1 unit each</td></tr>
               <tr><td>Every other method</td><td>10,000 units combined</td></tr>
+              <tr><td><code>videos.batchGetStats</code></td><td>10,000 units in its own bucket (added 3 June 2026)</td></tr>
             </tbody>
           </table>
           <p>
@@ -356,7 +358,7 @@ export const youtubeUploadApi: Guide = {
             <li><a href="${resumable}">Resumable uploads</a> (updated 15 October 2026): session, status check, resume, chunk rules</li>
             <li><a href="${uploadGuide}">Upload a video</a> (updated 15 October 2026): <code>youtube.upload</code> scope, client library sample</li>
             <li><a href="${videosResource}">Videos resource</a> (updated 15 October 2026): <code>uploadStatus</code>, <code>processingDetails</code></li>
-            <li><a href="${revisionHistory}">Revision history</a> (updated 15 October 2026): granular quota (1 June 2026), upload cost change (4 December 2025), 2020 private-upload note</li>
+            <li><a href="${revisionHistory}">Revision history</a> (updated 15 October 2026): granular quota (1 June 2026), videos.batchGetStats bucket (3 June 2026), upload cost change (4 December 2025), 2020 private-upload note</li>
             <li><a href="${serverSideAuth}">OAuth 2.0 for web server apps</a> (updated 30 October 2026): offline access</li>
             <li><a href="${ytAuth}">Implementing OAuth 2.0 authorization</a> (updated 15 October 2026): service accounts only for content owners</li>
             <li><a href="${oauth}">Using OAuth 2.0 to access Google APIs</a> (updated 29 October 2026): 7-day refresh tokens in Testing</li>
