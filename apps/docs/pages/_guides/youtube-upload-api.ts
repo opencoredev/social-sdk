@@ -111,7 +111,7 @@ export const youtubeUploadApi: Guide = {
   summary:
     "Uploading videos through the YouTube Data API: the videos.insert call, OAuth scopes, the resumable protocol step by step, the separate upload quota, processing states, and a TypeScript example.",
   heading: "The YouTube upload API, explained",
-  lede: "To upload a video from code, call the YouTube Data API's <code>videos.insert</code> method at <code>POST https://www.googleapis.com/upload/youtube/v3/videos</code> with an OAuth access token that has the <code>youtube.upload</code> scope. Use the resumable protocol: one request sends the video's metadata and returns a session URI, and the file goes to that URI in one or more <code>PUT</code> requests. Since June 2026 uploads have their own quota bucket: a project gets 100 <code>videos.insert</code> calls a day by default, and each costs 1 unit.",
+  lede: "To upload a video from code, send a <code>POST</code> to <code>/upload/youtube/v3/videos</code> on <code>www.googleapis.com</code> (the YouTube Data API's <code>videos.insert</code> method) with an OAuth access token that has the <code>youtube.upload</code> scope. Use the resumable protocol: one request sends the video's metadata and returns a session URI, and the file goes to that URI in one or more <code>PUT</code> requests. Since June 2026 uploads have their own quota bucket: a project gets 100 <code>videos.insert</code> calls a day by default, and each costs 1 unit.",
   published: "2026-11-01",
   updated: "2026-11-01",
   content: `
