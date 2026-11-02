@@ -144,7 +144,7 @@ export const socialMediaApis: Guide = {
             themselves on their own sites (read ${fetched}) as:
           </p>
           <ul>
-            <li><a href="https://www.ayrshare.com">Ayrshare</a>: a unified social media API to post, schedule, and analyze, with an MCP server for AI agents.</li>
+            <li><a href="https://www.ayrshare.com">Ayrshare</a>: a unified social media API to post, schedule, and analyze, with an MCP server for AI agents (see <a href="/guides/ayrshare-alternatives">Ayrshare alternatives</a>).</li>
             <li><a href="https://www.upload-post.com">Upload-Post</a>: one API call to post on TikTok, Instagram, YouTube, and more, with Python and JavaScript SDKs.</li>
             <li><a href="https://www.outstand.so">Outstand</a>: a unified social media API for AI agents, schedulers, and analytics dashboards.</li>
             <li><a href="https://bundle.social">bundle.social</a>: one API for publishing, analytics, and comments, plus Instagram and Facebook DMs.</li>

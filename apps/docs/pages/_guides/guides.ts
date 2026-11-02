@@ -2,6 +2,7 @@
 // hand-drawn shell, with TechArticle and BreadcrumbList structured data.
 import { escapeHtml } from "../_blog/render";
 import { renderShell, siteMeta } from "../_info/pages";
+import { ayrshareAlternatives } from "./ayrshare-alternatives";
 import { blueskyApi } from "./bluesky-api";
 import { bufferApi } from "./buffer-api";
 import { linkedinPostsApi } from "./linkedin-posts-api";
@@ -30,6 +31,7 @@ const SITE = "https://social-sdk.dev";
 const GUIDES_PATH = "/guides";
 
 export const guides: readonly Guide[] = [
+  ayrshareAlternatives,
   youtubeUploadApi,
   linkedinPostsApi,
   socialMediaApis,
@@ -158,6 +160,16 @@ export function renderGuidesIndex(): string {
     heading: "Guides",
     lede: "How each social platform's API works, what it lets you do, and how to call it from TypeScript. Every guide cites the platform's own documentation and ends with an example we ran.",
     content: `<ul class="posts">${items}
-        </ul>`,
+        </ul>
+        <div class="prose">
+          <h2 id="recipes">Framework recipes</h2>
+          <p>
+            To call Social SDK from a web app, follow the <a href="/docs/integrations/nextjs">Next.js</a>,
+            <a href="/docs/integrations/hono">Hono</a>, <a href="/docs/integrations/express">Express</a>, or
+            <a href="/docs/integrations/tanstack-start">TanStack Start</a> recipe. To send posts later, use
+            <a href="/docs/integrations/inngest">Inngest</a> or <a href="/docs/integrations/trigger-dev">Trigger.dev</a>.
+            <a href="/docs/publishing">Publishing</a> explains the outcome you get back for each network.
+          </p>
+        </div>`,
   });
 }

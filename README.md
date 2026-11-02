@@ -100,6 +100,7 @@ Full documentation lives at **[social-sdk.dev/docs](https://social-sdk.dev/docs)
 
 [Guides](https://social-sdk.dev/guides) on how each platform's API works, with sources and tested TypeScript examples:
 
+- [Ayrshare alternatives for developers](https://social-sdk.dev/guides/ayrshare-alternatives)
 - [The YouTube upload API, explained](https://social-sdk.dev/guides/youtube-upload-api)
 - [The LinkedIn Posts API, explained](https://social-sdk.dev/guides/linkedin-posts-api)
 - [Social media APIs for developers](https://social-sdk.dev/guides/social-media-apis)

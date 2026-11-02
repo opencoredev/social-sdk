@@ -72,6 +72,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       files: ["guides/index.astro", "_guides/guides.ts", "_info/info.html"],
       ranges: [
         shellHelpers,
+        { file: "_guides/ayrshare-alternatives.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/youtube-upload-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/linkedin-posts-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/social-media-apis.ts", from: "^  slug:", to: "^  updated:" },
@@ -82,6 +83,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       ],
     },
   ],
+  ["/guides/ayrshare-alternatives", guidePage("ayrshare-alternatives")],
   ["/guides/youtube-upload-api", guidePage("youtube-upload-api")],
   ["/guides/linkedin-posts-api", guidePage("linkedin-posts-api")],
   ["/guides/social-media-apis", guidePage("social-media-apis")],
