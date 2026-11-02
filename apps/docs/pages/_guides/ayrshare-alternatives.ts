@@ -13,15 +13,25 @@ import type { Guide } from "./guides";
 const fetched = "2 November 2026";
 
 const ayrshareDocs = "https://www.ayrshare.com/docs";
+
 const ayrshareNetworks = `${ayrshareDocs}/help-center/product/what-social-networks-are-supported`;
+
 const ayrshareAccounts = `${ayrshareDocs}/help-center/product/how-many-social-accounts-can-i-connect`;
+
 const ayrshareQuota = `${ayrshareDocs}/help-center/product/how-many-posts-and-api-calls-can-i-make`;
+
 const ayrsharePost = `${ayrshareDocs}/apis/post/post`;
+
 const ayrshareLinking = `${ayrshareDocs}/apis/profiles/generate-jwt`;
+
 const ayrshareDuplicates = `${ayrshareDocs}/help-center/technical-support/dealing-with-duplicate-posts`;
+
 const ayrsharePackages = `${ayrshareDocs}/help-center/product/do-you-have-sdk-packages-to-make-my-life-easier`;
+
 const ayrsharePricing = "https://www.ayrshare.com/pricing";
+
 const postizRepo = "https://github.com/gitroomhq/postiz-app";
+
 const mixpostRepo = "https://github.com/inovector/mixpost";
 
 const ayrshareExample = `await fetch("https://app.ayrshare.com/api/post", {
@@ -47,6 +57,7 @@ const env = (name: string): string => {
 
 type PersonUrn = \`urn:li:person:\${string}\`;
 const isPersonUrn = (value: string): value is PersonUrn => /^urn:li:person:[\\w-]+$/.test(value);
+
 const author = env("LINKEDIN_AUTHOR");
 if (!isPersonUrn(author)) throw new Error("LINKEDIN_AUTHOR must be urn:li:person:...");
 
