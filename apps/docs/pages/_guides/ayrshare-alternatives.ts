@@ -24,6 +24,8 @@ const ayrsharePost = `${ayrshareDocs}/apis/post/post`;
 
 const ayrshareLinking = `${ayrshareDocs}/apis/profiles/generate-jwt`;
 
+const ayrshareXKeys = `${ayrshareDocs}/dashboard/connect-social-accounts/x-twitter-byo-keys`;
+
 const ayrshareDuplicates = `${ayrshareDocs}/help-center/technical-support/dealing-with-duplicate-posts`;
 
 const ayrsharePackages = `${ayrshareDocs}/help-center/product/do-you-have-sdk-packages-to-make-my-life-easier`;
@@ -34,12 +36,17 @@ const postizRepo = "https://github.com/gitroomhq/postiz-app";
 
 const mixpostRepo = "https://github.com/inovector/mixpost";
 
+const mixpostPricing = "https://mixpost.app/pricing";
+
 const ayrshareExample = `await fetch("https://app.ayrshare.com/api/post", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
     Authorization: \`Bearer \${API_KEY}\`,
     "Profile-Key": PROFILE_KEY, // only when posting for one of your users
+    // Required on X requests since 31 March 2026: your own X app's key and secret.
+    "X-Twitter-OAuth1-Api-Key": X_API_KEY,
+    "X-Twitter-OAuth1-Api-Secret": X_API_SECRET,
   },
   body: JSON.stringify({ post: "Release notes for v2 are up.", platforms: ["twitter", "linkedin"] }),
 });`;
@@ -111,7 +118,7 @@ export const ayrshareAlternatives: Guide = {
   summary:
     "What Ayrshare does, the three kinds of alternative (another unified API, a self-hosted open-source scheduler, or an open-source library), what each one moves onto your team, and how Ayrshare's profiles and post calls map to Social SDK.",
   heading: "Ayrshare alternatives for developers",
-  lede: "Yes, there are open-source alternatives to Ayrshare, and they come in two shapes. Postiz (AGPL-3.0) and Mixpost (MIT) are social media schedulers with APIs that you host yourself. Social SDK (MIT) is a TypeScript library that calls each network's own API from your server. Either way you register your own platform apps and pass their reviews, which is the work Ayrshare does for you. If you only want a different hosted provider, other unified APIs work the same way Ayrshare does. This page explains what Ayrshare does, what each alternative moves onto your team, and how Ayrshare's profiles and post calls map to Social SDK.",
+  lede: "Yes, there are open-source alternatives to Ayrshare, and they come in two shapes. Postiz (AGPL-3.0) is a social media scheduler with an API that you host yourself, and Mixpost Lite (MIT) is a simpler self-hosted scheduler. Social SDK (MIT) is a TypeScript library that calls each network's own API from your server. Either way you register your own platform apps and pass their reviews, which is most of the work Ayrshare does for you. If you only want a different hosted provider, other unified APIs work the same way Ayrshare does. This page explains what Ayrshare does, what each alternative moves onto your team, and how Ayrshare's profiles and post calls map to Social SDK.",
   published: "2026-11-02",
   updated: "2026-11-02",
   content: `
@@ -119,8 +126,9 @@ export const ayrshareAlternatives: Guide = {
             Ayrshare facts below come from Ayrshare's own documentation and pricing page, and
             project facts from each project's own site or repository, read on ${fetched}. We don't
             list prices: they change often, so check <a href="${ayrsharePricing}">Ayrshare's pricing
-            page</a> and each alternative's. Postiz sponsors Social SDK, and Postiz, Zernio, Post
-            for Me, PostFast and Buffer are backends Social SDK supports.
+            page</a> and each alternative's. Postiz sponsors Social SDK. Social SDK supports Zernio, Post for
+            Me and PostFast as backends in its 0.5.0 npm release; its Postiz and Buffer adapters are
+            on the main branch and not yet in npm.
           </p>
 
           <h2 id="what-ayrshare-is">What Ayrshare is</h2>
@@ -128,13 +136,15 @@ export const ayrshareAlternatives: Guide = {
             Ayrshare is a hosted, unified social media API. You send one request to
             <a href="${ayrsharePost}"><code>POST /api/post</code></a> with the text and a
             <code>platforms</code> list, and Ayrshare posts it through each network's official API.
-            Ayrshare runs the platform apps, so you don't register a developer app with each network.
+            Ayrshare runs the platform apps for every network except X, so you don't register a
+            developer app with each one.
             The parts that matter when you compare alternatives:
           </p>
           <ul>
             <li><strong>Networks.</strong> <a href="${ayrshareNetworks}">Fourteen</a>: Bluesky, Facebook, Google Business Profile, Instagram, LinkedIn, Pinterest, Reddit, Snapchat, Telegram, Threads, TikTok, WhatsApp, X, and YouTube.</li>
             <li><strong>Profiles.</strong> Your account is a Primary Profile. To post for your own users you create <a href="${ayrshareAccounts}">User Profiles</a>, each with one set of connected accounts (one per network), and send that profile's key in a <code>Profile-Key</code> header.</li>
-            <li><strong>Account linking.</strong> A <a href="${ayrshareLinking}">linking URL</a> sends your user to an Ayrshare-hosted page to connect their accounts. For X you can pass your own X app's API key and secret so linking uses your app.</li>
+            <li><strong>Account linking.</strong> A <a href="${ayrshareLinking}">linking URL</a> sends your user to an Ayrshare-hosted page to connect their accounts.</li>
+            <li><strong>X needs your own app.</strong> Since 31 March 2026, every Ayrshare account that posts to X <a href="${ayrshareXKeys}">registers its own X developer app</a> and sends its API key and secret on every X request. One app covers all your User Profiles.</li>
             <li><strong>Billing unit.</strong> The <a href="${ayrsharePricing}">pricing page</a> bills by social profile: one customer, brand, or location, with any number of networks. Premium covers one profile, Launch up to 10, and Business more. Only Launch has a 28-day free trial.</li>
             <li><strong>Monthly post quota.</strong> Each profile has its <a href="${ayrshareQuota}">own quota</a>, set by plan, that resets on the 1st at 00:07 UTC. One request counts once however many networks it targets, and failed posts count.</li>
             <li><strong>Duplicate check.</strong> Ayrshare <a href="${ayrshareDuplicates}">blocks repeated content</a> within two days (error code 137), but two identical requests sent at the same moment can both publish.</li>
@@ -158,7 +168,7 @@ export const ayrshareAlternatives: Guide = {
             <thead><tr><th>Kind</th><th>What changes compared with Ayrshare</th></tr></thead>
             <tbody>
               <tr><td>Another unified API</td><td>Almost nothing: a different vendor holds the platform apps and account connections. You compare coverage, limits, billing unit, and webhooks.</td></tr>
-              <tr><td>Self-hosted open-source scheduler</td><td>You run the app (Postiz needs Postgres and Redis; Mixpost is a Laravel app), register each platform app, and pass its review. You get the source and a scheduling UI.</td></tr>
+              <tr><td>Self-hosted open-source scheduler</td><td>You run the app (Postiz needs Postgres and Redis; Mixpost is a Laravel app), register each platform app, and pass its review. You get the source and a scheduling UI; check which edition has the API.</td></tr>
               <tr><td>Open-source library</td><td>No extra service at all: your server calls each network's API with your own apps and tokens. You store tokens and run scheduling yourself.</td></tr>
             </tbody>
           </table>
@@ -187,9 +197,11 @@ export const ayrshareAlternatives: Guide = {
             branch and not yet in the 0.5.0 npm release.
           </p>
           <p>
-            <a href="https://mixpost.app">Mixpost</a> describes itself as open-source, self-hosted
-            social media management. Its <a href="${mixpostRepo}">Lite edition</a> is MIT licensed,
-            and the site documents an API and an MCP server.
+            <a href="https://mixpost.app">Mixpost</a> describes itself as self-hosted social media
+            management. Its free <a href="${mixpostRepo}">Lite edition</a> is open source (MIT) and
+            posts to Facebook Pages, X, and Mastodon. The API, the MCP server, and the other networks
+            come with the paid <a href="${mixpostPricing}">Pro and Enterprise licenses</a>, which
+            install the source on your server but don't let you redistribute it.
           </p>
           <p>
             <a href="/">Social SDK</a> is an open-source (MIT) TypeScript library, not a service. It
@@ -246,7 +258,7 @@ export const ayrshareAlternatives: Guide = {
           <h2 id="choose">How to choose</h2>
           <ul>
             <li><strong>You want someone else to own the platform apps and reviews:</strong> stay on Ayrshare or move to another unified API.</li>
-            <li><strong>You want the source and a scheduling UI, and can run a server:</strong> self-host Postiz or Mixpost.</li>
+            <li><strong>You want the source and a scheduling UI, and can run a server:</strong> self-host Postiz, or Mixpost (the API needs a paid license).</li>
             <li><strong>You want posting inside your own TypeScript code, with your own apps:</strong> an open-source library such as Social SDK.</li>
             <li><strong>You want to start hosted and move later:</strong> Social SDK can call a managed backend now and direct adapters later through the same <code>publish</code> call. Account references change with the backend, so moving is a mapping step.</li>
           </ul>
@@ -255,9 +267,9 @@ export const ayrshareAlternatives: Guide = {
           <dl class="faq">
             <dt>Is there an open-source alternative to Ayrshare?</dt>
             <dd>
-              Yes. Postiz (AGPL-3.0) and Mixpost (MIT Lite edition) are self-hosted schedulers with
-              APIs, and Social SDK (MIT) is a TypeScript library that calls each network's own API.
-              All of them need your own platform apps.
+              Yes. Postiz (AGPL-3.0) is a self-hosted scheduler with an API, and Social SDK (MIT) is a
+              TypeScript library that calls each network's own API. Mixpost Lite (MIT) is open source
+              too, but its API is in the paid editions. All of them need your own platform apps.
             </dd>
             <dt>Is Ayrshare open source?</dt>
             <dd>
@@ -271,7 +283,7 @@ export const ayrshareAlternatives: Guide = {
             </dd>
             <dt>Do I need my own developer apps if I leave Ayrshare?</dt>
             <dd>
-              With another unified API, usually not. With a self-hosted scheduler or a library, yes:
+              With another unified API, usually not, though Ayrshare itself now needs your own X app. With a self-hosted scheduler or a library, yes:
               each network's app, its review, and its limits become yours. Our guides to
               <a href="/guides/threads-api">Threads</a>, <a href="/guides/bluesky-api">Bluesky</a>,
               <a href="/guides/youtube-upload-api">YouTube</a>, and the
@@ -290,12 +302,13 @@ export const ayrshareAlternatives: Guide = {
             <li><a href="${ayrsharePost}">Ayrshare: Publish a Post API</a>: the request, <code>platforms</code> values, and the <code>Profile-Key</code> header</li>
             <li><a href="${ayrshareNetworks}">Ayrshare: supported social networks</a>: the fourteen networks</li>
             <li><a href="${ayrshareAccounts}">Ayrshare: how many social accounts can I connect</a>: User Profiles and plans</li>
-            <li><a href="${ayrshareLinking}">Ayrshare: generate a linking URL</a>: account linking and the X app key option</li>
+            <li><a href="${ayrshareLinking}">Ayrshare: generate a linking URL</a>: account linking</li>
+            <li><a href="${ayrshareXKeys}">Ayrshare: set up your own X API key</a>: the 31 March 2026 X app requirement and headers</li>
             <li><a href="${ayrshareQuota}">Ayrshare: monthly post quota</a>: per-profile quota, reset time, what counts</li>
             <li><a href="${ayrshareDuplicates}">Ayrshare: duplicate posts</a>: code 137 and simultaneous requests</li>
             <li><a href="${ayrsharePackages}">Ayrshare: SDK packages</a>: Node.js and Python</li>
             <li><a href="${ayrsharePricing}">Ayrshare pricing</a>: billing per social profile, plan names, and the Launch trial</li>
             <li><a href="${postizRepo}">gitroomhq/postiz-app</a>: AGPL-3.0 license</li>
-            <li><a href="${mixpostRepo}">inovector/mixpost</a> and <a href="https://mixpost.app">mixpost.app</a>: MIT license, self-hosting, API</li>
+            <li><a href="${mixpostRepo}">inovector/mixpost</a> and <a href="${mixpostPricing}">Mixpost pricing</a>: Lite's MIT license and networks, the API and MCP in Pro and Enterprise, source-available paid licenses</li>
           </ul>`,
 };
