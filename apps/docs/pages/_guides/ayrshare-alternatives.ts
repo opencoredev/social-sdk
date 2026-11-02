@@ -248,7 +248,10 @@ export const ayrshareAlternatives: Guide = {
             <code>POST https://api.x.com/2/tweets</code> and one
             <code>POST https://api.linkedin.com/rest/posts</code>, and printed a
             <code>published</code> line for each. Running <code>publish</code> a second time with
-            the same key made no new requests and returned the saved outcomes. To try it with no
+            the same key made no new requests and returned the saved outcomes. The sample posts for
+            one account you own. When your customers connect accounts, add an
+            <a href="/docs/concepts/tenant-authorization">authorization policy</a> and pass the
+            signed-in tenant to <code>publish</code>, as you would scope a Profile-Key. To try it with no
             keys, use the <a href="/docs/getting-started/mock-quickstart">mock backend</a>. The
             <a href="/guides/x-api-pricing">X API pricing</a> and
             <a href="/guides/linkedin-posts-api">LinkedIn Posts API</a> guides cover what each

@@ -158,7 +158,7 @@ export function renderGuidesIndex(): string {
     ].join("\n    "),
     kicker: "platform APIs, explained",
     heading: "Guides",
-    lede: "How each social platform's API works, what it lets you do, and how to call it from TypeScript. Every guide cites the platform's own documentation and ends with an example we ran.",
+    lede: "How each social platform's API works, what it lets you do, how the alternatives compare, and how to call it all from TypeScript. Every guide cites its sources and includes an example we ran.",
     content: `<ul class="posts">${items}
         </ul>
         <div class="prose">
