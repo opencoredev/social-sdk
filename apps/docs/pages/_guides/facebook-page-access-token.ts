@@ -76,15 +76,22 @@ const isJson = (value: unknown): value is Json =>
 async function get(path: string, params: Record<string, string>): Promise<Json> {
   const url = new URL(graph + path);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  const response = await fetch(url);
-  const body: unknown = await response.json();
-  if (!isJson(body)) throw new Error(\`\${path}: unexpected response\`);
+  // Errors name the path and status only. Raw errors and bodies can echo tokens.
+  let status = 0;
+  let body: unknown;
+  try {
+    const response = await fetch(url);
+    status = response.status;
+    body = await response.json();
+  } catch {
+    throw new Error(\`\${path} failed: \${status ? \`HTTP \${status}, body is not JSON\` : "network error"}\`);
+  }
+  if (!isJson(body)) throw new Error(\`\${path} failed: HTTP \${status}, unexpected response\`);
   const error = body["error"];
-  if (!response.ok || isJson(error)) {
-    // Report the code and subcode, never the URL: it contains tokens.
+  if (status !== 200 || isJson(error)) {
     const detail = isJson(error)
       ? \`code \${String(error["code"])}, subcode \${String(error["error_subcode"])}\`
-      : \`HTTP \${response.status}\`;
+      : \`HTTP \${status}\`;
     throw new Error(\`\${path} failed: \${detail}\`);
   }
   return body;
@@ -103,23 +110,33 @@ const exchanged = await get("/oauth/access_token", {
 const longLivedUserToken = exchanged["access_token"];
 if (typeof longLivedUserToken !== "string") throw new Error("No long-lived user token");
 
-// 2. List the Pages the user granted, each with its own Page access token.
-const accounts = await get("/me/accounts", {
-  fields: "id,name,tasks,access_token",
-  access_token: longLivedUserToken,
-  appsecret_proof: proof(longLivedUserToken),
-});
-const rows: unknown[] = Array.isArray(accounts["data"]) ? accounts["data"] : [];
-const pages = rows.flatMap((row) => {
-  if (!isJson(row)) return [];
-  const { id, name, access_token: accessToken, tasks } = row;
-  if (typeof id !== "string" || typeof accessToken !== "string") return [];
-  const taskList: unknown[] = Array.isArray(tasks) ? tasks : [];
-  return [{ id, name: typeof name === "string" ? name : id, accessToken, tasks: taskList }];
-});
-
-// 3. Keep a Page this user can publish to.
-const page = pages.find((candidate) => candidate.tasks.includes("CREATE_CONTENT"));
+// 2. List the Pages the user granted, each with its own Page access token,
+// and 3. keep the first one this user can publish to. The list is paginated.
+type Page = { id: string; name: string; accessToken: string };
+let page: Page | undefined;
+let after: string | undefined;
+do {
+  const accounts = await get("/me/accounts", {
+    fields: "id,name,tasks,access_token",
+    access_token: longLivedUserToken,
+    appsecret_proof: proof(longLivedUserToken),
+    ...(after ? { after } : {}),
+  });
+  const rows: unknown[] = Array.isArray(accounts["data"]) ? accounts["data"] : [];
+  for (const row of rows) {
+    if (!isJson(row)) continue;
+    const { id, name, access_token: accessToken, tasks } = row;
+    const taskList: unknown[] = Array.isArray(tasks) ? tasks : [];
+    if (typeof id !== "string" || typeof accessToken !== "string") continue;
+    if (!taskList.includes("CREATE_CONTENT")) continue;
+    page = { id, name: typeof name === "string" ? name : id, accessToken };
+    break;
+  }
+  const paging = isJson(accounts["paging"]) ? accounts["paging"] : {};
+  const cursors = isJson(paging["cursors"]) ? paging["cursors"] : {};
+  const next = cursors["after"];
+  after = !page && typeof paging["next"] === "string" && typeof next === "string" ? next : undefined;
+} while (after);
 if (!page) throw new Error("This user can't create content on any Page they granted.");
 
 // 4. Inspect the Page token with an app token (app ID and secret joined by "|").
@@ -224,8 +241,10 @@ export const facebookPageAccessToken: Guide = {
           </p>
           <p>
             Every Page permission needs App Review before people without a role on your app can
-            grant it. In development mode, only people with a role on the app can. Business apps
-            need Advanced access for each permission instead (<a href="${pagesOverview}">Pages API overview</a>).
+            grant it once the app is live. In development mode, only people with a role on the app
+            can. Business apps have no app modes: each permission needs Advanced access before
+            someone with neither a role on the app nor a role in the business that claimed it can
+            grant it (<a href="${pagesOverview}">Pages API overview</a>).
           </p>
 
           <h2 id="get-a-token">Get a long-lived Page access token, step by step</h2>
@@ -267,17 +286,19 @@ export const facebookPageAccessToken: Guide = {
 
           <h2 id="typescript">The same flow in TypeScript</h2>
           <p>
-            This script runs the exchange, lists Pages, keeps the first one the person can
-            publish to, and inspects its token. It validates every response before using it,
-            reports Meta's error code without the URL (which holds tokens), and signs the
-            <code>/me/accounts</code> call with <code>appsecret_proof</code>.
+            This script runs the exchange, pages through <code>/me/accounts</code> until it finds
+            a Page the person can publish to, and inspects that Page's token. It validates every
+            response before using it, reports only the path, HTTP status, and Meta's error code
+            (never the URL or response body, which can hold tokens), and signs the
+            <code>/me/accounts</code> calls with <code>appsecret_proof</code>.
           </p>
           ${code(tokenExample)}
           <p>
             We type-checked it with <code>strict</code> TypeScript and ran it on ${fetched} on
-            Node.js 24 and Bun, with a stub <code>fetch</code> standing in for Meta. It made the
-            three calls in order, skipped a Page where the person could only analyze, printed the
-            other Page's token type and scopes, and logged no token. Bun and Node.js 24 run the
+            Node.js 24 and Bun, with a stub <code>fetch</code> standing in for Meta. It skipped an
+            analyze-only Page on the first page of results, followed the cursor to the second,
+            printed that Page's token type and scopes, and logged no token. A stubbed 502 with a
+            token in its body produced an error that contained no token. Bun and Node.js 24 run the
             file as it is; on Node.js 22, use a TypeScript runner such as tsx.
           </p>
 
@@ -292,10 +313,13 @@ export const facebookPageAccessToken: Guide = {
           <p>
             Useful fields: <code>type</code>, <code>is_valid</code>, <code>expires_at</code>,
             <code>data_access_expires_at</code> (when the app's access to the person's data
-            ends), <code>scopes</code>, and <code>granular_scopes</code>, which lists the Page IDs
-            each permission covers (<a href="${debugging}">debugging and error handling</a>). If a
-            Page is missing from <code>/me/accounts</code>, check <code>granular_scopes</code>:
-            the person may not have selected it when they logged in. The
+            ends), <code>scopes</code>, and <code>granular_scopes</code>. When a permission was
+            granted for specific Pages, its <code>granular_scopes</code> entry lists their IDs in
+            <code>target_ids</code>; when it applies to all, no targets are shown
+            (<a href="${debugToken}">debug_token reference</a>,
+            <a href="${debugging}">debugging and error handling</a>). If a Page is missing from
+            <code>/me/accounts</code> and <code>target_ids</code> lists other Pages, the person
+            didn't give your app access to it. The
             <a href="https://developers.facebook.com/tools/debug/accesstoken/">Access Token Debugger</a>
             shows the same data in a browser.
           </p>
@@ -335,9 +359,12 @@ export const facebookPageAccessToken: Guide = {
             </tbody>
           </table>
           <p>
-            A Page token made from a long-lived user token has no expiration date, but those
-            cases still end it, so build a reconnect path instead of treating the token as
-            permanent.
+            Only the <code>190</code> rows and subcode <code>492</code> mean the token itself no
+            longer works. A Page token made from a long-lived user token has no expiration date,
+            but those cases still end it, so build a reconnect path instead of treating the token
+            as permanent. Permission errors need a new grant, and throttling, duplicate, and policy
+            errors are about the request, not the token: keep the token and retry or change the
+            request.
           </p>
 
           <h2 id="system-users">Tokens for your own Pages: system users</h2>
