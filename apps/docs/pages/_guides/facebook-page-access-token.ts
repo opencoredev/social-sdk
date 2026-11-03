@@ -222,7 +222,8 @@ export const facebookPageAccessToken: Guide = {
               <tr><td><code>pages_manage_posts</code></td><td>Creating, editing, and deleting Page posts, photos, and videos. Depends on <code>pages_read_engagement</code> and <code>pages_show_list</code></td></tr>
               <tr><td><code>pages_read_engagement</code></td><td>Reading the Page's content, followers, and metadata</td></tr>
               <tr><td><code>read_insights</code></td><td>Reading Page Insights data. Depends on <code>pages_read_engagement</code> and <code>pages_show_list</code></td></tr>
-              <tr><td><code>pages_manage_engagement</code></td><td>Replying to and moderating comments as the Page</td></tr>
+              <tr><td><code>pages_manage_engagement</code></td><td>Creating, editing, and deleting the Page's own comments, such as replies, and likes on Page posts</td></tr>
+              <tr><td><code>pages_read_user_content</code></td><td>Reading comments and posts that people and other Pages leave on the Page, and deleting user comments</td></tr>
               <tr><td><code>publish_video</code></td><td>Publishing video to the Page</td></tr>
             </tbody>
           </table>
@@ -230,8 +231,10 @@ export const facebookPageAccessToken: Guide = {
             Those come from Meta's <a href="${permissions}">permissions reference</a> and
             <a href="${pagesPosts}">posts guide</a>. Meta's
             <a href="${pagesStart}">getting started page</a> also asks for
-            <code>pages_manage_metadata</code>. Request the smallest set that covers what you
-            build, since App Review asks you to justify each one.
+            <code>pages_manage_metadata</code>. To publish, the first three are the core set. Add
+            the two comment permissions only if you read or answer comments, <code>publish_video</code>
+            only for video, and <code>read_insights</code> only for Insights: App Review asks you to
+            justify each one.
           </p>
           <p>
             Tasks are per person and per Page. Publishing needs <code>CREATE_CONTENT</code>,
@@ -452,7 +455,7 @@ export const facebookPageAccessToken: Guide = {
             <li><a href="${pagesStart}">Get started with the Pages API</a> (updated 30 June 2026): <code>/me/accounts</code>, posting, Graph API Explorer</li>
             <li><a href="${pagesPosts}">Pages API posts</a> (updated 17 April 2026): permissions, scheduling, photos, updates</li>
             <li><a href="${pagesOverview}">Pages API overview</a> (updated 5 May 2025): tasks, App Review, Facebook Login for Business</li>
-            <li><a href="${permissions}">Permissions reference</a> (updated 19 October 2026): <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code>, <code>read_insights</code></li>
+            <li><a href="${permissions}">Permissions reference</a> (updated 19 October 2026): <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code>, <code>pages_manage_engagement</code>, <code>pages_read_user_content</code>, <code>read_insights</code></li>
             <li><a href="${debugToken}">debug_token reference</a> (Graph API v26.0) and <a href="${debugging}">debugging and error handling</a> (no date shown): fields and expired-token errors</li>
             <li><a href="${errors}">Handling errors</a> and <a href="${secureRequests}">secure requests</a> (no date shown): error codes, <code>appsecret_proof</code></li>
           </ul>`,
