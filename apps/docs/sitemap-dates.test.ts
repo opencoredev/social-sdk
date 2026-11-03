@@ -114,6 +114,7 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
   const index = pageSources.get("/guides");
 
   assert.ok(!index?.files.includes("_guides"));
+  assert.ok(!index?.files.includes("_guides/facebook-page-access-token.ts"));
   assert.ok(!index?.files.includes("_guides/ayrshare-alternatives.ts"));
   assert.ok(!index?.files.includes("_guides/youtube-upload-api.ts"));
   assert.ok(!index?.files.includes("_guides/linkedin-posts-api.ts"));
@@ -126,6 +127,7 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
     index?.ranges.map((range) => `${range.file} ${range.from}`),
     [
       "_info/pages.ts ^export type Shell",
+      "_guides/facebook-page-access-token.ts ^  slug:",
       "_guides/ayrshare-alternatives.ts ^  slug:",
       "_guides/youtube-upload-api.ts ^  slug:",
       "_guides/linkedin-posts-api.ts ^  slug:",
