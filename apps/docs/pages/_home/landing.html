@@ -895,6 +895,9 @@
       html.dark .chip {
         background: #1c1916;
       }
+      html.dark .chip img[src$="/buffer.svg"] {
+        filter: invert(1);
+      }
       /* logos are drawn for light backgrounds, so give them a light tile in dark mode */
       html.dark .backer-tile {
         background: #f2efe9;
@@ -2790,7 +2793,7 @@
               ><img width="18" height="18" src="/integrations/postiz.svg" alt="" /> Postiz</a
             >
             <a class="chip" href="/docs/backends/buffer"
-              ><span aria-hidden="true">◫</span> Buffer</a
+              ><img width="18" height="18" src="/integrations/buffer.svg" alt="" /> Buffer</a
             >
           </div>
         </section>

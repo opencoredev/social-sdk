@@ -49,13 +49,7 @@ export interface ManagedOptions extends HttpOptions {
   readonly unknownPlatforms?: UnknownPlatforms;
 }
 
-export type ManagedProvider =
-  | "zernio"
-  | "post-for-me"
-  | "postfast"
-  | "postiz"
-  | "buffer"
-  | "upload-post";
+export type ManagedProvider = "zernio" | "post-for-me" | "postfast" | "postiz" | "buffer";
 
 const corePlatforms = [
   "x",
@@ -82,9 +76,8 @@ const knownPlatformList = [
 ] as const satisfies readonly KnownPlatform[];
 
 /**
- * Paged document types (PDF, PPT, PPTX, DOC, DOCX). LinkedIn's Documents API (checked
- * 2026-09-24, version 202609) and Upload-Post's document route (checked 2026-10-24) list
- * the same set.
+ * Paged document types (PDF, PPT, PPTX, DOC, DOCX) listed by LinkedIn's Documents API
+ * (checked 2026-09-24, version 202609).
  */
 export const documentMimeTypes: readonly string[] = [
   "application/pdf",
@@ -121,8 +114,6 @@ export const providerPlatforms: Readonly<Record<ManagedProvider, readonly KnownP
     "twitch",
   ],
   buffer: [...corePlatforms, "pinterest", "mastodon", "google-business"],
-  // Upload-Post also lists Pinterest and Reddit, but this adapter maps no board or subreddit yet.
-  "upload-post": [...corePlatforms],
 };
 
 export function isKnownPlatform(value: string): value is KnownPlatform {
@@ -237,11 +228,8 @@ export function managedHttp(
     for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
     headers.set(...authHeader(options.apiKey));
 
-    // Both providers document Idempotency-Key replay protection for create requests.
-    if (
-      context.targetIdempotencyKey &&
-      (origin.includes("zernio.com") || origin.includes("api.upload-post.com"))
-    )
+    // Zernio documents Idempotency-Key replay protection for create requests.
+    if (context.targetIdempotencyKey && origin.includes("zernio.com"))
       headers.set("Idempotency-Key", context.targetIdempotencyKey);
 
     try {
@@ -423,23 +411,14 @@ export function optionsObject(target: PreparedPublishTarget): JsonObject {
 
 /**
  * Platforms where a provider documents publishing a reply to an existing native post.
- * Zernio: `platformSpecificData.replyToTweetId` (docs.zernio.com/twitter-engagement/search-tweets).
- * Upload-Post: `reply_to_id`, X on every upload route and Bluesky on text uploads
- * (docs.upload-post.com/openapi.json, both checked 2026-10-24).
+ * Zernio: `platformSpecificData.replyToTweetId` (docs.zernio.com/twitter-engagement/search-tweets,
+ * checked 2026-10-24).
  */
 export function managedReplySupported(
   provider: ManagedProvider,
-  target: Pick<PreparedPublishTarget, "account" | "content">,
+  target: Pick<PreparedPublishTarget, "account">,
 ): boolean {
-  if (provider === "zernio") return target.account.platform === "x";
-
-  if (provider === "upload-post")
-    return (
-      target.account.platform === "x" ||
-      (target.account.platform === "bluesky" && (target.content.media?.length ?? 0) === 0)
-    );
-
-  return false;
+  return provider === "zernio" && target.account.platform === "x";
 }
 
 /** Every accepted normalized option has an intentional provider mapping. */
@@ -460,12 +439,11 @@ export function managedOptionIssues(
       "title",
       "visibility",
       "madeForKids",
-      ...(provider === "buffer" || provider === "upload-post" ? ["categoryId"] : []),
+      ...(provider === "buffer" ? ["categoryId"] : []),
       ...(provider === "postfast" ? ["isShort"] : []),
     ],
     instagram: ["shareToFeed"],
     x: provider === "buffer" ? [] : ["replySettings"],
-    linkedin: provider === "upload-post" ? ["visibility"] : [],
     tiktok:
       provider === "buffer"
         ? ["aiGenerated"]
@@ -483,9 +461,7 @@ export function managedOptionIssues(
               ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
               : provider === "postiz"
                 ? ["title"]
-                : provider === "upload-post"
-                  ? ["photoCoverIndex"]
-                  : []),
+                : []),
           ],
   };
 

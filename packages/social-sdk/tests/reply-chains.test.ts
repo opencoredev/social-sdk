@@ -12,7 +12,6 @@ import {
 } from "../src/index.js";
 import { zernio } from "../src/cloud/zernio.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
-import { uploadPost } from "../src/cloud/upload-post.js";
 import { outcomeRecovery } from "../src/server/index.js";
 import { MemoryIdempotencyStore } from "../src/testing/index.js";
 
@@ -301,55 +300,6 @@ describe("managed backend reply chains", () => {
       ],
       publishNow: true,
     });
-  });
-
-  test("Upload-Post chains X and Bluesky text replies per destination", async () => {
-    const replies: [string, string | null][] = [];
-    let next = 0;
-
-    const adapter = uploadPost({
-      apiKey: "key",
-      fetch: async (_input, init) => {
-        const form = init?.body;
-
-        if (!(form instanceof FormData)) throw new Error("expected multipart");
-        const platform = String(form.get("platform[]"));
-        const reply = form.get("reply_to_id");
-        replies.push([platform, reply instanceof Blob || reply === null ? null : reply]);
-        next += 1;
-
-        return Response.json({
-          success: true,
-          results: { [platform]: { success: true, post_id: `${platform}-${next}` } },
-        });
-      },
-    });
-
-    const social = createSocial({ backend: adapter });
-    const x = connectedAccountRef({ backend: "default", platform: "x", accountId: "brand" });
-
-    const sky = connectedAccountRef({
-      backend: "default",
-      platform: "bluesky",
-      accountId: "brand",
-    });
-
-    const result = await social.posts.publishSequence({
-      idempotencyKey: "upload-post-thread",
-      replyToPrevious: true,
-      items: [item("1", [x, sky]), item("2", [x, sky])],
-    });
-
-    assert.equal(result.status, "complete");
-    assert.deepEqual(
-      replies.slice(0, 2).map(([, reply]) => reply),
-      [null, null],
-    );
-
-    const second = new Map(replies.slice(2));
-
-    assert.equal(second.get("x"), replies[0]?.[0] === "x" ? "x-1" : "x-2");
-    assert.equal(second.get("bluesky"), replies[0]?.[0] === "bluesky" ? "bluesky-1" : "bluesky-2");
   });
 
   test("backends without a documented reply mapping fail before any dispatch", async () => {

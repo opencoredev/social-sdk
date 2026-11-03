@@ -53,10 +53,6 @@
       "types": "./dist/cloud/buffer.d.ts",
       "import": "./dist/cloud/buffer.js"
     },
-    "./cloud/upload-post": {
-      "types": "./dist/cloud/upload-post.d.ts",
-      "import": "./dist/cloud/upload-post.js"
-    },
     "./server": {
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js"

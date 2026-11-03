@@ -116,7 +116,7 @@ export interface SocialEvent {
   readonly version: 1;
   readonly id: string;
   readonly backend: string;
-  readonly provider: "zernio" | "post-for-me" | "upload-post" | DirectWebhookPlatform;
+  readonly provider: "zernio" | "post-for-me" | DirectWebhookPlatform;
   readonly type:
     | "publication.updated"
     | "post.removed"
@@ -319,135 +319,6 @@ export async function decodeWebhook(input: {
         : { ...eventBase, backendRecordId, occurredAt };
 
   return event;
-}
-
-/**
- * Verify an Upload-Post webhook. `X-Upload-Post-Signature: sha256=<hex>` is the
- * HMAC-SHA256 of `<X-Upload-Post-Timestamp>.<raw body>` keyed with the account's
- * `webhook_secret`; Upload-Post recommends rejecting timestamps older than about five
- * minutes. Source: https://docs.upload-post.com/api/webhooks (checked 2026-10-24).
- */
-export async function verifyUploadPostWebhook(input: {
-  secret: string;
-  headers: Headers;
-  body: Uint8Array;
-  maxBytes?: number;
-  toleranceSeconds?: number;
-  now?: () => Date;
-}): Promise<VerifiedWebhook> {
-  const body = checkedBytes(input.body, input.maxBytes ?? 1024 * 1024);
-  const tolerance = input.toleranceSeconds ?? 300;
-
-  if (!Number.isSafeInteger(tolerance) || tolerance <= 0)
-    throw new SocialError({
-      code: "invalid_config",
-      operation: "webhooks.verify",
-      message: "Upload-Post webhook tolerance must be a positive whole number of seconds.",
-    });
-
-  if (!input.secret) denied();
-  const timestamp = input.headers.get("X-Upload-Post-Timestamp") ?? "";
-  const match = /^sha256=([0-9a-f]{64})$/i.exec(input.headers.get("X-Upload-Post-Signature") ?? "");
-  const signature = match?.[1] === undefined ? undefined : hexBytes(match[1], 32);
-
-  if (!/^\d{1,12}$/.test(timestamp) || !signature) denied();
-  const prefix = encoder.encode(`${timestamp}.`);
-  const signed = new Uint8Array(prefix.byteLength + body.byteLength);
-  signed.set(prefix);
-  signed.set(body, prefix.byteLength);
-
-  if (!(await hmacMatches(input.secret, "SHA-256", signature, signed))) denied();
-  const seconds = Number(timestamp);
-  const now = Math.floor((input.now?.() ?? new Date()).getTime() / 1000);
-
-  if (Math.abs(now - seconds) > tolerance)
-    denied("Webhook signature is valid but its timestamp is outside the accepted window.");
-
-  return {
-    valid: true,
-    method: "hmac-sha256",
-    bodyAuthenticated: true,
-    signedTimestamp: true,
-    signedAt: new Date(seconds * 1000).toISOString(),
-  };
-}
-
-function uploadPostEventType(event: string): SocialEvent["type"] {
-  if (event === "upload_completed") return "publication.updated";
-
-  if (/^social_account[._](connected|disconnected|reauth_required)$/.test(event))
-    return "account.updated";
-
-  if (event === "comment_received") return "comment.received";
-
-  if (event === "dm_received") return "message.received";
-
-  return "unknown";
-}
-
-/**
- * Decode a verified Upload-Post delivery. Account IDs are Upload-Post profile
- * usernames, matching the adapter's connected-account references. The payload has no
- * event ID, so identity is an exact-body digest.
- */
-export async function decodeUploadPostWebhook(input: {
-  backend: string;
-  body: Uint8Array;
-  receivedAt?: string;
-}): Promise<SocialEvent> {
-  const bytes = checkedBytes(input.body, 1024 * 1024);
-  let parsed: JsonValue;
-
-  try {
-    parsed = parseJson(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  } catch {
-    throw new SocialError({
-      code: "invalid_input",
-      operation: "webhooks.decode",
-      message: "Webhook body is not valid UTF-8 JSON.",
-    });
-  }
-
-  if (!isJsonObject(parsed) || !isString(parsed["event"]) || !parsed["event"])
-    throw new SocialError({
-      code: "invalid_input",
-      operation: "webhooks.decode",
-      message: "Upload-Post webhook body must be an object with an event name.",
-    });
-
-  const payload = parsed;
-  const originalType = string(payload["event"]);
-  const profile = optionalString(payload["profile_username"]);
-
-  const id = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-
-  const backendRecordId =
-    originalType === "upload_completed"
-      ? (optionalString(payload["request_id"]) ?? optionalString(payload["job_id"]))
-      : undefined;
-
-  const occurredAt = optionalString(payload["created_at"]);
-
-  // The owner's email address is private account data and is not needed to route the event.
-  const routed: JsonObject = Object.fromEntries(
-    Object.entries(payload).filter(([key]) => key !== "user_email"),
-  );
-
-  return {
-    version: 1,
-    id,
-    identity: "body-digest",
-    backend: input.backend,
-    provider: "upload-post",
-    type: uploadPostEventType(originalType),
-    originalType,
-    receivedAt: input.receivedAt ?? new Date().toISOString(),
-    accountIds: profile ? [profile] : [],
-    data: cleanObject(routed),
-    ...definedFields({ backendRecordId: backendRecordId || undefined, occurredAt }),
-  };
 }
 
 export interface EventInbox {

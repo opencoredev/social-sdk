@@ -27,6 +27,7 @@ export default defineConfig({
     { from: "/overview", to: "/", status: 301 },
     { from: "/backends/direct", to: "/backends", status: 301 },
     { from: "/backends/managed", to: "/backends", status: 301 },
+    { from: "/backends/upload-post", to: "/backends", status: 301 },
   ],
   content: {
     root: "docs",
@@ -82,8 +83,7 @@ export default defineConfig({
               icon: "/integrations/postfast.png",
             },
             { label: "Postiz", root: "/backends/postiz", icon: "/integrations/postiz.svg" },
-            { label: "Buffer", root: "/backends/buffer", icon: "calendar-clock" },
-            { label: "Upload-Post", root: "/backends/upload-post", icon: "upload" },
+            { label: "Buffer", root: "/backends/buffer", icon: "/integrations/buffer.svg" },
           ],
         },
         {
