@@ -354,7 +354,7 @@ export const bufferApi: Guide = {
             <a href="/">Social SDK</a> is an open-source TypeScript library that puts direct
             platform adapters and managed backends behind one <code>posts.publish</code> call
             with a typed outcome per destination. Buffer is one of those backends, alongside
-            Zernio, Post for Me, PostFast, Postiz, and Upload-Post, so you can start on Buffer
+            Zernio, Post for Me, PostFast, and Postiz, so you can start on Buffer
             and switch later without rewriting your posting code. The
             <a href="/docs/backends/buffer">Buffer backend page</a> covers API keys, the OAuth
             PKCE helpers, scheduling, media URLs, and how Buffer statuses map to outcomes.

@@ -33,6 +33,7 @@
 }
 
 :root[data-theme="dark"] .blume-nav-link img[src$="/x.svg"],
+:root[data-theme="dark"] .blume-nav-link img[src$="/buffer.svg"],
 :root[data-theme="dark"] .blume-nav-link img[src$="/threads.svg"],
 :root[data-theme="dark"] .blume-nav-link img[src$="/tiktok.svg"],
 :root[data-theme="dark"] .blume-nav-link img[src$="/nextjs.svg"],
@@ -53,6 +54,7 @@ article img[src^="/integrations/"] {
 }
 
 :root[data-theme="dark"] article img[src$="/x.svg"],
+:root[data-theme="dark"] article img[src$="/buffer.svg"],
 :root[data-theme="dark"] article img[src$="/threads.svg"],
 :root[data-theme="dark"] article img[src$="/tiktok.svg"],
 :root[data-theme="dark"] article img[src$="/nextjs.svg"],

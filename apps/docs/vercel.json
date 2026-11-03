@@ -44,6 +44,13 @@
       }
     },
     {
+      "src": "/docs/backends/upload-post",
+      "status": 301,
+      "headers": {
+        "Location": "/docs/backends"
+      }
+    },
+    {
       "src": "/|/docs(?:/.*)?",
       "headers": {
         "Vary": "Accept"
