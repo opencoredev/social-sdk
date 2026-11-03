@@ -219,7 +219,8 @@ export const facebookPageAccessToken: Guide = {
             <tbody>
               <tr><td><code>pages_show_list</code></td><td>The list of Pages a person manages, which is what <code>/me/accounts</code> returns</td></tr>
               <tr><td><code>pages_manage_posts</code></td><td>Creating, editing, and deleting Page posts, photos, and videos. Depends on <code>pages_read_engagement</code> and <code>pages_show_list</code></td></tr>
-              <tr><td><code>pages_read_engagement</code></td><td>Reading the Page's content, followers, metadata, and insights</td></tr>
+              <tr><td><code>pages_read_engagement</code></td><td>Reading the Page's content, followers, and metadata</td></tr>
+              <tr><td><code>read_insights</code></td><td>Reading Page Insights data. Depends on <code>pages_read_engagement</code> and <code>pages_show_list</code></td></tr>
               <tr><td><code>pages_manage_engagement</code></td><td>Replying to and moderating comments as the Page</td></tr>
               <tr><td><code>publish_video</code></td><td>Publishing video to the Page</td></tr>
             </tbody>
@@ -448,7 +449,7 @@ export const facebookPageAccessToken: Guide = {
             <li><a href="${pagesStart}">Get started with the Pages API</a> (updated 30 June 2026): <code>/me/accounts</code>, posting, Graph API Explorer</li>
             <li><a href="${pagesPosts}">Pages API posts</a> (updated 17 April 2026): permissions, scheduling, photos, updates</li>
             <li><a href="${pagesOverview}">Pages API overview</a> (updated 5 May 2025): tasks, App Review, Facebook Login for Business</li>
-            <li><a href="${permissions}">Permissions reference</a> (updated 19 October 2026): <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code></li>
+            <li><a href="${permissions}">Permissions reference</a> (updated 19 October 2026): <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code>, <code>read_insights</code></li>
             <li><a href="${debugToken}">debug_token reference</a> (Graph API v26.0) and <a href="${debugging}">debugging and error handling</a> (no date shown): fields and expired-token errors</li>
             <li><a href="${errors}">Handling errors</a> and <a href="${secureRequests}">secure requests</a> (no date shown): error codes, <code>appsecret_proof</code></li>
           </ul>`,
