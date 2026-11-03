@@ -8,6 +8,8 @@ seo:
 
 To post to Bluesky from a server, create an `app.bsky.feed.post` record in the account's repository with `com.atproto.repo.createRecord`, authenticated as that account. The Social SDK Bluesky adapter makes that call through `social.posts.publish`, adds link facets for URLs in the text, uploads attached images, and returns the new record's URI and CID as a typed outcome.
 
+For Bluesky's hosts, app passwords versus OAuth, facets, and rate limits in one place, read the <a href="/guides/bluesky-api">Bluesky API guide</a>.
+
 ```package-install
 @opencoredev/social-sdk
 ```

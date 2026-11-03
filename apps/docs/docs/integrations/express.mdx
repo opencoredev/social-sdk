@@ -1,7 +1,12 @@
 ---
 title: Express
 description: Publish to social platforms from Express routes and verify webhooks against the raw request body with Social SDK.
+seo:
+  title: Post to social media from Express
+  description: Post to Threads, X, Bluesky and more from an Express route with Social SDK, with idempotency keys, per-destination outcomes and raw-body webhook checks.
 ---
+
+To post to social media from Express, create one Social SDK client when the app starts and call `social.posts.publish` from a route handler, with the draft ID as the idempotency key. The result holds one outcome per destination, so the route can return each post's state. Webhook routes need `express.raw()` instead of `express.json()`, because signature checks read the untouched body. [Publish from a route](#publish-from-a-route) shows the code. For scheduled posts, have a durable job runner such as [Trigger.dev](/integrations/trigger-dev) or [Inngest](/integrations/inngest) run the same publish call at the publish time.
 
 Express applications construct one Social SDK client at startup and call it from route handlers. The one Express-specific requirement is webhook verification: it needs the untouched request bytes, so the events route must use the raw body parser.
 

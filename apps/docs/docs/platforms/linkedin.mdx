@@ -8,6 +8,8 @@ seo:
 
 To post to LinkedIn from a server, call the versioned Posts API (`/rest/posts`) with an access token for the author: `w_member_social` to post as a member, or `w_organization_social` to post as a Page where you hold a posting role. The Social SDK LinkedIn adapter sends that request through `social.posts.publish` with the monthly API version you pin and returns a typed outcome per post. Images, video and documents are uploaded first with `social.media.upload` and published by reference.
 
+For LinkedIn's access tiers, author URNs, text escaping, and rate limits in one place, read the <a href="/guides/linkedin-posts-api">LinkedIn Posts API guide</a>.
+
 ```package-install
 @opencoredev/social-sdk
 ```

@@ -1,0 +1,9 @@
+---
+// Threads API guide. The copy lives in _guides/threads-api.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuide } from "../_guides/guides";
+import { threadsApi } from "../_guides/threads-api";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(threadsApi)))} />

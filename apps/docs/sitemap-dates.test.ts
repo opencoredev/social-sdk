@@ -77,3 +77,65 @@ test("dates the empty blog index by the shell helpers only", () => {
     ["^export type Shell"],
   );
 });
+
+test("dates every guide by its page, its copy, and the shared rendering", () => {
+  for (const slug of [
+    "facebook-page-access-token",
+    "ayrshare-alternatives",
+    "youtube-upload-api",
+    "linkedin-posts-api",
+    "social-media-apis",
+    "buffer-api",
+    "bluesky-api",
+    "threads-api",
+    "x-api-pricing",
+  ]) {
+    const guide = pageSources.get(`/guides/${slug}`);
+
+    assert.ok(guide?.files.includes("_info/info.html"));
+    assert.ok(guide?.files.includes(`guides/${slug}.astro`));
+    assert.ok(guide?.files.includes(`_guides/${slug}.ts`));
+    // The guide list in guides.ts changes when any guide is added; it must not
+    // re-date the other guides.
+    assert.ok(!guide?.files.includes("_guides/guides.ts"));
+    assert.deepEqual(
+      guide?.ranges.map((range) => `${range.file} ${range.from}`),
+      [
+        "_guides/guides.ts ^export type Guide",
+        "_guides/guides.ts ^export function guidePath",
+        "_guides/guides.ts ^export function renderGuide[(]",
+        "_info/pages.ts ^export type Shell",
+      ],
+    );
+  }
+});
+
+test("dates the guides index by guide metadata, not guide bodies", () => {
+  const index = pageSources.get("/guides");
+
+  assert.ok(!index?.files.includes("_guides"));
+  assert.ok(!index?.files.includes("_guides/facebook-page-access-token.ts"));
+  assert.ok(!index?.files.includes("_guides/ayrshare-alternatives.ts"));
+  assert.ok(!index?.files.includes("_guides/youtube-upload-api.ts"));
+  assert.ok(!index?.files.includes("_guides/linkedin-posts-api.ts"));
+  assert.ok(!index?.files.includes("_guides/social-media-apis.ts"));
+  assert.ok(!index?.files.includes("_guides/buffer-api.ts"));
+  assert.ok(!index?.files.includes("_guides/bluesky-api.ts"));
+  assert.ok(!index?.files.includes("_guides/threads-api.ts"));
+  assert.ok(!index?.files.includes("_guides/x-api-pricing.ts"));
+  assert.deepEqual(
+    index?.ranges.map((range) => `${range.file} ${range.from}`),
+    [
+      "_info/pages.ts ^export type Shell",
+      "_guides/facebook-page-access-token.ts ^  slug:",
+      "_guides/ayrshare-alternatives.ts ^  slug:",
+      "_guides/youtube-upload-api.ts ^  slug:",
+      "_guides/linkedin-posts-api.ts ^  slug:",
+      "_guides/social-media-apis.ts ^  slug:",
+      "_guides/buffer-api.ts ^  slug:",
+      "_guides/bluesky-api.ts ^  slug:",
+      "_guides/threads-api.ts ^  slug:",
+      "_guides/x-api-pricing.ts ^  slug:",
+    ],
+  );
+});

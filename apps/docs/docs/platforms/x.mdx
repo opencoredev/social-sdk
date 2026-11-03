@@ -10,6 +10,8 @@ To post to X from a server, call the X API v2 `POST /2/tweets` endpoint with an 
 
 The direct X adapter uses an existing bearer token and user ID. For a multi-user connection flow, use the server entrypoint's `xOAuth` with `ConnectionManager`; the adapter itself accepts the resulting credentials. Authorization does not transfer between backend instances. Configure the token on your server and treat the user ID as the account identity.
 
+For what posts and reads cost on X's pay-per-use credits, free credits, and posting rate limits, read the <a href="/guides/x-api-pricing">X API pricing guide</a>.
+
 ## Setup
 
 <Steps>

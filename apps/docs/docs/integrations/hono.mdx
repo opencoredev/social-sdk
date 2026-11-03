@@ -1,7 +1,12 @@
 ---
 title: Hono
 description: Publish to social platforms from Hono routes on Node or Bun using web-standard Request and Response with Social SDK.
+seo:
+  title: Post to social media from Hono
+  description: Post to X, Bluesky, Threads and more from a Hono route on Node or Bun with Social SDK, using idempotency keys and raw-body webhook verification.
 ---
+
+To post to social media from Hono, create one Social SDK client at startup and call `social.posts.publish` from a route handler, with the draft ID as the idempotency key. The same app runs on Node 22.12+ and Bun, and webhook routes verify the raw bytes from `c.req.raw`. [Publish from a route](#publish-from-a-route) shows the code. For scheduled posts, have a durable job runner such as [Trigger.dev](/integrations/trigger-dev) or [Inngest](/integrations/inngest) run the same publish call at the publish time.
 
 Hono's fetch-native design fits Social SDK directly: routes receive a standard `Request`, webhook verification reads its raw bytes, and the same app runs on Node 22.12+ or Bun without adapters.
 

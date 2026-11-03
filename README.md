@@ -96,6 +96,20 @@ Full documentation lives at **[social-sdk.dev/docs](https://social-sdk.dev/docs)
 - [Publish content](https://social-sdk.dev/docs/publishing)
 - [Handle outcomes and reconciliation](https://social-sdk.dev/docs/concepts/references-and-outcomes)
 
+## Guides
+
+[Guides](https://social-sdk.dev/guides) on how each platform's API works, with sources and tested TypeScript examples:
+
+- [Facebook Page access tokens, explained](https://social-sdk.dev/guides/facebook-page-access-token)
+- [Ayrshare alternatives for developers](https://social-sdk.dev/guides/ayrshare-alternatives)
+- [The YouTube upload API, explained](https://social-sdk.dev/guides/youtube-upload-api)
+- [The LinkedIn Posts API, explained](https://social-sdk.dev/guides/linkedin-posts-api)
+- [Social media APIs for developers](https://social-sdk.dev/guides/social-media-apis)
+- [The Buffer API, explained](https://social-sdk.dev/guides/buffer-api)
+- [X API pricing, explained](https://social-sdk.dev/guides/x-api-pricing)
+- [The Bluesky API, explained](https://social-sdk.dev/guides/bluesky-api)
+- [The Threads API, explained](https://social-sdk.dev/guides/threads-api)
+
 ## Sponsors
 
 Social SDK is supported by companies that help keep platform integrations practical and maintained. Want your logo here? **[Become a sponsor →](https://github.com/sponsors/opencoredev)**

@@ -1,0 +1,9 @@
+---
+// LinkedIn Posts API guide. The copy lives in _guides/linkedin-posts-api.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuide } from "../_guides/guides";
+import { linkedinPostsApi } from "../_guides/linkedin-posts-api";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(linkedinPostsApi)))} />

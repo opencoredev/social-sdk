@@ -1,0 +1,9 @@
+---
+// Ayrshare alternatives guide. The copy lives in _guides/ayrshare-alternatives.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuide } from "../_guides/guides";
+import { ayrshareAlternatives } from "../_guides/ayrshare-alternatives";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(ayrshareAlternatives)))} />

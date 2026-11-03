@@ -1,0 +1,9 @@
+---
+// Social media APIs guide. The copy lives in _guides/social-media-apis.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuide } from "../_guides/guides";
+import { socialMediaApis } from "../_guides/social-media-apis";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(socialMediaApis)))} />

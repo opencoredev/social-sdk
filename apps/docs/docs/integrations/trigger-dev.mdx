@@ -1,7 +1,12 @@
 ---
 title: Trigger.dev
 description: Run scheduled social publishing and delivery reconciliation as durable Trigger.dev tasks with Social SDK idempotency keys and explicit outcomes.
+seo:
+  title: Schedule social posts with Trigger.dev
+  description: Schedule social media posts with Trigger.dev and Social SDK using a delayed task, the draft ID as idempotency key, and a cron task for processing posts.
 ---
+
+To schedule a social post with Trigger.dev, save the draft, then trigger a publishing task with `delay` set to the publish time. When the delay ends, the task calls Social SDK's `posts.publish` with the draft ID as the idempotency key, so with a durable idempotency store a retried run does not post twice: it returns the saved result, or `unknown` if the first attempt died before saving one. [Scheduled publish as a task](#scheduled-publish-as-a-task) shows the code, and a cron task follows up on posts that are still processing.
 
 Trigger.dev runs durable tasks with retries and delays you configure. You can use it to call [SocialScheduler.runDue](/publishing#schedule-with-socialscheduler) or keep the application-owned workflow below. Social SDK starts no background worker and never retries an uncertain public write automatically.
 
