@@ -89,9 +89,10 @@ async function get(path: string, params: Record<string, string>): Promise<Json> 
   if (!isJson(body)) throw new Error(\`\${path} failed: HTTP \${status}, unexpected response\`);
   const error = body["error"];
   if (status !== 200 || isJson(error)) {
-    const detail = isJson(error)
-      ? \`code \${String(error["code"])}, subcode \${String(error["error_subcode"])}\`
-      : \`HTTP \${status}\`;
+    const code = isJson(error) && typeof error["code"] === "number" ? error["code"] : "none";
+    const subcode =
+      isJson(error) && typeof error["error_subcode"] === "number" ? error["error_subcode"] : "none";
+    const detail = \`HTTP \${status}, code \${code}, subcode \${subcode}\`;
     throw new Error(\`\${path} failed: \${detail}\`);
   }
   return body;
@@ -289,7 +290,7 @@ export const facebookPageAccessToken: Guide = {
           <p>
             This script runs the exchange, pages through <code>/me/accounts</code> until it finds
             a Page the person can publish to, and inspects that Page's token. It validates every
-            response before using it, reports only the path, HTTP status, and Meta's error code
+            response before using it, reports only the path, HTTP status, and Meta's numeric error code and subcode
             (never the URL or response body, which can hold tokens), and signs the
             <code>/me/accounts</code> calls with <code>appsecret_proof</code>.
           </p>
@@ -403,6 +404,8 @@ export const facebookPageAccessToken: Guide = {
             Page token and a <code>canPublish</code> flag set when the person has
             <code>CREATE_CONTENT</code>. The adapter takes one Page ID and token, rejects any other
             Page, and turns error <code>190</code> into a <code>reconnect_required</code> outcome.
+            It doesn't send <code>appsecret_proof</code>, so leave Require App Secret off for an
+            app whose calls go through the adapter.
           </p>
           <p>
             In 0.5.0 you can already post to Instagram, X, LinkedIn, Bluesky, Threads, TikTok, and
