@@ -5,6 +5,7 @@ import { renderShell, siteMeta } from "../_info/pages";
 import { ayrshareAlternatives } from "./ayrshare-alternatives";
 import { blueskyApi } from "./bluesky-api";
 import { bufferApi } from "./buffer-api";
+import { facebookPageAccessToken } from "./facebook-page-access-token";
 import { linkedinPostsApi } from "./linkedin-posts-api";
 import { socialMediaApis } from "./social-media-apis";
 import { threadsApi } from "./threads-api";
@@ -31,6 +32,7 @@ const SITE = "https://social-sdk.dev";
 const GUIDES_PATH = "/guides";
 
 export const guides: readonly Guide[] = [
+  facebookPageAccessToken,
   ayrshareAlternatives,
   youtubeUploadApi,
   linkedinPostsApi,

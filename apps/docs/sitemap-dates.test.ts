@@ -80,6 +80,7 @@ test("dates the empty blog index by the shell helpers only", () => {
 
 test("dates every guide by its page, its copy, and the shared rendering", () => {
   for (const slug of [
+    "facebook-page-access-token",
     "ayrshare-alternatives",
     "youtube-upload-api",
     "linkedin-posts-api",

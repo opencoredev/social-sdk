@@ -1,0 +1,9 @@
+---
+// Facebook Page access token guide. The copy lives in _guides/facebook-page-access-token.ts.
+import { withAnalytics } from "../../analytics";
+import { facebookPageAccessToken } from "../_guides/facebook-page-access-token";
+import { renderGuide } from "../_guides/guides";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(facebookPageAccessToken)))} />
