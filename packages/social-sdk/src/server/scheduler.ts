@@ -504,14 +504,12 @@ function retriedStep(input: {
  * native again.
  */
 function rescheduledLanes(job: ScheduledJob): ScheduledLane[] {
-  return job.lanes.map(
-    (lane): ScheduledLane => ({
-      ...lane,
-      mode: lane.id === "native" ? "native" : lane.mode,
-      revision: lane.revision + 1,
-      steps: lane.steps.map(pendingStep),
-    }),
-  );
+  return job.lanes.map((lane): ScheduledLane => ({
+    ...lane,
+    mode: lane.id === "native" ? "native" : lane.mode,
+    revision: lane.revision + 1,
+    steps: lane.steps.map(pendingStep),
+  }));
 }
 
 /** Outcomes per item, merged across lanes, by original target index. */
