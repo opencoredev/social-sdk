@@ -1,4 +1,7 @@
+import { spawn } from "node:child_process";
+import { createServer, type Socket } from "node:net";
 import { it } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -527,3 +530,80 @@ it("CLI telemetry command reports, disables and enables without sending an event
     await h.cleanup();
   }
 });
+
+it(
+  "the CLI process exits within the telemetry bound when the endpoint stalls",
+  { timeout: 30_000 },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "social-sdk-telemetry-exit-"));
+    const sockets: Socket[] = [];
+    // Accepts TCP and never answers TLS, the case where fetch leaves a
+    // connection attempt alive for about ten seconds after its abort.
+
+    const server = createServer((socket) => {
+      sockets.push(socket);
+      socket.on("error", () => {});
+    });
+
+    try {
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+
+      assert.ok(address instanceof Object, "server must listen on a TCP port");
+      const preload = join(root, "redirect.mjs");
+
+      await writeFile(
+        preload,
+        `const original = globalThis.fetch;
+globalThis.fetch = (url, init) => original(String(url).replace("https://y.social-sdk.dev", "https://127.0.0.1:${address.port}"), init);
+`,
+      );
+
+      const env: Record<string, string> = {};
+
+      for (const [name, value] of Object.entries(process.env))
+        if (
+          value !== undefined &&
+          !/^(CI|CONTINUOUS_INTEGRATION|GITHUB_ACTIONS|GITLAB_CI|CIRCLECI|TRAVIS|BUILDKITE|TF_BUILD|JENKINS_URL|TEAMCITY_VERSION|CODEBUILD_BUILD_ID|BITBUCKET_BUILD_NUMBER|DO_NOT_TRACK|SOCIAL_SDK_TELEMETRY_DISABLED)$/.test(
+            name,
+          )
+        )
+          env[name] = value;
+
+      env["XDG_CONFIG_HOME"] = join(root, "config");
+
+      const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+      const started = Date.now();
+
+      const child = spawn(
+        process.execPath,
+        ["--import", "tsx", "--import", pathToFileURL(preload).href, cli, "version", "--json"],
+        { env, stdio: ["ignore", "pipe", "pipe"] },
+      );
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+
+      const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
+      const elapsed = Date.now() - started;
+
+      assert.equal(code, 0, stderr);
+      assert.equal(object(parseJson(stdout))["command"], "version");
+      assert.ok(stderr.includes(TELEMETRY_NOTICE), "first run prints the notice on stderr");
+      assert.ok(sockets.length > 0, "the event was attempted against the stalled endpoint");
+      // 1.5 s telemetry wait plus runtime and TypeScript loader startup.
+      assert.ok(elapsed < 7000, `process took ${elapsed} ms to exit`);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

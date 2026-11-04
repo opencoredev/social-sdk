@@ -3,15 +3,17 @@
 // runs it once a day. Nothing here ships in the package.
 //
 //   bun scripts/growth-snapshot.ts             last 30 days of daily numbers
-//   bun scripts/growth-snapshot.ts --backfill  full npm and star history
+//   bun scripts/growth-snapshot.ts --backfill  18 months of npm downloads and every star
 //   bun scripts/growth-snapshot.ts --dry-run   print the events instead of sending
 //
 // GITHUB_TOKEN raises the GitHub API rate limit. GROWTH_GITHUB_TOKEN, a token
 // with read access to repository administration, adds views, clones and
 // referrers; GitHub keeps those for 14 days only, so they are skipped without it.
 //
-// Every event ID is derived from its name and day, so re-sending a day replaces
-// the earlier copy instead of counting it twice.
+// Every event ID is derived from its name and day, and daily runs re-send only
+// finished days, so a re-sent event carries the same ID and the same values.
+// The analytics service merges duplicate IDs in the background, so charts should take the
+// maximum of a property per day rather than the sum.
 
 import { createHash } from "node:crypto";
 import { analyticsIngestion } from "../apps/docs/analytics.js";
@@ -112,7 +114,9 @@ async function getJson(url: string, token?: string): Promise<{ body: JsonValue; 
 
 async function npmDownloads(today: Day): Promise<GrowthEvent[]> {
   const start = daysBefore(today, backfill ? NPM_BACKFILL_DAYS : DAILY_WINDOW_DAYS);
-  const end = daysBefore(today, 1);
+  // npm finishes a day's count during the following day, so the newest day
+  // sent is two days back and a re-send never changes its value.
+  const end = daysBefore(today, 2);
 
   const { body } = await getJson(
     `https://api.npmjs.org/downloads/range/${start}:${end}/${encodeURIComponent(PACKAGE)}`,
@@ -126,10 +130,10 @@ async function npmDownloads(today: Day): Promise<GrowthEvent[]> {
       downloads: count(fields["downloads"], "downloads"),
     };
   });
-  // Days before the first publish come back as zero; skip them so the chart
-  // starts at the release.
 
-  const first = rows.findIndex((row) => row.downloads > 0);
+  // A backfill reaches back before the first publish, where npm reports zeros;
+  // skip those so the chart starts at the release. Daily runs keep zero days.
+  const first = backfill ? rows.findIndex((row) => row.downloads > 0) : 0;
 
   return (first === -1 ? [] : rows.slice(first)).map((row) => ({
     event: "growth_npm_downloads",

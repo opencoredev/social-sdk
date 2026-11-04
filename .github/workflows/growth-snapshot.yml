@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       backfill:
-        description: Send the full npm download and star history
+        description: Also send npm downloads for the last 18 months and the full star history
         type: boolean
         default: false
 

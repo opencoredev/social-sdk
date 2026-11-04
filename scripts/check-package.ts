@@ -57,7 +57,11 @@ function decodePack(text: string) {
 
 const temporary = await mkdtemp(join(tmpdir(), "social-sdk-consumer-"));
 
-async function run(args: string[], cwd: string) {
+// The CLI smoke runs must not count as real CLI users. The library consumer runs
+// without the opt-out, so an accidental library network call still fails it.
+const cliEnv = { SOCIAL_SDK_TELEMETRY_DISABLED: "1" };
+
+async function run(args: string[], cwd: string, extraEnv: Record<string, string> = {}) {
   const proc = Bun.spawn(args, {
     cwd,
     stdout: "pipe",
@@ -66,8 +70,7 @@ async function run(args: string[], cwd: string) {
       ...process.env,
       npm_config_audit: "false",
       npm_config_fund: "false",
-      // The smoke run must not count as a real CLI user.
-      SOCIAL_SDK_TELEMETRY_DISABLED: "1",
+      ...extraEnv,
     },
   });
 
@@ -146,7 +149,7 @@ console.log(JSON.stringify({ runtime: typeof Bun === 'undefined' ? 'node' : 'bun
     console.log((await run([runtime, "consumer.mjs"], temporary)).trim());
 
     const diagnostic = parseObject(
-      await run([runtime, "node_modules/.bin/social-sdk", "doctor", "--json"], temporary),
+      await run([runtime, "node_modules/.bin/social-sdk", "doctor", "--json"], temporary, cliEnv),
       "Packed CLI runtime output",
     );
 
@@ -159,7 +162,7 @@ console.log(JSON.stringify({ runtime: typeof Bun === 'undefined' ? 'node' : 'bun
   const installedBin = join(temporary, "node_modules/.bin/social-sdk");
 
   const shebangDiagnostic = parseObject(
-    await run([installedBin, "doctor", "--json"], temporary),
+    await run([installedBin, "doctor", "--json"], temporary, cliEnv),
     "Installed CLI shebang output",
   );
 
