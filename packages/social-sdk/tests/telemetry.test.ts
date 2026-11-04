@@ -1,6 +1,6 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -291,6 +291,34 @@ it("turning telemetry on after an opt-out before the first command prints the no
     await telemetry.record({ command: "version" });
     assert.equal(h.notices.length, 1);
     assert.equal(h.bodies.length, 2);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+it("the notice is printed before any process can read a state that records it", async () => {
+  const h = await harness();
+
+  try {
+    const file = join(h.directory, "telemetry.json");
+    const seen: string[] = [];
+
+    const writeNotice = () => {
+      seen.push(existsSync(file) ? readFileSync(file, "utf8") : "no file");
+    };
+
+    await createCliTelemetry(h.options({ writeNotice })).record({ command: "doctor" });
+    assert.deepEqual(seen, ["no file"]);
+
+    const disabled = JSON.stringify({
+      version: 1,
+      anonymousId: "123e4567-e89b-42d3-a456-426614174000",
+      enabled: false,
+    });
+
+    writeFileSync(file, disabled);
+    await createCliTelemetry(h.options({ writeNotice })).setEnabled(true);
+    assert.deepEqual(seen, ["no file", disabled]);
   } finally {
     await h.cleanup();
   }

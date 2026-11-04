@@ -459,6 +459,10 @@ function homeDirectory(): string | undefined {
 }
 
 if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) {
+  // Stderr carries only the telemetry notice. A closed or broken stderr must not
+  // surface as an uncaught EPIPE that changes the exit code.
+  process.stderr.on("error", () => {});
+
   const version = await readPackageVersion().catch(() => undefined);
 
   const code = await runCli(process.argv.slice(2), {
@@ -473,7 +477,9 @@ if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) 
         home: homeDirectory(),
       }),
       fetch: globalThis.fetch,
-      writeNotice: (text) => process.stderr.write(text),
+      writeNotice: (text) => {
+        process.stderr.write(text);
+      },
       sdkVersion: version,
       runtime: currentRuntime(),
     }),

@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-11-04T15:39:40.014Z",
+  "recordedAt": "2026-11-04T15:58:19.206Z",
   "runtime": "Bun 1.4.4",
   "methodology": "Static production build bytes and per-file gzip. Whole-build totals include optional search, diagram and syntax chunks. Route lists are directly linked entries, not browser transfer measurements or a complete lazy-load graph.",
   "totals": {

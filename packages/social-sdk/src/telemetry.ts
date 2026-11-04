@@ -232,18 +232,23 @@ async function readStoredState(file: string): Promise<StoredState> {
  * Writes the state file atomically. `create` fails when the file already exists,
  * so a first run racing `telemetry disable` in another process can never replace
  * the saved opt-out; `replace` is for an explicit enable or disable.
+ * `beforePublish` runs after the new state is on disk but before any other
+ * process can read it, so the notice is printed before a state that records it
+ * becomes visible.
  */
 async function writeState(input: {
   readonly directory: string;
   readonly file: string;
   readonly state: TelemetryState;
   readonly mode: "create" | "replace";
+  readonly beforePublish?: (() => void) | undefined;
 }): Promise<void> {
   await mkdir(input.directory, { recursive: true, mode: 0o700 });
   const temporary = `${input.file}.${randomUUID()}.tmp`;
 
   try {
     await writeFile(temporary, JSON.stringify(input.state, null, 2) + "\n", { mode: 0o600 });
+    input.beforePublish?.();
 
     if (input.mode === "create") await link(temporary, input.file);
     else await rename(temporary, input.file);
@@ -308,9 +313,8 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
           noticeShown: (previous?.noticeShown ?? false) || showNotice,
         },
         mode: "replace",
+        beforePublish: showNotice ? () => options.writeNotice(TELEMETRY_NOTICE) : undefined,
       });
-
-      if (showNotice) options.writeNotice(TELEMETRY_NOTICE);
 
       return status();
     },
@@ -333,8 +337,15 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
           // nothing is sent unless the state file can be created. If another
           // process created it first, this run sends nothing.
           state = { version: 1, anonymousId: randomUUID(), enabled: true, noticeShown: true };
-          await writeState({ directory, file, state, mode: "create" });
-          options.writeNotice(TELEMETRY_NOTICE);
+          // If another process creates the file first, this run printed an extra
+          // notice and sends nothing, which is the safe side of the race.
+          await writeState({
+            directory,
+            file,
+            state,
+            mode: "create",
+            beforePublish: () => options.writeNotice(TELEMETRY_NOTICE),
+          });
         }
 
         const response = await options.fetch(TELEMETRY_ENDPOINT, {
