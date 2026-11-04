@@ -140,10 +140,10 @@ export const privacy: InfoPage = {
   path: "/privacy",
   title: "Privacy, what social-sdk.dev collects and why",
   description:
-    "What social-sdk.dev records, why the npm package collects nothing, and how Social SDK Cloud handles connected accounts, tokens, and deletion requests.",
-  kicker: "last updated 29 October 2026",
+    "What social-sdk.dev records, why the SDK library collects nothing, what the CLI's opt-out usage events hold, and how Social SDK Cloud handles your data.",
+  kicker: "last updated 4 November 2026",
   heading: "Privacy",
-  lede: "This page covers the social-sdk.dev website, the Social SDK package you install from npm, and Social SDK Cloud, our hosted service in early development. The package collects nothing and sends nothing on its own.",
+  lede: "This page covers the social-sdk.dev website, the Social SDK package you install from npm, and Social SDK Cloud, our hosted service in early development. The SDK library collects nothing and sends nothing on its own. The bundled CLI sends anonymous usage counts, which you can turn off.",
   content: `
         <section>
           <h2>The SDK package</h2>
@@ -152,6 +152,17 @@ export const privacy: InfoPage = {
             telemetry. Every call to a platform or managed backend is one your application makes
             with its own credentials. When you run the package on your own server, we never see
             your tokens, posts, or account data.
+          </p>
+          <p>
+            The <code>social-sdk</code> command-line tool that ships with the package, including
+            <code>social-sdk mcp</code>, sends one anonymous event per command: the command name,
+            the built-in adapter name, the SDK version, the runtime, and the operating system and
+            CPU architecture, keyed by a random ID stored on your machine. It never sends
+            arguments, file contents, credentials, account IDs, or post content. It shows a notice
+            before the first event, is off in CI, and stops with
+            <code>social-sdk telemetry disable</code>, <code>SOCIAL_SDK_TELEMETRY_DISABLED=1</code>,
+            or <code>DO_NOT_TRACK=1</code>. The <a href="/docs/reference/telemetry">CLI telemetry
+            reference</a> lists every field.
           </p>
         </section>
         <section>

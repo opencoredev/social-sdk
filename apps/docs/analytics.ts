@@ -16,6 +16,9 @@ const POSTHOG_KEY = "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw";
 
 const POSTHOG_HOST = "https://y.social-sdk.dev";
 
+/** Ingestion settings for server-side events, such as `scripts/growth-snapshot.ts`. */
+export const analyticsIngestion = { host: POSTHOG_HOST, key: POSTHOG_KEY };
+
 // PostHog's official array.js loader. With a reverse-proxy host it loads
 // `${api_host}/static/array.js`, which the proxy forwards to PostHog.
 const POSTHOG_LOADER =

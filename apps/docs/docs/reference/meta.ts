@@ -4,5 +4,5 @@ export default defineMeta({
   title: "Reference",
   icon: "library",
   order: 8,
-  pages: ["index", "capabilities", "pagination", "cli", "errors", "security", "faq"],
+  pages: ["index", "capabilities", "pagination", "cli", "telemetry", "errors", "security", "faq"],
 });

@@ -1,9 +1,9 @@
 ---
 title: Diagnostic CLI
-description: Check selected adapter configuration and validate a publish request locally without making network requests or mutating social accounts.
+description: Check selected adapter configuration and validate a publish request locally without contacting social platforms or mutating social accounts.
 ---
 
-The `social-sdk` CLI runs offline. It never authenticates an account, opens a browser, uploads media or publishes content. The package includes the executable after building or installing a packed build.
+The `social-sdk` CLI never contacts a social platform. It never authenticates an account, opens a browser, uploads media or publishes content. Its only network request is one anonymous usage event per command, which you can turn off; see [CLI telemetry](/reference/telemetry). The package includes the executable after building or installing a packed build.
 
 ```sh
 social-sdk adapters --json
@@ -13,6 +13,7 @@ social-sdk examples --json
 social-sdk validate --adapter mock --file request.json --json
 social-sdk mcp --adapter youtube
 social-sdk version --json
+social-sdk telemetry disable --json
 ```
 
 `doctor` checks the presence of environment variables for the selected adapter only. It prints their names when missing, never their values. Success means that configuration is present, not that credentials authenticate or that a platform has approved your app.
@@ -29,4 +30,6 @@ metadata stays unknown: the command never fetches media or stages local files.
 
 `version` prints the installed package version, which is the first thing to include in a bug report. `social-sdk --version` is the same command.
 
-Every command except `mcp` accepts `--json`. The envelope contains `schemaVersion: 1`, `command`, `ok`, and `data`. Exit code 0 means the diagnostic passed; 1 means a configuration or preparation check failed; 2 means invalid arguments or input. Unknown commands and options fail rather than enabling a network operation.
+`telemetry status`, `telemetry enable` and `telemetry disable` show or change the CLI's anonymous usage events. `SOCIAL_SDK_TELEMETRY_DISABLED=1` and `DO_NOT_TRACK=1` also turn them off, and they are always off in CI. [CLI telemetry](/reference/telemetry) lists every field sent.
+
+Every command except `mcp` accepts `--json`. The envelope contains `schemaVersion: 1`, `command`, `ok`, and `data`. Exit code 0 means the diagnostic passed; 1 means a configuration or preparation check failed; 2 means invalid arguments or input. Unknown commands and options fail rather than enabling a provider operation.

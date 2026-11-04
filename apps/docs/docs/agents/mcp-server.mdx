@@ -61,7 +61,7 @@ Log to stderr only. Anything else on stdout corrupts the protocol stream.
 
 ## Offline diagnostics from the CLI
 
-`social-sdk mcp` starts a stdio server with four offline tools: `social_capabilities`, `social_doctor`, `social_validate`, and `social_plan_publish`. It uses the same diagnostic adapters as the [CLI](/reference/cli), so it never authenticates, calls a provider, or publishes. `social_doctor` reports missing environment variable names for the selected adapter, never their values.
+`social-sdk mcp` starts a stdio server with four offline tools: `social_capabilities`, `social_doctor`, `social_validate`, and `social_plan_publish`. It uses the same diagnostic adapters as the [CLI](/reference/cli), so it never authenticates, calls a provider, or publishes. `social_doctor` reports missing environment variable names for the selected adapter, never their values. Like every CLI command, it sends one anonymous usage event when it starts unless [CLI telemetry](/reference/telemetry) is turned off.
 
 ```sh
 claude mcp add social-sdk -- npx social-sdk mcp --adapter youtube
