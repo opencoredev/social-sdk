@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { createSocial } from "./core/client.js";
 import { definedFields } from "./core/fields.js";
@@ -25,6 +26,17 @@ import { facebook } from "./platforms/facebook.js";
 import { createSocialToolkit, type SocialToolName } from "./ai/toolkit.js";
 import { createMcpServer } from "./mcp/server.js";
 import { serveMcpStdio } from "./mcp/stdio.js";
+import {
+  createCliTelemetry,
+  isCliCommandName,
+  telemetryConfigDirectory,
+  TELEMETRY_DOCS_URL,
+  telemetryFields,
+  type CliTelemetry,
+  type CliUsageEvent,
+  type RuntimeInfo,
+  type TelemetryStatus,
+} from "./telemetry.js";
 
 /** Adapters the diagnostic CLI can construct offline. */
 export const adapterNames = [
@@ -160,6 +172,8 @@ export interface CliIO {
   readonly stdin?: AsyncIterable<Uint8Array | string>;
   /** Reported to MCP clients as the server version. */
   readonly version?: string | undefined;
+  /** Anonymous usage counts. Absent means no telemetry and `telemetry` reports it unavailable. */
+  readonly telemetry?: CliTelemetry | undefined;
 }
 
 /** The CLI MCP server stays offline: discovery, diagnostics and local validation only. */
@@ -170,8 +184,52 @@ export const offlineMcpTools = [
   "social_plan_publish",
 ] as const satisfies readonly SocialToolName[];
 
-/** All commands are offline and return 0 (valid), 1 (diagnostic failure), or 2 (usage/input error). */
+/** The usage event for one invocation, or undefined for the `telemetry` command itself. */
+export function cliUsageEvent(args: readonly string[]): CliUsageEvent | undefined {
+  const first = args[0];
+
+  const command =
+    first === undefined || first === "--help" ? "help" : first === "--version" ? "version" : first;
+
+  if (command === "telemetry") return undefined;
+  const adapterIndex = args.indexOf("--adapter");
+  const adapter = adapterIndex === -1 ? undefined : args[adapterIndex + 1];
+
+  return {
+    command: isCliCommandName(command) ? command : "unknown",
+    adapter: adapter !== undefined && isAdapterName(adapter) ? adapter : undefined,
+  };
+}
+
+function telemetryReport(status: TelemetryStatus, configFile: string | undefined) {
+  return {
+    enabled: status.kind === "enabled",
+    ...definedFields({
+      reason: status.kind === "disabled" ? status.reason : undefined,
+      configFile,
+    }),
+    collects: telemetryFields,
+    docs: TELEMETRY_DOCS_URL,
+  };
+}
+
+/**
+ * Commands never contact a social provider and return 0 (valid), 1 (diagnostic
+ * failure), or 2 (usage/input error). When `io.telemetry` is set, one anonymous
+ * usage event is sent alongside the command; it never changes output or exit code.
+ */
 export async function runCli(args: readonly string[], io: CliIO): Promise<number> {
+  const event = cliUsageEvent(args);
+  const usage = event && io.telemetry ? io.telemetry.record(event) : undefined;
+
+  try {
+    return await runCommand(args, io);
+  } finally {
+    await usage;
+  }
+}
+
+async function runCommand(args: readonly string[], io: CliIO): Promise<number> {
   const command = args[0] === "--version" ? "version" : (args[0] ?? "help");
   const json = args.includes("--json");
 
@@ -182,6 +240,30 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
 
     return code;
   };
+
+  if (command === "telemetry") {
+    const action = args.slice(1).filter((arg) => arg !== "--json");
+
+    if (action.length > 1 || !["status", "enable", "disable", undefined].includes(action[0]))
+      return finish(2, { error: "Use telemetry status, telemetry enable or telemetry disable." });
+
+    if (!io.telemetry)
+      return finish(1, { error: "Telemetry settings are unavailable in this environment." });
+
+    try {
+      const status =
+        action[0] === "enable" || action[0] === "disable"
+          ? await io.telemetry.setEnabled(action[0] === "enable")
+          : await io.telemetry.status();
+
+      return finish(0, telemetryReport(status, io.telemetry.configFile));
+    } catch {
+      return finish(1, {
+        error: "Unable to save the telemetry setting. Set SOCIAL_SDK_TELEMETRY_DISABLED=1 instead.",
+        ...definedFields({ configFile: io.telemetry.configFile }),
+      });
+    }
+  }
 
   const options = new Map<string, string>();
 
@@ -205,8 +287,9 @@ export async function runCli(args: readonly string[], io: CliIO): Promise<number
   if (command === "help" || command === "--help")
     return finish(0, {
       usage:
-        "social-sdk <doctor|adapters|capabilities|validate|examples|mcp|version> [--adapter NAME] [--file PATH] [--json]",
+        "social-sdk <doctor|adapters|capabilities|validate|examples|mcp|version|telemetry> [--adapter NAME] [--file PATH] [--json]",
       offline: true,
+      telemetry: `Anonymous usage counts; turn off with social-sdk telemetry disable. ${TELEMETRY_DOCS_URL}`,
       exitCodes: { success: 0, diagnosticFailure: 1, invalidInput: 2 },
     });
 
@@ -356,11 +439,44 @@ if (invokedPath) {
   }
 }
 
+function currentRuntime(): RuntimeInfo {
+  const { bun, deno, node } = process.versions;
+  const base = { platform: process.platform, arch: process.arch };
+
+  if (bun) return { ...base, name: "bun", version: bun };
+
+  if (deno) return { ...base, name: "deno", version: deno };
+
+  return { ...base, name: "node", version: node };
+}
+
+function homeDirectory(): string | undefined {
+  try {
+    return homedir() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) {
+  const version = await readPackageVersion().catch(() => undefined);
+
   process.exitCode = await runCli(process.argv.slice(2), {
     env: process.env,
     stdin: process.stdin,
-    version: await readPackageVersion().catch(() => undefined),
+    version,
+    telemetry: createCliTelemetry({
+      env: process.env,
+      configDirectory: telemetryConfigDirectory({
+        env: process.env,
+        platform: process.platform,
+        home: homeDirectory(),
+      }),
+      fetch: globalThis.fetch,
+      writeNotice: (text) => process.stderr.write(text),
+      sdkVersion: version,
+      runtime: currentRuntime(),
+    }),
     async readInput(path) {
       const info = await stat(path);
 

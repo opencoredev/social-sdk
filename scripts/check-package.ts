@@ -62,7 +62,13 @@ async function run(args: string[], cwd: string) {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, npm_config_audit: "false", npm_config_fund: "false" },
+    env: {
+      ...process.env,
+      npm_config_audit: "false",
+      npm_config_fund: "false",
+      // The smoke run must not count as a real CLI user.
+      SOCIAL_SDK_TELEMETRY_DISABLED: "1",
+    },
   });
 
   const [stdout, stderr, code] = await Promise.all([

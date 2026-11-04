@@ -409,6 +409,7 @@ it("the real CLI validate command reports machine-readable media limits offline"
         {
           cwd: root,
           encoding: "utf8",
+          env: { ...process.env, SOCIAL_SDK_TELEMETRY_DISABLED: "1" },
           timeout: 15_000,
         },
       );
