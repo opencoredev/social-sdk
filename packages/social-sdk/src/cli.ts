@@ -461,7 +461,7 @@ function homeDirectory(): string | undefined {
 if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) {
   const version = await readPackageVersion().catch(() => undefined);
 
-  process.exitCode = await runCli(process.argv.slice(2), {
+  const code = await runCli(process.argv.slice(2), {
     env: process.env,
     stdin: process.stdin,
     version,
@@ -486,5 +486,17 @@ if (invokedRealPath && import.meta.url === pathToFileURL(invokedRealPath).href) 
       return readFile(path, "utf8");
     },
     write: (text) => process.stdout.write(text),
+  });
+
+  process.exitCode = code;
+
+  // The usage event's wait is already over, but the runtime can keep a stalled
+  // connection attempt (a TLS handshake or DNS lookup) alive well past it. Once
+  // stdout and stderr have flushed, exit instead of waiting for that attempt.
+  // The timer is unref'd, so a process with nothing left open exits on its own.
+  process.stdout.write("", () => {
+    process.stderr.write("", () => {
+      setTimeout(() => process.exit(code), 50).unref();
+    });
   });
 }

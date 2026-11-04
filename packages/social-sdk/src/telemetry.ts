@@ -7,7 +7,7 @@
 // or any CI environment. The full field list is documented at TELEMETRY_DOCS_URL.
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { definedFields } from "./core/fields.js";
 import { parseJson } from "./transport/json.js";
@@ -219,11 +219,28 @@ async function readStoredState(file: string): Promise<StoredState> {
   return state ? { kind: "found", state } : { kind: "unreadable" };
 }
 
-async function writeState(directory: string, file: string, state: TelemetryState): Promise<void> {
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(state, null, 2) + "\n", { mode: 0o600 });
-  await rename(temporary, file);
+/**
+ * Writes the state file atomically. `create` fails when the file already exists,
+ * so a first run racing `telemetry disable` in another process can never replace
+ * the saved opt-out; `replace` is for an explicit enable or disable.
+ */
+async function writeState(input: {
+  readonly directory: string;
+  readonly file: string;
+  readonly state: TelemetryState;
+  readonly mode: "create" | "replace";
+}): Promise<void> {
+  await mkdir(input.directory, { recursive: true, mode: 0o700 });
+  const temporary = `${input.file}.${randomUUID()}.tmp`;
+
+  try {
+    await writeFile(temporary, JSON.stringify(input.state, null, 2) + "\n", { mode: 0o600 });
+
+    if (input.mode === "create") await link(temporary, input.file);
+    else await rename(temporary, input.file);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 export interface CliTelemetryOptions {
@@ -268,7 +285,12 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
         throw new Error("No config directory is available for the telemetry setting.");
       const stored = await readStoredState(file);
       const anonymousId = stored.kind === "found" ? stored.state.anonymousId : randomUUID();
-      await writeState(directory, file, { version: 1, anonymousId, enabled });
+      await writeState({
+        directory,
+        file,
+        state: { version: 1, anonymousId, enabled },
+        mode: "replace",
+      });
 
       return status();
     },
@@ -286,9 +308,10 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
           state = stored.state;
         } else {
           // First run: without a stored ID every run would count as a new user, so
-          // nothing is sent unless the state file can be written.
+          // nothing is sent unless the state file can be created. If another
+          // process created it first, this run sends nothing.
           state = { version: 1, anonymousId: randomUUID(), enabled: true };
-          await writeState(directory, file, state);
+          await writeState({ directory, file, state, mode: "create" });
           options.writeNotice(TELEMETRY_NOTICE);
         }
 

@@ -1,5 +1,6 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -224,6 +225,36 @@ it("telemetry disable persists, keeps the ID, and stops every later event", asyn
     await telemetry.record({ command: "doctor" });
     assert.equal(h.bodies.length, 2);
     assert.equal(h.notices.length, 1);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+it("a first run racing an opt-out from another process never replaces the opt-out", async () => {
+  const h = await harness();
+
+  try {
+    const file = join(h.directory, "telemetry.json");
+
+    const disabled = JSON.stringify({
+      version: 1,
+      anonymousId: "123e4567-e89b-42d3-a456-426614174000",
+      enabled: false,
+    });
+
+    mkdirSync(h.directory, { recursive: true });
+    // The opt-out lands while the first run is reading, whichever side wins.
+    const pending = createCliTelemetry(h.options()).record({ command: "doctor" });
+
+    writeFileSync(file, disabled);
+    await pending;
+
+    assert.equal(await readFile(file, "utf8"), disabled);
+    assert.equal(h.bodies.length, 0);
+    assert.deepEqual(await createCliTelemetry(h.options()).status(), {
+      kind: "disabled",
+      reason: "config",
+    });
   } finally {
     await h.cleanup();
   }
