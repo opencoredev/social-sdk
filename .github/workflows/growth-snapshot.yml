@@ -1,0 +1,40 @@
+name: Growth snapshot
+
+# Records npm downloads and GitHub repository numbers in the project's analytics
+# once a day. See scripts/growth-snapshot.ts. GitHub traffic (views, clones,
+# referrers) needs the optional GROWTH_GITHUB_TOKEN secret: a fine-grained token
+# for this repository with read-only "Administration" permission.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: Send the full npm download and star history
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: growth-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Growth snapshot
+    if: github.repository == 'opencoredev/social-sdk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Send snapshot
+        run: bun scripts/growth-snapshot.ts ${{ inputs.backfill && '--backfill' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GROWTH_GITHUB_TOKEN: ${{ secrets.GROWTH_GITHUB_TOKEN }}

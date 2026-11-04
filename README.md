@@ -18,7 +18,7 @@ Choose direct platform access or a managed backend: Zernio, Post for Me, PostFas
 - Typed capability manifests and platform-native operations behind explicit subpath imports
 - Independent per-destination outcomes for complete, processing, uncertain, and failed work
 - A deterministic mock backend for local development and contract tests
-- An offline CLI for adapter discovery, capability checks, diagnostics, and request validation
+- A CLI for adapter discovery, capability checks, diagnostics, and request validation that never contacts a social platform
 
 ## Install
 
@@ -72,7 +72,7 @@ Read the [platform capability matrix](https://social-sdk.dev/docs/reference/capa
 
 ## CLI
 
-The `social-sdk` CLI is offline. It does not authenticate accounts, upload media, publish content, or make hidden network requests.
+The `social-sdk` CLI never contacts a social platform. It does not authenticate accounts, upload media, or publish content. It sends one anonymous usage event per command (command, adapter, SDK version, runtime and OS) after a one-time notice; turn that off with `social-sdk telemetry disable`, `SOCIAL_SDK_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1`. It is always off in CI. See [CLI telemetry](https://social-sdk.dev/docs/reference/telemetry). The SDK library sends no telemetry.
 
 The package installs the binary into your project's `node_modules/.bin`, which is not on your shell `PATH`. After installing `@opencoredev/social-sdk`, run it from that project directory with `npm exec`, or replace `npm exec --` with `bun run` under Bun:
 

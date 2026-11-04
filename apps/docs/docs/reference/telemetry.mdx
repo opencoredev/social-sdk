@@ -1,0 +1,56 @@
+---
+title: CLI telemetry
+description: What the social-sdk CLI sends, when it sends it, and every way to turn it off. The SDK library sends no telemetry.
+---
+
+The `social-sdk` command-line tool sends one anonymous event each time you run a command, including `social-sdk mcp`. The maintainers use the counts to see how many people use the CLI each day and week, which commands they run, and which adapters they check.
+
+Telemetry covers the CLI only. Importing `@opencoredev/social-sdk` or any of its subpaths, including `/server` and `/mcp`, never sends telemetry from your application.
+
+## Turn it off
+
+Any one of these stops all telemetry:
+
+```sh
+social-sdk telemetry disable        # saved for this user account
+export SOCIAL_SDK_TELEMETRY_DISABLED=1
+export DO_NOT_TRACK=1
+```
+
+Telemetry is also off whenever a CI environment variable is set, such as `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `BUILDKITE`, `JENKINS_URL` or `TF_BUILD`. A value of `0`, `false`, `no` or `off` counts as unset, so `DO_NOT_TRACK=0` leaves telemetry on.
+
+`social-sdk telemetry status --json` reports whether telemetry is on and why it is off. `social-sdk telemetry enable` turns it back on, unless an environment variable above still disables it. The `telemetry` command itself never sends an event.
+
+## What is sent
+
+Each event contains these fields and nothing else:
+
+| Field             | Example   | Meaning                                                                    |
+| ----------------- | --------- | -------------------------------------------------------------------------- |
+| `command`         | `doctor`  | The command name. Anything that isn't a CLI command is sent as `unknown`.  |
+| `adapter`         | `youtube` | The `--adapter` value when it names a built-in adapter. Omitted otherwise. |
+| `sdk_version`     | `0.6.0`   | The installed package version.                                             |
+| `runtime`         | `node`    | `node`, `bun` or `deno`.                                                   |
+| `runtime_version` | `24.1.0`  | The runtime version.                                                       |
+| `os`              | `linux`   | The operating system, as Node.js reports it in `process.platform`.         |
+| `arch`            | `x64`     | The CPU architecture, as Node.js reports it in `process.arch`.             |
+
+The event is keyed by a random ID created on first use. The CLI never sends arguments, file paths, file contents, environment variable names or values, credentials, account IDs, or publish content.
+
+Events go to the project's analytics service through `https://y.social-sdk.dev`. As with any HTTPS request, that service sees the connection's IP address. The events ask it not to look up a location and not to build a person profile.
+
+## When it is sent
+
+On the first run with telemetry on, the CLI creates the random ID, saves it, and prints a notice to stderr. Stdout stays clean for `--json` output and the MCP protocol. After that, each command sends one event while it runs.
+
+If the ID can't be saved, for example on a read-only file system, the CLI sends nothing rather than counting you as a new user every time. If the network is slow or down, the CLI waits at most 1.5 seconds for the event and then gives up. The command's output and exit code are the same whether the event is sent or not.
+
+## Where the setting lives
+
+The ID and the setting are stored in `telemetry.json`, created with owner-only permissions in:
+
+- `$XDG_CONFIG_HOME/social-sdk/` when `XDG_CONFIG_HOME` is set to an absolute path
+- `%APPDATA%\social-sdk\` on Windows
+- `~/.config/social-sdk/` everywhere else
+
+Deleting the file resets the ID and the setting, so the next command shows the notice again with a new ID. If the file can't be read, the CLI treats telemetry as off and leaves the file alone.
