@@ -113,10 +113,10 @@ async function getJson(url: string, token?: string): Promise<{ body: JsonValue; 
 }
 
 async function npmDownloads(today: Day): Promise<GrowthEvent[]> {
-  const start = daysBefore(today, backfill ? NPM_BACKFILL_DAYS : DAILY_WINDOW_DAYS);
   // npm finishes a day's count during the following day, so the newest day
   // sent is two days back and a re-send never changes its value.
   const end = daysBefore(today, 2);
+  const start = daysBefore(end, (backfill ? NPM_BACKFILL_DAYS : DAILY_WINDOW_DAYS) - 1);
 
   const { body } = await getJson(
     `https://api.npmjs.org/downloads/range/${start}:${end}/${encodeURIComponent(PACKAGE)}`,

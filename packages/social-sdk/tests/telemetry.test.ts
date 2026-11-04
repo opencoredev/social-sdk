@@ -591,7 +591,17 @@ globalThis.fetch = (url, init) => original(String(url).replace("https://y.social
         stderr += chunk.toString("utf8");
       });
 
-      const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
+      // A hung child is killed well inside the test timeout, so cleanup below
+      // always runs and no process outlives the test.
+      const code = await new Promise<number | null>((resolve) => {
+        const killer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+
+        child.on("close", (exitCode) => {
+          clearTimeout(killer);
+          resolve(exitCode);
+        });
+      });
+
       const elapsed = Date.now() - started;
 
       assert.equal(code, 0, stderr);
