@@ -114,6 +114,7 @@ it("telemetry state parsing rejects anything but a versioned UUID and boolean", 
       version: 1,
       anonymousId: id,
       enabled: false,
+      noticeShown: false,
     },
   );
 
@@ -123,6 +124,7 @@ it("telemetry state parsing rejects anything but a versioned UUID and boolean", 
     JSON.stringify({ version: 2, anonymousId: id, enabled: true }),
     JSON.stringify({ version: 1, anonymousId: "user@example.test", enabled: true }),
     JSON.stringify({ version: 1, anonymousId: id, enabled: "no" }),
+    JSON.stringify({ version: 1, anonymousId: id, enabled: true, noticeShown: "yes" }),
   ])
     assert.equal(parseTelemetryState(text), undefined, text);
 });
@@ -274,11 +276,53 @@ it("telemetry disabled before the first command never shows a notice or sends", 
   }
 });
 
+it("turning telemetry on after an opt-out before the first command prints the notice once", async () => {
+  const h = await harness();
+
+  try {
+    const telemetry = createCliTelemetry(h.options());
+
+    await telemetry.setEnabled(false);
+    await telemetry.setEnabled(true);
+    assert.deepEqual(h.notices, [TELEMETRY_NOTICE]);
+
+    await telemetry.record({ command: "version" });
+    await telemetry.setEnabled(true);
+    await telemetry.record({ command: "version" });
+    assert.equal(h.notices.length, 1);
+    assert.equal(h.bodies.length, 2);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+it("an enabled state file without a shown notice sends nothing", async () => {
+  const h = await harness();
+
+  try {
+    mkdirSync(h.directory, { recursive: true });
+    writeFileSync(
+      join(h.directory, "telemetry.json"),
+      JSON.stringify({
+        version: 1,
+        anonymousId: "123e4567-e89b-42d3-a456-426614174000",
+        enabled: true,
+      }),
+    );
+
+    await createCliTelemetry(h.options()).record({ command: "doctor" });
+    assert.equal(h.bodies.length, 0);
+    assert.equal(h.notices.length, 0);
+  } finally {
+    await h.cleanup();
+  }
+});
+
 it("telemetry treats an unreadable state file as off and leaves it untouched", async () => {
   const h = await harness();
 
   try {
-    await createCliTelemetry(h.options()).setEnabled(true);
+    mkdirSync(h.directory, { recursive: true });
     const file = join(h.directory, "telemetry.json");
     await writeFile(file, '{"enabled": false, // hand edited');
 
@@ -297,7 +341,7 @@ it("telemetry sends nothing when the anonymous ID cannot be stored", async () =>
 
   try {
     const blocker = join(h.directory, "..", "blocker");
-    await createCliTelemetry(h.options()).setEnabled(true);
+    mkdirSync(h.directory, { recursive: true });
     await writeFile(blocker, "a file, not a directory");
 
     const telemetry = createCliTelemetry(
@@ -445,7 +489,8 @@ it("CLI telemetry command reports, disables and enables without sending an event
     assert.equal(overridden.data["reason"], "do-not-track");
 
     assert.equal(h.bodies.length, 0);
-    assert.equal(h.notices.length, 0);
+    // `telemetry enable` after an opt-out before any command prints the notice once.
+    assert.deepEqual(h.notices, [TELEMETRY_NOTICE]);
 
     assert.equal((await runWith(["telemetry", "maybe"], h.options())).code, 2);
     assert.equal((await runWith(["telemetry", "enable", "now"], h.options())).code, 2);

@@ -96,6 +96,8 @@ interface TelemetryState {
   readonly version: 1;
   readonly anonymousId: string;
   readonly enabled: boolean;
+  /** The notice has been printed on this machine; no event is sent before it is. */
+  readonly noticeShown: boolean;
 }
 
 type StoredState =
@@ -169,10 +171,17 @@ export function parseTelemetryState(text: string): TelemetryState | undefined {
   const anonymousId = value["anonymousId"];
   const enabled = value["enabled"];
 
-  if (!isString(anonymousId) || !uuidPattern.test(anonymousId) || !isBoolean(enabled))
+  const noticeShown = value["noticeShown"] ?? false;
+
+  if (
+    !isString(anonymousId) ||
+    !uuidPattern.test(anonymousId) ||
+    !isBoolean(enabled) ||
+    !isBoolean(noticeShown)
+  )
     return undefined;
 
-  return { version: 1, anonymousId, enabled };
+  return { version: 1, anonymousId, enabled, noticeShown };
 }
 
 /** The exact JSON body sent for one event. Every property is listed in `telemetryFields`. */
@@ -284,13 +293,24 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
       if (directory === undefined || file === undefined)
         throw new Error("No config directory is available for the telemetry setting.");
       const stored = await readStoredState(file);
-      const anonymousId = stored.kind === "found" ? stored.state.anonymousId : randomUUID();
+      const previous = stored.kind === "found" ? stored.state : undefined;
+      // Turning telemetry on is where someone who opted out before their first
+      // command learns what is sent, so the notice is printed here if it never was.
+      const showNotice = enabled && !previous?.noticeShown;
+
       await writeState({
         directory,
         file,
-        state: { version: 1, anonymousId, enabled },
+        state: {
+          version: 1,
+          anonymousId: previous?.anonymousId ?? randomUUID(),
+          enabled,
+          noticeShown: (previous?.noticeShown ?? false) || showNotice,
+        },
         mode: "replace",
       });
+
+      if (showNotice) options.writeNotice(TELEMETRY_NOTICE);
 
       return status();
     },
@@ -304,13 +324,15 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
         let state: TelemetryState;
 
         if (stored.kind === "found") {
-          if (!stored.state.enabled) return;
+          // A file that says enabled without a shown notice was edited by hand;
+          // send nothing until `telemetry enable` prints the notice.
+          if (!stored.state.enabled || !stored.state.noticeShown) return;
           state = stored.state;
         } else {
           // First run: without a stored ID every run would count as a new user, so
           // nothing is sent unless the state file can be created. If another
           // process created it first, this run sends nothing.
-          state = { version: 1, anonymousId: randomUUID(), enabled: true };
+          state = { version: 1, anonymousId: randomUUID(), enabled: true, noticeShown: true };
           await writeState({ directory, file, state, mode: "create" });
           options.writeNotice(TELEMETRY_NOTICE);
         }
