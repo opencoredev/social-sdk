@@ -15,7 +15,7 @@
 
 import { createHash } from "node:crypto";
 import { analyticsIngestion } from "../apps/docs/analytics.js";
-import type { JsonValue } from "../packages/social-sdk/src/transport/json.js";
+import type { JsonValue } from "../packages/social-sdk/src/core/types.js";
 import { parseJson } from "../packages/social-sdk/src/transport/json.js";
 import {
   array,

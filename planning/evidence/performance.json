@@ -1,9 +1,9 @@
 {
-  "recordedAt": "2026-10-26T04:51:58.146Z",
+  "recordedAt": "2026-11-04T15:38:22.836Z",
   "runner": {
     "platform": "linux",
     "architecture": "x64",
-    "cpu": "AMD Ryzen 9 9955HX 16-Core Processor",
+    "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
     "bun": "1.4.4"
   },
   "methodology": {
@@ -20,25 +20,25 @@
       "gzipBytes": 13380
     },
     "managed": {
-      "minifiedBytes": 100271,
-      "gzipBytes": 29837
+      "minifiedBytes": 99980,
+      "gzipBytes": 29767
     }
   },
   "preparation": {
-    "coldMs": 0.6035330000000023,
-    "p50Ms": 0.009757999999997935,
-    "p95Ms": 0.014848000000000638,
+    "coldMs": 0.5825689999999994,
+    "p50Ms": 0.00838900000000109,
+    "p95Ms": 0.013910000000002753,
     "samples": 1000
   },
   "dispatch": {
-    "p50Ms": 0.04543499999999767,
-    "p95Ms": 0.0926239999999936,
+    "p50Ms": 0.02959899999999749,
+    "p95Ms": 0.050788000000004274,
     "samples": 200
   },
   "baseline": {
-    "p50Ms": 0.00009000000000014552,
-    "p95Ms": 0.00018000000000029104,
+    "p50Ms": 0.00008000000000407681,
+    "p95Ms": 0.00017000000000422233,
     "samples": 200
   },
-  "dispatchOverheadP95Ms": 0.09244399999999331
+  "dispatchOverheadP95Ms": 0.05061800000000005
 }
