@@ -233,3 +233,24 @@ it("rejects templateName before API version 202602", async () => {
   );
   assert.equal(calls.length, 0);
 });
+
+it("uploads a captions file at the 20 MiB cap even though its multipart body is larger", async () => {
+  const { calls, fetch } = fakeLinkedIn({ thumbnail: false, captions: true });
+
+  const native = linkedin({
+    auth: { accessToken: "secret", author: organizationUrn },
+    apiVersion: "202610",
+    fetch,
+  }).native!;
+
+  await native.uploadVideo({
+    account,
+    media: video(),
+    captions: new Blob([new Uint8Array(20 * 1024 * 1024).fill(0x41)]),
+    context: nativeContext,
+  });
+
+  assert.equal(calls[2]?.url, captionsUploadUrl);
+  assert.ok((calls[2]?.text?.length ?? 0) > 20 * 1024 * 1024);
+  assert.ok(calls[3]?.url.endsWith("action=finalizeUpload"));
+});

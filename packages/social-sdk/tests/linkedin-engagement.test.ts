@@ -295,7 +295,8 @@ it("lists nested replies to a comment after checking its post [feature:linkedin.
   );
   assert.equal(
     calls[1]?.url,
-    `https://api.linkedin.com/rest/socialActions/${encodeURIComponent(parentComment)}/comments?start=0&count=25`,
+    // Rest.li 2.0 resource keys encode the composite URN parentheses as %28 and %29.
+    "https://api.linkedin.com/rest/socialActions/urn%3Ali%3Acomment%3A%28urn%3Ali%3Aactivity%3A6273189577469632512%2C6275822846992351232%29/comments?start=0&count=25",
   );
   assert.equal(page.items[0]?.["text"], "Nested reply");
   assert.equal(page.items[0]?.["parentComment"], parentComment);
@@ -372,7 +373,7 @@ it("creates nested replies, rejects bad mentions locally, and reports a missing 
   );
   assert.equal(
     calls[0]?.url,
-    `https://api.linkedin.com/rest/socialActions/${encodeURIComponent(parentComment)}/comments`,
+    "https://api.linkedin.com/rest/socialActions/urn%3Ali%3Acomment%3A%28urn%3Ali%3Aactivity%3A6273189577469632512%2C6275822846992351232%29/comments",
   );
   assert.deepEqual(calls[0]?.body, {
     actor: memberUrn,

@@ -792,12 +792,13 @@ let pageToken: string | undefined;
 let offline = false;
 
 // Reconnect after YouTube closes a response, resuming from the last page token.
+// Each connection is a new operation, so it gets a fresh context and elapsed budget.
 while (!offline) {
   for await (const page of native.liveChatStream({
     liveChatId: "Cg0KC2xpdmVjaGF0…",
     pageToken,
     stallTimeoutMs: 120_000,
-    context,
+    context: { ...context, correlationId: crypto.randomUUID() },
   })) {
     for (const message of page.items) handleChatMessage(message);
 

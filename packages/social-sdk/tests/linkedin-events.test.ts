@@ -251,9 +251,12 @@ it("gets, updates and lists events with GET /rest/events and the eventsByOrganiz
         startsAt: 1773568800000,
         backgroundImage: "urn:li:digitalmediaAsset:D5522AQEFM6ArFzip2Q",
         discoveryMode: "LISTED",
-        type: {
-          online: {
-            format: { external: { endsAt: 1773576000000, url: "https://example.com/new" } },
+      },
+      // Rest.li `$set` replaces a whole record, so type sub-fields go in a nested patch.
+      type: {
+        online: {
+          format: {
+            external: { $set: { endsAt: 1773576000000, url: "https://example.com/new" } },
           },
         },
       },
@@ -383,4 +386,45 @@ it("uploads an event backgroundImage with assets?action=registerUpload then the 
     (error: SocialError) => error.code === "invalid_input",
   );
   assert.equal(offHost.calls.length, 1);
+});
+
+it("updates only the supplied event type sub-fields with a nested Rest.li patch", async () => {
+  const { calls, native: api } = native(() => new Response(null, { status: 200 }));
+
+  const update = (type: NonNullable<Parameters<typeof api.updateEvent>[0]["changes"]["type"]>) =>
+    api.updateEvent({
+      account: organization,
+      event: "urn:li:event:7246559654799892480",
+      changes: { type },
+      context: nativeContext,
+    });
+
+  await update({ kind: "external", endsAt: 1773576000000 });
+  await update({ kind: "inPerson", venueDetails: "Room 101" });
+  await update({ kind: "liveVideo", endsAt: 1773576000000 });
+
+  // A `$set.type` record here would drop the existing url, endsAt or address.
+  assert.deepEqual(
+    calls.map((call) => call.body),
+    [
+      {
+        patch: { type: { online: { format: { external: { $set: { endsAt: 1773576000000 } } } } } },
+      },
+      {
+        patch: {
+          type: {
+            inPerson: { $set: { venueDetails: { localized: { en_US: { rawText: "Room 101" } } } } },
+          },
+        },
+      },
+      {
+        patch: { type: { online: { format: { liveVideo: { $set: { endsAt: 1773576000000 } } } } } },
+      },
+    ],
+  );
+
+  await assert.rejects(update({ kind: "external" }), (error: SocialError) => {
+    return error.code === "invalid_input";
+  });
+  assert.equal(calls.length, 3);
 });

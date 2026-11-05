@@ -386,7 +386,8 @@ the video parts, sends the image with `PUT` to the returned `thumbnailUploadUrl`
   `linkbackContext` (for example a URL) links back to it. LinkedIn accepts these fields from API
   version `202602`; the adapter rejects them on earlier versions.
 
-LinkedIn documents no size limit for thumbnails or captions; the SDK caps each at 20 MiB. A missing
+LinkedIn documents no size limit for thumbnails or captions; the SDK caps each file at 20 MiB. The
+captions form's own headers and metadata do not count toward that cap. A missing
 upload URL in LinkedIn's response stops the upload before any video bytes are sent.
 
 ```ts
@@ -864,7 +865,8 @@ After posting:
 - `native.updateEvent({ account, event, changes, context })` sends a partial update
   (`X-RestLi-Method: PARTIAL_UPDATE`, `patch.$set`) of `name`, `description`, `vanityName`,
   `startsAt`, `backgroundImage`, `discoveryMode` and the sub-fields of the existing `type`
-  (`endsAt`, plus `url` for external, and `url`, `address` and `venueDetails` for in-person). The
+  (`endsAt`, plus `url` for external, and `url`, `address` and `venueDetails` for in-person). Type
+  sub-fields go in a nested patch, so the ones you leave out keep their current values. The
   type itself, the organizer, `testEvent` and the lead form are create-only. LinkedIn rejects any
   update once `startsAt` has passed (400) or after cancellation (403).
 - `native.listEvents` uses the `eventsByOrganizer` finder with optional `excludeCancelled`,

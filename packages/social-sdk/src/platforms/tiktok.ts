@@ -13,7 +13,7 @@ import type {
 } from "../core/types.js";
 import { profileRef } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
-import { HttpError, readJson, retryDelay } from "../transport/http.js";
+import { HttpError, abortable, readJson, retryDelay } from "../transport/http.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
 import {
   array,
@@ -1708,7 +1708,7 @@ export function tiktok(
         let response: Response;
 
         try {
-          response = await fetchWithoutRedirects(
+          const pending = fetchWithoutRedirects(
             options.fetch ?? globalThis.fetch,
             "https://open.tiktokapis.com/v2/user/data/download/",
             {
@@ -1721,6 +1721,15 @@ export function tiktok(
               signal: controller.signal,
             },
           );
+
+          // An injected fetch may ignore the signal; release a response that arrives too late.
+          void pending.then(
+            (late) => {
+              if (controller.signal.aborted) void late.body?.cancel().catch(() => undefined);
+            },
+            () => undefined,
+          );
+          response = await abortable(pending, controller.signal);
         } catch (error) {
           context.signal?.removeEventListener("abort", abort);
           throw new SocialError({
@@ -1777,7 +1786,46 @@ export function tiktok(
           });
         }
 
-        return response.body;
+        const reader = response.body.getReader();
+        const release = () => context.signal?.removeEventListener("abort", abort);
+
+        // The wrapper detaches the abort listener once the archive ends, fails or is cancelled.
+        return new ReadableStream<Uint8Array>({
+          async pull(stream) {
+            let next: ReadableStreamReadResult<Uint8Array>;
+
+            try {
+              next = await abortable(reader.read(), controller.signal);
+            } catch (error) {
+              release();
+              void reader.cancel().catch(() => undefined);
+              stream.error(
+                new SocialError({
+                  code: context.signal?.aborted ? "cancelled" : "upstream_failure",
+                  operation: "native",
+                  message: "The TikTok data archive stream did not complete.",
+                  cause: error,
+                }),
+              );
+
+              return;
+            }
+
+            if (next.done) {
+              release();
+              stream.close();
+
+              return;
+            }
+
+            stream.enqueue(next.value);
+          },
+          cancel(reason) {
+            release();
+
+            return reader.cancel(reason);
+          },
+        });
       },
       userInfo: ({ account, fields, context }) =>
         userInfo({ account, fields, operation: "native", context }),

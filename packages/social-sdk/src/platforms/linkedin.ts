@@ -1134,6 +1134,9 @@ const linkedInVideoUrn = /^urn:li:video:[a-zA-Z0-9_-]+$/;
 /* LinkedIn documents no thumbnail or caption size limit; this cap is the SDK's own. */
 const linkedInVideoExtraMaxBytes = 20 * 1024 * 1024;
 
+/* The captions multipart body adds a boundary, part headers and metadata JSON to the file. */
+const linkedInCaptionsFormOverheadBytes = 16 * 1024;
+
 /** Optional Videos API extras for native uploadVideo. */
 export interface LinkedInVideoUploadExtras {
   /** One English SRT captions file. */
@@ -2027,7 +2030,11 @@ export function linkedin(
         url,
         source: { mimeType, size: body.size, body, open: () => body.stream() },
         allowHost: (host) => host === "www.linkedin.com",
-        maxBytes: linkedInVideoExtraMaxBytes,
+        // The captions file itself was checked against the cap before any video part was sent.
+        maxBytes:
+          kind === "captions"
+            ? linkedInVideoExtraMaxBytes + linkedInCaptionsFormOverheadBytes
+            : linkedInVideoExtraMaxBytes,
         timeoutMs: remainingBudget(context),
         ...(kind === "thumbnail"
           ? { headers: { "media-type-family": "STILLIMAGE" } }
@@ -2990,6 +2997,38 @@ export function linkedin(
         return exhaustive;
       }
     }
+  };
+
+  /*
+   * Rest.li patch (https://linkedin.github.io/rest.li/spec/protocol, Partial Update): `$set` on a
+   * key replaces its whole value, while a nested patch object changes fields of a nested record or
+   * union member. Updating only the supplied type sub-fields therefore needs a nested patch, or
+   * `$set.type` would drop the event's other type fields, such as a required endsAt or url.
+   */
+  const eventTypePatch = (changes: LinkedInEventTypeChanges, locale: string) => {
+    const wire = eventTypeWire(changes, locale);
+    let patch: JsonObject;
+    let fields: object;
+
+    if ("inPerson" in wire) {
+      fields = wire.inPerson;
+      patch = { inPerson: { $set: wire.inPerson } };
+    } else if ("liveVideo" in wire.online.format) {
+      fields = wire.online.format.liveVideo;
+      patch = { online: { format: { liveVideo: { $set: wire.online.format.liveVideo } } } };
+    } else {
+      fields = wire.online.format.external;
+      patch = { online: { format: { external: { $set: wire.online.format.external } } } };
+    }
+
+    if (Object.keys(fields).length === 0)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "events.write",
+        message: "An event type change needs at least one sub-field to update.",
+      });
+
+    return patch;
   };
 
   const decodeEvent = (row: JsonObject, fallbackId?: string): LinkedInEvent => {
@@ -4674,16 +4713,12 @@ export function linkedin(
           });
 
         const response = object(
-          await request(
-            `/rest/socialActions/${encodeURIComponent(ref.commentId)}/comments`,
-            context,
-            {
-              actor: ref.accountId,
-              message: { text: content.text },
-              object: ref.postId,
-              parentComment: ref.commentId,
-            },
-          ),
+          await request(`/rest/socialActions/${restliEncode(ref.commentId)}/comments`, context, {
+            actor: ref.accountId,
+            message: { text: content.text },
+            object: ref.postId,
+            parentComment: ref.commentId,
+          }),
         );
 
         const commentId = optionalString(response["commentUrn"]);
@@ -6361,18 +6396,24 @@ export function linkedin(
           startsAt: changes.startsAt,
           backgroundImage: changes.backgroundImage,
           discoveryMode: changes.discoveryMode,
-          type: changes.type === undefined ? undefined : eventTypeWire(changes.type, key),
         });
 
-        if (Object.keys(set).length === 0)
+        const type = changes.type === undefined ? undefined : eventTypePatch(changes.type, key);
+
+        if (Object.keys(set).length === 0 && type === undefined)
           throw new SocialError({
             code: "invalid_input",
             operation: "events.write",
             message: "Provide at least one event change.",
           });
 
-        // Events API "Update an Event": partial_update with patch.$set.
-        await request(path, context, { patch: { $set: set } }, undefined, "POST", {
+        // Events API "Update an Event": partial_update with patch.$set; type sub-fields patch nested.
+        const patch = definedFields({
+          $set: Object.keys(set).length === 0 ? undefined : set,
+          type,
+        });
+
+        await request(path, context, { patch }, undefined, "POST", {
           "X-RestLi-Method": "PARTIAL_UPDATE",
         });
       },
@@ -6692,7 +6733,7 @@ export function linkedin(
         // Comments API "Get Comments on Comments": the parent commentUrn is the target.
         const result = object(
           await request(
-            `/rest/socialActions/${encodeURIComponent(commentId)}/comments?start=${start}&count=${count}`,
+            `/rest/socialActions/${restliEncode(commentId)}/comments?start=${start}&count=${count}`,
             context,
           ),
         );
@@ -6737,7 +6778,7 @@ export function linkedin(
           await request(
             parentCommentId === undefined
               ? `/rest/socialActions/${encodeURIComponent(postId)}/comments`
-              : `/rest/socialActions/${encodeURIComponent(parentCommentId)}/comments`,
+              : `/rest/socialActions/${restliEncode(parentCommentId)}/comments`,
             context,
             body,
           ),
