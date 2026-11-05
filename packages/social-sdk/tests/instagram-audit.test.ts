@@ -278,15 +278,17 @@ it("declares comment and insight grants separately from user counters and missin
     );
     assert.equal(
       entries.find((entry) => entry.operation === "product.tagging")?.availability,
-      flavor === "instagram-login" ? "unsupported-by-platform" : "not-implemented-by-adapter",
+      flavor === "instagram-login" ? "unsupported-by-platform" : "available",
     );
     assert.equal(
       entries.find((entry) => entry.operation === "messages.read")?.availability,
-      flavor === "instagram-login" ? "available" : "unsupported-by-platform",
+      "available",
     );
-    assert.equal(
-      entries.find((entry) => entry.operation === "messages.write")?.availability,
-      flavor === "instagram-login" ? "available" : "not-implemented-by-adapter",
+    assert.deepEqual(
+      entries.find((entry) => entry.operation === "messages.write")?.requiredScopes,
+      flavor === "instagram-login"
+        ? ["instagram_business_basic", "instagram_business_manage_messages"]
+        : ["instagram_basic", "instagram_manage_messages"],
     );
   }
 });

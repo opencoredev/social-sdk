@@ -593,10 +593,10 @@ it("moderates comments, toggles media comments, and deletes comments with Graph 
   assert.deepEqual(
     calls.map(({ method, url }) => [method, url.pathname, Object.fromEntries(url.searchParams)]),
     [
-      ["POST", "/v25.0/comment-1", { hide: "true" }],
-      ["POST", "/v25.0/comment-1", { hide: "false" }],
-      ["POST", "/v25.0/media-1", { comment_enabled: "false" }],
-      ["DELETE", "/v25.0/comment-1", {}],
+      ["POST", "/v27.0/comment-1", { hide: "true" }],
+      ["POST", "/v27.0/comment-1", { hide: "false" }],
+      ["POST", "/v27.0/media-1", { comment_enabled: "false" }],
+      ["DELETE", "/v27.0/comment-1", {}],
     ],
   );
 });
@@ -701,7 +701,7 @@ it("lists tagged media mentions with cursor pagination and handles an empty data
   assert.equal(first?.nextCursor, "mention-cursor");
   assert.deepEqual(second, { items: [] });
   assert.equal(urls[0]?.host, "graph.facebook.com");
-  assert.equal(urls[0]?.pathname, "/v25.0/ig1/tags");
+  assert.equal(urls[0]?.pathname, "/v27.0/ig1/tags");
   assert.equal(urls[1]?.searchParams.get("after"), "mention-cursor");
 });
 
@@ -775,7 +775,7 @@ it("reads tags mentions with Instagram Login on graph.instagram.com", async () =
               data: [{ id: "mention-1", username: "fan", access_token: "leak" }],
               paging: {
                 cursors: { before: "b1", after: "a1" },
-                next: "https://graph.instagram.com/v25.0/ig1/tags?after=a1",
+                next: "https://graph.instagram.com/v27.0/ig1/tags?after=a1",
               },
             }),
           )
@@ -802,7 +802,7 @@ it("reads tags mentions with Instagram Login on graph.instagram.com", async () =
   assert.deepEqual(first, { items: [{ id: "mention-1", username: "fan" }], nextCursor: "a1" });
   assert.deepEqual(second, { items: [] });
   assert.equal(urls[0]?.host, "graph.instagram.com");
-  assert.equal(urls[0]?.pathname, "/v25.0/ig1/tags");
+  assert.equal(urls[0]?.pathname, "/v27.0/ig1/tags");
   assert.equal(urls[0]?.searchParams.get("limit"), "10");
   assert.match(urls[0]?.searchParams.get("fields") ?? "", /^id,caption,media_type/);
   assert.equal(urls[0]?.searchParams.get("after"), null);
@@ -990,8 +990,8 @@ it("deletes media with Facebook Login and confirms Meta's success response", asy
   assert.deepEqual(
     calls.map(({ method, url }) => [method, url.origin, url.pathname]),
     [
-      ["DELETE", "https://graph.facebook.com", "/v25.0/media%2F1"],
-      ["DELETE", "https://graph.facebook.com", "/v25.0/media-2"],
+      ["DELETE", "https://graph.facebook.com", "/v27.0/media%2F1"],
+      ["DELETE", "https://graph.facebook.com", "/v27.0/media-2"],
     ],
   );
 
@@ -1167,15 +1167,31 @@ it("supports Instagram Login conversation reads and native text replies", async 
   });
 });
 
-it("keeps Facebook Login messaging on the Messenger Platform boundary", async () => {
-  let fetches = 0;
+it("sends Unified Login messaging to graph.facebook.com/{ig-user-id} [feature:instagram.messaging.facebook_hosted_tokens]", async () => {
+  const requests: { url: URL; method: string; body: string | undefined }[] = [];
 
   const adapter = instagram({
-    auth: { accessToken: "token", accountId: "ig1", flavor: "facebook-login" },
-    fetch: async () => {
-      fetches++;
+    auth: { accessToken: "system-user-token", accountId: "ig1", flavor: "facebook-login" },
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
 
-      return Response.json({ data: [] });
+      requests.push({
+        url,
+        method: init?.method ?? "GET",
+        body:
+          init?.body === undefined || init.body === null
+            ? undefined
+            : await new Response(init.body).text(),
+      });
+
+      if (url.pathname.endsWith("/messages"))
+        return Response.json({ recipient_id: "customer-1", message_id: "mid-1" });
+
+      if (url.pathname.endsWith("/messenger_profile")) return Response.json({ success: true });
+
+      return Response.json({
+        data: [{ id: "conversation-1", updated_time: "2026-11-04T10:00:00+0000" }],
+      });
     },
   });
 
@@ -1187,19 +1203,49 @@ it("keeps Facebook Login messaging on the Messenger Platform boundary", async ()
     accountId: "ig1",
   });
 
-  await assert.rejects(() => social.messages.listConversations(account), {
-    code: "unsupported_capability",
-    operation: "messages.read",
+  const conversations = await social.messages.listConversations(account);
+
+  assert.equal(conversations.items.length, 1);
+
+  const instagramNative = adapter.native;
+
+  assert.ok(instagramNative);
+
+  await instagramNative.sendMessage({
+    account,
+    recipientId: "customer-1",
+    text: "Thanks!",
+    context: {
+      backendInstance: "default",
+      correlationId: "test",
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+    },
   });
-  assert.equal(fetches, 0);
-  assert.equal(
-    adapter.capabilities.capabilities.find((entry) => entry.operation === "messages.read")
-      ?.availability,
-    "unsupported-by-platform",
+
+  await instagramNative.deleteIceBreakers({
+    account,
+    context: {
+      backendInstance: "default",
+      correlationId: "test",
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+    },
+  });
+
+  assert.deepEqual(
+    requests.map((request) => `${request.method} ${request.url.origin}${request.url.pathname}`),
+    [
+      "GET https://graph.facebook.com/v27.0/ig1/conversations",
+      "POST https://graph.facebook.com/v27.0/ig1/messages",
+      "DELETE https://graph.facebook.com/v27.0/ig1/messenger_profile",
+    ],
   );
+  assert.deepEqual(JSON.parse(requests[1]?.body ?? "null"), {
+    recipient: { id: "customer-1" },
+    message: { text: "Thanks!" },
+  });
   assert.equal(
     adapter.capabilities.capabilities.find((entry) => entry.operation === "messages.write")
       ?.availability,
-    "not-implemented-by-adapter",
+    "available",
   );
 });

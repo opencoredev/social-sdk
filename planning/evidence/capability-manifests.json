@@ -10616,7 +10616,7 @@
           "platform": "threads",
           "operation": "webhooks.verify",
           "availability": "available",
-          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
+          "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies (comment.received), mentions (mention.received), publish (post.published, with no owner ID), and delete (post.removed) deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
         },
         {
           "operation": "posts.publish",
@@ -10644,7 +10644,7 @@
               "video/quicktime"
             ]
           },
-          "notes": "content.link.url is sent as link_attachment on text posts; posts with media reject a link."
+          "notes": "content.link.url is sent as link_attachment on text posts; posts with media reject a link. ThreadsPublishOptions map reply controls, reply approvals, topic tags, quotes, polls, GIPHY GIFs, AI labels, spoilers, text attachments, ghost posts, location tags, geo-gating, and Instagram Story cross-sharing. locationId also needs threads_location_tagging; shareToInstagramStory also needs threads_share_to_instagram."
         },
         {
           "operation": "posts.schedule",
@@ -10710,8 +10710,10 @@
           "availability": "available",
           "requiredScopes": [
             "threads_basic",
-            "threads_content_publish"
-          ]
+            "threads_content_publish",
+            "threads_manage_replies"
+          ],
+          "notes": "Meta requires threads_manage_replies for reply_to_id. Replying to another user's post also needs that post to come from keyword search or mentions."
         },
         {
           "operation": "comments.moderate",
@@ -10834,6 +10836,65 @@
             "threads_basic",
             "threads_manage_mentions"
           ]
+        },
+        {
+          "operation": "replies.own.read",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_read_replies"
+          ]
+        },
+        {
+          "operation": "posts.ghost.read",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic"
+          ]
+        },
+        {
+          "operation": "profiles.posts.read",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_profile_discovery"
+          ],
+          "notes": "Standard access returns posts from @meta, @threads, @instagram, and @facebook only; profiles need at least 100 followers."
+        },
+        {
+          "operation": "locations.search",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_location_tagging"
+          ],
+          "notes": "Before threads_location_tagging approval, location_search only matches the query \"Menlo Park\". Meta allows 500 searches per 24 hours."
+        },
+        {
+          "operation": "analytics.demographics.read",
+          "platform": "threads",
+          "availability": "available",
+          "requiredScopes": [
+            "threads_basic",
+            "threads_manage_insights"
+          ],
+          "notes": "follower_demographics needs at least 100 followers and one breakdown."
+        },
+        {
+          "operation": "tokens.debug",
+          "platform": "threads",
+          "availability": "available",
+          "notes": "debug_token accepts an app access token, or a Threads tester's user token, from the same app as the inspected token."
+        },
+        {
+          "operation": "posts.embed",
+          "platform": "threads",
+          "availability": "available",
+          "notes": "oEmbed needs no access token since March 3, 2026; the adapter still sends its own."
         },
         {
           "operation": "messages.read",
@@ -11376,7 +11437,7 @@
     "manifest": {
       "schemaVersion": 1,
       "backend": "instagram",
-      "apiRevision": "Instagram Login Graph v25.0",
+      "apiRevision": "Instagram Login Graph v27.0",
       "runtime": [
         "node22",
         "node24",
@@ -11400,7 +11461,7 @@
             "mediaSources": [
               "https-url"
             ],
-            "maxItems": 10,
+            "maxItems": 20,
             "allowedMimeTypes": [
               "image/jpeg",
               "video/mp4",
@@ -11569,7 +11630,7 @@
             "instagram_business_basic",
             "instagram_business_manage_messages"
           ],
-          "notes": "Reads conversations with participants and messages with sender, recipients, text, timestamps, and attachments through the Instagram Conversations API. The account must be a qualifying professional account and the app must have the required access level."
+          "notes": "Reads conversations with participants and messages with sender, recipients, text, timestamps, and attachments through GET /{ig-user-id}/conversations. The account must be a qualifying professional account and the app must have the required access level."
         },
         {
           "platform": "instagram",
@@ -11586,6 +11647,16 @@
           "operation": "webhooks.verify",
           "availability": "available",
           "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
+        },
+        {
+          "platform": "instagram",
+          "operation": "likes.write",
+          "availability": "unsupported-by-platform",
+          "requiredScopes": [
+            "instagram_basic",
+            "instagram_manage_engagement"
+          ],
+          "notes": "Meta documents /{ig-user-id}/likes for Instagram API with Facebook Login only."
         },
         {
           "platform": "instagram",
@@ -11889,7 +11960,7 @@
     "manifest": {
       "schemaVersion": 1,
       "backend": "facebook",
-      "apiRevision": "Facebook Graph v25.0",
+      "apiRevision": "Facebook Graph v27.0",
       "runtime": [
         "node22",
         "node24",
@@ -11931,7 +12002,7 @@
             "pages_read_engagement",
             "pages_show_list"
           ],
-          "notes": "Native scheduled_publish_time. Meta accepts times between 10 minutes and 30 days after the request."
+          "notes": "Native scheduled_publish_time, at least 10 minutes ahead: feed and photo posts up to 30 days, Page videos up to 6 months, and Reels up to 29 days."
         },
         {
           "platform": "facebook",
@@ -12089,22 +12160,39 @@
           ],
           "constraints": {
             "mediaSources": [
-              "https-url"
+              "https-url",
+              "blob"
             ]
           },
-          "notes": "Hosted 9:16 video, 3 to 90 seconds, through the three-phase Page Reels API."
+          "notes": "9:16 video, 3 to 90 seconds, from a hosted URL or uploaded bytes, through the three-phase Page Reels API. Meta allows 30 API-published Reels per Page in a moving 24 hours window, and the adapter refuses a Reel past that count in one process."
         },
         {
           "platform": "facebook",
           "operation": "posts.update",
           "availability": "not-implemented-by-adapter",
-          "notes": "Editing published Page posts is not implemented."
+          "notes": "The normalized update is not implemented. native.updatePost edits a post's message (posts the app created) and pins or hides posts."
         },
         {
           "platform": "facebook",
           "operation": "messages.read",
-          "availability": "not-implemented-by-adapter",
-          "notes": "Page messaging uses the Messenger Platform, which this adapter does not implement."
+          "availability": "available",
+          "requiredScopes": [
+            "pages_messaging",
+            "pages_manage_metadata",
+            "pages_read_engagement"
+          ],
+          "notes": "Messenger conversations (platform=messenger) with participants, and message details, which Meta returns for the 20 most recent messages of a conversation."
+        },
+        {
+          "platform": "facebook",
+          "operation": "messages.write",
+          "availability": "available",
+          "requiredScopes": [
+            "pages_messaging",
+            "pages_manage_metadata",
+            "pages_read_engagement"
+          ],
+          "notes": "Replies with messaging_type RESPONSE inside the 24-hour window to the conversation's one other participant. native.sendMessage adds UPDATE, the HUMAN_AGENT tag, and attachments; native.privateReply answers a comment."
         },
         {
           "platform": "facebook",

@@ -130,7 +130,7 @@ test("Instagram account metrics use allowlisted profile fields and verify user i
   });
 
   const metrics = await adapter.analytics!.getAccountMetrics!(account, context("instagram"));
-  assert.equal(requested?.pathname, "/v25.0/me");
+  assert.equal(requested?.pathname, "/v27.0/me");
   assert.equal(requested?.searchParams.get("fields"), "user_id,followers_count,media_count");
   assert.deepEqual(
     metrics.map((metric) => [metric.name, metric.value]),

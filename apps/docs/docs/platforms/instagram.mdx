@@ -10,7 +10,9 @@ Instagram publishing goes through its content publishing API: create a media con
 
 For how Instagram's publishing rules compare with the other platform APIs and unified social media APIs, read the <a href="/guides/social-media-apis">social media APIs guide</a>.
 
-The direct Instagram adapter uses Instagram Login for a professional account by default. Supply an access token and the account ID on the server; the adapter does not perform OAuth, account discovery, or tenant membership checks. For Facebook Login, set `auth.flavor` to `"facebook-login"` and supply the access token for the Facebook Page linked to the professional Instagram account. This flavor uses `graph.facebook.com`.
+The direct Instagram adapter uses Instagram Login for a professional account by default. Supply an access token and the account ID on the server; the adapter does not perform OAuth or tenant membership checks. For Facebook Login, set `auth.flavor` to `"facebook-login"` and supply the access token for the Facebook Page linked to the professional Instagram account. This flavor uses `graph.facebook.com`. To find the account ID, the Facebook Login native `getPageInstagramAccount({ pageId, context })` reads `GET /{page-id}?fields=instagram_business_account` and returns the linked account's `id` and `username`, or `undefined` when the Page has none.
+
+Meta's Instagram API with Unified Login lets a client log in with Instagram or Facebook, pick a business portfolio, and share Instagram accounts without a Facebook Page. Meta ships new Instagram features only there. It returns a Business Integration System User access token that calls the same `graph.facebook.com` endpoints with the `instagram_*` permissions, so pass it as the `facebook-login` flavor's `accessToken`. See [Unified Login](#unified-login) for onboarding. This combination has not been live-verified.
 
 ## Setup
 
@@ -61,11 +63,53 @@ Facebook Login publishing needs the linked Page access token, the professional I
 
 Instagram User long-lived tokens expire after 60 days. Refresh a valid token only after it is at least 24 hours old; see [Account authentication](/authentication).
 
+`instagramOAuth` builds the Business Login for Instagram authorize URL. Two options change the login page: `forceReauth: true` sends `force_reauth=true`, which makes Instagram ask for the professional account's credentials even when the browser is already signed in (use it to connect a second account, and on mobile, where Meta recommends it), and `enableFacebookLogin: false` sends `enable_fb_login=false`, which hides the "Log in with Facebook" option (Meta's default is `true`). Both are omitted unless set, and other providers reject them.
+
+```ts
+const provider = instagramOAuth({
+  clientId,
+  clientSecret,
+  redirectUri,
+  forceReauth: true,
+  enableFacebookLogin: false,
+});
+```
+
+### Unified Login
+
+Unified Login is Facebook Login for Business with a configuration ID. The SDK does not run this login or exchange its code; do both on your server:
+
+1. Send the client to `https://www.facebook.com/dialog/oauth` with `client_id` (your Meta app ID, not the Instagram app ID), `config_id` (the configuration from **API setup with Unified login**), `redirect_uri`, `response_type=code`, and optionally `prompt=login` to always show both the Facebook and Instagram options.
+2. Exchange the returned `code` with `GET https://graph.facebook.com/v27.0/oauth/access_token` and your Meta app ID and app secret. The result is a Business Integration System User access token.
+3. Construct the adapter with `flavor: "facebook-login"` and that token. `/me` is the system user, not an Instagram account, so read the IDs with the native methods below. They need no `account` and run before you know the account ID, so any placeholder `accountId` works for this step.
+
+`getClientBusinessId` reads `GET /me?fields=client_business_id`, the client's business portfolio ID; store it with the token, since Meta's token management API needs it. `listAssignedAccounts` reads `GET /me/assigned_instagram_accounts` (needs `instagram_basic`) and returns the `id` and `username` of every Instagram account the client shared, with `nextCursor` for more. One token covers all of them; construct one adapter per account ID. Then subscribe each account to webhooks with `subscribeWebhooks` and no `pageId`, which posts to `graph.facebook.com/{ig-user-id}/subscribed_apps` (Unified Login has no Page). Messaging works with this token on `graph.facebook.com/{ig-user-id}/messages`; see [Send rich messages](#send-rich-messages). Meta does not support the Handover Protocol on Unified Login.
+
+```ts
+const onboarding = instagram({
+  auth: { accessToken: systemUserToken, accountId: "pending", flavor: "facebook-login" },
+});
+const onboardingNative = onboarding.native!;
+const clientBusinessId = await onboardingNative.getClientBusinessId({ context });
+const shared = await onboardingNative.listAssignedAccounts({ context });
+for (const { id } of shared.items) {
+  const adapter = instagram({
+    auth: { accessToken: systemUserToken, accountId: id, flavor: "facebook-login" },
+  });
+  const ref = connectedAccountRef({ backend: "instagram", platform: "instagram", accountId: id });
+  await adapter.native!.subscribeWebhooks({
+    account: ref,
+    fields: ["messages", "comments"],
+    context,
+  });
+}
+```
+
 ## Examples
 
 ### Publish an image
 
-Images, videos, and carousels use public HTTPS media. Text-only publishing is unsupported. Supply 1 to 10 attachments; 2 to 10 form a carousel. Captions are limited to 2,200 characters. Images require `image/jpeg`; videos require `video/mp4` or `video/quicktime`. Image `altText` maps to `alt_text` and is limited to 1,000 characters, including on carousel children. Video alt text is omitted.
+Images, videos, and carousels use public HTTPS media. Supply 1 to 20 attachments; 2 to 20 form a carousel, matching Meta's carousel limit of up to 20 images and videos. Captions are limited to 2,200 characters, 30 hashtags, and 20 @ tags; `prepareTarget` reports an `instagram.caption` issue for each limit a caption breaks. Images require `image/jpeg`; videos require `video/mp4` or `video/quicktime`. Image `altText` maps to `alt_text` and is limited to 1,000 characters, including on carousel children. Video alt text is omitted.
 
 ```ts
 const result = await social.posts.publish({
@@ -119,6 +163,140 @@ const result = await social.posts.publish({
 });
 ```
 
+### Publishing options
+
+Target `options` carry Instagram container fields. Each option applies only to the container kinds Meta documents for it, and `prepareTarget` reports `instagram.options` for an unknown key, an invalid value, or a field on the wrong kind (for example `coverUrl` on an image). Options that need Facebook Login report `instagram.options_flavor` on an Instagram Login adapter. Nothing is sent until every option validates. A single image is an image container, a single video is a Reel, and two or more items are a carousel whose parent receives the options; carousel children never receive them.
+
+| Option                     | Wire field                                     | Applies to                   | Rules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ---------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shareToFeed`              | `share_to_feed`                                | Reel, carousel parent        | `false` keeps a Reel in the Reels tab only. Meta does not guarantee placement. Ignored on a single image.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `coverUrl`                 | `cover_url`                                    | Reel                         | Public HTTPS cover image. Overrides `thumbOffsetMs` when both are set.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `thumbOffsetMs`            | `thumb_offset`                                 | Reel                         | Non-negative integer milliseconds into the video. Meta's default is the first frame.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `audioName`                | `audio_name`                                   | Reel                         | Names the Reel's original audio. Meta allows renaming it only once.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `trial`                    | `trial_params.graduation_strategy`             | Reel                         | A trial Reel is shown only to non-followers. `"MANUAL"` graduates it from the Instagram app; `"SS_PERFORMANCE"` graduates it automatically if it performs well.                                                                                                                                                                                                                                                                                                                              |
+| `collaborators`            | `collaborators`                                | Image, Reel, carousel parent | 1 to 3 Instagram usernames invited as collaborators. Not available on Stories.                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `userTags`                 | `user_tags`                                    | Single image                 | Each tag has `username` plus `x` and `y` from 0 to 1, measured from the top-left corner.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `locationId`               | `location_id`                                  | Image, Reel, carousel parent | A numeric Facebook Page ID whose Page has location data; otherwise Meta rejects the container.                                                                                                                                                                                                                                                                                                                                                                                               |
+| `isAiGenerated`            | `is_ai_generated`                              | Image, Reel, carousel parent | Adds Meta's AI-generated disclosure. Meta returns an error if it is set on carousel children, so the SDK never sends it there.                                                                                                                                                                                                                                                                                                                                                               |
+| `isPaidPartnership`        | `is_paid_partnership`                          | Image, Reel, carousel parent | Facebook Login only. Adds the "Paid partnership" label.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `brandedContentSponsorIds` | `branded_content_sponsor_ids`                  | Image, Reel, carousel parent | Facebook Login only. 1 or 2 brand Instagram user IDs, sent as strings. Sponsor IDs always turn on the paid partnership label.                                                                                                                                                                                                                                                                                                                                                                |
+| `poll`                     | `poll_attachment`, `is_poll_duration_extended` | Image, Reel, carousel parent | Facebook Login only. 2 to 4 options of 1 to 25 characters, sent as `option_a` through `option_d`, with a serialized size of 200 characters or fewer. The caption becomes the poll question and must not be empty. A poll runs 3 days unless `extendedDuration` is `true`. Cannot be combined with `commentPrompt`.                                                                                                                                                                           |
+| `commentPrompt`            | `is_comment_prompt_used`                       | Image, Reel, carousel parent | Facebook Login only. The non-empty caption becomes the comment prompt.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `productTags`              | `product_tags`                                 | Single image or Reel         | Facebook Login only, for accounts with an Instagram Shop. 1 to 5 unique `productId` values from the account's catalog, the cap in Meta's media container reference (its product tagging guide lists higher per-post totals, so add more with `updateProductTags` after publishing); `x` and `y` (0 to 1) apply to images only. Needs `catalog_management` and `instagram_shopping_tag_products`. Carousel children's product tags are per item and are not available through target options. |
+| `audioConfiguration`       | `audio_configuration`                          | Reel                         | Facebook Login only. `audioId` from an Audio API search, with optional `audioVolume` and `videoVolume` from 1 to 100 (Meta's default is 100).                                                                                                                                                                                                                                                                                                                                                |
+
+```ts
+await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: {
+        coverUrl: "https://cdn.example.com/cover.jpg",
+        audioName: "Studio take",
+        trial: { graduationStrategy: "SS_PERFORMANCE" },
+        collaborators: ["partner.account"],
+        isAiGenerated: false,
+      },
+    },
+  ],
+  content: {
+    text: "Behind the scenes",
+    media: [
+      {
+        kind: "video",
+        mimeType: "video/mp4",
+        source: { kind: "https-url", url: "https://cdn.example.com/reel.mp4" },
+      },
+    ],
+  },
+});
+```
+
+Native `publishReel` accepts the same options except `userTags`, native `publishCarousel(account, children, caption, context, options)` sends them on the carousel parent and takes 2 to 20 children, and native `publishStory` accepts `userTags` whose `x` and `y` are optional on Stories.
+
+The table above describes the direct Instagram adapter. Managed backends have their own option names and map only the fields their APIs document, rejecting the rest at preparation:
+
+- [Zernio](/backends/zernio): `placement`, `collaborators`, `userTags` (with an optional `mediaIndex`), `locationId`, `trialReel`, `thumbOffsetMs`, `audioName`, `audioConfiguration` (volumes from 0 to 100), `muteAudio`, `aiGenerated`, `paidPartnership` with `brandedContentSponsors`, `commentsEnabled`, `firstComment`, and `shareToFeed`.
+- [Post for Me](/backends/post-for-me): `placement`, `shareToFeed`, `collaborators`, `locationId`, `trialReel`, `audioName`, and `aiGenerated`. `userTags` is not mapped.
+- [PostFast](/backends/postfast): `shareToFeed`, `placement`, `collaborators`, `locationId` (not on carousels), `aiGenerated`, `trialReel: "performance"`, `thumbOffsetMs`, and `firstComment`.
+- [Postiz](/backends/postiz): `postType: "story"`, `trialReel` with `graduationStrategy`, `collaborators`, `audio`, and `thumbnailTimestamp`. Postiz always posts to the feed, so `shareToFeed: false` is rejected.
+- [Buffer](/backends/buffer): a required boolean `shareToFeed`, `postType`, `location`, `userTags`, `thumbnailOffset`, `shopGridLink`, `aiGenerated`, and `firstComment`.
+
+`media_publish` can succeed while dropping part of the request. Meta then adds `config_issue` (`CAPTION_NOT_ATTACHED` when the media went live without its caption, `USER_TAGGING_FAILURE` without its user tags) or `caption_add_on_attachment_status` (`POLL_CREATION_FAILURE` or `PROMPT_CREATION_FAILURE` when the poll or comment prompt did not attach) to the response. The `published` outcome keeps the post and lists each one in `issues` with `severity: "warning"`, the Meta value as `code`, and the response field as `path`. Nothing is retried: the post is live, so fix it with a comment or a new post rather than publishing again. Meta cannot return these warnings later, so the workflow saves them as `publishIssues`, and `getDelivery` and `native.resumePublication` return the same `issues` for that delivery.
+
+```ts
+const [outcome] = result.outcomes;
+if (outcome?.state === "published") {
+  for (const issue of outcome.issues ?? []) console.warn(issue.path, issue.code, issue.message);
+}
+```
+
+#### Poll and comment prompt results
+
+With Facebook Login and `instagram_basic`, `getPollResults` reads `GET /{ig-media-id}/poll_attachment` for media published with `poll`. It returns each option's `text` and `votesPercentage` (Meta's `option_a_votes_percentage` through `option_d_votes_percentage`, a share from 0 to 1), `totalVotes` (`total_votes`), and `expiresAt` (`expiration_timestamp`) when the poll expires, or `undefined` when the media has no poll. `listPromptResponses` reads `GET /{ig-media-id}/prompt_response` for media published with `commentPrompt` and returns `id`, `text`, `timestamp`, and `username` for each answer; `username` needs `instagram_manage_comments`. Meta sends `data: null` when the media has no prompt or comments are turned off, which the SDK returns as `available: false`. An empty page with `available: true` can still have a `nextCursor`, so page on the cursor. Neither edge supports Stories or field expansion.
+
+```ts
+const poll = await facebookNative.getPollResults({ account, mediaId, context });
+const answers = await facebookNative.listPromptResponses({ account, mediaId, limit: 50, context });
+```
+
+### Upload local video
+
+Meta's resumable upload protocol lets a Facebook Login app send video bytes without public hosting. It is not available with Instagram Login. Three native methods cover it:
+
+1. `createResumableUpload` sends `POST /{ig-user-id}/media?upload_type=resumable` with `media_type` set to `REELS`, `STORIES`, or `VIDEO` (a carousel item, sent with `is_carousel_item=true`). A Reel also takes a caption and the Reel [publishing options](#publishing-options). It returns the `containerId` and the `uploadUri`, which the SDK accepts only on `https://rupload.facebook.com/ig-api-upload/`.
+2. `uploadVideo` posts to that URI with `Authorization: OAuth <token>`. For a `Blob` it sends the `offset` and `file_size` headers and the bytes from `offset` onward; for an already hosted file it sends the `file_url` header and no body. Meta answers `{ "success": true }`; a `debug_info` failure becomes a `SocialError` with Meta's message and type. A network failure is `ambiguous_outcome`, and the SDK never retries the upload on its own.
+3. `getUploadStatus` reads `status`, `status_code`, and `video_status`. If `video_status.uploading_phase` is still in progress, call `uploadVideo` again with `offset` set to its `bytes_transferred`.
+
+Publish the finished container with `publishContainer`, or pass carousel item containers to `publishCarousel`.
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const upload = await facebookNative.createResumableUpload({
+  account,
+  mediaType: "REELS",
+  caption: "Uploaded from the server",
+  context,
+});
+const blob = new Blob([await readFile("./reel.mp4")], { type: "video/mp4" });
+await facebookNative.uploadVideo({
+  account,
+  uploadUri: upload.uploadUri,
+  source: { kind: "blob", blob },
+  context,
+});
+const published = await facebookNative.publishContainer(account, upload.containerId, context);
+```
+
+### Find audio for a Reel
+
+With Facebook Login, `searchAudio` calls `GET /ig_audio` with `audio_type` (`"music"` or `"original_sound"`), the account's `user_id`, and an optional `search_query`; without a query Meta returns trending audio. Each item keeps the documented fields, such as `audio_id`, `title`, `display_artist`, `duration_in_ms`, and `download_url` (a preview link that expires after about a day and a half). `getAudio` reads one asset through `GET /{ig-audio-id}`. Pass the chosen `audio_id` as `audioConfiguration.audioId` when publishing a Reel. Meta returns only audio licensed for third-party use, which can differ from the Instagram app, and the Audio API is not available with Instagram Login. It needs `instagram_basic` and `instagram_content_publish`.
+
+```ts
+const tracks = await facebookNative.searchAudio({
+  account,
+  audioType: "music",
+  query: "acoustic",
+  context,
+});
+const audioId = tracks.items[0]?.["audio_id"];
+```
+
+### Check copyright before publishing
+
+With Facebook Login, `getCopyrightCheck` reads Meta's copyright detection for video created through the content publishing API. Use `stage: "container"` for an unpublished container, which reads the `copyright_check_status` field, and `stage: "media"` for published media, which reads `copyright_check_information`. The result has `status` (`completed`, `error`, `in_progress`, or `not_started`), `matchesFound`, and the provider object in `native`, which includes `copyright_matches` with the title, author, owner policy, and matched segments when Meta finds a match.
+
+```ts
+const check = await facebookNative.getCopyrightCheck({
+  account,
+  id: "17889455560051444",
+  stage: "container",
+  context,
+});
+if (check.matchesFound) console.log(check.native);
+```
+
 ### Reconcile container processing
 
 Retain the processing outcome and call `getDelivery` while it remains processing. The default workflow store is process-local memory. A restart or a separate worker cannot recover its `workflowId` deliveries. For jobs, configure a durable shared `InstagramWorkflowStore` when constructing every adapter instance:
@@ -169,6 +347,65 @@ await social.comments.reply(
 );
 ```
 
+### Read posts and media
+
+`social.posts.list` reads `GET /{ig-user-id}/media` with up to 100 items per page and returns `id`, `caption`, `media_type`, `media_product_type`, `media_url`, `thumbnail_url` (video only), `permalink`, `shortcode`, `timestamp`, `username`, `like_count`, and `comments_count` when Meta returns them. Stories are not in this edge. Meta omits `media_url` for video with copyrighted or licensed audio and for some Reels, and omits `like_count` when the owner hides like counts on media read indirectly. Both also request `is_comment_enabled` (whether comments are on), `is_shared_to_feed` (Reels only: `true` when the Reel can appear in Feed as well as the Reels tab), and `media_audio_type` (`MUSIC` or `ORIGINAL_SOUND`, video only). `social.posts.get` reads the same fields from `GET /{ig-media-id}`. With Facebook Login it also requests `saved_count`, `shares_count`, and `reposts_count`, which Meta returns only to the media owner or an accepted collaborator, and `total_views_count`, the video's views across all surfaces including boosted media and replays. None of the four is returned for carousel children.
+
+`listChildren` reads a carousel album's `GET /{ig-media-id}/children` edge with either login flavor. The Facebook Login-only reads below need `instagram_basic` and `pages_read_engagement` (plus `ads_management` or `ads_read` when the Page role comes from Business Manager):
+
+- `listStories` reads `GET /{ig-user-id}/stories`. Stories are available for 24 hours; live video Stories and reshared Stories are not returned.
+- `listLiveMedia` reads `GET /{ig-user-id}/live_media`, which returns only live video being broadcast at the time of the request. `since` and `until` take ISO 8601 date-times and are sent as Unix seconds.
+- `getConnectedThreadsUser` reads `GET /{ig-user-id}/connected_threads_user` and returns the `threads_user_id` of the Threads account connected to this Instagram account, or no ID when there is none. It also needs `threads_business_basic`. Meta's IG User reference also lists `instagram_backed_threads_user` for a Threads account backed by the Instagram account without its own profile; the SDK does not read that edge.
+
+```ts
+const children = await instagramNative.listChildren({
+  account,
+  mediaId: "17895695668004550",
+  context,
+});
+const stories = await facebookNative.listStories({ account, limit: 25, context });
+const threads = await facebookNative.getConnectedThreadsUser({ account, context });
+```
+
+### Collaborations
+
+With Facebook Login, `listCollaborativeMedia` reads `GET /{ig-user-id}/collaborative_media`, which returns feed images, Reels, and carousels owned by other accounts where this account is an accepted collaborator, never its own media. `listMediaCollaborators` reads `GET /{ig-media-id}/collaborators` for owned media and returns each invited account's `id`, `username`, and `inviteStatus` (`Accepted` or `Pending`). `listCollaborationInvites` reads `GET /{ig-user-id}/collaboration_invites` (Meta's default page size is 10) with each invite's `media_id`, `media_owner_username`, `caption`, and `media_url`. `respondToCollaborationInvite` sends `POST /{ig-user-id}/collaboration_invites` with `media_id` and `accept` (`true` accepts, `false` declines) and raises `ambiguous_outcome` unless Meta returns `success: true`. These endpoints need `instagram_basic`. Meta limits invite listing to 300 calls and invite responses to 50 calls per Instagram user per day. Stories cannot be collaborative.
+
+```ts
+const invites = await facebookNative.listCollaborationInvites({ account, context });
+const mediaId = invites.items[0]?.["media_id"];
+if (typeof mediaId === "string") {
+  await facebookNative.respondToCollaborationInvite({ account, mediaId, accept: true, context });
+}
+```
+
+### Embed posts with oEmbed
+
+`getOEmbed` calls `GET /instagram_oembed` on `graph.facebook.com/v27.0` for a public post, Reel, or profile URL on `instagram.com` and returns Meta's object with `html`, `version`, `provider_name`, `type`, and `width`. `maxWidth` maps to `maxwidth` and `omitScript` to `omitscript`. Meta accepts an app or client access token for oEmbed; pass it as `appAccessToken` when the adapter's token is not accepted, and keep it on the server. Meta allows up to 1,000 requests per hour and permits oEmbed data only for front-end embedding: not for analytics or storage. Private, inactive, age-restricted, and embed-disabled accounts and Stories are not supported.
+
+```ts
+const embed = await instagramNative.getOEmbed({
+  url: "https://www.instagram.com/p/C1abc/",
+  maxWidth: 540,
+  appAccessToken: process.env["META_APP_TOKEN"]!,
+  context,
+});
+```
+
+### Upcoming events
+
+With Facebook Login and `instagram_manage_upcoming_events` plus `instagram_basic`, `listUpcomingEvents` reads `GET /{ig-user-id}/upcoming_events` (`id`, `title`, `start_time`), `createUpcomingEvent` sends `POST /{ig-user-id}/upcoming_events`, and `updateUpcomingEvent` sends `POST /{event-id}`. Both writes return the event `id`. `title` and an ISO 8601 `startTime` are required on create; `endTime` is optional and not allowed when `notificationTargetTime` is `"EVENT_END"`. `notificationSubtypes` defaults on Meta's side to `BEFORE_EVENT_1DAY`, `BEFORE_EVENT_15MIN`, and `EVENT_START`. With the default `EVENT_START` target it must include `EVENT_START`, `BEFORE_EVENT_1DAY`, and at least one more value; with `EVENT_END` it must be exactly `BEFORE_EVENT_2DAY`, `BEFORE_EVENT_1DAY`, and `BEFORE_EVENT_1HOUR`. The SDK rejects other combinations before sending. Only events created through this API or Ads Manager can be read, Meta documents no delete endpoint, and the account must be a professional account linked to a business.
+
+```ts
+const event = await facebookNative.createUpcomingEvent({
+  account,
+  title: "Product launch",
+  startTime: "2026-12-01T18:00:00Z",
+  notificationSubtypes: ["EVENT_START", "BEFORE_EVENT_1DAY", "BEFORE_EVENT_15MIN"],
+  context,
+});
+```
+
 ### Read profiles
 
 The normalized graph reader returns the authorized professional account when no selector is supplied. A handle uses Meta's `business_discovery` field and therefore requires Facebook Login.
@@ -178,7 +415,16 @@ const ownProfile = await social.graph.getProfile(account, {});
 console.log(ownProfile.handle);
 ```
 
-The own-profile request is `GET /{ig-user-id}` with profile fields. Handle lookup is `GET /{ig-user-id}?fields=business_discovery.username(...)`. An explicit `profileId` must identify the authorized own account. Other profiles use Facebook Login handle discovery, which returns public fields and does not promise `displayName` or `avatarUrl`. An Instagram Login token raises `unsupported_capability` for handle lookup.
+The own-profile request is `GET /{ig-user-id}` with profile fields, including `has_profile_pic` (whether the account has a profile picture) and `is_published` (whether the account is published), which the record keeps in `native`. Handle lookup is `GET /{ig-user-id}?fields=business_discovery.username(...)`. An explicit `profileId` must identify the authorized own account. Other profiles use Facebook Login handle discovery, which returns public fields and does not promise `displayName` or `avatarUrl`. An Instagram Login token raises `unsupported_capability` for handle lookup.
+
+### Like media and comments
+
+With Facebook Login and `instagram_basic` plus `instagram_manage_engagement`, `like` sends `POST /{ig-user-id}/likes` and `unlike` sends `DELETE /{ig-user-id}/likes`, each with exactly one of `media_id` (a feed post, Reel, or carousel) or `comment_id` (a comment or reply). Liking twice or unliking something not liked has no effect. Stories and media from private accounts cannot be liked. Meta locks the account out for one hour after more than 50 calls in 5 seconds, and the SDK does not retry. Both raise `ambiguous_outcome` unless Meta returns `success: true`. Instagram Login has no likes endpoint.
+
+```ts
+await facebookNative.like({ account, mediaId: "17895695668004550", context });
+await facebookNative.unlike({ account, commentId: "17873440459141021", context });
+```
 
 ### Moderate comments
 
@@ -208,7 +454,77 @@ await instagramNative.setCommentsEnabled({
 await instagramNative.deleteComment({ account, commentId: "17873440459141021", context });
 ```
 
-These mutations accept Instagram User access tokens with Instagram Login or the linked Page access token with Facebook Login. For Instagram Login, request `instagram_business_basic` and `instagram_business_manage_comments`; Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement` (plus any permissions Meta requires for the Page role). Only the owner of the media can delete its comments. You cannot reply to hidden comments. Hiding and replies apply to eligible comments on the authorized account’s media, not live video or ad comments. The media owner’s own comments remain visible when hidden. Replies to a reply attach to its top-level comment. Ad comments use a separate provider edge. Comment lists return top-level comments with a page limit of 50; use the replies edge for nested replies. Replies are supported on the authorized account’s media, not arbitrary discovered media. Private replies and mention replies have no SDK methods.
+These mutations accept Instagram User access tokens with Instagram Login or the linked Page access token with Facebook Login. For Instagram Login, request `instagram_business_basic` and `instagram_business_manage_comments`; Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement` (plus any permissions Meta requires for the Page role). Only the owner of the media can delete its comments. You cannot reply to hidden comments. Hiding and replies apply to eligible comments on the authorized account’s media, not live video or ad comments. The media owner’s own comments remain visible when hidden. Replies to a reply attach to its top-level comment. Ad comments use a separate provider edge. Comment lists return top-level comments with a page limit of 50; use the replies edge for nested replies. Replies are supported on the authorized account’s media, not arbitrary discovered media. Private replies and mention replies use the native methods in [Comment and mention replies](#comment-and-mention-replies).
+
+### Comment and mention replies
+
+These native methods work with either login flavor and the comment permissions above, unless noted.
+
+- `createComment` sends `POST /{ig-media-id}/comments` with `message` and returns the new comment `id`. Meta does not support comments on live video.
+- `getComment` reads `GET /{ig-comment-id}` with `id`, `text`, `timestamp`, `username`, `hidden`, `like_count`, `parent_id`, `from`, and `media`. `hidden` is `true` for a hidden comment. Comments found through the mentions API are readable only by their owner.
+- `listOrderedComments` reads `GET /{ig-media-id}/ordered_comments`, which returns comments in Instagram's display order. Meta offers this edge with Facebook Login only.
+- `replyToMention` sends `POST /{ig-user-id}/mentions` with `media_id` and `message`. Without `commentId` it replies to a caption that @mentions the account; with `commentId` it sends `comment_id` and replies to the comment that @mentioned it. Take both IDs from the mention webhook. Story mentions and media where the account was only tagged are not supported, and the comment reply also needs `pages_show_list` with Facebook Login.
+- `privateReply` sends `POST /{ig-user-id}/messages` with `recipient: { comment_id }` and a text message, which opens a private conversation with the commenter. Meta allows one private reply per commenter, within 7 days of the comment (live comments only during the broadcast); further messages need the person to answer, then follow the 24-hour window. With Instagram Login it needs `instagram_business_basic` and `instagram_business_manage_comments`.
+
+```ts
+await instagramNative.replyToMention({
+  account,
+  mediaId: "17895695668004550",
+  commentId: "17873440459141021",
+  text: "Thanks for the shout-out!",
+  context,
+});
+await instagramNative.privateReply({
+  account,
+  commentId: "17873440459141021",
+  text: "We sent you the details here.",
+  context,
+});
+```
+
+### Send rich messages
+
+Messaging works with both flavors. Instagram Login sends to `graph.instagram.com` with `instagram_business_basic` plus `instagram_business_manage_messages`. The `facebook-login` flavor sends to `graph.facebook.com/{ig-user-id}/messages`, `/conversations`, and `/messenger_profile`, the routes Meta documents for Unified Login, with `instagram_basic` plus `instagram_manage_messages`. Use a Unified Login system user token there. For Page-linked accounts, Meta's Messenger Platform messaging uses a Page access token on `/{page-id}/messages`, which this adapter does not call. Message IDs differ between the two hosts, so do not reuse IDs stored under the other flavor. `sendDirectMessage` sends `POST /{ig-user-id}/messages` to an Instagram-scoped ID (IGSID) from a messaging webhook. It returns Meta's `recipientId` and `messageId`. Messages can only follow a customer message within Meta's 24-hour window. `message.kind` selects the body:
+
+| `kind`                   | Wire body                                                  | Limits                                                                                                                                                                                                                 |
+| ------------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`                   | `message.text`, optional `quick_replies`                   | 1,000 UTF-8 bytes. 1 to 13 quick replies with `content_type: "text"`, a `title` (Instagram truncates after 20 characters), and a `payload` delivered in the webhook. Quick replies are not shown on desktop.           |
+| `images`                 | `message.attachments` of `type: "image"`                   | 1 to 10 images, each a public `url` or an `attachment_id` from Meta's Attachment Upload API. PNG or JPEG up to 8 MB.                                                                                                   |
+| `audio`, `video`, `file` | `message.attachment` with `payload.url`                    | Audio (aac, m4a, wav, mp4) and video (mp4, ogg, avi, mov, webm) up to 25 MB; files are PDF up to 25 MB.                                                                                                                |
+| `like_heart`             | `message.attachment.type: "like_heart"`                    | Sends the heart sticker.                                                                                                                                                                                               |
+| `media_share`            | `message.attachment.type: "MEDIA_SHARE"` with `payload.id` | Shares a post the account owns.                                                                                                                                                                                        |
+| `generic_template`       | `template_type: "generic"`                                 | Generic template: 1 to 10 elements (a scrollable carousel), each with a `title` of up to 80 characters plus at least one of `subtitle` (80), `imageUrl`, `defaultActionUrl`, or up to 3 buttons. Not shown on desktop. |
+| `button_template`        | `template_type: "button"`                                  | Button template: `text` of up to 640 characters and 1 to 3 buttons.                                                                                                                                                    |
+
+Buttons are `{ kind: "web_url", title, url }` or `{ kind: "postback", title, payload }`; a postback button's payload arrives in the `messaging_postbacks` webhook. `replyToMessageId` adds `reply_to: { mid }` to reply to a specific message. `humanAgent: true` adds `messaging_type: "MESSAGE_TAG"` and `tag: "HUMAN_AGENT"`, which lets a human agent answer within 7 days of the person's last message. `HUMAN_AGENT` is the only message tag Meta offers for Instagram, it requires the Human Agent permission through App Review, and Meta forbids it for automated messages.
+
+```ts
+await instagramNative.sendDirectMessage({
+  account,
+  recipientId: "<IGSID>",
+  message: {
+    kind: "button_template",
+    text: "How can we help?",
+    buttons: [
+      { kind: "postback", title: "Talk to a person", payload: "HUMAN" },
+      { kind: "web_url", title: "Order status", url: "https://shop.example.com/orders" },
+    ],
+  },
+  context,
+});
+```
+
+Other messaging helpers:
+
+- `findConversation` sends `GET /{ig-user-id}/conversations?user_id=<IGSID>` with the Instagram-scoped ID from a messaging webhook and returns that person's conversation reference, or `undefined` when there is none, instead of paging every conversation. Pass the result to `social.messages.listMessages`.
+
+- `reactToMessage` sends `sender_action: "react"` with `payload.message_id` and `payload.reaction` (an emoji or `love`); sending it again replaces the reaction. `removeReaction` sends `sender_action: "unreact"`.
+- `sendSenderAction` sends `typing_on`, `typing_off`, or `mark_seen` with only the recipient, as Meta requires. The person must be signed in to see it.
+- `getIceBreakers`, `setIceBreakers`, and `deleteIceBreakers` manage ice breakers, the conversation-starter questions, through `/{ig-user-id}/messenger_profile` with `platform: "instagram"`. Each locale takes up to 4 questions with a `payload`; `deleteIceBreakers` sends `DELETE` with `fields: ["ice_breakers"]`.
+- `getPersistentMenu`, `setPersistentMenu`, and `deletePersistentMenu` manage the persistent menu (`persistent_menu`) on the same endpoint. Each menu has a `locale` (`default` or a code such as `zh_CN`) and `web_url` or `postback` items; Meta recommends at most 5 items, and people see changes after refreshing their inbox. Set and delete calls raise `ambiguous_outcome` unless Meta returns `success: true`.
+- `getMessagingUserProfile` reads the User Profile API, `GET /{igsid}` with `name`, `username`, `profile_pic`, `follower_count`, `is_user_follow_business`, `is_business_follow_user`, and `is_verified_user`. The person must have messaged the account or tapped an ice breaker or menu item first; a comment alone does not grant consent. `name` and `profile_pic` can be absent, and `profile_pic` URLs expire after a few days.
+
+Handover between inboxes is not an SDK method; see [Not supported](#not-supported).
 
 ### Read replies and mentions
 
@@ -233,9 +549,9 @@ const nextReplies = replies.nextCursor
 
 Replies can use either login flavor when the token has the permissions required for the selected Graph host. Instagram Login uses `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login uses `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`.
 
-`listMentions`, `listTaggedMedia`, and `mentions` read `GET /{ig-user-id}/tags` and return the same cursor-paginated page shape. `mentions` is an alias for `listMentions`. All three work with either login flavor and back the `mentions.read` capability. Instagram Login calls `graph.instagram.com` and needs `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login calls `graph.facebook.com` and needs `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`. Tags continuation uses the returned `after` cursor even when Meta omits `paging.next`; ordinary comment edges require `paging.next`. Meta does not return private media or Story mentions.
+`listMentions`, `listTaggedMedia`, and `mentions` read `GET /{ig-user-id}/tags` and return the same cursor-paginated page shape. `mentions` is an alias for `listMentions`. All three work with either login flavor and back the `mentions.read` capability. Instagram Login calls `graph.instagram.com` and needs `instagram_business_basic` and `instagram_business_manage_comments`. Facebook Login calls `graph.facebook.com` and needs `instagram_basic`, `instagram_manage_comments`, and `pages_read_engagement`. Tags continuation uses the returned `after` cursor even when Meta omits `paging.next`; ordinary comment edges require `paging.next`. Meta does not return private media or Story mentions. Pass `postedAfter` or `postedBefore` (ISO 8601 date-times, sent as `posted_after` and `posted_before`) to keep only media posted strictly after or before a time; a time without an offset is UTC, and `postedBefore` must be later than `postedAfter`. Meta filters each page after selecting it, so a short or empty page is normal: keep following `nextCursor`. Meta is still rolling this filter out, so an app without it gets unfiltered pages.
 
-`mentionedMedia` and `mentionedComment` query the `mentioned_media` and `mentioned_comment` field expansions for a known media or comment ID. They require Facebook Login. Meta's Instagram Login mentions guide documents only the `tags` edge and replies through `POST /{ig-user-id}/mentions`, so an Instagram Login adapter raises `unsupported_capability` for these two methods before sending a request. The SDK does not implement the mention-reply endpoint. See Meta's mentions guides for [Instagram Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/mentions) and [Facebook Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/mentions).
+`mentionedMedia` and `mentionedComment` query the `mentioned_media` and `mentioned_comment` field expansions for a known media or comment ID. They require Facebook Login. Meta's Instagram Login mentions guide documents only the `tags` edge and replies through `POST /{ig-user-id}/mentions`, so an Instagram Login adapter raises `unsupported_capability` for these two methods before sending a request. `replyToMention` implements that reply endpoint; see [Comment and mention replies](#comment-and-mention-replies). See Meta's mentions guides for [Instagram Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/mentions) and [Facebook Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/mentions).
 
 ```ts
 const tagged = await instagramNative.listTaggedMedia({ account, limit: 25, context });
@@ -298,30 +614,61 @@ const recent = await facebookNative.hashtagMedia({
 });
 ```
 
-If an Instagram Login adapter calls a Facebook Login-only operation, it raises `SocialError` with `code: "unsupported_capability"`. Search and both `recent_media` and `top_media` reads count toward 30 unique hashtags per professional account in a rolling seven-day period. Repeating a query within that window does not restart its timer. `recent_media` covers public organic media from the last 24 hours, is not chronological, and returns at most 50 results per page; pass the returned `nextCursor` as `cursor` to continue. Stories, promoted media, and private content are excluded. Queries resolve a single hashtag, not arbitrary keyword or combined-tag searches. Media returned by hashtag search cannot be commented on through this API.
+If an Instagram Login adapter calls a Facebook Login-only operation, it raises `SocialError` with `code: "unsupported_capability"`. Search and both `recent_media` and `top_media` reads count toward 30 unique hashtags per professional account in a rolling seven-day period. Repeating a query within that window does not restart its timer. `recent_media` covers public organic media from the last 24 hours, is not chronological, and returns at most 50 results per page; pass the returned `nextCursor` as `cursor` to continue. Stories, promoted media, and private content are excluded. Queries resolve a single hashtag, not arbitrary keyword or combined-tag searches. Media returned by hashtag search cannot be commented on through this API. To track that budget, `listRecentlySearchedHashtags` reads `GET /{ig-user-id}/recently_searched_hashtags`, which returns the IDs of hashtags queried in the last 7 days, up to 30 per page.
 
 ### Read post metrics
 
-Post metrics come from Instagram Insights: non-Story media requests `likes`, `comments`, `saved`, `shares`, and `reach`; Stories request `shares` and `reach`. Absent metrics remain absent. Account metrics are own-user field counters, not the account insights edge. Meta’s freshness and retention windows vary by metric, so store fetched timestamps and do not infer zero from missing values. See [Reports](/reads/reports).
+Post metrics come from Instagram Insights: non-Story media requests `likes`, `comments`, `saved`, `shares`, `reach`, `views`, and `total_interactions`; Stories request `shares`, `reach`, `views`, and `total_interactions`. `views` replaces the deprecated `impressions` metric. Absent metrics remain absent; Meta returns no data instead of zero, including for every item inside a carousel album. Normalized account metrics are own-user field counters; use `getAccountInsights` for the account insights edge. Meta’s freshness and retention windows vary by metric, so store fetched timestamps and do not infer zero from missing values. See [Reports](/reads/reports).
 
 ```ts
 const metrics = await social.analytics.getPostMetrics(postRef);
 for (const metric of metrics) console.log(metric.name, metric.value, metric.unit);
 ```
 
+### Native insights
+
+`getMediaInsights` reads `GET /{ig-media-id}/insights` for any documented metric list. Feed posts offer metrics such as `views`, `reach`, `likes`, `comments`, `saved`, `shares`, `reposts`, `follows`, `profile_visits`, `profile_activity`, and `total_interactions`; Reels add `ig_reels_avg_watch_time`, `ig_reels_video_view_total_time`, `reels_skip_rate`, and `crossposted_views`; Stories add `navigation`, `replies`, and `link_clicks`. `breakdown` is `action_type` (only with `profile_activity`) or `story_navigation_action_type` (only with `navigation`); the SDK rejects other pairs, which Meta answers with an error. Story metrics last 24 hours, Story values below 5 return an error, `replies` excludes people in Europe and Japan, and `total_likes`, `total_comments`, and `total_views` need Facebook Login.
+
+`getAccountInsights` reads `GET /{ig-user-id}/insights` with `metric`, `period` (`day`, or `lifetime` for demographics), optional `metric_type` (`total_value` or `time_series`), and ISO 8601 `since` and `until` sent as Unix seconds; without them Meta looks back 24 hours. Without `metrics` it requests `accounts_engaged`, `reach`, `views`, and `total_interactions` with `metric_type=total_value`. Account metrics include `accounts_engaged`, `reach`, `views`, `likes`, `comments`, `saves`, `shares`, `replies`, `reposts`, `total_interactions`, `follows_and_unfollows`, and `profile_links_taps`. `breakdown` (for example `media_product_type`, `follow_type`, or `contact_button_type`) applies only with `metricType: "total_value"`. Each row returns `values` or `totalValue` with `breakdowns` of `dimensionKeys` and `results`.
+
+`getAudienceDemographics` reads `follower_demographics` or `engaged_audience_demographics` with `period=lifetime`, `metric_type=total_value`, one `breakdown` (`age`, `city`, `country`, or `gender`), and a `timeframe` of `this_week` or `this_month`, the only timeframes Meta accepts since v20.0. Meta returns the top 45 values and no data for accounts with fewer than 100 followers or engagements. Insights data can lag up to 48 hours. Both login flavors need the insights permission: `instagram_business_manage_insights` with Instagram Login, `instagram_manage_insights` with Facebook Login.
+
+```ts
+const demographics = await instagramNative.getAudienceDemographics({
+  account,
+  metric: "follower_demographics",
+  breakdown: "country",
+  timeframe: "this_month",
+  context,
+});
+for (const result of demographics.totalValue?.breakdowns?.[0]?.results ?? []) {
+  console.log(result.dimensionValues[0], result.value);
+}
+```
+
 ### Receive webhooks
 
 Pass the Meta app secret as `webhookSecret` to verify `X-Hub-Signature-256` through `adapter.webhooks.verify`. Answer Meta's GET verification with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`. The shared decoder recognizes Facebook Login `entry[].changes[].field/value` and Instagram Login `entry[].field/value`. For a delivery containing only `comments` or `live_comments`, either shape normalizes to `comment.received`. See [Process webhooks](/events) for unknown fields and mixed batches.
 
-Delivery requires the account subscription and app webhook configuration. Enable the account with Meta’s `subscribed_apps` endpoint outside the SDK; the adapter does not subscribe accounts. The app must be Live, and `comments` and `live_comments` require Advanced Access. Comment and mention notifications require a public professional account and eligible owned media; live-comment notifications arrive only during the broadcast.
+Delivery requires the account subscription and app webhook configuration. `subscribeWebhooks` enables fields with `POST /{id}/subscribed_apps` and the comma-separated `subscribed_fields` query parameter: with Instagram Login it subscribes the Instagram account on `graph.instagram.com`; with Facebook Login it subscribes the linked Facebook Page when you pass `pageId`, and the Instagram account itself on `graph.facebook.com` when you omit it, which is the Unified Login setup. It raises `ambiguous_outcome` unless Meta returns `success: true`. Meta documents no endpoint for listing or removing these subscriptions here. The app must be Live, and `comments` and `live_comments` require Advanced Access. Comment and mention notifications require a public professional account and eligible owned media; live-comment notifications arrive only during the broadcast.
 
-Facebook Login has a separate `mentions` subscription and `story_insights`; both remain unknown events with their original field names. Instagram Login includes @mentions in `comments` notifications. `messages` is an Instagram Login or Messenger Platform field, not a Facebook Login Instagram field. Messaging requires its own permissions. Facebook Login `story_insights` covers the first 24 hours before Story expiry, and counts below five can be `-1`. Check Meta’s field list for the configured flavor before subscribing. The normalized messaging facade supports Instagram Login conversations, message bodies, participants, and text replies. Facebook Login remains on the Messenger Platform boundary because it requires a linked Page access token.
+Facebook Login has a separate `mentions` subscription, decoded as `mention.received` (the value carries `media_id`, plus `comment_id` for a comment mention), and `story_insights`, decoded as `insights.updated`. Instagram Login includes @mentions in `comments` notifications. Messaging deliveries map by payload: `message` to `message.received` (echoes stay `unknown`), with these variants told apart by `originalType`:
+
+| `message` content                                                                                                                                                              | `originalType`        | `type`             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- | ------------------ |
+| `is_deleted: true`: the person deleted the message                                                                                                                             | `message_deleted`     | `message.updated`  |
+| `is_self: true`: a test message sent to your own account                                                                                                                       | `message_self`        | `unknown`          |
+| `is_unsupported: true`: media the API cannot deliver                                                                                                                           | `message_unsupported` | `message.received` |
+| `admin_text` and optional `handoff_reason`: a Meta Business Agent handoff notice for the business, which may have no `mid` or `text` and does not itself move the conversation | `message_handoff`     | `unknown`          |
+| `reply_to.story`: a reply to a Story, with `link_sticker_url` when the Story had a link sticker                                                                                | `story_reply`         | `message.received` |
+
+The Messenger Platform fields for Instagram decode too: `messaging_policy_enforcement` (`policy_enforcement.action` is `warning`, `block`, or `unblock`, with a `reason` unless unblocked) maps to `account.updated`, and `response_feedback` (`response_feedback.feedback` is `Good response` or `Bad response` for the message in `mid`) maps to `message.reaction`. Meta delivers both only to apps set up for Instagram messaging on the Messenger Platform (`instagram_basic`, `instagram_manage_messages`, and the Page permissions), not to Instagram Login or Facebook Login setups. The other messaging payloads map as follows: `postback` (`messaging_postbacks`) to `message.postback`, `reaction` (`message_reactions`) to `message.reaction`, `read` (`messaging_seen`) to `message.read`, `referral` (`messaging_referral`) to `message.referral`, and `message_edit` to `message.edited`. Other messaging items stay `unknown`. `messages` is an Instagram Login, Unified Login, or Messenger Platform field. Messaging requires its own permissions. Facebook Login `story_insights` covers the first 24 hours before Story expiry, and counts below five can be `-1`. Check Meta’s field list for the configured flavor before subscribing. The normalized messaging facade supports conversations, message bodies, participants, and text replies with Instagram Login and with a Unified Login token on the `facebook-login` flavor.
 
 ## Native operations
 
 The typed native module exposes Reels and Stories container publishing, publishing-limit reads, comment moderation, comment replies, tags, and Facebook Login discovery, mention expansions, hashtags, and post deletion. Deletion is Facebook Login-only.
 
-Product tagging remains an unimplemented SDK feature. `product.tagging` is `unsupported-by-platform` for Instagram Login and `not-implemented-by-adapter` for Facebook Login. With Instagram Login, `social.messages.listConversations` and `social.messages.listMessages` use the Instagram Conversations API and require `instagram_business_basic` plus `instagram_business_manage_messages`. `social.messages.send` resolves the recipient by reading the authorized conversation participants and requires exactly one other participant. `instagramNative.sendMessage` remains available when you already have the Instagram-scoped recipient ID from a messaging webhook. Replies are limited to 1,000 UTF-8 bytes and can only follow a customer-initiated conversation within Meta’s response window. Facebook Login messaging uses Messenger Platform and a linked Page access token, so this adapter reports `messages.write` as `not-implemented-by-adapter` rather than crossing login or token boundaries.
+Product tagging needs Facebook Login, an approved Instagram Shop, `catalog_management` and `instagram_shopping_tag_products`, and an admin role on the Business Manager that owns the Shop; `product.tagging` is `unsupported-by-platform` for Instagram Login. `getProductTagEligibility` reads `shopping_product_tag_eligibility`. `listAvailableCatalogs` reads `available_catalogs` (`catalog_id`, `catalog_name`, `shop_name`, `product_count`); collaborative catalogs are not supported. `searchCatalogProducts` reads `catalog_product_search` with `catalog_id` and an optional `q` that matches product names or SKUs, returning `product_id`, `product_name`, `image_url`, `retailer_id`, `review_status`, and `is_checkout_flow`; only products with `review_status: "approved"` show tags. `listProductTags` and `updateProductTags` read and post `/{ig-media-id}/product_tags`; an update sends `updated_tags`, and posting an already tagged product moves it. Meta limits accounts to 25 product-tagged posts per 24 hours. Use the `productTags` publish option to tag at creation time. `social.messages.listConversations` and `social.messages.listMessages` use the Instagram Conversations API and require `instagram_business_basic` plus `instagram_business_manage_messages` with Instagram Login, or a Unified Login token with `instagram_basic` plus `instagram_manage_messages` with the `facebook-login` flavor. `social.messages.send` resolves the recipient by reading the authorized conversation participants and requires exactly one other participant. `instagramNative.sendMessage` remains available when you already have the Instagram-scoped recipient ID from a messaging webhook. Replies are limited to 1,000 UTF-8 bytes and can only follow a customer-initiated conversation within Meta’s response window. Page-token messaging through the Messenger Platform (`/{page-id}/messages`) is not used.
 
 A normalized single video publishes as a Reel. Native Reel and Story methods return workflow deliveries that you continue through `getDelivery`, using the same store configured above:
 
@@ -348,14 +695,52 @@ const limit = await instagramNative.publishingLimit({ account, context });
 console.log(limit["data"]);
 ```
 
-`publishingLimit` returns a provider object with a `data` array, for example `{ data: [{ quota_usage: 3, config: { quota_total: 100, quota_duration: 86400 } }] }`. Read the returned `config.quota_total` and usage for the account’s current publishing allowance. The example is not a fixed SDK cap. `shareToFeed` in normalized publish options maps to `share_to_feed` on a single Reel or carousel parent, never on carousel children. Reel covers, thumbnail offsets, audio names, trial parameters, user tags, collaborators, location, and partnership labels are not implemented publish options.
+`publishingLimit` returns a provider object with a `data` array, for example `{ data: [{ quota_usage: 3, config: { quota_total: 100, quota_duration: 86400 } }] }`. Read the returned `config.quota_total` and usage for the account’s current publishing allowance. The example is not a fixed SDK cap. `shareToFeed` in normalized publish options maps to `share_to_feed` on a single Reel or carousel parent, never on carousel children. Reel covers, thumbnail offsets, audio names, trial parameters, user tags, collaborators, location, and partnership labels are publish options; see [Publishing options](#publishing-options).
 
 ## Limits and requirements
 
-- Media must be publicly reachable over HTTPS. Resumable bytes upload is unimplemented, including for Facebook Login. Follow Meta’s current [JPEG/image and Reel specifications](https://developers.facebook.com/documentation/instagram-platform/content-publishing/) for size, duration, aspect ratio, and codecs. The SDK does not transcode files. Unpublished containers expire after 24 hours.
-- Published captions and media cannot be edited. The [IG Media reference](https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/) only documents `comment_enabled` as an update field, so `posts.update` is declared `unsupported-by-platform`.
+- Normalized publishing needs media that is publicly reachable over HTTPS. With Facebook Login, native resumable uploads accept local video bytes; see [Upload local video](#upload-local-video). Media must meet Meta's specifications in [Media specifications](#media-specifications). The SDK does not read, resize, or transcode files. Unpublished containers expire after 24 hours.
 - Account authorization and Instagram professional-account eligibility remain application responsibilities.
-- Instagram Login uses `graph.instagram.com`; Facebook Login uses `graph.facebook.com`. Facebook Login operations require the Facebook token, connected Page access, and the permissions listed in Meta's [Instagram Platform documentation](https://developers.facebook.com/documentation/instagram-platform/).
+- The adapter pins Graph API `v27.0`. Instagram Login uses `graph.instagram.com/v27.0`; Facebook Login uses `graph.facebook.com/v27.0`. Facebook Login operations require the Facebook token, connected Page access, and the permissions listed in Meta's [Instagram Platform documentation](https://developers.facebook.com/documentation/instagram-platform/).
 - Meta may require Advanced Access or App Review for accounts outside your own organization, comment moderation, business discovery, and public hashtag content.
+
+### Media specifications
+
+`posts.publish` checks the item count, the declared MIME type, and carousel aspect ratios before it creates a container. Instagram checks everything else after the request is sent, when it creates or processes the container. Native `publishReel` and `publishStory` send the URL without any of these media checks.
+
+| Media       | Requirement                   | Instagram limit                                                        | Checked by the SDK before sending                                                                                                 |
+| ----------- | ----------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Image       | Format                        | JPEG only; extended JPEG formats such as MPO and JPS are not supported | Declared MIME type must be `image/jpeg`; a missing or other type fails as `instagram.jpeg`. The file's bytes are not inspected.   |
+| Image       | File size                     | 8 MB maximum                                                           | No, Instagram only                                                                                                                |
+| Image       | Width                         | 320 to 1,440 px; Instagram scales smaller or larger images to fit      | No, Instagram only                                                                                                                |
+| Image       | Aspect ratio                  | 4:5 to 1.91:1                                                          | No, Instagram only                                                                                                                |
+| Image       | Color space                   | sRGB; Instagram converts other color spaces                            | No, Instagram only                                                                                                                |
+| Carousel    | Items                         | Up to 20 images, videos, or a mix; Reels cannot be carousel items      | Yes: 1 to 20 attachments, else `instagram.media`. Two or more become a carousel. Native `publishCarousel` takes 2 to 20 children. |
+| Carousel    | Aspect ratio                  | Instagram crops every image to the first image's ratio, 1:1 by default | Yes: every item needs `width` and `height` with the first item's ratio, else `instagram.carousel_crop`.                           |
+| Reel        | Container                     | MOV or MP4, no edit lists, `moov` atom at the front of the file        | Declared MIME type must be `video/mp4` or `video/quicktime`, else `instagram.video`. Edit lists and atom order are not read.      |
+| Reel        | Video codec                   | HEVC or H.264, progressive scan, closed GOP, 4:2:0 chroma subsampling  | No, Instagram only                                                                                                                |
+| Reel        | Audio                         | AAC, 48 kHz sample rate maximum, mono or stereo, 128 kbps              | No, Instagram only                                                                                                                |
+| Reel        | Frame rate                    | 23 to 60 fps                                                           | No, Instagram only                                                                                                                |
+| Reel        | Width                         | 1,920 px maximum                                                       | No, Instagram only                                                                                                                |
+| Reel        | Aspect ratio                  | 0.01:1 to 10:1; Meta recommends 9:16                                   | No, Instagram only                                                                                                                |
+| Reel        | Bitrate                       | Variable bitrate, 25 Mbps maximum                                      | No, Instagram only                                                                                                                |
+| Reel        | Duration                      | 3 seconds to 15 minutes                                                | No, Instagram only                                                                                                                |
+| Reel        | File size                     | 300 MB maximum                                                         | No, Instagram only                                                                                                                |
+| Story image | Format, size, aspect ratio    | JPEG, 8 MB maximum, sRGB; Meta recommends 9:16                         | No, Instagram only                                                                                                                |
+| Story video | Container, codecs, frame rate | Same as Reels                                                          | No, Instagram only                                                                                                                |
+| Story video | Width and aspect ratio        | 1,920 px maximum; 0.1:1 to 10:1, Meta recommends 9:16                  | No, Instagram only                                                                                                                |
+| Story video | Bitrate                       | Variable bitrate, 25 Mbps maximum, 128 kbps audio                      | No, Instagram only                                                                                                                |
+| Story video | Duration                      | 3 to 60 seconds                                                        | No, Instagram only                                                                                                                |
+| Story video | File size                     | 100 MB maximum                                                         | No, Instagram only                                                                                                                |
+
+A single video sent through `posts.publish` is a Reel, so the Reel rows apply to it. Meta's reference gives no separate specification for videos inside a carousel.
+
+Sources: Meta's [IG User Media reference](https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media) (updated September 28, 2026) for image, Reel, and Story specifications and the 20-item carousel limit, and the [content publishing guide](https://developers.facebook.com/documentation/instagram-platform/content-publishing/) (updated October 20, 2026) for the JPEG-only rule and carousel cropping, both checked November 4, 2026.
+
+### Not supported
+
+- Text-only publishing: every Instagram post needs at least one image or video.
+- Post edits: published captions and media cannot be edited. The [IG Media reference](https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/) only documents `comment_enabled` as an update field, so `posts.update` is declared `unsupported-by-platform`.
+- Handover between inboxes: Meta's Instagram Messaging changelog says the Handover Protocol is no longer supported for Instagram and that businesses moved to Conversation Routing. The remaining thread control calls, such as `pass_thread_control`, are Messenger Platform APIs used with a Page access token, which this adapter does not use. Unified Login does not support the Handover Protocol either.
 
 See the [capability matrix](/reference/capabilities) and [events](/events).

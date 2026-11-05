@@ -30,25 +30,25 @@ const errors = `${docs}/graph-api/guides/error-handling`;
 
 const secureRequests = `${docs}/graph-api/guides/secure-requests`;
 
-const exchangeUserToken = `curl -G "https://graph.facebook.com/v26.0/oauth/access_token" \
+const exchangeUserToken = `curl -G "https://graph.facebook.com/v27.0/oauth/access_token" \
   -d "grant_type=fb_exchange_token" \
   -d "client_id=<APP_ID>" \
   -d "client_secret=<APP_SECRET>" \
   -d "fb_exchange_token=<SHORT_LIVED_USER_TOKEN>"
 # {"access_token": "<LONG_LIVED_USER_TOKEN>", "token_type": "bearer", "expires_in": 5183944}`;
 
-const listPages = `curl -G "https://graph.facebook.com/v26.0/me/accounts" \
+const listPages = `curl -G "https://graph.facebook.com/v27.0/me/accounts" \
   -d "fields=id,name,tasks,access_token" \
   -d "access_token=<LONG_LIVED_USER_TOKEN>"
 # {"data": [{"id": "<PAGE_ID>", "name": "...", "tasks": ["CREATE_CONTENT", ...],
 #            "access_token": "<PAGE_ACCESS_TOKEN>"}], "paging": {...}}`;
 
-const inspectToken = `curl -G "https://graph.facebook.com/v26.0/debug_token" \
+const inspectToken = `curl -G "https://graph.facebook.com/v27.0/debug_token" \
   -d "input_token=<PAGE_ACCESS_TOKEN>" \
   -d "access_token=<APP_ID>|<APP_SECRET>"
 # {"data": {"type": "PAGE", "is_valid": true, "expires_at": ..., "scopes": [...]}}`;
 
-const postToPage = `curl -X POST "https://graph.facebook.com/v26.0/<PAGE_ID>/feed" \
+const postToPage = `curl -X POST "https://graph.facebook.com/v27.0/<PAGE_ID>/feed" \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello from the Pages API", "access_token": "<PAGE_ACCESS_TOKEN>"}'
 # {"id": "<PAGE_ID>_<POST_ID>"}`;
@@ -56,7 +56,7 @@ const postToPage = `curl -X POST "https://graph.facebook.com/v26.0/<PAGE_ID>/fee
 const tokenExample = `// Run on your server. The app secret and every token stay there.
 import { createHmac } from "node:crypto";
 
-const graph = "https://graph.facebook.com/v26.0";
+const graph = "https://graph.facebook.com/v27.0";
 
 function requireEnv(name: string): string {
   const value = process.env[name];

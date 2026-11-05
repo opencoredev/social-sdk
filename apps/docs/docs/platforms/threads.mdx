@@ -153,6 +153,50 @@ const result = await social.posts.publish({
 });
 ```
 
+### Post options
+
+Pass Threads-only container fields as the target's `options`. The adapter checks them in `prepareTarget`, so an invalid option returns a `not-submitted` validation outcome before any container is created. They all go on the parent container of `POST /{threads-user-id}/threads`, never on carousel items, and need `threads_basic` and `threads_content_publish` unless noted.
+
+```ts
+const result = await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: {
+        replyControl: "followersOnly",
+        enableReplyApprovals: true,
+        topicTag: "Open Source",
+        poll: { options: ["Yes", "No", "Maybe"] },
+        spoilers: [{ offset: 0, length: 5 }],
+        isMadeWithAi: true,
+      },
+    },
+  ],
+  content: { text: "Spoiler: we shipped it" },
+});
+```
+
+| Option                    | Wire field                                             | Rules                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `replyControl`            | `reply_control`                                        | `everyone`, `accountsYouFollow`, `mentionedOnly`, `parentPostAuthorOnly` (`parent_post_author_only`), or `followersOnly` (`followers_only`).                                                                                                                                                                                                             |
+| `enableReplyApprovals`    | `enable_reply_approvals`                               | `true` holds new replies until you approve them with `native.managePendingReply`; read them with `native.listPendingReplies`.                                                                                                                                                                                                                            |
+| `topicTag`                | `topic_tag`                                            | One topic of 1 to 50 characters, without periods or ampersands.                                                                                                                                                                                                                                                                                          |
+| `quotePostId`             | `quote_post_id`                                        | Numeric ID of the post to quote. Works on text, image, video, and carousel posts.                                                                                                                                                                                                                                                                        |
+| `poll`                    | `poll_attachment`                                      | Text-only posts. `options` holds two to four choices of 1 to 25 characters, sent as `option_a` through `option_d`. Cannot be combined with `textAttachment`.                                                                                                                                                                                             |
+| `gif`                     | `gif_attachment`                                       | Text-only posts. `{ gifId, provider: "GIPHY" }`, where `gifId` is the `id` from the GIPHY API. GIPHY is the only provider; Meta ended Tenor support on March 31, 2026.                                                                                                                                                                                   |
+| `isMadeWithAi`            | `is_made_with_ai`                                      | `true` shows the AI info label. `false` or omitting it does not stop Meta's automatic labeling.                                                                                                                                                                                                                                                          |
+| `isSpoilerMedia`          | `is_spoiler_media`                                     | Image, video, or carousel posts. On a carousel it blurs every item.                                                                                                                                                                                                                                                                                      |
+| `spoilers`                | `text_entities`                                        | One to ten `{ offset, length }` ranges inside the post text, each sent with `entity_type: "SPOILER"`.                                                                                                                                                                                                                                                    |
+| `textAttachment`          | `text_attachment`                                      | Text-only posts. `plaintext` of up to 10,000 characters, an optional HTTPS `linkAttachmentUrl` (`link_attachment_url`), and optional non-overlapping `styling` ranges with `bold`, `italic`, `highlight`, `underline`, or `strikethrough` (`text_with_styling_info`). A post with `content.link` cannot also set `linkAttachmentUrl`.                    |
+| `isGhostPost`             | `is_ghost_post`                                        | A ghost post is a text-only post that Threads archives after 24 hours. It cannot be a reply or carry a link, and text spoilers are the only other option it accepts. List them with `native.listGhostPosts`.                                                                                                                                             |
+| `locationId`              | `location_id`                                          | A location ID from `native.locationSearch`. Also needs `threads_location_tagging`.                                                                                                                                                                                                                                                                       |
+| `allowlistedCountryCodes` | `allowlisted_country_codes`                            | Geo-gating: uppercase ISO 3166-1 alpha-2 codes such as `["US", "CA"]`; the post is hidden outside them. Only accounts Meta has given the feature can use it; check `is_eligible_for_geo_gating` with `native.getProfile` first.                                                                                                                          |
+| `shareToInstagramStory`   | `crossreshare_to_ig` or `crossreshare_to_ig_dark_mode` | `"light"` or `"dark"` also shares the post as a Story on the linked Instagram account. Also needs `threads_share_to_instagram`. The Threads post publishes even if the Story fails; the publish response's `crossreshare_to_ig_status` (`SUCCESS` or `FAILED`) is saved as `instagramStoryStatus` on the workflow record in your `ThreadsWorkflowStore`. |
+
+Meta counts links across the text, `content.link` (`link_attachment`), and `textAttachment.linkAttachmentUrl`, and since December 22, 2025 it rejects posts with more than five unique links with `THREADS_API__LINK_LIMIT_EXCEEDED`. A URL repeated in the text, or a link attachment equal to a text URL, counts once. `prepareTarget` counts URLs that start with `http://`, `https://`, or `www.` and returns `link.limit_exceeded` above five; Meta's own count stays authoritative for bare domains.
+
+Set `autoPublishText: true` on a text-only post to send `auto_publish_text`, which publishes the post as Threads creates its container, without a `threads_publish` call. Meta does not document whether that call returns a container ID or the published post ID, so the adapter does not guess: the outcome is `unknown` with `backendState: "AUTO_PUBLISHED"`, and a later `posts.status` read reports the same state without replaying anything. Find the post with `native.listThreads`. Posts with media reject the option with `options.auto_publish_text`.
+
 ### Continue a processing container
 
 Threads creates containers before calling `threads_publish`. Unfinished containers return `processing`; a native post ID produces `published`. A missing publish ID, lost write response, or persisted workflow stage of `unknown` returns `unknown`, because submission may already have succeeded. Retain the delivery reference. Do not start a fresh publish to recover an uncertain write.
@@ -171,19 +215,35 @@ if (outcome?.state === "processing" && outcome.delivery) {
 
 ## Authorization
 
-Publishing and creating replies require `threads_basic` and `threads_content_publish`, which the OAuth preset requests by default. Add scopes for the operations your app uses:
+Publishing requires `threads_basic` and `threads_content_publish`, which the OAuth preset requests by default. Add scopes for the operations your app uses:
 
-| Operation                              | Additional scope alongside `threads_basic` |
-| -------------------------------------- | ------------------------------------------ |
-| Read replies and conversations         | `threads_read_replies`                     |
-| Hide replies or manage pending replies | `threads_manage_replies`                   |
-| Account and post insights              | `threads_manage_insights`                  |
-| Keyword search                         | `threads_keyword_search`                   |
-| Delete your own media                  | `threads_delete`                           |
-| Mentions                               | `threads_manage_mentions`                  |
-| Exact public-username discovery        | `threads_profile_discovery`                |
+| Operation                              | Additional scope alongside `threads_basic`             |
+| -------------------------------------- | ------------------------------------------------------ |
+| Read replies and conversations         | `threads_read_replies`                                 |
+| Hide replies or manage pending replies | `threads_manage_replies`                               |
+| Account and post insights              | `threads_manage_insights`                              |
+| Keyword search                         | `threads_keyword_search`                               |
+| Delete your own media                  | `threads_delete`                                       |
+| Mentions                               | `threads_manage_mentions`                              |
+| Exact public-username discovery        | `threads_profile_discovery`                            |
+| Create replies (`reply_to_id`)         | `threads_content_publish` and `threads_manage_replies` |
+| Location search and `locationId` tags  | `threads_location_tagging`                             |
+| `shareToInstagramStory` cross-sharing  | `threads_share_to_instagram`                           |
 
-Replying to another user's post requires a post ID obtained through keyword search or mentions; the corresponding grant is required to retrieve it. You can also reply to your own posts. Reply creation uses publishing permissions, not the moderation grant.
+Meta requires `threads_manage_replies` to create a reply with `reply_to_id`, in addition to `threads_content_publish` ([create replies](https://developers.facebook.com/documentation/threads/retrieve-and-manage-replies/create-replies)). You can reply to your own posts; replying to another user's post also needs the app to hold `threads_keyword_search` or `threads_manage_mentions`, and a post ID found through them.
+
+Inspect a token's validity, expiry, and granted scopes with `native.debugToken`, which calls `GET /debug_token`. By default it inspects the adapter's own token with that same token, which Meta accepts only from a Threads tester. Pass `appAccessToken` (`TH|<APP_ID>|<APP_SECRET>`, accepted since August 18, 2026) to inspect any token issued to your app, and `inputToken` to inspect another token. Meta takes `input_token` as a query parameter, so keep both tokens out of request logs.
+
+```ts
+const token = await native.debugToken({
+  appAccessToken: process.env["THREADS_APP_ACCESS_TOKEN"]!,
+  inputToken: storedUserToken,
+  context,
+});
+if (!token.isValid || !token.scopes.includes("threads_manage_replies")) {
+  // Ask the user to reconnect with the missing scope.
+}
+```
 
 When `threadsOAuth` has a `clientSecret`, its `complete` call automatically exchanges the short-lived token for a long-lived token. Do not exchange that result again. Manual `exchangeLongLivedOAuthToken` is for an unexpired short-lived token. Short-lived tokens last one hour; long-lived tokens last 60 days. Refresh an unexpired long-lived token only after it is at least 24 hours old, then persist its new expiry. Public-profile permission grants last 90 days and refresh extends them. Meta's Get Started and long-lived-token guides disagree about private-profile grant extension; treat private-profile eligibility as provider-defined and check the current guides.
 
@@ -193,7 +253,14 @@ Normalized search is `social.search.posts(account, { query, cursor, limit, start
 
 Public search requires `threads_keyword_search` approval; without it, results may be limited to the authorized user's own posts. Sensitive or offensive keywords return empty results. Meta allows 2,200 queries per user per rolling 24 hours across apps; queries without results do not count. Empty pages stay `{ items: [] }`. The adapter exposes a next cursor only when the response includes `paging.next`; current provider references do not guarantee keyword-search cursor support.
 
-Own-profile reads request `id,username,name,threads_profile_picture_url,threads_biography,is_verified` from the authorized user node. Exact username discovery requests `username,name,profile_picture_url,biography,is_verified` from `/profile_lookup`. Discovery always returns a synthetic `lookup:<handle>` profile reference and `native._profileIdUnavailable: true`, even if an unsolicited ID appears. That synthetic ID cannot be reused as a provider user ID. The request does not ask for follower or engagement counts.
+Own-profile reads request `id,username,name,threads_profile_picture_url,threads_biography,is_verified` from the authorized user node. Exact username discovery requests `username,name,profile_picture_url,biography,is_verified` plus Meta's documented counts from `/profile_lookup`: `follower_count` (total followers) and `likes_count`, `quotes_count`, `reposts_count`, and `views_count`, which cover the profile's posts over the past 7 days. The normalized profile keeps the counts in `native`. Discovery always returns a synthetic `lookup:<handle>` profile reference and `native._profileIdUnavailable: true`, even if an unsolicited ID appears. That synthetic ID cannot be reused as a provider user ID.
+
+Native `lookupProfile({ account, username, context })` calls the same endpoint and returns a decoded `ThreadsPublicProfile` with `followerCount`, `likesCount`, `quotesCount`, `repostsCount`, and `viewsCount` as non-negative integers. A count Meta omits stays absent rather than becoming zero, and a malformed count raises an error.
+
+```ts
+const meta = await native.lookupProfile({ account, username: "meta", context });
+console.log(meta.followerCount, meta.viewsCount);
+```
 
 Username discovery additionally needs `threads_profile_discovery`. Meta limits it to public profiles with at least 100 followers and 1,000 lookups per user per rolling 24 hours. Standard access is limited to @meta, @threads, @instagram, and @facebook; broader access needs approval.
 
@@ -212,7 +279,19 @@ const accountMetrics = await social.analytics.getAccountMetrics(account);
 const postMetrics = await social.analytics.getPostMetrics(post);
 ```
 
-Account metrics are `views` (profile views), `likes`, `replies`, `reposts`, `quotes`, `clicks`, and `followers_count`. Only `followers_count` is a lifetime total. The adapter sends no date range, so other account metrics use Meta's default yesterday-through-today range. It returns only the latest daily `views` point, with the day ending at `end_time`; engagement `total_value` rows describe the provider window. Clicks sum finite numeric `link_total_values[].value` entries; missing data is omitted, not reported as zero. A total without a documented lifetime period retains `period: "unknown"`. Account date-range selection, series, and demographic breakdowns are not exposed.
+Account metrics are `views` (profile views), `likes`, `replies`, `reposts`, `quotes`, `clicks`, and `followers_count`. Only `followers_count` is a lifetime total. The adapter sends no date range, so other account metrics use Meta's default yesterday-through-today range. It returns only the latest daily `views` point, with the day ending at `end_time`; engagement `total_value` rows describe the provider window. Clicks sum finite numeric `link_total_values[].value` entries; missing data is omitted, not reported as zero. A total without a documented lifetime period retains `period: "unknown"`.
+
+For a date range, the full daily `views` series, or clicks per URL, use native `userInsights`. It sends `since` and `until` as Unix seconds (Meta rejects anything before `1712991600`, April 13, 2024, and `followers_count` takes no range) and returns each row with `series` (`values[]`), `total` (`total_value.value`), and `links` (`link_total_values[]` as `{ url, value }` from `link_url`). Follower demographics come from native `followerDemographics`, which requests `follower_demographics` with one `breakdown` of `country`, `city`, `age`, or `gender` and returns Meta's JSON unchanged; the profile needs at least 100 followers.
+
+```ts
+const rows = await native.userInsights({
+  account,
+  metrics: ["views", "clicks"],
+  range: { since: 1759276800, until: 1759881600 },
+  context,
+});
+const demographics = await native.followerDemographics({ account, breakdown: "country", context });
+```
 
 Post metrics are lifetime `views,likes,replies,reposts,quotes,shares`. Meta marks views and shares as in development. Reply counts cover replies on a root post; for a media item that is itself a reply, only direct replies count and nested replies are excluded. Repost facades can return empty insights; an empty response is not evidence of zero. See [reports](/docs/reads/reports) and Meta's [insights guide](https://developers.facebook.com/documentation/threads/insights).
 
@@ -238,9 +317,10 @@ const found = await native.search({
   searchMode: "KEYWORD",
   since: "1688540400",
   limit: 25,
+  fields: ["id", "text", "username", "permalink", "topic_tag", "poll_attachment", "root_post"],
   context,
 });
-const mentions = await native.mentions({ account, context });
+const mentions = await native.mentions({ account, since: "1759276800", limit: 50, context });
 const profile = await native.getProfile({ account, context });
 const publishingLimit = await native.publishingLimit({ account, context });
 const media = await native.getPost(post.postId, context);
@@ -252,17 +332,56 @@ if (outcome?.state === "processing" && outcome.delivery) {
 }
 ```
 
-Native `quotePost({ account, postId, text, context })` and `repost({ account, postId, context })` perform writes and require publishing grants. Mentions need `threads_manage_mentions` approval; standard access may only expose tester data, and private media is omitted.
+Native `search` requests `id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post` by default. Pass `fields` to replace that list with any field Meta documents for `keyword_search`, such as `thumbnail_url`, `children`, `alt_text`, `link_attachment_url`, `has_replies`, `is_reply`, `root_post`, `replied_to`, `reply_audience`, `quoted_post`, `reposted_post`, `gif_url`, `poll_attachment`, and `topic_tag`. Meta excludes `owner` from search results. An empty list or a malformed field name is rejected before the request.
+
+Native `quotePost({ account, postId, text, context })` and `repost({ account, postId, context })` perform writes and require publishing grants. To quote with media, publish normally with the `quotePostId` option. `repost` posts to `/{threads-media-id}/repost` and returns `{ id }`; a response without an ID raises `ambiguous_outcome` with `reconcile-first`. Mentions need `threads_manage_mentions` approval; standard access may only expose tester data, and private media is omitted.
+
+### Lists and media reads
+
+`social.posts.list(account, { cursor, limit })` reads the authorized user's posts and keeps scalar fields: `id`, `text`, `username`, `media_type`, `media_product_type`, `media_url`, `thumbnail_url`, `permalink`, `shortcode`, `timestamp`, `is_quote_post`, `alt_text`, `link_attachment_url`, `gif_url`, `topic_tag`, and `is_spoiler_media`.
+
+The native list methods return Meta's JSON with nested fields too, such as `children`, `quoted_post`, `reposted_post`, `poll_attachment`, `text_entities`, and `text_attachment`. They all take `since` and `until` (a Unix timestamp or a date Meta can parse, no earlier than `1688540400`), `limit` (1 to 100, default 25), `cursor` (the `after` cursor) or `before`, and `fields` to replace the default field list:
+
+| Method           | Endpoint                             | Notes                                                                                                                                                                                           |
+| ---------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listThreads`    | `GET /{threads-user-id}/threads`     | The user's posts, including `owner`.                                                                                                                                                            |
+| `listOwnReplies` | `GET /{threads-user-id}/replies`     | The user's own replies, with `root_post`, `replied_to`, `is_reply`, and `is_reply_owned_by_me`. Needs `threads_read_replies`.                                                                   |
+| `listGhostPosts` | `GET /{threads-user-id}/ghost_posts` | Ghost posts from the `ghost_posts` edge, with `ghost_post_status` (`ACTIVE` or `ARCHIVED`) and `ghost_post_expiration_timestamp`.                                                               |
+| `profilePosts`   | `GET /profile_posts?username=`       | A public profile's posts from `profile_posts`. Needs `threads_profile_discovery`; standard access only returns @meta, @threads, @instagram, and @facebook, and the profile needs 100 followers. |
+| `mentions`       | `GET /{threads-user-id}/mentions`    | Posts that mention the user. Needs `threads_manage_mentions`.                                                                                                                                   |
+
+`getPost(id, context, fields?)` reads one media object with the same default fields, including `media_url`, `thumbnail_url` (video only), `gif_url`, `link_attachment_url`, `topic_tag`, and `poll_attachment`. Pass `fields` to request others, such as `location_id`, `location`, or `allowlisted_country_codes`, which are left out by default because they depend on extra grants or feature access.
+
+`getPollResults({ account, postId, context })` returns poll results: each option's `text` and `votesPercentage` (Meta's `option_*_votes_percentage`, from 0 to 1), `totalVotes` (`total_votes`), and `expiresAt` (`expiration_timestamp`). It returns `undefined` for a post without a poll.
+
+`recentlySearchedKeywords` reads `recently_searched_keywords` from the user node as `{ query, timestamp }` entries, with Meta's millisecond timestamps. `geoGatingEligibility` reads `is_eligible_for_geo_gating` and returns a boolean; check it before setting `allowlistedCountryCodes`.
+
+Find location IDs for the `locationId` option with `locationSearch({ account, query, coordinates, context })`, which calls `GET /location_search` with `q`, `latitude` and `longitude`, or all three, and returns decoded locations (`id`, `name`, `address`, `city`, `country`, `latitude`, `longitude`, `postalCode`). Results are not paginated. Before `threads_location_tagging` approval Meta only matches the query "Menlo Park", and it allows 500 searches per 24 hours. `getLocation({ account, locationId, context })` reads one location.
+
+```ts
+const [place] = await native.locationSearch({ account, query: "Menlo Park", context });
+const poll = await native.getPollResults({ account, postId: post.postId, context });
+const replies = await native.listOwnReplies({ account, limit: 25, context });
+```
+
+### Embed a post
+
+`native.oembed({ url, maxWidth, context })` calls `GET /oembed` and returns the embed `html` with `providerName`, `providerUrl`, `type`, `version`, and `width`. `url` must be `https://www.threads.com/@{username}/post/{shortcode}`, `https://www.threads.com/t/{shortcode}`, or a profile URL `https://www.threads.com/@{username}`. `maxWidth` is 320 to 658 pixels. Meta has not required an access token for oEmbed since March 3, 2026; the adapter still sends its own.
 
 ### Replies and moderation
 
-`social.comments.list(post, { cursor })` reads top-level replies. It follows provider default page sizing; the adapter does not send a `limit`. Native `listConversation` returns a flattened conversation including nested replies. Reply reads require `threads_basic` and `threads_read_replies`.
+`social.comments.list(post, { cursor })` reads top-level replies. It follows provider default page sizing; the adapter does not send a `limit`. Native `listReplies` reads the same `/replies` edge with every documented field, including `is_reply_owned_by_me` and `reply_audience`, plus `before` and `reverse`. Native `listConversation` returns a flattened conversation including nested replies. Native `listConversation` and `listPendingReplies` accept `fields` to replace their short default lists (`id,text,username,permalink,timestamp,is_reply,hide_status` and `id,text,username,timestamp,is_reply,hide_status,reply_approval_status`) with documented reply fields such as `is_verified`, `profile_picture_url`, `media_url`, `root_post`, `replied_to`, `reply_audience`, `gif_url`, and `topic_tag`, and both page with `cursor` (sent as `after`) or `before`, never both. `listReplies`, `listConversation`, and `listPendingReplies` accept `reverse`: Meta's default `true` lists newest first, `false` oldest first. Reply reads require `threads_basic` and `threads_read_replies`.
 
 `hideReply` requires `threads_basic` and `threads_manage_replies`. Target a top-level reply to your post: hiding it hides the whole reply subtree, and `hide: false` unhides it. Pending reads additionally need `threads_read_replies`. Use `approvalStatus: "pending"` or `"ignored"`; `approve: false` ignores a pending reply reversibly, and it can later be approved with `true`.
 
 ```ts
 const replies = await social.comments.list(post, {});
-const conversation = await native.listConversation({ account, mediaId: post.postId, context });
+const conversation = await native.listConversation({
+  account,
+  mediaId: post.postId,
+  fields: ["id", "text", "username", "is_verified", "root_post", "replied_to"],
+  context,
+});
 const pending = await native.listPendingReplies({
   account,
   mediaId: post.postId,
@@ -300,19 +419,97 @@ See Meta's [delete posts](https://developers.facebook.com/documentation/threads/
 
 ## Webhooks
 
-Pass your server-held Threads app secret as `webhookSecret` in the adapter options to verify `X-Hub-Signature-256`. Use the exported `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server` for Meta's GET subscription handshake, with your application-owned verification token. See [events](/docs/events) for routing and decoding: replies and deletions normalize, while publish and mention deliveries currently retain an unknown event type. Confirm the signing secret against a real authorized delivery before relying on it.
+Pass your server-held Threads app secret as `webhookSecret` in the adapter options to verify `X-Hub-Signature-256`. Use the exported `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server` for Meta's GET subscription handshake, with your application-owned verification token. See [events](/docs/events) for routing and decoding: replies and deletions normalize to `comment.received` and `post.removed`, and publish and mention deliveries normalize to `post.published` and `mention.received`. A mention is routed to the mentioned user from `target_id`. Meta's publish payload carries no owner ID, so a `post.published` event has no account IDs and `acceptWebhook` quarantines it until your application routes it. Confirm the signing secret against a real authorized delivery before relying on it.
 
 Meta requires the Threads webhooks sub-use case, appropriate access and permissions, and Live mode for applicable apps. Private-media restrictions apply. See the [webhooks guide](https://developers.facebook.com/documentation/threads/webhooks) for current eligibility.
 
-## Limits and unsupported operations
+### Deauthorize and data deletion callbacks
+
+The Threads use case's **Settings** page asks for a **Deauthorize callback URL** and a **Data Deletion Requests URL**. Serve them with `createMetaDeauthorizeHandler` and `createMetaDataDeletionHandler` from `@opencoredev/social-sdk/server`, which verify Meta's form-encoded `signed_request`. Pass the Threads app secret from that Settings page as `appSecret`, not the Facebook app's secret. A Meta app with the Threads use case has two app IDs and secrets, and Meta's [get started](https://developers.facebook.com/documentation/threads/get-started) guide says to use the Threads pair for the Threads API; the callback URLs are configured on the same Threads Settings page ([create an app](https://developers.facebook.com/documentation/threads/get-started/create-an-app)). Meta does not state the signing secret for these callbacks separately, so confirm verification against a real callback before relying on it. See [Meta account callbacks](/docs/authentication#meta-account-callbacks) for the hook contracts.
+
+```ts
+import {
+  createMetaDataDeletionHandler,
+  createMetaDeauthorizeHandler,
+} from "@opencoredev/social-sdk/server";
+
+const threadsAppSecret = process.env["THREADS_APP_SECRET"]!;
+export const deauthorize = createMetaDeauthorizeHandler({
+  appSecret: threadsAppSecret,
+  // Record the request durably, idempotent by requestId, then disable the mapped accounts.
+  onDeauthorize: async ({ userId, requestId }) => {
+    await disableThreadsAccounts({ userId, requestId });
+  },
+});
+export const dataDeletion = createMetaDataDeletionHandler({
+  appSecret: threadsAppSecret,
+  onDataDeletion: async ({ userId, requestId }) => {
+    const confirmationCode = await queueDataDeletion({ userId, requestId });
+    return { statusUrl: `https://example.com/deletion/${confirmationCode}`, confirmationCode };
+  },
+});
+```
+
+## Web intents
+
+Web intents open the Threads composer or a follow prompt in the browser (or the Threads app on mobile) for the person viewing your site. They need no token and make no API call, and the person still confirms the post or follow. `threadsPostIntentUrl` and `threadsFollowIntentUrl` from `@opencoredev/social-sdk/threads` build the URLs with percent-encoded values.
+
+`https://www.threads.com/intent/post` takes `text` (prefilled text), `url` (a link attachment; the builder accepts only `http` and `https`), `tag` (a topic tag of up to 50 characters without newlines, tabs, periods, or ampersands), `reply_control` (`everyone`, `accounts_you_follow`, `mentioned_only`, or `followers_only`), `reply_post_shortcode` (opens the composer in reply mode under that post), and `quote_post_shortcode` (attaches that post as a quote). `https://www.threads.com/intent/follow` takes the `username` to follow. Invalid values throw `invalid_input`.
+
+```ts
+import { threadsFollowIntentUrl, threadsPostIntentUrl } from "@opencoredev/social-sdk/threads";
+
+const share = threadsPostIntentUrl({
+  text: "New release notes",
+  url: "https://example.com/changelog",
+  tag: "OpenSource",
+  replyControl: "followers_only",
+});
+const follow = threadsFollowIntentUrl("threads"); // https://www.threads.com/intent/follow?username=threads
+```
+
+See Meta's [web intents](https://developers.facebook.com/documentation/threads/threads-web-intents) guide.
+
+## Limits and requirements
 
 - Text is limited to 500 characters. The adapter counts ordinary Unicode code points as characters and emoji sequences by their UTF-8 byte length. For example, 125 `😀` emoji use the full budget; 126 exceed it. It does not count all non-ASCII text as bytes.
 - Publish text, one image or video, or a carousel of two through twenty media items. Use public HTTPS URLs or configure client media staging for local sources. Document media is rejected. Declared image MIME types must be `image/jpeg` or `image/png`; video MIME types must be `video/mp4` or `video/quicktime` (MOV). Alt text is limited to 1,000 characters by the adapter's string-length check.
-- The mapped `replyControl` values are `everyone`, `accountsYouFollow`, and `mentionedOnly`. Other options are rejected as unmapped. Additional provider reply audiences, polls, topic tags, and explicit link-preview options are not implemented.
-- Publishing is immediate. Native scheduling is `unsupported-by-platform`; use an application-owned durable runner to dispatch at the desired time.
-- Meta allows 250 API-published posts per profile per rolling 24 hours; a carousel counts as one. Read the current quota with `native.publishingLimit`, which calls `threads_publishing_limit` and returns Meta's `{ data: [{ quota_usage, config }] }` envelope. This read requires `threads_basic` and `threads_content_publish`.
+- Media must meet Meta's media specifications in the table below. The adapter checks the item count and the declared MIME type before sending; Threads checks the rest after the request is sent, when it creates or processes the container. The SDK does not read, resize, or transcode media.
+- Options outside the [post options](#post-options) table are rejected as `options.unmapped`.
+- Meta allows 250 API-published posts and 1,000 replies per profile per rolling 24 hours (a carousel counts as one post), and 100 deletions. Read the current usage with `native.publishingLimit`, which calls `threads_publishing_limit` and returns Meta's `{ data: [{ ... }] }` envelope with `quota_usage` and `config` for posts, `reply_quota_usage` and `reply_config` for replies, and `delete_quota_usage` and `delete_config` for deletions. Pass `fields: ["location_search_quota_usage", "location_search_config"]` for the 500-per-day location search quota. This read requires `threads_basic` and `threads_content_publish`.
 - Credentials, grants, app review, and account eligibility remain server-owned setup. Contract tests use mocked transports; no live Threads account has been verified.
 
-Scheduling, post updates, profile updates, profile search, graph reads, messages, and notifications are declared `unsupported-by-platform`. Published text and attachments cannot be edited through this API; profiles are read-only. Profile discovery only matches exact usernames, so it does not provide query-based profile search. Threads has no follower/following edges or follow, block, and mute operations; use the `followers_count` insight for the authorized user's aggregate count. Standard apps have no messaging or notification-inbox API.
-
 Sources: Meta's [posts](https://developers.facebook.com/documentation/threads/posts), [keyword search](https://developers.facebook.com/documentation/threads/keyword-search), [profile discovery](https://developers.facebook.com/documentation/threads/threads-profiles), [long-lived tokens](https://developers.facebook.com/documentation/threads/get-started/long-lived-tokens), and [Threads API collection](https://www.postman.com/meta/threads/documentation/dht3nzz/threads-api). Provider details were checked against the October 5, 2026 audit sources; verify current permission and version changes before enabling live operations.
+
+### Media specifications
+
+| Media    | Requirement  | Threads limit                                                         | Checked by the SDK before sending                                                                                  |
+| -------- | ------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Image    | Format       | JPEG or PNG                                                           | Declared MIME type: `image/jpeg` or `image/png`, else `media.format`. The file's bytes are not inspected.          |
+| Image    | File size    | 8 MB maximum                                                          | No, Threads only                                                                                                   |
+| Image    | Width        | 320 to 1,440 px; Threads scales smaller or larger images to fit       | No, Threads only                                                                                                   |
+| Image    | Aspect ratio | Up to 10:1                                                            | No, Threads only                                                                                                   |
+| Image    | Color space  | sRGB; Threads converts other color spaces                             | No, Threads only                                                                                                   |
+| Video    | Container    | MOV or MP4, no edit lists, `moov` atom at the front of the file       | Declared MIME type: `video/mp4` or `video/quicktime`, else `media.format`. Edit lists and atom order are not read. |
+| Video    | Video codec  | HEVC or H.264, progressive scan, closed GOP, 4:2:0 chroma subsampling | No, Threads only                                                                                                   |
+| Video    | Audio        | AAC, 48 kHz sample rate maximum, mono or stereo, 128 kbps             | No, Threads only                                                                                                   |
+| Video    | Frame rate   | 23 to 60 fps                                                          | No, Threads only                                                                                                   |
+| Video    | Width        | 1,920 px maximum                                                      | No, Threads only                                                                                                   |
+| Video    | Aspect ratio | 0.01:1 to 10:1; Meta recommends 9:16                                  | No, Threads only                                                                                                   |
+| Video    | Bitrate      | Variable bitrate, 100 Mbps maximum                                    | No, Threads only                                                                                                   |
+| Video    | Duration     | Longer than 0 seconds, 300 seconds (5 minutes) maximum                | No, Threads only                                                                                                   |
+| Video    | File size    | 1 GB maximum                                                          | No, Threads only                                                                                                   |
+| Carousel | Items        | 2 to 20 images, videos, or a mix                                      | Yes: more than 20 fails as `media.too_many`. One item publishes as a single image or video post, not a carousel.   |
+
+Source: Meta's [Threads posts](https://developers.facebook.com/documentation/threads/posts#media-specifications) page (updated October 30, 2026), media specifications and carousel limitations, checked November 4, 2026.
+
+### Not supported
+
+Scheduling, post updates, profile updates, profile search, graph reads, messages, and notifications are declared `unsupported-by-platform`:
+
+- Scheduling: publishing is immediate. Native scheduling is `unsupported-by-platform`; use an application-owned durable runner to dispatch at the desired time.
+- Post updates: published text and attachments cannot be edited through this API.
+- Profile updates: profiles are read-only.
+- Profile search: profile discovery only matches exact usernames, so it does not provide query-based profile search.
+- Graph reads: Threads has no follower/following edges or follow, block, and mute operations; use the `followers_count` insight for the authorized user's aggregate count.
+- Messages and notifications: standard apps have no messaging or notification-inbox API.

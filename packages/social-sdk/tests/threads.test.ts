@@ -33,7 +33,10 @@ test("Threads publishing limit read requests the documented quota fields", async
   const result = await adapter.native!.publishingLimit({ account, context });
 
   assert.equal(requested?.pathname, "/v1.0/u1/threads_publishing_limit");
-  assert.equal(requested?.searchParams.get("fields"), "quota_usage,config");
+  assert.equal(
+    requested?.searchParams.get("fields"),
+    "quota_usage,config,reply_quota_usage,reply_config,delete_quota_usage,delete_config",
+  );
   assert.deepEqual(result["data"], [
     { quota_usage: 4, config: { quota_total: 250, quota_duration: 86400 } },
   ]);
@@ -139,7 +142,7 @@ test("Threads keyword search requests the documented fields", async () => {
   );
 });
 
-test("Threads profile lookup requests only documented fields and namespaces the handle", async () => {
+test("Threads profile lookup requests documented fields, including counts, and namespaces the handle", async () => {
   let requested: URL | undefined;
 
   const adapter = threads({
@@ -163,7 +166,7 @@ test("Threads profile lookup requests only documented fields and namespaces the 
   assert.equal(requested?.searchParams.get("username"), "alice");
   assert.equal(
     requested?.searchParams.get("fields"),
-    "username,name,profile_picture_url,biography,is_verified",
+    "username,name,profile_picture_url,biography,is_verified,follower_count,likes_count,quotes_count,reposts_count,views_count",
   );
   assert.equal(profile.ref.profileId, "lookup:alice");
   assert.equal(profile.handle, "alice");
@@ -202,7 +205,7 @@ test("Threads profile lookup encodes the username and falls back to the requeste
   assert.equal(requested?.searchParams.get("username"), "a&b c");
   assert.equal(
     requested?.searchParams.get("fields"),
-    "username,name,profile_picture_url,biography,is_verified",
+    "username,name,profile_picture_url,biography,is_verified,follower_count,likes_count,quotes_count,reposts_count,views_count",
   );
   assert.equal(profile.ref.profileId, "lookup:a&b c");
   assert.equal(profile.handle, "a&b c");
@@ -764,7 +767,7 @@ test("Threads reply capability scopes match publishing and moderation endpoints"
   assert.deepEqual(
     adapter.capabilities.capabilities.find((item) => item.operation === "comments.write")
       ?.requiredScopes,
-    ["threads_basic", "threads_content_publish"],
+    ["threads_basic", "threads_content_publish", "threads_manage_replies"],
   );
 
   assert.deepEqual(

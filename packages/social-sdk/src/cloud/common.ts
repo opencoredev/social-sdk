@@ -212,18 +212,26 @@ export function managedHttp(
   return async (
     path: string,
     context: AdapterOperationContext,
-    body?: JsonObject | FormData,
-    query: Record<string, string> = {},
-    method: "GET" | "POST" | "PUT" | "DELETE" = body === undefined ? "GET" : "POST",
+    body?: JsonObject | FormData | Blob,
+    /** A list value repeats the parameter once per entry (`?id=a&id=b`). */
+    query: Readonly<Record<string, string | readonly string[]>> = {},
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = body === undefined ? "GET" : "POST",
     extraHeaders: Readonly<Record<string, string>> = {},
   ): Promise<JsonValue> => {
     const url = new URL(origin + path);
 
-    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+    for (const [key, value] of Object.entries(query))
+      if (isString(value)) url.searchParams.set(key, value);
+      else for (const entry of value) url.searchParams.append(key, entry);
 
     const form = body instanceof FormData;
+    // Raw bytes, such as a Reels upload, are sent as-is.
+    const bytes = body instanceof Blob;
+
     // Fetch sets the multipart boundary itself.
-    const headers = new Headers(form ? {} : { "Content-Type": "application/json" });
+    const headers = new Headers(
+      form ? {} : { "Content-Type": bytes ? "application/octet-stream" : "application/json" },
+    );
 
     for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value);
     headers.set(...authHeader(options.apiKey));
@@ -240,7 +248,7 @@ export function managedHttp(
         timeoutMs: remainingBudget(context),
         method,
         ...definedFields({
-          body: body === undefined || form ? body : JSON.stringify(body),
+          body: body === undefined || form || bytes ? body : JSON.stringify(body),
           signal: context.signal,
         }),
         maxAttempts: method === "GET" ? Math.min(5, context.retryBudget.maxAttempts) : 1,
