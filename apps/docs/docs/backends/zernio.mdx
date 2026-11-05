@@ -410,6 +410,8 @@ Message items include attachment metadata (`id`, `type`) but not the media URL, 
 | `ice-breakers`          | Facebook or Instagram | `messenger-ice-breakers` or `instagram-ice-breakers` | `iceBreakers`: up to 4 `{ question, payload }` questions (questions up to 80 characters). Facebook groups them per `locale`, one `default`; Instagram takes one list without a locale. |
 | `telegram-commands`     | Telegram              | `telegram-commands`                                  | `commands`: up to 100 `{ command, description }`, commands of 1 to 32 lowercase letters, digits or `_` without the slash.                                                              |
 
+Zernio documents these writes as an HTTP 200 with no body or with `{ success: true }`. `setBotSetting` and `deleteBotSetting` resolve on a 200 with an empty body, `{}` or `{ success: true }`; any other status or body is `ambiguous_outcome`, so read the setting back before retrying.
+
 ### Mentions and reviews
 
 `listMentions({ account })` reads mentions of a LinkedIn organization, Instagram account or Facebook Page from `GET /v1/inbox/mentions`. `listReviews({ account, hasReply? })` reads Facebook Page recommendations and Google Business Profile reviews, with rating, text and any reply; `replyToReview` posts or replaces your reply and `deleteReviewReply` removes it.
@@ -580,7 +582,7 @@ const { url } = await native.createConnection(
 
 ### Connect a Discord channel
 
-`connectDiscord({ guildId, channelIds, profileId, redirectUrl? })` finishes a Discord connect with `POST /v1/connect/discord`, binding 1 to 25 channels of the server (numeric snowflake IDs) to a profile. Each channel becomes its own connected account; Zernio confirms with an empty response, so list accounts afterwards to read them.
+`connectDiscord({ guildId, channelIds, profileId, redirectUrl? })` finishes a Discord connect with `POST /v1/connect/discord`, binding 1 to 25 channels of the server (numeric snowflake IDs) to a profile. Each channel becomes its own connected account; Zernio confirms with an HTTP 200 and an empty response, so list accounts afterwards to read them. Any other status or a body other than `{}` or `{ success: true }` is `ambiguous_outcome`.
 
 ### Bring your own OAuth app
 
@@ -712,3 +714,7 @@ The API key reaches the whole workspace, and the SDK cannot tell which accounts 
 - A combined internal and external post feed: `posts.list` reads synced platform posts only (`source=external`).
 - Publishing to WhatsApp: WhatsApp accounts are listed but not published to, because Zernio's WhatsApp surface is messaging.
 - Headless selection steps: choosing a Facebook Page (`select-page`), a LinkedIn organization, a Pinterest board or a Google Business location carries the temporary OAuth token from Zernio's redirect, so these steps are not wrapped.
+- Inbox message changes: editing or deleting a sent message (`PATCH` and `DELETE /v1/inbox/conversations/{id}/messages/{messageId}`), message reactions (`POST` and `DELETE .../messages/{messageId}/reactions`) and typing indicators (`POST .../typing`) are not wrapped yet. Send them with `request` and reconcile the conversation afterwards.
+- Pinning a published post (`POST /v1/posts/{id}/pin` and `/unpin`), queue slot management (`/v1/queue/slots`), webhook log redelivery (`POST /v1/webhooks/logs/redeliver`), direct and prepared media uploads (`/v1/media/upload-direct`, `/v1/media/prepare`; publishing uploads through `/v1/media/presign`), and account extras (`business-partners`, `gmb-locations/assign`, `hubspot-settings`, `slack-settings`) are not wrapped yet; use `request`.
+- Credential and invite connects other than Bluesky and Discord (Telegram, Slack, WhatsApp, Shopify, Webflow, WordPress, ad accounts, `platform-invites`), connected-app revocation and API key management: these change workspace access rather than social content, so the SDK leaves them to `request`.
+- Zernio products outside social publishing and engagement: ads (campaigns, accounts, creatives, audiences, rules, targeting, insights, conversions, lead forms, tracking tags), commerce and product catalogs, WhatsApp, SMS, RCS, iMessage, voice and phone numbers, branded calling, the business agent, creator campaigns, workflows, sequences, broadcasts, contacts and custom fields, comment automations, calendars, blogs, files, email and treasury. Zernio's [API reference](https://zernio.com/openapi.yaml) documents them; call them with `request`.

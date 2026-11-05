@@ -534,3 +534,4 @@ Scheduling, post updates, profile updates, profile search, graph reads, messages
 - Profile search: profile discovery only matches exact usernames, so it does not provide query-based profile search.
 - Graph reads: Threads has no follower/following edges or follow, block, and mute operations; use the `followers_count` insight for the authorized user's aggregate count.
 - Messages and notifications: standard apps have no messaging or notification-inbox API.
+- Undoing a repost: the [publishing reference](https://developers.facebook.com/documentation/threads/reference/publishing) documents `POST /{threads-media-id}/repost` and no undo; `DELETE /{threads-media-id}` is documented for posts, not reposts. Try it with `native.request` only after checking the repost's ID.

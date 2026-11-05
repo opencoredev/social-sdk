@@ -1063,6 +1063,12 @@ export interface FacebookNative {
     readonly hidden?: boolean;
     /** `true` adds Meta's AI-generated label, `false` removes it, omitted keeps it (Graph v27.0). */
     readonly isAiGenerated?: boolean;
+    /**
+     * Move a scheduled, unpublished feed post to a new time (`scheduled_publish_time`), 10 minutes
+     * to 30 days ahead. Source (Graph v27.0, checked 2026-11-05):
+     * https://developers.facebook.com/docs/graph-api/reference/page-post/#Updating
+     */
+    readonly scheduleAt?: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
   /** List the Page's Reels, which posts.list does not return (GET /{page-id}/video_reels). */
@@ -2322,6 +2328,17 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     });
   };
 
+  /**
+   * Read an optional string a write returned. Absent is fine; a present value that is not a
+   * non-empty string is a malformed answer, so the write is uncertain.
+   */
+  const optionalWriteId = (
+    result: JsonObject,
+    key: string,
+    operation: string,
+  ): string | undefined =>
+    result[key] === undefined ? undefined : writeId(result, key, operation);
+
   const confirmSuccess = (value: JsonField, operation: string, message: string): void => {
     if (!isJsonObject(value) || value["success"] !== true)
       throw new SocialError({
@@ -2741,11 +2758,14 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
         const next = byteOffset(moved["start_offset"], blob.size);
 
+        // A transfer answer that does not move the offset forward is malformed: the chunk may
+        // or may not have landed, so the upload is uncertain rather than failed.
         if (next <= start)
           throw new SocialError({
-            code: "upstream_failure",
+            code: "ambiguous_outcome",
             operation: "facebook.videos.upload",
-            message: "Facebook did not advance the chunked video upload.",
+            message: "Facebook did not advance the chunked video upload. Reconcile it.",
+            retryDisposition: { kind: "reconcile-first" },
           });
 
         start = next;
@@ -2754,9 +2774,11 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
       if (start !== blob.size)
         throw new SocialError({
-          code: "upstream_failure",
+          code: "ambiguous_outcome",
           operation: "facebook.videos.upload",
-          message: "Facebook ended the chunked upload before receiving the whole file.",
+          message:
+            "Facebook ended the chunked upload before receiving the whole file. Reconcile it.",
+          retryDisposition: { kind: "reconcile-first" },
         });
 
       confirmSuccess(
@@ -2842,11 +2864,14 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
   ): Promise<void> => {
     const uploadUrl = URL.parse(isString(started["upload_url"]) ? started["upload_url"] : "");
 
+    // The start phase already created the container, so an unusable upload URL is a malformed
+    // answer to a dispatched write: the caller reconciles the container rather than retrying.
     if (uploadUrl?.protocol !== "https:" || uploadUrl.hostname !== "rupload.facebook.com")
       throw new SocialError({
-        code: "upstream_failure",
+        code: "ambiguous_outcome",
         operation,
-        message: "Facebook returned a video upload URL outside rupload.facebook.com.",
+        message: "Facebook returned no usable rupload.facebook.com upload URL. Reconcile it.",
+        retryDisposition: { kind: "reconcile-first" },
       });
 
     confirmSuccess(
@@ -2975,7 +3000,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         "facebook.posts.publish",
       );
 
-      const postId = optionalString(result["post_id"]);
+      const postId = optionalWriteId(result, "post_id", "facebook.posts.publish");
 
       // Meta returns no post_id for a photo added to an album; the ID is then a Photo node.
       // https://developers.facebook.com/docs/graph-api/reference/photo/ (checked 2026-11-04)
@@ -3398,8 +3423,8 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     confirmSuccess(result, operation, "Facebook did not confirm the collaborator invitation.");
 
     return definedFields({
-      collaboratorId: optionalString(result["collaborator_id"]),
-      invitationLink: optionalString(result["invitation_link"]),
+      collaboratorId: optionalWriteId(result, "collaborator_id", operation),
+      invitationLink: optionalWriteId(result, "invitation_link", operation),
     });
   };
 
@@ -3700,7 +3725,9 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     return {
       id: writeId(result, "id", operation),
-      ...definedFields({ secureStreamUrl: optionalString(result["secure_stream_url"]) }),
+      ...definedFields({
+        secureStreamUrl: optionalWriteId(result, "secure_stream_url", operation),
+      }),
     };
   };
 
@@ -3980,9 +4007,12 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       input.message === undefined &&
       input.pinned === undefined &&
       input.hidden === undefined &&
-      input.isAiGenerated === undefined
+      input.isAiGenerated === undefined &&
+      input.scheduleAt === undefined
     )
-      fail(operation, "Pass a message, pinned, hidden, or isAiGenerated change.");
+      fail(operation, "Pass a message, pinned, hidden, isAiGenerated, or scheduleAt change.");
+
+    if (input.scheduleAt !== undefined) scheduleIssue(input.scheduleAt, "post", operation);
 
     if (
       input.message !== undefined &&
@@ -3999,6 +4029,8 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
           is_pinned: input.pinned,
           is_hidden: input.hidden,
           is_ai_generated: input.isAiGenerated,
+          scheduled_publish_time:
+            input.scheduleAt === undefined ? undefined : scheduleSeconds(input.scheduleAt),
         }),
       ),
       operation,
@@ -4272,13 +4304,13 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     if (!numericId.test(input.userId)) fail(operation, "userId must be a numeric Page-scoped ID.");
 
-    // Meta answers with the blocked ID mapped to true.
+    // Meta answers with the blocked ID mapped to true; another key does not confirm this user.
     const result = writeObject(
       await request(pagePath("/blocked"), input.context, { user: input.userId }),
       operation,
     );
 
-    if (!Object.values(result).includes(true))
+    if (result[input.userId] !== true)
       throw new SocialError({
         code: "ambiguous_outcome",
         operation,
@@ -4606,8 +4638,8 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     return {
       messageId,
       ...definedFields({
-        recipientId: optionalString(result["recipient_id"]),
-        attachmentId: optionalString(result["attachment_id"]),
+        recipientId: optionalWriteId(result, "recipient_id", operation),
+        attachmentId: optionalWriteId(result, "attachment_id", operation),
       }),
     };
   };
@@ -4766,7 +4798,17 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       operation,
     );
 
-    return definedFields({ recipientId: optionalString(result["recipient_id"]) });
+    // The Send API answers a sender action with the recipient's ID.
+    // https://developers.facebook.com/docs/messenger-platform/send-messages/sender-actions
+    if (result["recipient_id"] !== recipient.id)
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message: "Facebook did not confirm the sender action. Reconcile before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+
+    return { recipientId: recipient.id };
   };
 
   const createPersona: FacebookNative["createPersona"] = async (input) => {
@@ -5339,7 +5381,13 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     const id = result["id"];
 
-    return { id: isFiniteNumber(id) ? String(id) : writeId(result, "id", operation) };
+    // Graph may answer this create with a numeric ID; only a positive integer is an ID.
+    return {
+      id:
+        isFiniteNumber(id) && Number.isSafeInteger(id) && id > 0
+          ? String(id)
+          : writeId(result, "id", operation),
+    };
   };
 
   const listCustomLabels: FacebookNative["listCustomLabels"] = async (input) => {
@@ -5426,8 +5474,8 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     return {
       id: writeId(result, "id", operation),
       ...definedFields({
-        status: optionalString(result["status"]),
-        category: optionalString(result["category"]),
+        status: optionalWriteId(result, "status", operation),
+        category: optionalWriteId(result, "category", operation),
       }),
     };
   };

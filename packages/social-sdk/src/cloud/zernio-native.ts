@@ -7,6 +7,7 @@ import type {
   ConversationRef,
   DeliveryRef,
   JsonObject,
+  JsonValue,
   Platform,
   PlatformPostRef,
   PreparationIssue,
@@ -18,6 +19,7 @@ import { definedFields } from "../core/fields.js";
 import {
   array,
   isBoolean,
+  isFiniteNumber,
   isJsonArray,
   isJsonObject,
   isString,
@@ -32,6 +34,7 @@ import {
 import {
   accountMatches,
   acknowledged,
+  managedHttpExchange,
   normalizePlatform,
   platform,
   publicFields,
@@ -39,7 +42,6 @@ import {
   zernioPlatform as wirePlatform,
   type ManagedOptions,
 } from "./common.js";
-import { zernioOutcome } from "./outcomes.js";
 import { httpsUrl } from "../transport/upload.js";
 import { zernioInternals, type ZernioSubmission } from "./zernio.js";
 import { managedRawRequest } from "../core/raw-request.js";
@@ -49,6 +51,7 @@ export type { ZernioSubmission } from "./zernio.js";
 const {
   invalid,
   unconfirmed,
+  deliveryOutcome: zernioDeliveryOutcome,
   inboxFields,
   targetData: zernioTargetData,
   targetIssues: zernioTargetIssues,
@@ -265,13 +268,6 @@ function documentedFields(value: JsonField, fields: readonly string[]): JsonObje
   );
 }
 
-/** A write's documented answer fields; an answer with none of them cannot confirm the write. */
-function answerFields(value: JsonField, fields: readonly string[], operation: string): JsonObject {
-  const data = documentedFields(value, fields);
-
-  return Object.keys(data).length > 0 ? data : unconfirmed(operation);
-}
-
 /**
  * The record a create returned. Without its non-empty identifier (`idField`) the answer cannot
  * show what was created, so the write is unconfirmed.
@@ -281,6 +277,72 @@ function created(value: JsonField, idField: string, operation: string): JsonObje
   const id = row[idField];
 
   return isString(id) && id.trim() !== "" ? row : unconfirmed(operation);
+}
+
+/** An answer documented as `{ success: true, ... }`; anything else cannot confirm the write. */
+function succeeded(value: JsonField, operation: string): JsonObject {
+  return isJsonObject(value) && value["success"] === true ? value : unconfirmed(operation);
+}
+
+/** The record an update returned, which must carry the addressed ID in `idField`. */
+function addressed(
+  value: JsonField,
+  idField: string,
+  expected: string,
+  operation: string,
+): JsonObject {
+  const row = created(value, idField, operation);
+
+  return row[idField] === expected ? row : unconfirmed(operation);
+}
+
+type AnswerType = "string" | "number" | "integer" | "boolean" | "object" | "array" | "strings";
+
+function hasType(value: JsonValue, type: AnswerType): boolean {
+  switch (type) {
+    case "string":
+      return isString(value) && value.length > 0;
+    case "number":
+      return isFiniteNumber(value);
+    case "integer":
+      return isFiniteNumber(value) && Number.isSafeInteger(value);
+    case "boolean":
+      return isBoolean(value);
+    case "object":
+      return isJsonObject(value);
+    case "array":
+      return isJsonArray(value);
+    case "strings":
+      return isJsonArray(value) && value.every(isString);
+    default: {
+      const exhaustive: never = type;
+
+      return exhaustive;
+    }
+  }
+}
+
+/**
+ * Check the fields a write's answer documents: each named field that is present must have its
+ * documented type (`string` means a non-empty string). A malformed field makes the answer
+ * unable to confirm the write. Fields in `required` must be present too.
+ */
+function typedAnswer(
+  value: JsonField,
+  fields: Readonly<Record<string, AnswerType>>,
+  operation: string,
+  required: readonly string[] = [],
+): JsonObject {
+  const row = isJsonObject(value) ? value : unconfirmed(operation);
+
+  for (const [field, type] of Object.entries(fields)) {
+    const entry = row[field];
+
+    if (entry === undefined ? required.includes(field) : !hasType(entry, type))
+      unconfirmed(operation);
+  }
+
+  return row;
 }
 
 /** The next page number as a cursor, when the response reports more pages. */
@@ -819,6 +881,26 @@ function botSettingBody(input: ZernioBotSettingInput): JsonObject {
 export function zernioNative(options: ManagedOptions) {
   const { request, now, account, createPost } = zernioInternals.client(options);
 
+  // The same transport with the success status, for writes Zernio documents as a bare 200.
+  const exchange = managedHttpExchange("https://zernio.com/api", options);
+
+  /**
+   * A write Zernio documents as `200` with no body. Under status 200, an empty body, an empty
+   * object, or an object reporting `success: true` confirms it; any other answer cannot.
+   */
+  const noBodyWrite = async (
+    operation: string,
+    sent: ReturnType<typeof exchange>,
+  ): Promise<void> => {
+    const { status, body } = await sent;
+
+    const empty =
+      body === null ||
+      (isJsonObject(body) && (Object.keys(body).length === 0 || body["success"] === true));
+
+    if (status !== 200 || !empty) unconfirmed(operation);
+  };
+
   /** Read one Zernio post and prove its single destination is the referenced account. */
   const ownedPost = async (
     ref: Pick<ConnectedAccountRef, "backend" | "platform" | "accountId">,
@@ -1199,11 +1281,8 @@ export function zernioNative(options: ManagedOptions) {
       return acknowledged(
         "profiles.write",
         request(`/v1/profiles/${encodeURIComponent(profileId)}`, context, body, {}, "PUT"),
-        (reply) => {
-          const response = object(reply);
-
-          return profileFields(response["profile"]);
-        },
+        (reply) =>
+          profileFields(addressed(object(reply)["profile"], "_id", profileId, "profiles.write")),
       );
     },
     async deleteProfile(input: { readonly profileId: string }, context: AdapterOperationContext) {
@@ -1342,7 +1421,7 @@ export function zernioNative(options: ManagedOptions) {
         request(`/v1/posts/${encodeURIComponent(input.delivery.deliveryId)}/review`, context, {
           decision: input.decision,
         }),
-        (reply) => zernioOutcome(reply, deliveryContext(input.delivery)),
+        (reply) => zernioDeliveryOutcome(reply, deliveryContext(input.delivery)),
       );
     },
     /** Change the text or time of a draft, scheduled, failed or cancelled post (PUT /v1/posts/{id}). */
@@ -1378,7 +1457,7 @@ export function zernioNative(options: ManagedOptions) {
           {},
           "PUT",
         ),
-        (reply) => zernioOutcome(reply, deliveryContext(input.delivery)),
+        (reply) => zernioDeliveryOutcome(reply, deliveryContext(input.delivery)),
       );
     },
     /**
@@ -1459,6 +1538,11 @@ export function zernioNative(options: ManagedOptions) {
 
           if (result["success"] !== true) unconfirmed("posts.update");
 
+          typedAnswer(result, { updatedFields: "strings", videoId: "string" }, "posts.update");
+
+          if (result["videoId"] !== undefined && result["videoId"] !== input.post.postId)
+            unconfirmed("posts.update");
+
           return { updatedFields: stringList(result["updatedFields"]) };
         },
       );
@@ -1473,7 +1557,7 @@ export function zernioNative(options: ManagedOptions) {
       return acknowledged(
         "posts.publish",
         request(`/v1/posts/${encodeURIComponent(input.delivery.deliveryId)}/retry`, context, {}),
-        (reply) => zernioOutcome(reply, deliveryContext(input.delivery)),
+        (reply) => zernioDeliveryOutcome(reply, deliveryContext(input.delivery)),
       );
     },
     /**
@@ -1945,6 +2029,8 @@ export function zernioNative(options: ManagedOptions) {
 
           if (result["status"] !== "success") unconfirmed("comments.write");
 
+          typedAnswer(result, { messageId: "string" }, "comments.write");
+
           return { ...definedFields({ messageId: optionalString(result["messageId"]) }) };
         },
       );
@@ -1969,6 +2055,8 @@ export function zernioNative(options: ManagedOptions) {
           const result = object(reply);
 
           if (result["liked"] !== true) unconfirmed("likes.write");
+
+          typedAnswer(result, { likeUri: "string" }, "likes.write");
 
           return { ...definedFields({ likeUri: optionalString(result["likeUri"]) }) };
         },
@@ -2016,6 +2104,8 @@ export function zernioNative(options: ManagedOptions) {
           const result = object(reply);
 
           if (result["liked"] !== true) unconfirmed("likes.write");
+
+          typedAnswer(result, { likeUri: "string" }, "likes.write");
 
           return { ...definedFields({ likeUri: optionalString(result["likeUri"]) }) };
         },
@@ -2152,6 +2242,8 @@ export function zernioNative(options: ManagedOptions) {
 
           if (result["success"] !== true) unconfirmed("messages.write");
 
+          typedAnswer(result, { markedCount: "integer" }, "messages.write");
+
           return { ...definedFields({ markedCount: optionalNumber(result["markedCount"]) }) };
         },
       );
@@ -2227,13 +2319,15 @@ export function zernioNative(options: ManagedOptions) {
 
           if (result["success"] !== true) unconfirmed("messages.write");
 
+          const data = typedAnswer(result, { data: "object" }, "messages.write")["data"];
+
+          const messageId = isJsonObject(data)
+            ? typedAnswer(data, { messageId: "string" }, "messages.write")["messageId"]
+            : undefined;
+
           return {
             state: "sent" as const,
-            ...definedFields({
-              messageId: isJsonObject(result["data"])
-                ? optionalString(result["data"]["messageId"])
-                : undefined,
-            }),
+            ...definedFields({ messageId: optionalString(messageId) }),
           };
         },
       );
@@ -2357,7 +2451,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return publicFields(result["reply"] ?? unconfirmed("comments.write"), [
+          return publicFields(created(result["reply"], "id", "comments.write"), [
             "id",
             "text",
             "created",
@@ -2371,12 +2465,19 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       reviewable(input.account, context);
 
-      await request(
-        `/v1/inbox/reviews/${encodeURIComponent(input.reviewId)}/reply`,
-        context,
-        undefined,
-        { accountId: input.account.accountId },
-        "DELETE",
+      await acknowledged(
+        "comments.write",
+        request(
+          `/v1/inbox/reviews/${encodeURIComponent(input.reviewId)}/reply`,
+          context,
+          undefined,
+          { accountId: input.account.accountId },
+          "DELETE",
+        ),
+        (reply) => {
+          // Zernio answers `{ status: "success", ... }`, as for the reply it removes.
+          if (object(reply)["status"] !== "success") unconfirmed("comments.write");
+        },
       );
     },
     /** Webhook subscriptions on this Zernio API key (GET /v1/webhooks/settings). */
@@ -2424,7 +2525,7 @@ export function zernioNative(options: ManagedOptions) {
 
           if (result["success"] !== true) unconfirmed("webhooks.write");
 
-          return webhookFields(result["webhook"] ?? {});
+          return webhookFields(addressed(result["webhook"], "_id", webhookId, "webhooks.write"));
         },
       );
     },
@@ -2617,15 +2718,24 @@ export function zernioNative(options: ManagedOptions) {
         "pinterest-boards",
       );
 
-      await request(
-        route,
-        context,
-        {
-          defaultBoardId: input.boardId,
-          ...definedFields({ defaultBoardName: input.boardName }),
+      await acknowledged(
+        "accounts.write",
+        request(
+          route,
+          context,
+          {
+            defaultBoardId: input.boardId,
+            ...definedFields({ defaultBoardName: input.boardName }),
+          },
+          {},
+          "PUT",
+        ),
+        (reply) => {
+          // Zernio answers with a message and the updated account.
+          const result = typedAnswer(reply, { message: "string" }, "accounts.write", ["message"]);
+
+          addressed(result["account"], "_id", input.account.accountId, "accounts.write");
         },
-        {},
-        "PUT",
       );
     },
     /** YouTube playlists and the default one (GET /v1/accounts/{id}/youtube-playlists). */
@@ -3056,15 +3166,30 @@ export function zernioNative(options: ManagedOptions) {
 
       for (const ref of input.accounts ?? []) accountMatches(ref, context);
 
-      await request(
-        `/v1/account-groups/${encodeURIComponent(input.groupId)}`,
-        context,
-        definedFields({
-          name: input.name,
-          accountIds: input.accounts?.map((ref) => ref.accountId),
-        }),
-        {},
-        "PUT",
+      await acknowledged(
+        "accounts.write",
+        request(
+          `/v1/account-groups/${encodeURIComponent(input.groupId)}`,
+          context,
+          definedFields({
+            name: input.name,
+            accountIds: input.accounts?.map((ref) => ref.accountId),
+          }),
+          {},
+          "PUT",
+        ),
+        (reply) => {
+          const result = typedAnswer(
+            reply,
+            { message: "string", group: "object" },
+            "accounts.write",
+            ["group"],
+          );
+
+          const id = object(result["group"])["_id"];
+
+          if (id !== undefined && id !== input.groupId) unconfirmed("accounts.write");
+        },
       );
     },
     /** Delete a group; its accounts stay connected (DELETE /v1/account-groups/{groupId}). */
@@ -3072,12 +3197,18 @@ export function zernioNative(options: ManagedOptions) {
       input: { readonly groupId: string },
       context: AdapterOperationContext,
     ) {
-      await request(
-        `/v1/account-groups/${encodeURIComponent(input.groupId)}`,
-        context,
-        undefined,
-        {},
-        "DELETE",
+      await acknowledged(
+        "accounts.write",
+        request(
+          `/v1/account-groups/${encodeURIComponent(input.groupId)}`,
+          context,
+          undefined,
+          {},
+          "DELETE",
+        ),
+        (reply) => {
+          typedAnswer(reply, { message: "string" }, "accounts.write", ["message"]);
+        },
       );
     },
     /** Default post languages of a Bluesky account (GET /v1/accounts/{id}/bluesky-settings). */
@@ -3123,7 +3254,10 @@ export function zernioNative(options: ManagedOptions) {
         "bluesky-settings",
       );
 
-      await request(route, context, { defaultLangs: languages && [...languages] }, {}, "PATCH");
+      await noBodyWrite(
+        "accounts.write",
+        exchange(route, context, { defaultLangs: languages && [...languages] }, {}, "PATCH"),
+      );
     },
     /** The Discord channel and webhook identity of an account (GET .../discord-settings). */
     async getDiscordSettings(
@@ -3249,11 +3383,18 @@ export function zernioNative(options: ManagedOptions) {
         "facebook-page-info",
       );
 
+      // Zernio documents all six fields as required in the answer.
+      const pageInfoFields = ["about", "description", "website", "phone", "emails", "hours"];
+
       return acknowledged("accounts.write", request(route, context, body, {}, "PATCH"), (result) =>
-        answerFields(
-          result,
-          ["about", "description", "website", "phone", "emails", "hours"],
-          "accounts.write",
+        documentedFields(
+          typedAnswer(
+            result,
+            { emails: "array", hours: "object" },
+            "accounts.write",
+            pageInfoFields,
+          ),
+          pageInfoFields,
         ),
       );
     },
@@ -3482,11 +3623,7 @@ export function zernioNative(options: ManagedOptions) {
           {},
           "PATCH",
         ),
-        (reply) => {
-          const result = object(reply);
-
-          return oauthApp(object(result["app"]));
-        },
+        (reply) => oauthApp(addressed(object(reply)["app"], "id", input.appId, "accounts.write")),
       );
     },
     /**
@@ -3517,15 +3654,11 @@ export function zernioNative(options: ManagedOptions) {
     },
     /** Check an OAuth app's keys with the platform (POST /v1/connect/oauth-apps/{appId}/test). */
     async testOAuthApp(input: { readonly appId: string }, context: AdapterOperationContext) {
-      const result = object(
-        await request(
-          `/v1/connect/oauth-apps/${encodeURIComponent(input.appId)}/test`,
-          context,
-          {},
-        ),
+      return acknowledged(
+        "accounts.write",
+        request(`/v1/connect/oauth-apps/${encodeURIComponent(input.appId)}/test`, context, {}),
+        (reply) => oauthApp(addressed(object(reply)["app"], "id", input.appId, "accounts.write")),
       );
-
-      return oauthApp(object(result["app"]));
     },
     /** The saved hosted-connect welcome screen (GET /v1/connect/welcome-screen). */
     async getWelcomeScreen(context: AdapterOperationContext) {
@@ -3564,11 +3697,12 @@ export function zernioNative(options: ManagedOptions) {
           "PUT",
         ),
         (reply) => {
-          return answerFields(
-            reply,
-            ["showByDefault", "brandName", "logoUrl", "theme"],
-            "accounts.write",
-          );
+          const result = object(reply);
+
+          // The saved screen echoes `showByDefault`; any other value did not save this change.
+          if (result["showByDefault"] !== input.showByDefault) unconfirmed("accounts.write");
+
+          return documentedFields(result, ["showByDefault", "brandName", "logoUrl", "theme"]);
         },
       );
     },
@@ -3594,15 +3728,18 @@ export function zernioNative(options: ManagedOptions) {
       )
         invalid("accounts.write", "Give the numeric server ID and 1 to 25 numeric channel IDs.");
 
-      await request("/v1/connect/discord", context, {
-        guildId: input.guildId,
-        profileId: input.profileId,
-        channelIds: [...input.channelIds],
-        ...definedFields({
-          redirect_url:
-            input.redirectUrl === undefined ? undefined : new URL(input.redirectUrl).href,
+      await noBodyWrite(
+        "accounts.write",
+        exchange("/v1/connect/discord", context, {
+          guildId: input.guildId,
+          profileId: input.profileId,
+          channelIds: [...input.channelIds],
+          ...definedFields({
+            redirect_url:
+              input.redirectUrl === undefined ? undefined : new URL(input.redirectUrl).href,
+          }),
         }),
-      });
+      );
     },
     /** Plan, limits, usage and spend (GET /v1/usage-stats). */
     async usageStats(input: { readonly reconcile?: boolean }, context: AdapterOperationContext) {
@@ -4203,13 +4340,22 @@ export function zernioNative(options: ManagedOptions) {
             dryRun: input.dryRun === undefined ? undefined : String(input.dryRun),
           }),
         ),
-        (reply) => {
-          return answerFields(
-            reply,
+        (reply) =>
+          documentedFields(
+            typedAnswer(
+              reply,
+              {
+                total: "integer",
+                valid: "integer",
+                invalid: "integer",
+                results: "array",
+                warnings: "array",
+              },
+              "posts.publish",
+              ["total", "valid", "invalid", "results"],
+            ),
             ["total", "valid", "invalid", "results", "warnings"],
-            "posts.publish",
-          );
-        },
+          ),
       );
     },
     /** Character count per platform for a text (POST /v1/tools/validate/post-length). */
@@ -4377,9 +4523,7 @@ export function zernioNative(options: ManagedOptions) {
           method: "PUT",
         }),
         (reply) => {
-          const result = object(reply);
-
-          if (result["success"] !== true) unconfirmed("accounts.write");
+          succeeded(reply, "accounts.write");
         },
       );
     },
@@ -4416,7 +4560,7 @@ export function zernioNative(options: ManagedOptions) {
           method: "PUT",
         }),
         (reply) => {
-          return array(object(reply)["attributes"]).map(object);
+          return array(succeeded(reply, "accounts.write")["attributes"]).map(object);
         },
       );
     },
@@ -4479,7 +4623,7 @@ export function zernioNative(options: ManagedOptions) {
           method: "PUT",
         }),
         (reply) => {
-          return array(object(reply)["services"]).map(object);
+          return array(succeeded(reply, "accounts.write")["services"]).map(object);
         },
       );
     },
@@ -4510,7 +4654,7 @@ export function zernioNative(options: ManagedOptions) {
           method: "PUT",
         }),
         (reply) => {
-          return array(object(reply)["menus"]).map(object);
+          return array(succeeded(reply, "accounts.write")["menus"]).map(object);
         },
       );
     },
@@ -4541,7 +4685,7 @@ export function zernioNative(options: ManagedOptions) {
           body: { uri: httpsUrl(input.uri).href, placeActionType: input.placeActionType },
         }),
         (reply) => {
-          const result = object(reply);
+          const result = succeeded(reply, "accounts.write");
 
           string(result["name"]);
 
@@ -4573,7 +4717,7 @@ export function zernioNative(options: ManagedOptions) {
           method: "PATCH",
         }),
         (reply) => {
-          const result = object(reply);
+          const result = succeeded(reply, "accounts.write");
 
           string(result["name"]);
 
@@ -4592,7 +4736,7 @@ export function zernioNative(options: ManagedOptions) {
           method: "DELETE",
         }),
         (reply) => {
-          const result = object(reply);
+          const result = succeeded(reply, "accounts.write");
 
           if (result["deleted"] !== true) unconfirmed("accounts.write");
         },
@@ -4640,7 +4784,7 @@ export function zernioNative(options: ManagedOptions) {
           },
         }),
         (reply) => {
-          const result = object(reply);
+          const result = succeeded(reply, "accounts.write");
 
           string(result["name"]);
 
@@ -4659,7 +4803,7 @@ export function zernioNative(options: ManagedOptions) {
           method: "DELETE",
         }),
         (reply) => {
-          const result = object(reply);
+          const result = succeeded(reply, "accounts.write");
 
           if (result["deleted"] !== true) unconfirmed("accounts.write");
         },
@@ -4734,9 +4878,9 @@ export function zernioNative(options: ManagedOptions) {
           },
         }),
         (reply) => {
-          const result = object(reply);
+          const result = succeeded(reply, "accounts.write");
 
-          return documentedFields(object(result["verification"]), [
+          return documentedFields(created(result["verification"], "name", "accounts.write"), [
             "name",
             "method",
             "state",
@@ -4765,9 +4909,9 @@ export function zernioNative(options: ManagedOptions) {
           { body: { pin: input.pin } },
         ),
         (reply) => {
-          const result = object(reply);
+          const result = succeeded(reply, "accounts.write");
 
-          return documentedFields(object(result["verification"]), [
+          return documentedFields(created(result["verification"], "name", "accounts.write"), [
             "name",
             "method",
             "state",
@@ -4999,7 +5143,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return discordRole(object(result["data"]));
+          return discordRole(addressed(result["data"], "id", input.roleId, "accounts.write"));
         },
       );
     },
@@ -5197,7 +5341,11 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return publicFields(object(result["data"]), ["id", "channel_id", "timestamp"]);
+          return publicFields(typedAnswer(result["data"], { id: "string" }, "posts.write"), [
+            "id",
+            "channel_id",
+            "timestamp",
+          ]);
         },
       );
     },
@@ -5348,7 +5496,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return discordEvent(object(result["data"]));
+          return discordEvent(addressed(result["data"], "id", input.eventId, "accounts.write"));
         },
       );
     },
@@ -5959,12 +6107,19 @@ export function zernioNative(options: ManagedOptions) {
 
       if (!input.text.trim()) invalid("comments.write", "Give the new comment text.");
 
-      await request(
-        commentPath(input.comment),
-        context,
-        { accountId: input.comment.accountId, platform: "reddit", content: input.text },
-        {},
-        "PATCH",
+      await acknowledged(
+        "comments.write",
+        request(
+          commentPath(input.comment),
+          context,
+          { accountId: input.comment.accountId, platform: "reddit", content: input.text },
+          {},
+          "PATCH",
+        ),
+        (reply) => {
+          // Zernio answers with the edited comment's ID.
+          if (object(reply)["commentId"] !== input.comment.commentId) unconfirmed("comments.write");
+        },
       );
     },
     /**
@@ -6066,11 +6221,9 @@ export function zernioNative(options: ManagedOptions) {
           "PUT",
         ),
         (reply) => {
-          const result = object(reply);
+          const data = succeeded(reply, "messages.write")["data"];
 
-          const data = isJsonObject(result["data"]) ? result["data"] : {};
-
-          if (data["status"] !== input.status) unconfirmed("messages.write");
+          if (!isJsonObject(data) || data["status"] !== input.status) unconfirmed("messages.write");
         },
       );
     },
@@ -6094,9 +6247,14 @@ export function zernioNative(options: ManagedOptions) {
           const result = object(reply);
 
           if (result["success"] !== true) unconfirmed("messages.write");
-          const data = isJsonObject(result["data"]) ? result["data"] : {};
 
-          return { ...definedFields({ deletedMessages: optionalNumber(data["deletedMessages"]) }) };
+          const data = typedAnswer(result, { data: "object" }, "messages.write")["data"];
+
+          const deleted = isJsonObject(data)
+            ? typedAnswer(data, { deletedMessages: "integer" }, "messages.write")["deletedMessages"]
+            : undefined;
+
+          return { ...definedFields({ deletedMessages: optionalNumber(deleted) }) };
         },
       );
     },
@@ -6117,11 +6275,9 @@ export function zernioNative(options: ManagedOptions) {
           message: input.text,
         }),
         (reply) => {
-          const result = object(reply);
+          const data = succeeded(reply, "messages.write")["data"];
 
-          const data = isJsonObject(result["data"]) ? result["data"] : {};
-
-          return { messageId: string(data["messageId"]) };
+          return { messageId: string(isJsonObject(data) ? data["messageId"] : undefined) };
         },
       );
     },
@@ -6162,6 +6318,8 @@ export function zernioNative(options: ManagedOptions) {
           const result = object(reply);
 
           if (result["success"] !== true) unconfirmed("messages.write");
+
+          typedAnswer(result, { control: "object" }, "messages.write");
 
           return publicFields(isJsonObject(result["control"]) ? result["control"] : {}, [
             "owner",
@@ -6299,19 +6457,19 @@ export function zernioNative(options: ManagedOptions) {
     async setBotSetting(input: ZernioBotSettingInput, context: AdapterOperationContext) {
       const route = botRoute(input.account, input.setting, context);
 
-      await request(route, context, botSettingBody(input), {}, "PUT");
+      await noBodyWrite(
+        "messages.write",
+        exchange(route, context, botSettingBody(input), {}, "PUT"),
+      );
     },
     /** Remove a bot setting (DELETE on its route). */
     async deleteBotSetting(
       input: { readonly account: ConnectedAccountRef; readonly setting: ZernioBotSetting },
       context: AdapterOperationContext,
     ) {
-      await request(
-        botRoute(input.account, input.setting, context),
-        context,
-        undefined,
-        {},
-        "DELETE",
+      await noBodyWrite(
+        "messages.write",
+        exchange(botRoute(input.account, input.setting, context), context, undefined, {}, "DELETE"),
       );
     },
   };

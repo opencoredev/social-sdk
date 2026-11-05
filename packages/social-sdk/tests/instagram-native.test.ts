@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { instagram } from "../src/platforms/instagram.js";
+import { SocialError } from "../src/core/errors.js";
 import {
   connectedAccountRef,
   type AdapterOperationContext,
@@ -681,7 +682,15 @@ describe("Instagram resumable uploads", () => {
         source: { kind: "https-url", url: "https://cdn.example/fail.mp4" },
         context: context(),
       }),
-      { name: "SocialError", code: "upstream_failure", message: "Bad video" },
+      (error: SocialError) => {
+        // The refusal keeps its machine-readable type; Meta's prose never reaches the error.
+        assert.ok(error instanceof SocialError);
+        assert.equal(error.code, "upstream_failure");
+        assert.deepEqual(error.details, { type: "ProcessingFailedError" });
+        assert.doesNotMatch(error.message, /Bad video/);
+
+        return true;
+      },
     );
 
     await assert.rejects(

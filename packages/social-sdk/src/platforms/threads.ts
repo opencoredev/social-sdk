@@ -585,6 +585,13 @@ function uncertain(operation: string, message: string): never {
   });
 }
 
+/** The non-empty `id` a create or publish answered with; anything else confirms nothing. */
+function writtenId(result: JsonObject): string | undefined {
+  const id = result["id"];
+
+  return isString(id) && id.length > 0 ? id : undefined;
+}
+
 /** Threads answers moderation and deletion writes with `{ success: true }`. */
 function confirmWrite(result: JsonObject, operation: string, message: string): JsonObject {
   if (result["success"] !== true) uncertain(operation, message);
@@ -1649,7 +1656,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         c,
       );
 
-      const childId = optionalString(child["id"]);
+      const childId = writtenId(child);
 
       if (childId === undefined)
         uncertain("threads.container.child", "Threads did not return a child container ID.");
@@ -1717,7 +1724,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         c,
       );
 
-      const parentId = optionalString(parent["id"]);
+      const parentId = writtenId(parent);
 
       if (parentId === undefined)
         uncertain("threads.container.create", "Threads did not return a container ID.");
@@ -1767,7 +1774,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         c,
       );
 
-      const nativeId = optionalString(pub["id"]);
+      const nativeId = writtenId(pub);
 
       if (nativeId === undefined) {
         await store.update(cur.id, { stage: "unknown", backendState: "MISSING_ID" });
@@ -2491,7 +2498,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         context,
       );
 
-      const creationId = optionalString(container["id"]);
+      const creationId = writtenId(container);
 
       if (creationId === undefined)
         uncertain("threads.posts.quote", "Threads did not return a quote container ID.");
@@ -2503,7 +2510,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         context,
       );
 
-      if (optionalString(result["id"]) === undefined)
+      if (writtenId(result) === undefined)
         uncertain("threads.posts.quote", "Threads did not return the quote post ID.");
 
       return result;
@@ -2523,7 +2530,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       // The response carries the new repost's ID. Source, accessed 2026-11-04:
       // https://developers.facebook.com/documentation/threads/posts/reposts
-      if (optionalString(result["id"]) === undefined)
+      if (writtenId(result) === undefined)
         uncertain("threads.posts.repost", "Threads did not return a repost ID.");
 
       return result;
@@ -3105,7 +3112,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           context,
         );
 
-        const creationId = optionalString(container["id"]);
+        const creationId = writtenId(container);
 
         if (creationId === undefined)
           uncertain("threads.comments.reply", "Threads did not return a reply container ID.");
@@ -3117,7 +3124,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           context,
         );
 
-        const replyId = optionalString(result["id"]);
+        const replyId = writtenId(result);
 
         if (!replyId || replyId === comment.commentId)
           throw new SocialError({
