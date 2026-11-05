@@ -78,7 +78,11 @@ function operationContext(maxElapsedMs = 30_000): AdapterOperationContext {
 
 ### Publish a text post
 
-Text uses X's weighted 280-character rules rather than JavaScript code-unit length.
+The adapter counts text the way X does, not by JavaScript string length: most Latin characters
+weigh 1, CJK characters and emoji weigh 2, and every URL weighs 23, against a limit of 280.
+X Premium authors can post long-form text of up to 25,000 characters. Set `longform: true` in the
+target options to raise the local limit to 25,000 with the same weighting; X still rejects the post
+if the author is not eligible.
 
 ```ts
 const result = await social.posts.publish({
@@ -91,7 +95,7 @@ console.log(result.outcomes[0]?.state);
 
 ### Publish with an image
 
-The normalized adapter accepts static JPEG/PNG images, MP4 video, and GIF images as Blobs. Static images are at most 5 MiB each, with up to four per post. A post can instead attach one video or one GIF. The capability manifest lists `text`, `image`, and `video`; GIF is represented by the native image shape and is not a separate normalized format.
+The normalized adapter accepts static JPEG, PNG, and WebP (`image/webp`) images, MP4, QuickTime, and WebM video, and GIF images as Blobs, matching the formats X's [media best practices](https://docs.x.com/x-api/media/quickstart/best-practices) list. Static images are at most 5 MiB each, with up to four per post. A post can instead attach one video or one GIF. The capability manifest lists `text`, `image`, and `video`; GIF is represented by the native image shape and is not a separate normalized format.
 
 Set an image attachment's `altText` to upload accessibility metadata before
 creating the post. The adapter accepts up to 1,000 Unicode characters and stops
@@ -122,14 +126,14 @@ const result = await social.posts.publish({
 
 ### Publish with a video or GIF
 
-Video (`kind: "video"`, `video/mp4`) and GIF (`kind: "image"`, `image/gif`, up to 15 MiB) upload through the
+Video (`kind: "video"` with `video/mp4`, `video/quicktime`, or `video/webm`, sent as the INIT
+`media_type`) and GIF (`kind: "image"`, `image/gif`, up to 15 MiB) upload through the
 chunked `INIT → APPEND → FINALIZE → STATUS` flow with 4 MiB segments. Attach exactly one
 video or GIF per post. The local video upload ceiling is 17,179,869,184 bytes (16 GiB).
 At that ceiling, the adapter sends 4,096 segments with indices 0–4095, within X's
 0–9999 APPEND index range. Each segment stays below the recommended 5 MB chunk limit.
-X's media guidance lists 8 GB for default Post video and 16 GB for Premium/verified accounts;
-attachment size and duration eligibility still depend on the account. The SDK does not infer
-eligibility from a token. The adapter polls `processing_info` honoring `check_after_secs`, and stops
+X's own size and duration limits depend on the account's Premium or verified status; see
+[Media specifications](#media-specifications). The SDK does not infer eligibility from a token. The adapter polls `processing_info` honoring `check_after_secs`, and stops
 at the operation deadline or after 30 STATUS requests. A processing `timeout` carries the
 upload ID in `SocialError.details.mediaId` and uses `reconcile-first`. Interrupted APPEND,
 FINALIZE, and STATUS requests also retain the upload ID; normalized failed or unknown
@@ -143,8 +147,8 @@ The 16 GiB ceiling is a local size check, not a promise that an upload finishes 
 the default 30-second elapsed budget. That budget covers INITIALIZE, every sequential
 APPEND, FINALIZE, and processing. Set `retryBudget.maxElapsedMs` for the file size,
 connection speed, and processing time before dispatching a large upload. The example
-below allows 30 minutes; slower connections may need more. Native `uploadVideo` and
-`uploadGif` callers can pass `context: operationContext(30 * 60_000)` for the same budget.
+below allows 30 minutes; slower connections may need more. Native `uploadVideo` takes an optional `mimeType`
+(default `video/mp4`). Native `uploadVideo` and `uploadGif` callers can pass `context: operationContext(30 * 60_000)` for the same budget.
 Keep `maxAttempts: 1` and reconcile interrupted uploads before starting another.
 
 ```ts
@@ -198,6 +202,117 @@ await social.posts.publish({
       },
     ],
   },
+});
+```
+
+### Publish options
+
+Pass X-only fields as the target's `options`. Each one maps to a field of
+[`POST /2/tweets`](https://docs.x.com/x-api/posts/create-or-edit-post). `posts.prepare` checks
+types, ID formats, and combinations before any request; X still decides whether the account is
+eligible and answers an ineligible request with an error, usually HTTP 403.
+
+| Option                      | Wire field                           | What it does                                                                                                                          |
+| --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `replySettings`             | `reply_settings`                     | Who can reply: `everyone` (the default, not sent), `following`, `mentionedUsers`, `subscribers`, or `verified`.                       |
+| `longform`                  | (local only)                         | Allows up to 25,000 characters for an X Premium author.                                                                               |
+| `quotedPostId`              | `quote_tweet_id`                     | Quotes another post by its numeric ID.                                                                                                |
+| `excludeReplyUserIds`       | `reply.exclude_reply_user_ids`       | With `replyTo`, user IDs to drop from the reply's automatic mention list (up to 100).                                                 |
+| `autoPopulateReplyMetadata` | `reply.auto_populate_reply_metadata` | With `replyTo`, sends the legacy flag. X OpenAPI 2.173 says X accepts it for compatibility and drops it, so it changes nothing today. |
+| `communityId`               | `community_id`                       | Posts into an X Community the author belongs to.                                                                                      |
+| `shareWithFollowers`        | `share_with_followers`               | Shares an exclusive Super Follows post (`forSuperFollowersOnly`) with all followers.                                                  |
+| `paidPartnership`           | `paid_partnership`                   | Labels the post as a paid promotion. Read it back with `tweet.fields=paid_partnership`.                                               |
+| `madeWithAi`                | `made_with_ai`                       | Discloses that the post contains AI-generated media.                                                                                  |
+| `forSuperFollowersOnly`     | `for_super_followers_only`           | Restricts the post to the author's subscribers (Super Follows).                                                                       |
+| `placeId`                   | `geo.place_id`                       | Geo-tags the post with an X place ID.                                                                                                 |
+| `directMessageDeepLink`     | `direct_message_deep_link`           | Adds a button that opens a DM with the author. Must be an HTTPS link.                                                                 |
+| `cardUri`                   | `card_uri`                           | Attaches a card created through the X Ads API. Cards need Ads API access.                                                             |
+
+Media card fields apply to the attached media and need at least one media item. The adapter merges
+them into the `media` object next to `media_ids`:
+
+| Option                           | Wire field                         | What it does                                                                                                          |
+| -------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `mediaTitle`, `mediaDescription` | `media.title`, `media.description` | Card text X renders for video and Amplify media.                                                                      |
+| `previewMediaId`                 | `media.preview_media_id`           | ID of a separately uploaded image used as the preview.                                                                |
+| `embeddable`                     | `media.embeddable`                 | Keeps media asset URLs from expiring and allows syndicated playback.                                                  |
+| `taggedUserIds`                  | `media.tagged_user_ids`            | Tags up to 10 users in the media.                                                                                     |
+| `callToActions`                  | `media.call_to_actions`            | `visitSite` or `watchNow` with an HTTPS `url`, or `appInstall` with `appStoreId`, `ipadAppStoreId`, or `playStoreId`. |
+
+```ts
+const result = await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: {
+        communityId: "1500000000000000001",
+        shareWithFollowers: true,
+        madeWithAi: true,
+        replySettings: "verified",
+      },
+    },
+  ],
+  content: { text: "Weekly build notes" },
+});
+```
+
+The options above describe the direct X adapter. Managed backends have their own X option names
+and report any option they do not map as a preparation issue (`options.unmapped`):
+
+- [Zernio](/backends/zernio): `replySettings`, `quotePostId`, `poll`, `paidPartnership`,
+  `madeWithAi`, `sensitiveMedia`, `geoRestriction`, `threadItems`, `longVideo`, and
+  `mediaTaggedUsers`.
+- [Post for Me](/backends/post-for-me): `replySettings`, `quotePostId`, `poll`, and `communityId`.
+- [PostFast](/backends/postfast): `replySettings`, `repostUrl`, and `firstComment`.
+- [Postiz](/backends/postiz): `replySettings`, `community`, `aiGenerated`, `paidPartnership`,
+  `article`, and the post-level `thread`.
+- [Buffer](/backends/buffer): `aiGenerated`, `retweet`, and `thread`; no `replySettings`.
+
+Each backend page lists the values it accepts, such as Postiz's extra `subscribers` and `verified`
+reply settings.
+
+### Threads, polls, and quotes
+
+To publish a thread of posts, call `social.posts.publishSequence` with `replyToPrevious: true`.
+Each item becomes a self-reply to the post the same account created in the previous item. See
+[Publishing](/publishing) for idempotency keys and partial failures.
+
+```ts
+await social.posts.publishSequence({
+  idempotencyKey: "launch-thread-2026-11-04",
+  replyToPrevious: true,
+  items: [
+    { targets: [{ account }], content: { text: "1/ We shipped long-form posts." } },
+    { targets: [{ account }], content: { text: "2/ Set longform: true to use them." } },
+  ],
+});
+```
+
+`native.createPoll({ account, text, options, durationMinutes, context })` sends `poll.options`
+and `poll.duration_minutes`. X requires 2 to 4 options of 1 to 25 characters and a duration from
+5 to 10,080 minutes (7 days); the adapter checks the option count and duration before sending.
+Polls cannot be edited after they are posted.
+
+```ts
+await native.createPoll({
+  account,
+  text: "Which SDK target should we add next?",
+  options: ["Deno", "Cloudflare Workers"],
+  durationMinutes: 1440,
+  context: operationContext(),
+});
+```
+
+`native.quote({ account, text, quotedPostId, context })` sends `quote_tweet_id`, as does the
+`quotedPostId` publish option. X's April 20, 2026 pricing update removed Quote-Posts from all
+self-serve tiers, so quoting needs Enterprise access.
+
+```ts
+await native.quote({
+  account,
+  text: "Worth reading",
+  quotedPostId: "1700000000000000000",
+  context: operationContext(),
 });
 ```
 
@@ -489,7 +604,122 @@ still depends on the X API tier and Direct Messages access for the app.
 
 ### Receive webhooks
 
-Pass the OAuth 2.0 client secret, or the legacy consumer secret, as `webhookSecret`. `adapter.webhooks.verify` checks `X-Twitter-Webhooks-Signature-OAuth2` when X sends it and falls back to `X-Twitter-Webhooks-Signature` only when that header is absent, so use the OAuth 2.0 client secret once your app has one. Answer the CRC GET with `answerXWebhookChallenge` from `@opencoredev/social-sdk/server`, using the same secret. Account Activity direct messages decode to `message.received`, post deletions to `post.removed`, and app revocations to `account.updated`. See [Process webhooks](/events).
+Pass the OAuth 2.0 client secret, or the legacy consumer secret, as `webhookSecret`. `adapter.webhooks.verify` checks `X-Twitter-Webhooks-Signature-OAuth2` when X sends it and falls back to `X-Twitter-Webhooks-Signature` only when that header is absent, so use the OAuth 2.0 client secret once your app has one. Answer the CRC GET with `answerXWebhookChallenge` from `@opencoredev/social-sdk/server`, using the same secret. See [Process webhooks](/events).
+
+Register the endpoint with the native webhook methods, which call `/2/webhooks`.
+`createWebhook({ account, url })` registers an HTTPS URL of up to 200 characters; X sends a CRC
+check before it accepts it. `listWebhooks` returns `{ id, url, valid, createdAt }` for each config,
+`validateWebhook` asks X to run the CRC check again and re-enable a failed webhook, and
+`deleteWebhook` removes it. `replayWebhook({ account, webhookId, from, to })` asks X to re-deliver
+events from a past window through `POST /2/webhooks/replay`; the adapter converts the ISO times to
+X's `yyyymmddhhmm` UTC format. These methods use `appBearerToken` when it is set (replay requires
+it) and otherwise the user token.
+
+```ts
+const webhook = await native.createWebhook({
+  account,
+  url: "https://api.example.com/webhooks/x",
+  context: operationContext(),
+});
+```
+
+#### X Activity API
+
+The X Activity API delivers per-user events to a registered webhook. Subscribe with
+`createActivitySubscription({ account, eventType, filter, webhookId, tag, expiresAt })`, which
+calls `POST /2/activity/subscriptions`; list, retag, and delete subscriptions with
+`listActivitySubscriptions`, `updateActivitySubscription`, and `deleteActivitySubscriptions`
+(one ID uses `DELETE /2/activity/subscriptions/{id}`, several use the bulk route with
+`appBearerToken`). `eventType` is one of X's dot-notation types, such as `post.reply.create`,
+`post.mention.create`, `like.create`, `follow.follow`, `dm.received`, or `profile.update.bio`.
+`filter.userId` names the user to follow, and `filter.qualifiers` takes up to 8 predicates such as
+`post_id` or `conversation_type`. Private events (likes, DMs, mentions, replies, quotes, reposts,
+mutes, blocks, and subscriptions) need that user's OAuth 2.0 token with the matching read scope,
+so the adapter sends the user token when one is configured.
+
+```ts
+await native.createActivitySubscription({
+  account,
+  eventType: "post.reply.create",
+  filter: { userId: account.accountId },
+  webhookId: webhook.id,
+  tag: "replies",
+  context: operationContext(),
+});
+```
+
+Deliveries arrive as `{ data: { event_type, filter, payload } }` and use the same signature and
+CRC as other X webhooks. `post.reply.create` decodes to `comment.received`, `dm.received` to
+`message.received`, `post.delete` to `post.removed`, and `oauth.revoke` to `account.updated`. The
+event's `accountIds` holds `filter.user_id` (for `oauth.revoke`, the payload's `user_id`). Other
+types, including mentions, quotes, likes, and follows, decode as `unknown` with the X event type
+in `originalType`.
+
+Instead of a webhook, the app can hold the X Activity API's persistent stream open.
+`activityStream({ account, backfillMinutes, startTime, endTime })` connects to
+`GET /2/activity/stream` with `appBearerToken` and yields `{ kind: "data", data }` events, where
+`data` is X's event object with `event_type`, `filter`, and `payload`. It delivers events for the
+app's existing subscriptions, so create them first. `backfillMinutes` (0 to 5) replays a short gap
+after a disconnect, and `startTime`/`endTime` request a recovery window. Like the filtered
+stream, each iteration opens one connection, `stallTimeoutMs` (default 20,000) bounds the wait for
+data or a keep-alive, and the adapter never reconnects on its own.
+
+```ts
+for await (const event of native.activityStream({ account, context: operationContext() })) {
+  if (event.kind === "data") console.log(event.data["event_type"], event.data["payload"]);
+}
+```
+
+#### Account Activity API (deprecated)
+
+The adapter verifies and decodes Account Activity deliveries but cannot manage their subscriptions
+(see [Not supported](#not-supported)): `direct_message_events` decode to `message.received`,
+`tweet_delete_events` to `post.removed`, and `user_event.revoke` to `account.updated`. Every other
+container, including `tweet_create_events`, `favorite_events`, `follow_events`,
+`block_events`, and `mute_events`, decodes as `unknown` with the container name in
+`originalType`. A `tweet_create_events` delivery mixes the user's own posts, replies, and
+mentions, so the adapter does not guess which of them is a comment.
+
+### Migrate OAuth 1.0a users
+
+`exchangeXOAuth1Token` from `@opencoredev/social-sdk/server` exchanges a stored OAuth 1.0a access
+token and secret for OAuth 2.0 tokens without sending the user through consent again. It posts
+`grant_type=urn:ietf:params:oauth:grant-type:token-exchange` to `POST /2/oauth2/token` with the
+token as `subject_token` and the secret as `oauth_token_secret`. Pass the same `clientId` (and
+`clientSecret` for confidential clients, sent with HTTP Basic) that you give `xOAuth`. X derives
+the scopes from the user's original OAuth 1.0a permissions and always adds `offline.access`;
+`scopes` can only narrow them. An `invalid_grant` answer means X rejected the OAuth 1.0a
+credentials, so do not retry it. X allows 10,000 exchanges per 15 minutes per app and source IP
+([guide](https://docs.x.com/fundamentals/authentication/oauth-2-0/oauth-1-0a-token-exchange)).
+
+```ts
+import { exchangeXOAuth1Token } from "@opencoredev/social-sdk/server";
+
+const tokens = await exchangeXOAuth1Token(
+  { clientId: process.env.X_CLIENT_ID ?? "", clientSecret: process.env.X_CLIENT_SECRET },
+  { token: storedOAuth1Token, tokenSecret: storedOAuth1Secret },
+);
+// Persist tokens.accessToken and tokens.refreshToken, then drop the OAuth 1.0a pair.
+```
+
+### Revoke tokens
+
+`revokeXOAuthToken(options, { token })` from `@opencoredev/social-sdk/server` invalidates an
+access or refresh token with `POST https://api.x.com/2/oauth2/revoke`, for a disconnect or log-out
+flow. It sends the token as a form field; confidential clients (with `clientSecret`) authenticate
+with HTTP Basic and public clients send `client_id`. It returns `"revoked"` unless X answers
+`revoked: false`, so it can back `grants.revoke` in the connect handlers. Users can also remove
+the app themselves at X's [connected apps](https://x.com/settings/connected_apps) page
+([guide](https://docs.x.com/fundamentals/authentication/oauth-2-0/user-access-token)).
+
+```ts
+import { revokeXOAuthToken } from "@opencoredev/social-sdk/server";
+
+await revokeXOAuthToken(
+  { clientId: process.env.X_CLIENT_ID ?? "", clientSecret: process.env.X_CLIENT_SECRET },
+  { token: storedRefreshToken },
+);
+```
 
 ## Native operations
 
@@ -508,14 +738,767 @@ list posts, and liking-user reads accept 1 through 100. Native timeline/list pag
 reference, and media expansions in `metadata.includes`. Metrics decode both `post_count`/`tweet_count`
 and `repost_count`/`retweet_count`, preferring the newer spelling when both exist. Normalized metric
 names remain `tweet_count` for account totals and `reposts` for post totals. Reply references accept
-`referenced_posts` and `referenced_tweets` and expose `referenced_tweets` for compatibility. `bookmarks` returns the raw first provider
-response, not a paginated SDK method. Bookmark reads/writes need `bookmark.read`/`bookmark.write`
+`referenced_posts` and `referenced_tweets` and expose `referenced_tweets` for compatibility. `bookmarks` returns X's raw response for one
+page rather than an SDK `Page`. Bookmark reads/writes need `bookmark.read`/`bookmark.write`
 with `tweet.read` and `users.read`; repost writes need `tweet.write`, `tweet.read`, and `users.read`.
 
 Self-serve API replies require the parent Post's author to have summoned the replying account by
 mentioning it or quoting one of its Posts. Enterprise is exempt under X's February 23, 2026
 changelog. `comments.write` requires `tweet.write`, `tweet.read`, and `users.read`. The adapter
 leaves access decisions to X and keeps the methods available for eligible callers.
+
+### Look up posts, users, and media
+
+`getPosts({ account, postIds, fields, context })` reads up to 100 posts in one
+`GET /2/tweets?ids=` request. Posts X cannot return (deleted, protected, or suspended) are listed in
+`metadata.errors` instead of failing the call. `getUsers` (`GET /2/users?ids=`) and
+`getUsersByUsernames` (`GET /2/users/by?usernames=`) do the same for up to 100 users, and
+`getMedia` (`GET /2/media?media_keys=`) for up to 100 media keys such as `3_1700000000000000000`.
+These reads use the user token when configured and fall back to `appBearerToken`.
+
+```ts
+const posts = await native.getPosts({
+  account,
+  postIds: ["1700000000000000000", "1700000000000000001"],
+  fields: { tweetFields: ["id", "text", "note_tweet", "edit_controls", "paid_partnership"] },
+  context: operationContext(),
+});
+for (const error of posts.metadata?.["errors"] ?? []) console.warn(error);
+```
+
+`fields` chooses what X returns. `tweetFields` is sent as `tweet.fields`, as X's
+[fields guide](https://docs.x.com/x-api/fundamentals/fields) shows; OpenAPI 2.173 calls the same
+parameter `post.fields`. Newer post fields include `note_tweet` (the full text of a long-form
+post), `edit_controls` (remaining edits and the edit deadline), `paid_partnership`,
+`community_id`, `article`, `card_uri`, and `reply_settings`. `non_public_metrics` and
+`organic_metrics` need the author's user token and only cover posts from the last 30 days.
+Without `fields`, the adapter asks for id, text, author, creation time, conversation, public
+metrics, references, and attachments, with author, referenced-post, and media expansions in
+`metadata.includes`.
+
+User search (`searchUsers`, `GET /2/users/search`) takes a 1-50 character query of letters,
+digits, underscores, apostrophes, and spaces, returns up to 1,000 users per page, and needs a user
+token.
+
+### Quotes and reposts
+
+`quotePosts({ account, postId, exclude, limit })` reads the quote posts of a post through
+`GET /2/tweets/{id}/quote_tweets`, 10 to 100 per page; `exclude` can drop `replies` or
+`retweets`. `repostedBy` lists the users who reposted a post (`GET /2/tweets/{id}/retweeted_by`),
+and `reposts` returns the repost posts themselves (`GET /2/tweets/{id}/retweets`).
+`repostsOfMe` reads reposts of the authenticated user's posts (`GET /2/users/reposts_of_me`) and
+needs a user token with `timeline.read`.
+
+```ts
+const quotes = await native.quotePosts({
+  account,
+  postId: "1700000000000000000",
+  exclude: ["retweets"],
+  limit: 100,
+  context: operationContext(),
+});
+const reposters = await native.repostedBy({
+  account,
+  postId: "1700000000000000000",
+  context: operationContext(),
+});
+```
+
+To repost or undo a repost, call `repost({ account, postId, context })` and
+`undoRepost({ account, postId, context })`. Both raise `ambiguous_outcome` unless X confirms the
+new `retweeted` state.
+
+```ts
+await native.repost({ account, postId: "1700000000000000000", context: operationContext() });
+await native.undoRepost({ account, postId: "1700000000000000000", context: operationContext() });
+```
+
+### Post counts
+
+Post counts report how many posts match a search query per time bucket, without reading the posts.
+`countRecentPosts` calls `GET /2/tweets/counts/recent` (last 7 days, user or app token) and
+`countAllPosts` calls `GET /2/tweets/counts/all` (full archive, `appBearerToken` and an eligible
+plan). Set `granularity` to `minute`, `hour` (X's default), or `day`. The result has `buckets`
+with `start`, `end`, and `count`, plus `totalCount` and `nextCursor`. The adapter reads both
+`post_count` and the older `tweet_count` names.
+
+```ts
+const counts = await native.countRecentPosts({
+  account,
+  counts: { query: "from:opencoredev", granularity: "day" },
+  context: operationContext(),
+});
+console.log(counts.totalCount, counts.buckets.at(-1));
+```
+
+### Likes and bookmarks
+
+`likingUsers({ account, postId })` lists users who liked a post and `likedPosts({ account })`
+lists posts the account liked. Both return SDK pages.
+
+```ts
+const likers = await native.likingUsers({
+  account,
+  postId: "1700000000000000000",
+  limit: 100,
+  context: operationContext(),
+});
+const liked = await native.likedPosts({ account, context: operationContext() });
+```
+
+`bookmarks({ account, cursor, maxResults })` returns X's raw response for one page; pass
+`meta.next_token` back as `cursor`. `bookmark` and `removeBookmark` add and remove one post.
+Bookmark folders have their own methods: `bookmarkFolders` lists the account's folders
+(`GET /2/users/{id}/bookmarks/folders`), `createBookmarkFolder` creates one with a 1-25
+character name, and `bookmarksByFolder` returns the post IDs saved in a folder. Folder reads need
+`bookmark.read`; creating a folder needs `bookmark.write`.
+
+```ts
+await native.bookmark({ account, postId: "1700000000000000000", context: operationContext() });
+const folder = await native.createBookmarkFolder({
+  account,
+  name: "Read later",
+  context: operationContext(),
+});
+const saved = await native.bookmarksByFolder({
+  account,
+  folderId: folder.id,
+  context: operationContext(),
+});
+await native.removeBookmark({
+  account,
+  postId: "1700000000000000000",
+  context: operationContext(),
+});
+```
+
+`bookmarkPosts({ account, postIds, folderId })` bookmarks 1 to 25 posts in one
+`POST /2/users/{id}/bookmarks` request by sending `tweet_ids`. With `folderId`, X also files them
+in that bookmark folder (`folder_id`); without it, they go to the top-level bookmarks only. X
+reports per-post failures in `errors` while bookmarking the rest, so the result lists the
+`bookmarked` IDs and the `errors` separately. It needs `bookmark.write`.
+
+```ts
+const result = await native.bookmarkPosts({
+  account,
+  postIds: ["1700000000000000000", "1700000000000000001"],
+  folderId: folder.id,
+  context: operationContext(),
+});
+for (const error of result.errors) console.warn(error["tweet_id"], error["title"]);
+```
+
+### Lists
+
+`createList`, `updateList`, and `deleteList` manage the account's Lists; `addListMember` and
+`removeListMember` change members; `followList`, `unfollowList`, `pinList`, and `unpinList`
+change the account's relationship to a List. Reads are `getList`, `ownedLists`, `pinnedLists`,
+`listMembers`, `listPosts`, `listFollowers` (`GET /2/lists/{id}/followers`), and
+`listMemberships`, which returns the Lists a user belongs to through
+`GET /2/users/{id}/list_memberships`. List writes need `list.write`; reads need `list.read`.
+
+```ts
+const created = await native.createList({
+  account,
+  name: "TypeScript SDKs",
+  isPrivate: true,
+  context: operationContext(),
+});
+console.log(created["data"]); // { id, name }
+const listId = "1800000000000000000"; // the id from created.data
+await native.addListMember({ account, listId, userId: "2244994945", context: operationContext() });
+const members = await native.listMembers({ account, listId, context: operationContext() });
+const posts = await native.listPosts({ account, listId, limit: 50, context: operationContext() });
+const owned = await native.ownedLists({ account, context: operationContext() });
+```
+
+### Timelines, affiliates, and hidden replies
+
+`homeTimeline({ account })` reads the account's reverse-chronological home timeline and needs a
+user token. `userPosts({ account, userId })` reads one user's posts.
+
+```ts
+const home = await native.homeTimeline({ account, limit: 50, context: operationContext() });
+```
+
+`affiliates({ account, userId })` lists accounts affiliated with a verified organization through
+`GET /2/users/{id}/affiliates`, up to 1,000 per page.
+
+`hideReply({ account, replyId, hidden, context })` hides or unhides a reply in a conversation the
+account started, through `PUT /2/tweets/{id}/hidden`. It needs `tweet.moderate.write` and returns
+the hidden state X reports.
+
+```ts
+await native.hideReply({
+  account,
+  replyId: "1700000000000000002",
+  hidden: true,
+  context: operationContext(),
+});
+```
+
+### Communities, trends, and Space Posts
+
+Communities: `getCommunity({ account, communityId, communityFields })` reads one Community through
+`GET /2/communities/{id}`, and `searchCommunities({ account, query })` searches them by keyword
+(10 to 100 per page, user token). Post into a Community with the `communityId` publish option.
+
+Trends: `trends({ account, woeid, maxTrends })` reads up to 50 trends for a Yahoo! WOEID location
+(`1` is worldwide) and returns `{ name, postCount }` entries. `personalizedTrends({ account })`
+returns the trends X personalizes for the authenticated user, with `category`, `postCount` as X's
+display text, and `trendingSince`.
+
+Spaces: `spacePosts({ account, spaceId })` reads posts shared in a Space, and
+`spaceBuyers({ account, spaceId })` lists ticket buyers of the account's ticketed Space and needs
+the host's user token.
+
+### Usage and credit balance
+
+`creditBalance({ account })` reads `GET /2/usage/credits` and returns the remaining pay-per-use
+credit balance in USD as `totalBalance`, `prepaidBalance`, `freeBalance`, and `freeGrants` with
+their expiry. `postUsage({ account, days })` reads the project's post consumption for the last 1 to
+90 days through `GET /2/usage/tweets` and needs `appBearerToken`. Use them to budget reads before a
+large job; the SDK does not stop requests when credit runs low.
+
+```ts
+const balance = await native.creditBalance({ account, context: operationContext() });
+if (balance.totalBalance < 1) console.warn("X credit balance is low");
+```
+
+### Subtitles and shared media
+
+Add captions to a video in three steps: upload the video, upload an SRT or WebVTT file with
+`uploadSubtitles` (chunked upload with `media_category=subtitles` and `media_type` `text/srt` or
+`text/vtt`), then link them with `attachSubtitles`, which calls `POST /2/media/subtitles`. The
+language code is two uppercase letters such as `EN`; `mediaCategory` is `TweetVideo` (default) or
+`AmplifyVideo`. `deleteSubtitles` removes one language and raises `ambiguous_outcome` unless X
+confirms `deleted: true`. All three need `media.write`. Attach the video to a post as usual with
+its media ID.
+
+```ts
+import { openAsBlob } from "node:fs";
+
+const video = await native.uploadVideo({
+  account,
+  video: await openAsBlob("./demo.mp4", { type: "video/mp4" }),
+  context: operationContext(10 * 60_000),
+});
+const track = await native.uploadSubtitles({
+  account,
+  file: await openAsBlob("./demo.en.srt"),
+  format: "srt",
+  context: operationContext(),
+});
+await native.attachSubtitles({
+  account,
+  videoMediaId: video.mediaId,
+  subtitleMediaId: track.mediaId,
+  languageCode: "EN",
+  displayName: "English",
+  context: operationContext(),
+});
+```
+
+`uploadVideo`, `uploadGif`, and `uploadDmMedia` accept `additionalOwners`, up to 100 user IDs sent
+as the INIT `additional_owners` field. Those accounts may attach the same media ID to their own
+posts or messages, for example when one service uploads for several brand accounts.
+
+### Media metadata
+
+`setMediaMetadata({ account, mediaId, metadata })` attaches metadata to uploaded media with
+[`POST /2/media/metadata`](https://docs.x.com/x-api/media/create-media-metadata) and `media.write`,
+and returns the `associated_metadata` X reports. Each field fills one entry of X's `metadata`
+object:
+
+| Field                   | Wire field                                      | What it does                                                      |
+| ----------------------- | ----------------------------------------------- | ----------------------------------------------------------------- |
+| `altText`               | `alt_text.text`                                 | Alt text, up to 1,000 characters.                                 |
+| `allowDownload`         | `allow_download_status.allow_download`          | Whether viewers may download the media.                           |
+| `contentExpiresAt`      | `content_expiration.timestamp_sec`              | ISO time after which the media expires, sent as Unix seconds.     |
+| `domainAllowlist`       | `domain_restrictions.whitelist`                 | Domains allowed to embed the media.                               |
+| `foundMediaOrigin`      | `found_media_origin.provider`, `.id`            | Credits media found through a provider such as a GIF library.     |
+| `managed`, `shared`     | `management_info.managed`, `shared_info.shared` | Management and sharing flags.                                     |
+| `uploadSource`          | `upload_source.upload_source`                   | Labels where the upload came from.                                |
+| `sensitiveMediaWarning` | `sensitive_media_warning`                       | Flags sensitive media, such as adult content or graphic violence. |
+| `geoRestrictions`       | `geo_restrictions`                              | Limits where the media can be seen.                               |
+| `audiencePolicy`        | `audience_policy`                               | Limits who can see the media.                                     |
+
+X's OpenAPI 2.173 types `sensitive_media_warning`, `geo_restrictions`, and `audience_policy` as
+objects without listing their fields, so the adapter forwards those objects unchanged and X
+validates them. Earlier X media metadata used the sensitive-media categories `adult_content`,
+`graphic_violence`, and `other`. The adapter checks the media ID, the alt-text length, the
+expiration time, and the domain format, and raises `ambiguous_outcome` when X does not echo the
+media ID.
+
+```ts
+await native.setMediaMetadata({
+  account,
+  mediaId: uploaded.mediaId,
+  metadata: {
+    altText: "Weekly signups chart",
+    allowDownload: false,
+    contentExpiresAt: "2026-12-01T00:00:00Z",
+  },
+  context: operationContext(),
+});
+```
+
+### Direct Message media, events, and blocks
+
+`uploadDmMedia({ account, media, kind })` uploads a Direct Message attachment through the
+chunked flow with `media_category` `dm_image`, `dm_gif`, or `dm_video`. X allows images up to
+5 MB, GIFs up to 15 MB, and DM video up to 512 MB and 140 seconds (1 GB and 10 minutes for X
+Premium); the adapter checks the type and the larger size ceiling, and X checks the rest. Send the
+returned ID as `attachments: [{ media_id }]` with `sendConversationMessage`.
+
+```ts
+const photo = await native.uploadDmMedia({
+  account,
+  media: await openAsBlob("./receipt.png", { type: "image/png" }),
+  kind: "image",
+  context: operationContext(),
+});
+await native.sendConversationMessage({
+  account,
+  conversationId: "2244994945-1500000000000000000",
+  text: "Here is your receipt",
+  attachments: [{ media_id: photo.mediaId }],
+  context: operationContext(),
+});
+```
+
+`listDirectMessages` accepts `eventTypes`, sent as X's `event_types` filter on all three DM event
+reads (`/2/dm_events`, `/2/dm_conversations/{id}/dm_events`, and
+`/2/dm_conversations/with/{participant_id}/dm_events`). Pass `["MessageCreate"]` to leave out the
+`ParticipantsJoin` and `ParticipantsLeave` events of group conversations; X returns all three
+types when it is omitted.
+
+`getDirectMessage({ account, eventId })` reads one event with `GET /2/dm_events/{event_id}`, and
+`deleteDirectMessage` deletes an event the account sent with `DELETE /2/dm_events/{event_id}`
+(needs `dm.write` and `dm.read`; X must confirm `deleted: true`).
+
+`downloadDmMedia({ account, dmId, mediaId, resourceId })` downloads the bytes of legacy DM media
+with `GET /2/dm_conversations/media/{dm_id}/{media_id}/{resource_id}` and `dm.read`. X's reference
+does not say where the three IDs come from, so pass the values X gives you. The adapter buffers the
+body in memory up to `maxBytes` (default 15 MiB, at most 1 GiB) and raises `media_error` beyond
+it. It does not follow redirects, so a redirect surfaces as an `upstream_failure`.
+
+`blockDms({ account, userId })` blocks Direct Messages to and from a user through
+`POST /2/users/{id}/dm/block`, and `unblockDms` lifts the block through `/dm/unblock`. Both need
+`dm.write` and require X to report the new `blocked` state.
+
+### Direct Message refusals
+
+When X refuses a Direct Message it answers HTTP 403 with a problem type such as
+`https://api.x.com/2/problems/dm-recipient-not-accepting` (X changelog, October 26, 2026). The
+DM write methods (`sendDirectMessage`, `sendConversationMessage`, `createGroupConversation`, and
+`social.messages.send`) put the part after `problems/` in `SocialError.upstreamCode`, for example
+`dm-recipient-not-accepting`, `dm-sender-dms-closed`, or `dm-text-too-long`, and never retry.
+The SocialError `code` is `invalid_input` for content problems (`dm-text-*`, `dm-bad-*`,
+`dm-too-*`, `dm-duplicate`, `dm-unsupported-message`, `dm-conversation-name-too-long`),
+`not_found` for `dm-*-not-found`, `rate_limited` for `dm-rate-limited`, and
+`missing_permission` for every other refusal. X's `detail` text is dropped because it can describe
+the recipient. A refusal X cannot explain stays `about:blank` and surfaces as
+`missing_permission` without an `upstreamCode`.
+
+```ts
+// Refusals arrive as SocialError with the problem type in upstreamCode.
+import { SocialError } from "@opencoredev/social-sdk";
+
+try {
+  await native.sendDirectMessage({
+    account,
+    participantId: "2244994945",
+    text: "Your order shipped",
+    context: operationContext(),
+  });
+} catch (error) {
+  if (error instanceof SocialError && error.upstreamCode === "dm-recipient-not-accepting")
+    console.warn("This user does not accept DMs from the account");
+  else throw error;
+}
+```
+
+### Post and media analytics
+
+The normalized `analytics.getPostMetrics` returns public counts. For the account's own posts, X
+has three richer reads, all with the user token:
+
+- `privatePostMetrics({ account, postIds })` requests `non_public_metrics` and `organic_metrics`
+  for up to 100 posts from the last 30 days, such as `url_link_clicks`, `user_profile_clicks`,
+  and organic impressions. It returns `{ postId, nonPublic, organic }` per post and rejects a post
+  owned by another account.
+- `postAnalytics({ account, postIds, startTime, endTime, granularity, fields })` calls
+  `GET /2/tweets/analytics` for an engagement time series (`hourly`, `daily`, `weekly`, or
+  `total`) with fields such as `impressions`, `engagements`, `url_clicks`, and
+  `user_profile_clicks`.
+- `mediaAnalytics({ account, mediaKeys, startTime, endTime, granularity, fields })` calls
+  `GET /2/media/analytics` for video metrics such as `video_views`, `playback_complete`, and
+  `watch_time_ms`.
+
+```ts
+const analytics = await native.postAnalytics({
+  account,
+  postIds: ["1700000000000000000"],
+  startTime: "2026-11-01T00:00:00Z",
+  endTime: "2026-11-04T00:00:00Z",
+  granularity: "daily",
+  fields: ["impressions", "engagements", "url_clicks"],
+  context: operationContext(),
+});
+```
+
+### Articles
+
+X Articles are long-form posts with headings, lists, quotes, links, embedded posts, and images.
+The Articles API works in two steps, both with a user token that has `tweet.read`, `tweet.write`,
+and `users.read`. `createArticleDraft({ account, title, blocks, entities, coverMedia })` sends
+`POST /2/articles/draft`. Each block has `text` and a `type` (`unstyled`, `header-one` to
+`header-three`, list items, `blockquote`, or `atomic` for one embed). `inlineStyles` marks bold,
+italic, or strikethrough ranges, and `entityRanges` point at `entities` by index. Entities are
+links, embedded posts, images (uploaded media IDs), Markdown (code and tables), dividers, and LaTeX;
+the adapter writes X's DraftJS `content_state` and the mutability X recommends for each. Ranges
+count UTF-16 code units and are checked against the block text before sending.
+`publishArticle({ account, articleId })` calls `POST /2/articles/{id}/publish` and returns the new
+post's reference; a response without `post_id` raises `ambiguous_outcome`.
+
+```ts
+const draft = await native.createArticleDraft({
+  account,
+  title: "What shipped in November",
+  blocks: [
+    { text: "Highlights", type: "header-one" },
+    {
+      text: "Long-form posts and WebP images.",
+      type: "unstyled",
+      inlineStyles: [{ offset: 0, length: 15, style: "bold" }],
+    },
+    { text: " ", type: "atomic", entityRanges: [{ entity: 0, offset: 0, length: 1 }] },
+  ],
+  entities: [{ kind: "post", postId: "1700000000000000000" }],
+  context: operationContext(),
+});
+const post = await native.publishArticle({
+  account,
+  articleId: draft.articleId,
+  context: operationContext(),
+});
+```
+
+### X Chat (beta)
+
+X Chat is X's end-to-end encrypted messaging, separate from the legacy Direct Messages above. The
+adapter carries X Chat requests but does not encrypt or decrypt anything.
+`chatConversations({ account, unreadOnly, type })` lists the inbox through
+`GET /2/chat/conversations`, and `chatEvents({ account, conversationId })` returns a
+conversation's events; encrypted events keep their `encoded_event` as X sends it, so decode them
+with X's Chat XDK. `sendChatMessage({ account, conversationId, messageId, message })` calls
+`POST /2/chat/conversations/{id}/messages` with either `{ kind: "text", text }`, which X sends
+unencrypted, or `{ kind: "encrypted", encodedMessageCreateEvent, encodedMessageEventSignature,
+xdkVersion }` produced by the Chat XDK. Read the recipient's `receives_your_chat` user field
+first: `unencrypted` takes text, `encrypted` needs the XDK event, and `none` cannot be messaged
+(X answers HTTP 403). These methods need `dm.read` or `dm.write` with `users.read` and
+`tweet.read`.
+
+`sendChatMessage` also takes `{ kind: "reaction", eventId, emoji }`, sent as
+`content.reaction_add` on the message event `eventId`; add `remove: true` to send
+`content.reaction_remove`. Pass `conversationToken` to forward X's `conversation_token`.
+`chatConversations` filters the inbox with `participantQuery` (`participant_query`, up to 50
+characters matched against participant names), `participantIds` (1 to 10 users), `archived`, and
+`muted`.
+
+#### Encryption boundary
+
+Most X Chat writes change encrypted state, so X expects values that only the
+[Chat XDK](https://docs.x.com/x-api/chat/introduction) can build: per-participant conversation keys,
+encrypted group names, key rotations, and `action_signatures`. The adapter takes those values as
+typed inputs (`XChatParticipantKey`, `XChatActionSignature`, `keyRotation`), validates IDs and
+limits, and forwards them unchanged. It never sees plaintext keys and does not sign anything.
+Every write raises `ambiguous_outcome` unless X confirms the change (for example `archived: true`
+or `deleted: true`).
+
+#### Groups
+
+1. `initializeChatGroup({ account })` reserves a group ID with
+   `POST /2/chat/conversations/group/initialize`.
+2. `createChatGroup({ account, group })` creates it with `POST /2/chat/conversations/group`:
+   `conversationId`, `conversationKeyVersion`, `participantKeys`, `memberIds`, and optional
+   `adminIds`, encrypted `name`, `description`, and `avatarUrl`, `messageTtlMs`, `keyRotation`, and
+   `actionSignatures`.
+3. `getChatConversation` reads a conversation's type, group fields, admin settings, invite, and
+   mute, archive, and disappearing-message state (`GET /2/chat/conversations/{id}`).
+   `updateChatGroup` changes the encrypted name, avatar, or description
+   (`PUT /2/chat/conversations/{id}` with `modified_fields`), and `deleteChatConversation`
+   removes a conversation for the account.
+
+Members and admins: `addChatMembers` (`POST .../members`, with the rotated keys the XDK produced),
+`removeChatMembers` (`POST .../members/remove`), and `setChatAdmins({ admin })`
+(`POST .../admins` or `.../admins/remove`). A member asks for admin rights with
+`requestChatAdmin` (`POST .../admin_requests`); admins list requests with `chatAdminRequests` and
+answer with `resolveChatAdminRequest({ userId, approve })`. `updateChatAdminSettings` restricts
+group actions to admins: `addMember`, `blockScreenCapture`, `editGroupInfo`, `editMessageTtl`,
+`sendMessage`, and `startCall` (`PUT .../admin_settings`).
+
+Invites: `enableChatInvite({ invite })` turns on a link (`POST .../invite`) with an optional
+`inviteUrl` of the form `https://x.com/i/chat/group_join/<id>/<token>`, `validForMs` or
+`expiresAt`, `welcomeMessage` and preview `title` (up to 1,024 characters each), `avatarUrl`, and
+`affiliateUserId`. `getChatInvite({ token })` reads a link, `disableChatInvite` turns it off,
+`requestToJoinChat({ token })` asks to join through it (`POST .../join_requests`), and
+`rejectChatJoinRequests({ userIds })` declines pending requests.
+
+#### Inbox state and conversation settings
+
+- `setChatArchived({ archived })` calls `POST` or `DELETE /2/chat/conversations/{id}/archive`.
+- `setChatMuted({ muted })` calls `POST` or `DELETE /2/chat/conversations/{id}/mute`.
+- `markChatRead({ read: true })` sends a read receipt with `POST /2/chat/conversations/{id}/read`
+  (optionally signed); `read: false` calls `/unread`.
+- `sendChatTyping` sends a typing indicator with `POST /2/chat/conversations/{id}/typing`.
+- `setChatMessageTtl({ ttlMs })` turns on disappearing messages with
+  `PUT .../message_ttl` (`message_ttl_ms`); `ttlMs: undefined` turns them off with `DELETE`.
+- `setChatScreenCapture({ blocking, detection })` blocks screenshots or notifies participants
+  about them (`PUT .../screen_capture`). In groups only admins can change this.
+- `chatPinnedMessages` lists pinned messages as encoded events (`GET .../pinned_messages`); decode
+  them with the XDK.
+- `deleteChatMessages({ sequenceIds, scope, actionSignatures })` deletes messages with
+  `POST .../messages/delete`, either `delete_for_all` or `delete_for_self`; `mediaHashKeys` also
+  deletes attached media for everyone.
+
+```ts
+await native.setChatMessageTtl({
+  account,
+  conversationId: "g1500000000000000000",
+  ttlMs: 7 * 24 * 60 * 60 * 1000,
+  context: operationContext(),
+});
+await native.markChatRead({
+  account,
+  conversationId: "g1500000000000000000",
+  read: true,
+  context: operationContext(),
+});
+```
+
+#### Keys, media, message requests, and settings
+
+`chatPublicKeys({ userIds })` reads users' public keys and Juicebox configuration, which the XDK
+needs to encrypt for them: one user through `GET /2/users/{id}/public_keys`, up to 100 through
+`GET /2/users/public_keys?ids=`. `registerChatPublicKey({ publicKey })` registers the account's
+key object built by the XDK (`POST /2/users/{id}/public_keys`), and
+`addChatConversationKeys` adds or rotates a conversation's keys
+(`POST /2/chat/conversations/{id}/keys`).
+
+`uploadChatMedia({ conversationId, media })` uploads media the XDK already encrypted: it calls
+`POST /2/chat/media/upload/initialize` with the byte count, appends 4 MiB multipart segments to
+`/2/chat/media/upload/{id}/append`, and finalizes with `num_parts` (plus optional `messageId` and
+`ttlMs`). It returns the `mediaHashKey` to reference in the encrypted message and needs
+`media.write`. `downloadChatMedia({ conversationId, mediaHashKey })` downloads the encrypted bytes
+from `GET /2/chat/media/{id}/{media_hash_key}` into memory up to `maxBytes` (default 15 MiB).
+
+Message requests are chats from people the account does not follow.
+`chatMessageRequests({ inboxType, limit })` lists them (`GET /2/chat/message_requests`, limit 1
+to 50, `inboxType` `you_may_know` or `low_quality`), `getChatMessageRequest` reads one, and
+`acceptChatMessageRequest` moves it to the inbox. `chatSettings({ account })` reads
+`GET /2/chat/settings`; pass `settings` to update `allowMessagesFrom` (`all`, `verified`, or
+`following`), `alwaysAllowSubscribers`, `qualityFilter`, `readReceipts`, or `callSettings` with
+`PUT /2/chat/settings`.
+
+### Live broadcasts (beta)
+
+The broadcast methods manage X live video for the account (scopes `broadcast.read` and
+`broadcast.write`). Create an RTMP/RTMPS ingest point with
+`createStreamSource({ account, name, region })` or list them with `streamSources`; each source
+includes its secret stream key, so keep the response server-side. `scheduleBroadcast` binds a
+source to a start time (and optional end, title, replay, and chat settings) through
+`POST /2/broadcasts/scheduled`. With `manualPublish: true`, call `goLive` when the encoder is
+ready; otherwise X publishes at the start time. `broadcasts` and `getBroadcast` read the
+account's broadcasts, `endBroadcast` ends a running one, and `deleteBroadcast` and
+`deleteScheduledBroadcast` remove them.
+
+For chat, `broadcastChat` reads up to 200 messages per page, `sendBroadcastChat` posts up to 140
+characters, and `removeBroadcastChatMessage` deletes one. `setChatModerator` adds or removes a
+persistent moderator, and `setChatMute` mutes a user in the host's chats, as a timeout when
+`endAt` is set. Writes raise `ambiguous_outcome` unless X confirms the new state.
+
+```ts
+const source = await native.createStreamSource({
+  account,
+  name: "Studio",
+  region: "us-east-1",
+  context: operationContext(),
+});
+const scheduled = await native.scheduleBroadcast({
+  account,
+  broadcast: {
+    sourceId: String(source["id"]),
+    startAt: "2026-11-05T18:00:00Z",
+    title: "Launch stream",
+    manualPublish: true,
+  },
+  context: operationContext(),
+});
+```
+
+`ingestRegion({ account })` reads `GET /2/region`, which returns the region X assigns to the
+caller (`us-east-1` or `us-west-2`); pass it to `createStreamSource` instead of hard-coding one.
+
+Scheduled broadcasts take more options: `isLocked` (`is_locked`), `thumbnailMediaId`
+(`thumbnail_media_id`, an uploaded image shown before the stream starts), and, on create only,
+`recurrence: { frequency: "Daily" | "Weekly", repeats }` for a recurring schedule. X notes that
+recurring schedules are being retired, so check the result. `scheduledBroadcasts` filters by
+start time with `oldestStartAt` and `newestStartAt` (`oldest_start_time`, `newest_start_time`).
+`getScheduledBroadcast` reads one, and `updateScheduledBroadcast({ broadcastId,
+scheduledBroadcastId, broadcast })` replaces its settings with `PUT /2/broadcasts/scheduled/{id}`,
+which needs both start and end times.
+
+`setBroadcastChatMute({ broadcastId, userId, muted, endAt, removeMessageId })` is the
+per-broadcast mute: it calls `POST /2/broadcasts/{id}/chat/mutes` (optionally removing one chat
+message) or `DELETE /2/broadcasts/{id}/chat/mutes/{user_id}`, while `setChatMute` mutes across the
+host's chats.
+
+The user-scoped routes manage broadcasts and sources of the authenticated user directly:
+
+- `userBroadcasts` and `getUserBroadcast` read `GET /2/users/{id}/broadcasts` and
+  `/2/users/{id}/broadcasts/{broadcast_id}`; `createUserBroadcast({ sourceId })` starts a
+  broadcast on one of the account's sources and returns it with its `shareUrl`;
+  `deleteUserBroadcast` removes it.
+- `setUserBroadcastState({ broadcastId, state })` calls
+  `PUT /2/users/{id}/broadcasts/{broadcast_id}/state`. `{ kind: "publish", title, locale,
+chatOption, shouldNotTweet }` publishes it; `shouldNotTweet: true` (`should_not_tweet`) goes
+  live without posting the announcing Post. `{ kind: "end" }` ends it.
+- `userStreamSources`, `getUserStreamSource`, `createUserStreamSource({ name, region })` (region
+  `atla` or `pdxa`, X's default), `renameUserStreamSource`, and `deleteUserStreamSource` manage
+  `/2/users/{id}/sources`. Sources include their stream keys, so keep them server-side.
+
+```ts
+await native.setUserBroadcastState({
+  account,
+  broadcastId: "1yNGaZbBzRjKj",
+  state: { kind: "publish", title: "Office hours", shouldNotTweet: true },
+  context: operationContext(),
+});
+```
+
+The adapter does not send three broadcast fields X ignores or deprecated; see
+[Not supported](#not-supported).
+
+### Calls, bots, and developer account (beta)
+
+These routes are in X's [OpenAPI 2.173](https://api.x.com/2/openapi.json) but not yet in the
+docs.x.com reference pages, so treat them as beta and expect changes.
+
+X Calls are audio and video calls, standalone or inside an X Chat conversation.
+`createCall({ conversationId, title, joinPolicy, audioOnly })` starts one hosted by the account
+with `POST /2/calls` (`calls.write`); `joinPolicy` is `open` (anyone with the link), `closed` (the
+host admits each person), or `trusted`. The call starts empty. `joinCall({ callId, audio })`
+(`POST /2/calls/{id}/join`, `calls.join`) starts a media session and returns a `media_url` and a
+short-lived `media_token` for a WebSocket that exchanges PCM16 audio; keep the token secret.
+`getCall` reads a call and `leaveCall` ends the session.
+
+Scheduled calls use `/2/calls/scheduled`: `scheduleCall({ call })` takes an RFC 3339
+`startTime`, `title` (up to 100 characters), `description` (up to 1,000), `durationMinutes`
+(1 to 44,640), up to 25 `inviteeIds`, `notifyInvitees`, an RFC 5545 `recurrence` such as
+`FREQ=WEEKLY;BYDAY=MO`, and a `timeZone`. `scheduledCalls`, `getScheduledCall`,
+`updateScheduledCall`, `cancelScheduledCall`, and `rsvpScheduledCall({ response })` (`accepted`,
+`declined`, or `tentative`) manage them; for a recurring call, `scope` (`all`, `this`, or
+`this_and_following`) and `occurrenceStartTime` choose the occurrences.
+
+Bot accounts belong to the app's project. `createBot({ handle, displayName, orgOnly, scopes })`
+calls `POST /2/bots` and returns the bot with a new bearer `token`; repeating it for an existing
+handle re-mints the token and revokes the old one. An `orgOnly` bot has no public profile and only
+members of the developer account can add it to group chats. `bots` lists them,
+`updateBot({ handle, displayName, dmPermission })` changes them (`dmPermission` `everyone`,
+`premium`, or `no_one`), `rotateBotToken` and `revokeBotToken` manage `/2/bots/{id}/token`, and
+`deleteBot` removes one. Listing, updating, deleting, and revoking need `appBearerToken`; create and
+rotate prefer it and fall back to the user token. Store returned bot tokens like any other
+secret.
+
+`developerAccount({ account })` reads the user's X Developer Platform account with
+`GET /2/account` (`developer.read`), and `ensureDeveloperAccount({ metadata })` creates one if it
+is missing with `POST /2/account` (`developer.write`), returning `created: false` when it already
+existed.
+
+### Batch compliance jobs
+
+X's Developer Agreement requires apps that store Posts or users to remove content that was
+deleted, protected, or suspended. [Batch compliance](https://docs.x.com/x-api/compliance/batch-compliance/introduction)
+checks up to millions of stored IDs at once, and every call uses `appBearerToken`:
+
+1. `createComplianceJob({ account, type, name, resumable })` calls `POST /2/compliance/jobs` with
+   `type` `tweets` or `users`. The job carries a signed `uploadUrl` (valid for 15 minutes) and a
+   signed `downloadUrl`; treat both as secrets.
+2. `uploadComplianceIds({ account, job, ids })` sends the IDs, one per line, as a `PUT` to
+   `job.uploadUrl`, with the app bearer when the URL is on `api.x.com`
+   (`/2/compliance/jobs/{id}/upload`) and without an `Authorization` header for a signed storage
+   URL. X accepts up to 100 MB of IDs per job.
+3. Poll `getComplianceJob({ account, jobId })` (`GET /2/compliance/jobs/{id}`) until `status` is
+   `complete` or `failed`. `complianceJobs({ account, type, status })` lists the app's jobs.
+4. `downloadComplianceResults({ account, job })` reads the newline-delimited JSON results and
+   returns one object per affected ID, with `id`, `action` (`delete`, `rehydrate` to re-fetch an
+   edited Post, or `scrub_geo`), and `reason`. IDs missing from the results need no action, and
+   invalid input lines come back as `{ id, error: "invalid_id" }`. The body is buffered up to
+   `maxBytes` (default 64 MiB). Results stay available for about 7 days.
+
+`cancelComplianceJob({ account, jobId })` cancels a job with `DELETE /2/compliance/jobs/{id}`.
+
+```ts
+const job = await native.createComplianceJob({
+  account,
+  type: "tweets",
+  context: operationContext(),
+});
+await native.uploadComplianceIds({ account, job, ids: storedPostIds, context: operationContext() });
+// Later, once getComplianceJob reports status "complete":
+const results = await native.downloadComplianceResults({
+  account,
+  job,
+  context: operationContext(),
+});
+for (const row of results)
+  if (row["action"] === "delete") await deleteStoredPost(String(row["id"]));
+```
+
+### Community Notes
+
+[Community Notes](https://docs.x.com/x-api/community-notes/introduction) endpoints let an
+approved AI Note Writer propose notes. They use the user token (`tweet.write` for writes,
+`tweet.read` for searches), and every call states `testMode`; while the writer is in test mode,
+notes are not publicly visible.
+
+- `postsEligibleForNotes({ account, testMode, postSelection })` lists Posts that can get a note
+  (`GET /2/notes/search/posts_eligible_for_notes`).
+- `evaluateCommunityNote({ account, postId, text })` scores draft text with
+  `POST /2/notes/evaluate` and returns X's `claimOpinionScore`.
+- `createCommunityNote({ account, note })` posts to `POST /2/notes` with the Post ID, `text`
+  (X requires a URL in it), `classification` (`misinformed_or_potentially_misleading` or
+  `not_misleading`), `misleadingTags` such as `factual_error` or `missing_important_context`,
+  `trustworthySources`, optional `isMediaNote`, and `testMode`.
+- `communityNotesWritten({ account, testMode })` lists the writer's notes with their status and
+  test results, and `deleteCommunityNote({ account, noteId })` deletes one.
+
+```ts
+const note = await native.createCommunityNote({
+  account,
+  note: {
+    postId: "1700000000000000000",
+    text: "The figure is from 2019. https://example.com/report",
+    classification: "misinformed_or_potentially_misleading",
+    misleadingTags: ["outdated_information"],
+    trustworthySources: true,
+    testMode: true,
+  },
+  context: operationContext(),
+});
+```
+
+### News
+
+`searchNews({ account, query, maxAgeHours, limit, newsFields })` searches the stories X
+summarizes from trending conversation with `GET /2/news/search`; `maxAgeHours` is 1 to 720 (X
+defaults to 168) and `limit` 1 to 100. `getNews({ account, newsId })` reads one story with
+`GET /2/news/{id}`, for example after a `news.new` Activity event. Both request the story's name,
+category, summary, hook, keywords, contexts, disclaimer, and update time unless you pass
+`newsFields`, and both use the user token or fall back to `appBearerToken`
+([reference](https://docs.x.com/x-api/news/introduction)).
 
 ### Filtered stream
 
@@ -543,6 +1526,10 @@ await native.deleteStreamRules({
   context: operationContext(),
 });
 ```
+
+`deleteAllStreamRules({ account, dryRun })` clears the whole rule set in one request by calling
+`POST /2/tweets/search/stream/rules?delete_all=true`, which X accepts instead of an `add` or
+`delete` body. Combine it with `dryRun: true` to see the summary without deleting anything.
 
 `stream` returns an async iterable. Nothing connects until you start iterating, and each iteration
 opens exactly one connection. Every event has a `kind`:
@@ -630,10 +1617,86 @@ rules of up to 2,048 characters. A second connection on pay-per-use is rejected 
 24 hours) require Enterprise access. Streamed posts count toward your monthly post read usage. The
 SDK does not reconnect, deduplicate across reconnects, or recover missed posts for you.
 
+`streamRuleCounts({ account })` reads `GET /2/tweets/search/stream/rules/counts` and returns the
+project's and client app's rule counts with their caps, so you can check headroom before adding
+rules. Enterprise apps can deliver matching posts to a registered webhook instead of holding a
+connection: `linkStreamWebhook({ account, webhookId })` calls
+`POST /2/tweets/search/webhooks/{webhook_id}`, `unlinkStreamWebhook` removes the link, and
+`streamWebhooks` lists the current links. Rules stay on the same `/2/tweets/search/stream/rules`
+endpoints.
+
+The Connections API helps recover from a connection-limit error. `streamConnections({ account,
+status, endpoints })` reads `GET /2/connections` (active by default) with each connection's ID,
+endpoint, client IP, and connect and disconnect times. `terminateStreamConnections` closes
+connections by UUID (`{ kind: "uuids", uuids }`), for one endpoint
+(`{ kind: "endpoint", endpoint: "filtered_stream" }`), or all of them (`{ kind: "all" }`), and
+returns the successful and failed counts. All of these use `appBearerToken`.
+
+```ts
+const counts = await native.streamRuleCounts({ account, context: operationContext() });
+console.log(`${counts.projectRulesCount} of ${counts.capPerProject} rules used`);
+
+const active = await native.streamConnections({ account, context: operationContext() });
+if (active.items.length > 0)
+  await native.terminateStreamConnections({
+    account,
+    target: { kind: "endpoint", endpoint: "filtered_stream" },
+    context: operationContext(),
+  });
+```
+
 See the X documentation for the [filtered stream](https://docs.x.com/x-api/posts/filtered-stream/introduction),
 [rule management](https://docs.x.com/x-api/stream/update-stream-rules),
 [disconnections and backoff](https://docs.x.com/x-api/fundamentals/handling-disconnections), and
 [recovery and redundancy](https://docs.x.com/x-api/fundamentals/recovery-and-redundancy).
+
+### Volume and compliance streams
+
+Enterprise apps can also stream every public Post, a sample, or compliance events. Both methods
+use `appBearerToken`, open one connection per iteration, never reconnect on their own, and yield
+`{ kind: "data", data, includes }` events with X's `data` object unchanged, plus the same `error`
+and `other` events as the filtered stream. Errors, stall timeouts, and cancellation behave as
+described above, so the same reconnect loop works.
+
+`volumeStream({ account, stream, partition })` connects to one of X's
+[volume streams](https://docs.x.com/x-api/posts/volume-streams/introduction):
+
+| `stream`                                    | Endpoint                                          | `partition` |
+| ------------------------------------------- | ------------------------------------------------- | ----------- |
+| `sample`                                    | `GET /2/tweets/sample/stream` (1% sampled stream) | none        |
+| `sample10`                                  | `GET /2/tweets/sample10/stream` (10%)             | 1-2         |
+| `firehose`                                  | `GET /2/tweets/firehose/stream`                   | 1-20        |
+| `firehose_en`                               | `GET /2/tweets/firehose/stream/lang/en`           | 1-8         |
+| `firehose_ja`, `firehose_ko`, `firehose_pt` | `GET /2/tweets/firehose/stream/lang/{lang}`       | 1-2         |
+| `likes_firehose`                            | `GET /2/likes/firehose/stream`                    | 1-20        |
+| `likes_sample10`                            | `GET /2/likes/sample10/stream`                    | 1-2         |
+
+X splits the firehose and sampled streams into partitions; connect once per partition to receive
+all of it. Every volume stream accepts `tweetFields`, `expansions`, `userFields`, and
+`mediaFields`, but the Likes streams have their own expansions: `attachments.media_keys`,
+`liked_tweet_author_id`, and `liked_tweet_id`. The adapter rejects a Post-only expansion such as
+`author_id` on a Likes stream, and a Like expansion on a Post stream, before connecting.
+`backfillMinutes` (0 to 5) works on every volume stream, and `startTime`/`endTime`
+on all of them except `sample`.
+
+`complianceStream({ account, stream, partition })` connects to a
+[compliance stream](https://docs.x.com/x-api/compliance/streams/introduction), which reports
+deletions, protections, suspensions, and similar events you must apply to stored data:
+`posts` (`GET /2/tweets/compliance/stream`, partition 1-4), `users`
+(`GET /2/users/compliance/stream`, partition 1-4), `likes` (`GET /2/likes/compliance/stream`), and
+`labels` (`GET /2/tweets/label/stream`, Post labels). All four accept `backfillMinutes` and
+`startTime`/`endTime`. The adapter checks partitions, windows, and options before connecting.
+
+```ts
+for await (const event of native.complianceStream({
+  account,
+  stream: "posts",
+  partition: 1,
+  context: operationContext(),
+})) {
+  if (event.kind === "data" && "delete" in event.data) console.log("Remove", event.data["delete"]);
+}
+```
 
 ## Limits and requirements
 
@@ -644,8 +1707,6 @@ X API self-serve access uses pay-per-use credits; Enterprise-only operations req
 - The adapter's account listing is credential-scoped and returns the configured user. It does not prove that a frontend-selected handle belongs to the current tenant; resolve membership in your application before calling a mutation.
 - Use the documented [connection flow](/authentication) for callbacks and token persistence.
 - Keep access tokens server-side and supply an application authorization policy before publishing for multiple tenants.
-- The adapter cannot schedule posts. X API v2 has no scheduling field, so `POST /2/tweets` publishes immediately, and `posts.prepare` rejects a request with `schedule` (`x.operation`) before any network call. X's Ads API has [scheduled Tweets](https://docs.x.com/x-ads-api/creatives) at `ads-api.x.com/12/accounts/:account_id/scheduled_tweets`, but it needs Ads API approval, an ads account, and [OAuth 1.0a-signed requests](https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests). This adapter only uses OAuth 2.0 bearer tokens. Those scheduled Tweets are promoted-only (`nullcast=true`) by default and stay off the public timeline, and only the ads account's full promotable user can create organic ones. To publish at a set time, run your own job runner that calls `posts.publish`. (Checked 2026-09-24.)
-- The adapter cannot update the account profile. X API v2 ([OpenAPI 2.169](https://docs.x.com/openapi.json)) has no profile write endpoint. docs.x.com no longer publishes the v1.1 `POST account/update_profile` reference, and v1.1 user writes require OAuth 1.0a. (Checked 2026-09-24.)
 - Current repository evidence is contract and mocked transport coverage; no live X account or paid API plan has been verified here.
 
 See [X API pricing](https://docs.x.com/x-api/getting-started/pricing), [posts](https://docs.x.com/x-api/posts/create-post), [delete post](https://docs.x.com/x-api/posts/delete-post), and [media](https://docs.x.com/x-api/media/introduction) for current upstream access and limits. See also [chunked uploads](https://docs.x.com/x-api/media/quickstart/media-upload-chunked) and [media best practices](https://docs.x.com/x-api/media/quickstart/best-practices).
@@ -653,3 +1714,31 @@ See [X API pricing](https://docs.x.com/x-api/getting-started/pricing), [posts](h
 The links above are the provenance for the provider limits and access requirements described here;
 they were checked on 2026-10-11. The repository evidence remains deterministic contract tests, not
 a live X account, paid-plan check, or claim of provider approval.
+
+### Media specifications
+
+`posts.publish` checks the attachment count, the declared MIME type, and the Blob size before it uploads anything. It cannot read codecs, dimensions, frame rate, or duration from the bytes, so X checks those during upload processing or when the post is created.
+
+| Media        | Requirement           | X limit                                                                                        | Checked by the SDK before sending                                                                                                                 |
+| ------------ | --------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Post         | Attachments           | Up to 4 images, 1 animated GIF, or 1 video                                                     | Yes: more than four images, or a GIF or video with any other media, fails as `x.media_count`.                                                     |
+| Image        | Format                | JPG, PNG, GIF, WEBP                                                                            | Declared MIME type must be `image/jpeg`, `image/png`, or `image/webp`, else `x.image`; `image/gif` is uploaded as a GIF. Bytes are not inspected. |
+| Image        | File size             | 5 MB maximum                                                                                   | Yes: a Blob over 5 MiB (5,242,880 bytes) fails as `x.image_size`. X can still reject a file between 5 MB and 5 MiB.                               |
+| Animated GIF | File size             | 15 MB maximum                                                                                  | Yes: an empty Blob or one over 15 MiB fails as `x.gif_size`.                                                                                      |
+| Animated GIF | Resolution and frames | Recommended 1,280 x 1,080 px or smaller, 350 frames or fewer, 300 million pixels in all        | No, X only. A GIF outside these can fail when the post is created.                                                                                |
+| Video        | Format                | X names no container; H.264 High Profile recommended, YUV 4:2:0, progressive scan, no open GOP | Declared MIME type must be `video/mp4`, `video/quicktime`, or `video/webm`, else `x.video`. Codecs and scan type are not read.                    |
+| Video        | Audio                 | AAC Low Complexity, mono or stereo; High-Efficiency AAC is not accepted                        | No, X only                                                                                                                                        |
+| Video        | Frame rate            | 60 fps maximum                                                                                 | No, X only                                                                                                                                        |
+| Video        | Dimensions            | 32 x 32 to 1,280 x 1,024 px                                                                    | No, X only                                                                                                                                        |
+| Video        | Aspect ratio          | 1:3 to 3:1, with 1:1 pixel aspect ratio                                                        | No, X only                                                                                                                                        |
+| Video        | Duration              | 0.5 seconds to 20 minutes; 125 minutes for Premium or verified accounts                        | No. X checks duration when the post is created and answers 403; the adapter reports a recognized duration refusal as `media_error`.               |
+| Video        | File size             | 8 GB; 16 GB for Premium or verified accounts                                                   | Yes: an empty Blob or one over 16 GiB (17,179,869,184 bytes) fails as `x.video_size`. The SDK does not know the account's tier.                   |
+
+Source: X's [media best practices](https://docs.x.com/x-api/media/quickstart/best-practices) page, size and duration limits and image, GIF, and video specifications (no update date shown), checked 2026-11-04.
+
+### Not supported
+
+- The adapter cannot schedule posts. X API v2 has no scheduling field, so `POST /2/tweets` publishes immediately, and `posts.prepare` rejects a request with `schedule` (`x.operation`) before any network call. X's Ads API has [scheduled Tweets](https://docs.x.com/x-ads-api/creatives) at `ads-api.x.com/12/accounts/:account_id/scheduled_tweets`, but it needs Ads API approval, an ads account, and [OAuth 1.0a-signed requests](https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests). This adapter only uses OAuth 2.0 bearer tokens. Those scheduled Tweets are promoted-only (`nullcast=true`) by default and stay off the public timeline, and only the ads account's full promotable user can create organic ones. To publish at a set time, run your own job runner that calls `posts.publish`. (Checked 2026-09-24.)
+- The adapter cannot update the account profile. X API v2 ([OpenAPI 2.169](https://docs.x.com/openapi.json)) has no profile write endpoint. docs.x.com no longer publishes the v1.1 `POST account/update_profile` reference, and v1.1 user writes require OAuth 1.0a. (Checked 2026-09-24.)
+- Account Activity subscriptions: X is deprecating the Account Activity API in favour of the X Activity API, so the adapter has no methods to create or list Account Activity subscriptions. It still verifies and decodes their deliveries; see [Account Activity API (deprecated)](#account-activity-api-deprecated).
+- Three live broadcast fields: X's OpenAPI 2.173 marks `is_low_latency` on `POST /2/users/{id}/broadcasts` as ignored, `telecast_id` as deprecated and ignored, and `roll_forward` as deprecated (X rejects `true`), so the adapter does not send them.

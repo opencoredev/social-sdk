@@ -5,6 +5,9 @@ import { xTopLevelDomains } from "./x-tlds.js";
 // weighs 23. Everything is scaled by 100 so the arithmetic stays in integers like the reference config.
 const maxWeightedLength = 280 * 100;
 
+// X Premium authors can post long-form text of up to 25,000 characters (X changelog, Aug 9, 2024).
+const maxLongformWeightedLength = 25_000 * 100;
+
 const defaultWeight = 200;
 
 const urlWeight = 23 * 100;
@@ -154,11 +157,20 @@ function weightedLength(text: string): number {
   return weight + weighText(text.slice(offset));
 }
 
-/** Returns whether X would accept the text as a post body by weighted length and characters. */
-export function isValidXText(input: string): boolean {
+/**
+ * Returns whether X would accept the text as a post body by weighted length and characters.
+ * Pass `longform: true` for an X Premium author, whose posts may hold up to 25,000 characters.
+ */
+export function isValidXText(
+  input: string,
+  options: { readonly longform?: boolean } = {},
+): boolean {
   const text = input.normalize("NFC");
 
   if (text === "" || invalidCharacters.test(text)) return false;
 
-  return weightedLength(text) <= maxWeightedLength;
+  return (
+    weightedLength(text) <=
+    (options.longform === true ? maxLongformWeightedLength : maxWeightedLength)
+  );
 }

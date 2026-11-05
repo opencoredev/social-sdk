@@ -1,0 +1,19 @@
+---
+"@opencoredev/social-sdk": minor
+---
+
+X: native features across publishing, reads, chat, streams and webhooks.
+
+- X Chat media uploads stop with `upstream_failure` when an APPEND response carries provider errors, instead of finalizing the upload. Bot creation and token rotation keep X's integer `token_expires_at_ms` as `tokenExpiresAtMs`. The Likes volume streams accept `tweetFields`, `userFields`, `mediaFields`, and their documented expansions (`attachments.media_keys`, `liked_tweet_author_id`, `liked_tweet_id`).
+- X native methods add Article drafts and publishing, X Chat (beta) conversations, events and messages without client-side encryption, and live broadcast (beta) sources, scheduling, going live, chat and moderation.
+- X live broadcasts: add user-scoped broadcasts and stream sources (including publishing without the announcing Post), ingest region lookup, per-broadcast chat mutes, scheduled-broadcast get and update, and the lock, thumbnail, recurrence and start-time filter options.
+- X: add beta Calls (create, join, leave, scheduled calls and RSVP), bot account and token management, and developer account read and ensure, from X OpenAPI 2.173.
+- X Chat: add group lifecycle, members, admins, invites and join requests; archive, mute, read, typing, disappearing messages, screen capture, pinned messages and message deletion; public and conversation keys; encrypted media upload and download; message requests and chat settings; reactions, `conversationToken` and inbox filters.
+- X: add batch compliance jobs (create, list, upload IDs, download results, cancel), Community Notes for AI Note Writers, and News search and lookup.
+- X: add `activityStream`, `volumeStream` and `complianceStream` for the X Activity API stream, the sample, firehose and Likes volume streams, and the compliance and label streams.
+- X native methods add DM media upload, subtitles, `additional_owners` sharing, private Post metrics, Post and media analytics, DM event lookup and deletion, DM media download, and DM blocking, and DM writes now report X's `dm-` refusal problem types as `SocialError.upstreamCode`.
+- X: add bulk and folder bookmarks, media metadata controls, the DM `event_types` filter, delete-all stream rules, the `autoPopulateReplyMetadata` reply option, and `revokeXOAuthToken` for `POST /2/oauth2/revoke`.
+- X native reads add batch Post, user and media lookup, user search, quote Posts, reposts, Post counts, affiliates, List followers and memberships, bookmark folders, Space Posts and buyers, Communities, trends, and usage and credit balance, and more selectable Post fields such as `note_tweet` and `edit_controls`.
+- X publishing accepts Community, disclosure, Super Follows, geo, DM deep-link, card, media card, excluded-reply-user and long-form options, `subscribers` and `verified` reply settings, WebP images, and QuickTime or WebM video.
+- X: `shareWithFollowers` no longer requires `communityId` (X documents it for sharing an exclusive Super Follows post with all followers); a Chat send whose 201 response lacks the message event now fails as `ambiguous_outcome` with `reconcile-first`; Chat event pages keep `meta.conversation_key_events` in `metadata.conversationKeyEvents`; DM media downloads with an already-cancelled signal are refused before any request.
+- X adds filtered-stream rule counts, stream webhook links, the Connections API, webhook config management and replay, X Activity API subscriptions with `post.reply.create`, `dm.received`, `post.delete` and `oauth.revoke` decoding, and `exchangeXOAuth1Token` for migrating OAuth 1.0a users.
