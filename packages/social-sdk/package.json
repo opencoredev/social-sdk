@@ -37,6 +37,10 @@
       "types": "./dist/cloud/zernio.d.ts",
       "import": "./dist/cloud/zernio.js"
     },
+    "./cloud/zernio-native": {
+      "types": "./dist/cloud/zernio-native.d.ts",
+      "import": "./dist/cloud/zernio-native.js"
+    },
     "./cloud/post-for-me": {
       "types": "./dist/cloud/post-for-me.d.ts",
       "import": "./dist/cloud/post-for-me.js"

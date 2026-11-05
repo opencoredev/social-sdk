@@ -47,13 +47,31 @@ const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
 const video = new Blob([await readFile("./assets/release-walkthrough.mp4")]);
 ```
 
-The adapter supports account listing, publishing, external platform-feed reads and delivery status, media upload, post and account analytics, verified webhooks, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, and Facebook Pages, and messaging for X, Bluesky, Instagram, and Facebook Pages. Provider permissions and recipient or reply-window rules still apply. Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
+The adapter supports account listing, publishing, external platform-feed reads and delivery status, media upload, post and account analytics, verified webhooks, recent X search, comments for X, Threads, Bluesky, YouTube, Instagram, LinkedIn, Facebook Pages, Reddit and TikTok Business accounts, and messaging for X, Bluesky, Instagram, Facebook Pages, Reddit and Telegram. Provider permissions and recipient or reply-window rules still apply.
+
+:::warning
+Reddit is unavailable through Zernio. Zernio's [platform comparison](https://docs.zernio.com/platforms/compare), checked November 4, 2026, says Reddit is temporarily unavailable: Reddit has blocked third-party apps from its API, so Zernio cannot post to Reddit, read Reddit messages, or sync Reddit analytics. Zernio says Reddit Ads is not affected. The SDK's Reddit publishing, messaging, and analytics methods remain in place, but Zernio refuses those requests until it restores Reddit. The Reddit sections on this page describe the integration for when it returns.
+:::
+
+Verify `X-Zernio-Signature` over the raw request bytes before decoding; accept events into a durable, tenant-resolved inbox. See [events](/events) and [capabilities](/reference/capabilities).
 
 Run the setup on your server with your own assets and connected accounts. The later examples reuse its typed accounts, future `at`, and `authorization`. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; a tenant ID alone does not enforce access. Related server helpers are in `examples/snippets/backend-zernio.ts`.
 
-`posts.list` requests `source=external`: it reads synced platform posts and excludes posts created through Zernio. Use the stored `delivery` with `getDelivery` for backend publication status. The SDK does not expose a combined internal/external feed.
+`posts.list` requests `source=external`: it reads synced platform posts and excludes posts created through Zernio. Use the stored `delivery` with `getDelivery` for backend publication status.
 
 Zernio post creation sends the derived target retry key as `Idempotency-Key`, including when a retry uploads media to a different URL. This provider replay key does not bypass completed claims in a configured client idempotency store.
+
+## Native calls
+
+Zernio's routes beyond the normalized client, such as connections, profiles, drafts and approval, analytics reports, inbox management, Google Business, Reddit, Discord and webhook settings, come from a separate import, so an app that only publishes does not bundle them:
+
+```ts
+import { zernioNative } from "@opencoredev/social-sdk/cloud/zernio-native";
+
+const native = zernioNative({ apiKey: process.env.ZERNIO_API_KEY! });
+```
+
+`zernioNative` takes the same options as `zernio` and sends the same requests. Pass the same options object to both, as in `const options = { apiKey }; zernio(options); zernioNative(options);`, so they share one default media store and a media ref uploaded through `zernio(options).media.upload` can be used in native submissions. With separate options objects, configure a shared `mediaStore`. Each method takes an `AdapterOperationContext` and checks the account against its `backendInstance`, but skips the client's authorization policy and concurrency checks, so run your own tenant checks first. The sections below call it `native`.
 
 ## Publish a video
 
@@ -89,6 +107,118 @@ const result = await social.posts.publish(
 ```
 
 `result.outcomes` has one entry per target. Type each account as `ConnectedAccountRef<"youtube">` and so on so TypeScript checks the options. The adapter rejects LinkedIn `visibility: "connections"` and Threads `replyControl` at preparation. An X target with a `platform-post` `replyTo` is published as a reply through `platformSpecificData.replyToTweetId`, so `publishSequence` with `replyToPrevious` builds X threads. Other platforms reject publish-time replies with `reply.use_comments`.
+
+## Platform options
+
+Each target's `options` map to fields of Zernio's `platformSpecificData` for that destination ([platform fields](https://docs.zernio.com/platforms/instagram/fields), checked 2026-11-04). Preparation checks the limits below and rejects any key the adapter has no mapping for with `options.unmapped`, so nothing is dropped silently. Zernio and the platform still enforce account eligibility, such as an X API tier or an Instagram Facebook-login connection.
+
+| Platform            | Option                                      | Zernio field                                     | Rules                                                                                                                                                                                          |
+| ------------------- | ------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| X                   | `quotePostId`                               | `quoteTweetId`                                   | Quote post of an ID or status URL; no media. X only accepts quotes of your own posts, mentions or your conversations.                                                                          |
+| X                   | `poll`                                      | `poll.options`, `poll.duration_minutes`          | 2 to 4 options of 1 to 25 characters, `durationMinutes` 5 to 10080. No media, quote or thread.                                                                                                 |
+| X                   | `replySettings`                             | `replySettings`                                  | `following`, `mentionedUsers`, `subscribers` or `verified`. Not combined with a `replyTo`.                                                                                                     |
+| X                   | `paidPartnership`, `madeWithAi`             | `paidPartnership`, `madeWithAi`                  | Paid-partnership and AI-generated media labels. Acceptance depends on the X API tier.                                                                                                          |
+| X                   | `sensitiveMedia`                            | `sensitiveMedia`                                 | `adultContent`, `graphicViolence`, `other`; at least one true. Needs media.                                                                                                                    |
+| X                   | `geoRestriction`                            | `geoRestriction.countries`                       | 1 to 25 uppercase ISO 3166-1 alpha-2 codes; hides the media elsewhere. Needs media.                                                                                                            |
+| X                   | `longVideo`                                 | `longVideo`                                      | Uploads the video with X's `amplify_video` category. Zernio applies it only on accounts with a paid X subscription and ignores it elsewhere; long videos also post without it. Needs a video.  |
+| X                   | `mediaTaggedUsers`                          | `mediaTaggedUsers`                               | Up to 10 X usernames, with or without `@`, tagged on the photos of the post and of every thread item. Photos only, not video or GIF; an unknown username fails the post.                       |
+| X, Threads, Bluesky | `threadItems`                               | `threadItems`                                    | Later posts of a thread (see below).                                                                                                                                                           |
+| Threads             | `topicTag`                                  | `topic_tag`                                      | 1 to 50 characters, no `.` or `&`. Overrides the tag Threads takes from hashtags.                                                                                                              |
+| Bluesky             | `languages`                                 | `langs`                                          | 1 to 3 BCP-47 codes such as `pt` or `en-US`.                                                                                                                                                   |
+| YouTube             | `categoryId`                                | `categoryId`                                     | Numeric category, such as `"28"` for Science & Technology.                                                                                                                                     |
+| YouTube             | `tags`                                      | request `tags`                                   | Each tag up to 100 characters, 500 combined.                                                                                                                                                   |
+| YouTube             | `playlistId`, `containsSyntheticMedia`      | `playlistId`, `containsSyntheticMedia`           | Add the upload to a playlist; disclose realistic altered or synthetic content.                                                                                                                 |
+| YouTube             | `notifySubscribers`                         | `notifySubscribers`                              | `false` uploads without notifying subscribers. YouTube notifies by default.                                                                                                                    |
+| TikTok              | `coverTimestampMs`, `coverImageUrl`         | `videoCoverTimestampMs`, `videoCoverImageUrl`    | Video only. The image URL wins over the timestamp.                                                                                                                                             |
+| TikTok              | `musicSoundId`                              | `musicSoundInfo.musicSoundId`                    | A Commercial Music Library track. TikTok for Business connections only; not with `draft` or `autoAddMusic: true`.                                                                              |
+| Instagram           | `placement`                                 | `contentType: "story"`                           | `feed`, `story` or `reels`. Zernio publishes a single video as a Reel, so `reels` needs one video and `feed` refuses one.                                                                      |
+| Instagram           | `collaborators`                             | `collaborators`                                  | Up to 3 public Business or Creator usernames. Not for Stories.                                                                                                                                 |
+| Instagram           | `userTags`                                  | `userTags`                                       | `username` with `x` and `y` from 0 to 1 (required on images) and an optional `mediaIndex` slide.                                                                                               |
+| Instagram           | `locationId`                                | `locationId`                                     | Numeric ID of a Facebook Page with location data. Not for Stories.                                                                                                                             |
+| Instagram           | `trialReel`                                 | `trialParams.graduationStrategy`                 | `manual` (`MANUAL`) or `performance` (`SS_PERFORMANCE`). A trial Reel is shown to non-followers first.                                                                                         |
+| Instagram           | `thumbOffsetMs`, `audioName`                | `thumbOffset`, `audioName`                       | Reel cover frame in milliseconds, and a new name for the Reel's original audio.                                                                                                                |
+| Instagram           | `audioConfiguration`                        | `audioConfiguration`                             | A catalog track for a Reel: `audioId` with optional integer `audioVolume` and `videoVolume` from 0 to 100. Reels only; needs a Facebook-login connection.                                      |
+| Instagram           | `muteAudio`                                 | `muteAudio`                                      | `true` strips the sound from the video before Instagram gets it. Reels, Stories and video carousel slides; needs a video.                                                                      |
+| Instagram           | `aiGenerated`                               | `isAiGenerated`                                  | Labels AI-generated images or video.                                                                                                                                                           |
+| Instagram           | `paidPartnership`, `brandedContentSponsors` | `isPaidPartnership`, `brandedContentSponsors`    | The paid partnership label, optionally naming up to 2 sponsors. Needs a Facebook-login connection; not for Stories.                                                                            |
+| Instagram           | `commentsEnabled`                           | `commentsEnabled`                                | `false` turns comments off right after publishing (best effort).                                                                                                                               |
+| Facebook            | `reel`, `story`                             | `contentType: "reel"` or `"story"`               | A Reel needs one video; a Story needs media.                                                                                                                                                   |
+| Facebook            | `collaborators`                             | `collaborators`                                  | Up to 10 numeric Page IDs invited to a Reel.                                                                                                                                                   |
+| Facebook            | `carouselCards`, `carouselLink`             | `facebookSettings.carouselCards`, `carouselLink` | A link carousel: 2 to 10 cards, one per image, each with an HTTPS `link` and optional `name` and `description`.                                                                                |
+| Facebook            | `geoRestriction`                            | `geoRestriction.countries`                       | Up to 25 countries. Not for Stories.                                                                                                                                                           |
+| Facebook            | `pageId`                                    | `pageId`                                         | Numeric ID of another Page on the same connection to post to; the connection's default Page is used when omitted. List Pages with `listFacebookPages` (`GET /v1/accounts/{id}/facebook-page`). |
+| LinkedIn            | `documentTitle`                             | `documentTitle`                                  | Title of a document post. Attach one PDF, PPT, PPTX, DOC or DOCX and nothing else.                                                                                                             |
+| LinkedIn            | `reshare`                                   | `reshareUrl`                                     | Repost a post URL or `urn:li:share`/`urn:li:ugcPost` URN; `text` is optional commentary. No media.                                                                                             |
+| LinkedIn            | `disableLinkPreview`                        | `disableLinkPreview`                             | `true` suppresses the automatic link card.                                                                                                                                                     |
+| LinkedIn            | `poll`                                      | `poll`                                           | A 1 to 140 character `question`, 2 to 4 `options` of 1 to 30 characters, optional `duration` such as `THREE_DAYS`.                                                                             |
+
+`firstComment` posts a first comment after publication on Instagram (feed and Reels), Facebook (feed and Reels), YouTube (where Zernio also pins it), LinkedIn and Threads (up to 500 characters, counted as a Threads post). It is the usual place for links on Instagram. TikTok targets always send `commercialContentType`: `brand_content` when `brandedContent` is true, `brand_organic` when only `ownBrand` is, and `none` otherwise.
+
+Instagram Reels have two unrelated audio options. `audioConfiguration` adds a licensed music track or original sound from Instagram's audio catalog: find its `audioId` with `searchInstagramAudio`, then set `audioVolume` for the track and `videoVolume` for the video's own sound (both default to 100; `videoVolume: 0` silences the original sound under the track). It needs an Instagram account connected through Facebook Login, and Zernio fails the post rather than publishing without the track if the track is unavailable at publish time. `audioName` adds no music: it only renames the Reel's original audio from "Original Audio", and Instagram lets you set that name once. `muteAudio: true` makes Zernio remove the audio track from the file itself, so the published video is silent for good and the sound cannot be restored on Instagram. If Zernio cannot strip the audio, the post fails instead of publishing with sound; mute videos over 200 MB yourself before uploading.
+
+```ts
+await social.posts.publish(
+  {
+    targets: [
+      {
+        account: instagramAccount,
+        options: {
+          placement: "reels",
+          collaborators: ["partner_studio"],
+          trialReel: "performance",
+          firstComment: "Full guide: example.com/guide",
+        },
+      },
+      {
+        account,
+        options: { poll: { options: ["Dark mode", "Analytics"], durationMinutes: 1440 } },
+      },
+    ],
+    content: { text: "Which should we ship next?" },
+  },
+  { authorization },
+);
+```
+
+### Media options and recycling
+
+Every platform also takes `mediaOptions`, one object per attachment in media order (`{}` for an attachment with no options). Zernio maps `subtitles` on a video: 1 to 20 SRT or WebVTT tracks, each `{ url, language }` with a public HTTPS `url` that serves the file without a redirect and a BCP-47 `language` such as `en` or `pt-BR`, each language once. They go to `mediaItems[].subtitles`; Zernio downloads and converts them and sends every track to YouTube and Facebook videos, every track up to 20 KB to Bluesky, the first track to X and the first English track to LinkedIn, and skips the rest with a warning. A media item's `thumbnail` (a public HTTPS URL) becomes the video's custom `thumbnail` on Facebook, YouTube and LinkedIn, and `instagramThumbnail`, the Reel cover, on Instagram. Other platforms reject a thumbnail with `media.thumbnail`.
+
+`recycling` reposts a post on a fixed gap, which Zernio calls evergreen recycling. Give `gap` (an integer of at least 1) and `gapFreq` (`week` or `month`, Zernio's default), and optionally `startDate` (ISO 8601; defaults to the scheduled time), `expireCount` (stop after that many copies), `expireDate` and `contentVariations` (2 to 20 texts used in turn for the copies, which Zernio recommends for X and Pinterest to avoid duplicate-content flags). The adapter sends it as the request's `recycling` with `enabled: true`. Zernio excludes YouTube and TikTok from recycling, so `recycling` on those targets fails preparation with `recycling.platform`.
+
+```ts
+await social.posts.publish({
+  targets: [
+    {
+      account: youtubeAccount,
+      options: {
+        title: "Launch walkthrough",
+        visibility: "public",
+        madeForKids: false,
+        notifySubscribers: false,
+        mediaOptions: [{ subtitles: [{ url: "https://cdn.example.com/en.srt", language: "en" }] }],
+      },
+    },
+    { account: xAccount, options: { recycling: { gap: 2, gapFreq: "week", expireCount: 6 } } },
+  ],
+  content: { text: "Launch walkthrough", media: [video] },
+});
+```
+
+A poll cannot carry media, so the X target above shares only the text; split targets into separate calls when their media differs.
+
+### Threads with `threadItems`
+
+On X, Threads and Bluesky, `options.threadItems` lists the posts after the first. The adapter sends the target's own `text` and media as `threadItems[0]` and these items after it, in one Zernio request, so the whole thread is one backend record and one delivery. Each item has `text`, public HTTPS `media` (`kind`, `url`, optional `altText`), or both. Use `publishSequence` instead when each post needs its own uploaded media or its own outcome.
+
+````ts
+await social.posts.publish(
+  {
+    targets: [{ account, options: { threadItems: [{ text: "2/ Auth" }, { text: "3/ Versioning" }] } }],
+    content: { text: "1/ What makes a good API" },
+  },
+  { authorization },
+);
 
 ## Schedule and check a delivery
 
@@ -132,7 +262,7 @@ function nextStep(outcome: DeliveryOutcome): string {
       return "state is unclear; reconcile before retrying";
   }
 }
-```
+````
 
 ## Cancel or remove a post
 
@@ -144,7 +274,7 @@ if (outcome.state === "scheduled") {
 }
 ```
 
-To take down a post that already published on X, Threads, Bluesky, YouTube, LinkedIn, or a Facebook Page, pass the `post` from a `published` outcome. It carries the Zernio record ID that removal needs; personal Facebook profiles are not supported.
+To take down a post that already published, pass the `post` from a `published` outcome to `removeFromPlatform`. Zernio unpublishes from X, Threads, Bluesky, YouTube, LinkedIn, Facebook Pages, Pinterest, Reddit, Discord, Telegram and Google Business Profile through `POST /v1/posts/{id}/unpublish`; it cannot delete Instagram, TikTok or Snapchat posts, so those are not declared. The `post` carries the Zernio record ID that removal needs; personal Facebook profiles are not supported.
 
 ```ts
 if (outcome.state === "published") {
@@ -152,7 +282,7 @@ if (outcome.state === "published") {
 }
 ```
 
-`deleteBackendRecord` only deletes Zernio drafts. The SDK never creates drafts, so it applies only to drafts made in Zernio itself.
+`deleteBackendRecord` deletes a Zernio record whose status is `draft`, `failed` or `cancelled`, the statuses where nothing is live on a platform. It refuses scheduled, partial and published records: cancel a schedule with `cancelScheduled` and take a live post down with `removeFromPlatform`.
 
 ## Recover a duplicate create
 
@@ -170,6 +300,30 @@ if (outcome.state === "published") {
 }
 const accountMetrics = await social.analytics.getAccountMetrics(account, { authorization });
 ```
+
+`zernioNative` reads Zernio's deeper analytics. Each needs the Analytics add-on; without it Zernio answers `requiresAddon` and the adapter reports `billing_required`.
+
+- `followerStats({ accounts, fromDate?, toDate?, granularity? })` reads follower count history and growth from `GET /v1/accounts/follower-stats`, keyed by account ID. Zernio refreshes follower counts once a day.
+- `accountInsights({ account, kind?, metrics?, breakdown?, fromDate?, toDate? })` reads account insights (reach, views, accounts engaged, interactions) for Instagram, Facebook Pages, TikTok, YouTube channels and LinkedIn organizations, or audience demographics with `kind: "demographics"` (age, gender, country, city; Instagram needs at least 100 followers). Data can lag up to 48 hours.
+- `youtubeDailyViews({ post, fromDate?, toDate? })` reads one video's daily views, watch time (`estimatedMinutesWatched`), average view duration and percentage, and subscriber changes from `daily-views`. YouTube finalizes these about three days late; `provisionalSince` marks the first provisional day. The channel must have granted the YouTube Analytics scope.
+- `bestTimes({ account })` returns the best time to post as weekday and UTC hour slots with average engagement (`best-time`), and `contentDecay({ account })` shows how quickly posts reach their final engagement (`content-decay`).
+
+### Post timelines, change feeds and platform reports
+
+These also need the Analytics add-on.
+
+- `postTimeline({ delivery, fromDate?, toDate? })` reads a post's daily series from `GET /v1/analytics/post-timeline`, one row per day and platform with impressions, reach, likes, comments, shares, saves, clicks, views and, where the platform reports them, completion rate, profile views and replays.
+- `analyticsDelta({ accounts, cursor?, limit?, profileId? })` reads `GET /v1/analytics/delta`, the post snapshots that changed since a cursor. Store the returned `nextCursor` and pass it back to sync only what changed; `isDeleted` marks posts removed on the platform. Rows for accounts outside `accounts` are dropped.
+- `analyticsDashboard({ fromDate, toDate, profileId?, platform?, comparePrevious?, topPosts?, recentPosts? })` returns totals, follower counts, a daily series and up to 25 top and recent posts for a date range in one call (`GET /v1/analytics/dashboard`), with the previous period when `comparePrevious` is set.
+- `instagramFollowerHistory({ account, fromDate?, toDate?, metricType? })` reads `instagram/follower-history`, and `instagramOnlineFollowers({ account })` reads `instagram/online-followers`, the hours of each day when followers are online. `instagramStoryInsights({ account, storyId })` reads one story's metrics, marking whether they are `live` or `cached`.
+- `facebookPostEarnings({ post, metrics? })` reads a Facebook post's monetization earnings (`facebook/post-earnings`); metrics the Page is not enrolled for come back in `unavailableMetrics` with a reason. `facebookPostReactions({ post })` returns the reaction breakdown (like, love, haha, wow, sad, angry, care).
+- `linkedInPostAnalytics({ post })` reads one LinkedIn post's stats by URN from `linkedin-post-analytics`, `linkedInPostReactions({ post, limit?, cursor? })` lists who reacted, and `linkedInAggregateAnalytics({ account, aggregation?, fromDate?, toDate?, metrics? })` reads an account's aggregate stats as `TOTAL` or `DAILY`.
+- `googleBusinessSearchKeywords({ account, startMonth?, endMonth?, pageToken? })` lists the search terms that showed a Google Business location, by month (`YYYY-MM`). Google hides exact counts below a threshold and returns `impressionsThreshold` instead.
+- `googleBusinessPerformance({ account, metrics?, fromDate?, toDate? })` reads a Google Business location's daily metrics from `GET /v1/analytics/googlebusiness/performance`: Maps and Search impressions on desktop and mobile (`BUSINESS_IMPRESSIONS_DESKTOP_MAPS`, `BUSINESS_IMPRESSIONS_DESKTOP_SEARCH`, `BUSINESS_IMPRESSIONS_MOBILE_MAPS`, `BUSINESS_IMPRESSIONS_MOBILE_SEARCH`), `WEBSITE_CLICKS`, `CALL_CLICKS`, `BUSINESS_DIRECTION_REQUESTS`, `BUSINESS_CONVERSATIONS`, `BUSINESS_BOOKINGS`, `BUSINESS_FOOD_ORDERS` and `BUSINESS_FOOD_MENU_CLICKS`. Each returned metric has a `total` and one `{ date, value }` per day; metrics Zernio does not return are absent, not zero. Omit `metrics` for all of them. Dates are `YYYY-MM-DD`; Zernio defaults to the last 30 days, goes back at most 18 months, and its data can lag 2 to 3 days (`dataDelay`). These are location metrics; Google Business posts have no per-post metrics. The method sends `fromDate` and `toDate`, not Zernio's deprecated `startDate` and `endDate` aliases.
+
+### Inbox analytics
+
+`inboxAnalytics({ report, fromDate, toDate?, account?, profileId?, platform?, limit?, page? })` reads Zernio's messaging reports from `GET /v1/analytics/inbox/{report}`: `volume` (received, sent, read and failed messages with a daily series and per-platform split), `heatmap` (a day-of-week by hour grid), `source-breakdown`, `response-time` (median, p90 and p99 seconds to reply, with a histogram), `top-accounts` by volume, and `conversations` (counts per conversation). `conversationAnalytics({ conversation, fromDate, toDate? })` reads one conversation's counts and series. Dates are `YYYY-MM-DD`.
 
 ## Reply to comments
 
@@ -190,6 +344,25 @@ if (typeof commentId === "string") {
 }
 ```
 
+Comments on Reddit and TikTok Business accounts use the same calls. `zernioNative` adds the rest of Zernio's comment inbox:
+
+- `listCommentReplies({ comment })` lists replies to one comment on Facebook, Instagram, Reddit and TikTok.
+- `moderateComment({ comment, action })` hides or unhides a comment (`POST` or `DELETE .../{commentId}/hide`) on Facebook, Instagram, Threads, X and TikTok.
+- `deleteComment({ comment })` deletes a comment on Facebook, Instagram, Threads, LinkedIn, Reddit, Bluesky, X, YouTube and TikTok. This is the `comments.delete` capability; it cannot be undone.
+- `privateReply({ comment, text })` answers an Instagram or Facebook comment with a private DM. Meta allows one private reply per comment, within seven days of it.
+- `likePost`, `unlikePost`, `likeComment` and `unlikeComment` like and unlike posts and comments on LinkedIn (with an optional `reactionType` such as `PRAISE`), X, Facebook, YouTube and Bluesky (pass the post `cid`, and keep the returned `likeUri` to unlike). `pinComment({ comment, pinned })` pins or unpins a comment on your own post.
+
+- `editComment({ comment, text })` edits your own Reddit comment with `PATCH /v1/inbox/comments/{postId}/{commentId}`; Zernio edits Reddit comments only.
+- `setCommentModerationStatus({ comment, status, banAuthor? })` sets a YouTube comment's moderation status with `POST .../moderation`: `published`, `rejected` or `heldForReview` (held for the channel's review queue). `banAuthor: true` with `rejected` also bans the commenter from the channel.
+
+The normalized `comments.reply` sends no `Idempotency-Key`, so reconcile an `ambiguous_outcome` before replying again.
+
+### X engagement
+
+`repost`, `unrepost`, `bookmark`, `removeBookmark`, `follow` and `unfollow` call Zernio's `/v1/twitter/` routes for an X account: retweet or undo a retweet, bookmark or remove a bookmark by post ID, and follow or unfollow by numeric user ID (a protected account returns `pending: true`).
+
+`social.search.posts(account, { query })` searches recent X posts from the last seven days through `GET /v1/twitter/search`. Queries are up to 512 characters with X's operators, pages hold 10 to 100 posts, and `scope: "all"` is rejected because full-archive search is not offered.
+
 ## Read and send messages
 
 Conversation items carry an `id`. Build a conversation reference from the account and that ID to read and send messages.
@@ -207,6 +380,84 @@ if (typeof conversationId === "string") {
   await social.messages.send(conversation, { text: "Thanks, we are on it." }, { authorization });
 }
 ```
+
+Message items include attachment metadata (`id`, `type`) but not the media URL, which Zernio can sign. `zernioNative` adds:
+
+- Mark as read with `markConversationRead({ conversation })`; it returns `markedCount`, the number of messages it marked.
+- `startConversation({ account, recipient, text })` starts a conversation by recipient `id` or `username` (an X or Bluesky handle or a Reddit username) and returns its `ConversationRef`.
+- `sendMessage({ conversation, text?, attachment? })` sends text and one public HTTPS attachment (`image`, `video`, `audio` or `file`) as `attachmentUrl`.
+
+### Manage conversations
+
+- `searchConversations({ query, account?, direction?, profileId?, limit?, cursor? })` searches message text across conversations (`GET /v1/inbox/conversations/search`) on the DM platforms Zernio indexes.
+- `setConversationStatus({ conversation, status })` archives (`archived`) or restores (`active`) a conversation, and `deleteConversation({ conversation })` deletes it and its stored messages from Zernio, returning how many messages went.
+- `acceptMessageRequest({ conversation, text })` accepts a message request by sending the first reply.
+- `threadControl({ conversation, action, target?, targetAppId?, metadata? })` runs Meta's handover protocol through `thread-control`: `take` control, `release` it, `pass` it to another app (`targetAppId`) or to Meta's AI agent (`target: "ai_agent"`), or `request` it. It returns the new `owner`. A `conversation.control_changed` webhook reports changes made elsewhere.
+- Facebook Page labels: `listInboxLabels({ account })`, `createInboxLabel({ account, name })` and `deleteInboxLabel({ account, labelId })` manage the Page's labels on `/v1/inbox/labels`; `listConversationLabels({ conversation })` and `setConversationLabel({ conversation, labelId, applied })` read and change the labels on one conversation.
+
+### Bot settings
+
+`getBotSetting({ account, setting })`, `setBotSetting(input)` and `deleteBotSetting({ account, setting })` read, replace and remove an account's automated-chat settings:
+
+| `setting`               | Account               | Route                                                | `setBotSetting` input                                                                                                                                                                  |
+| ----------------------- | --------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `messenger-menu`        | Facebook              | `/v1/accounts/{id}/messenger-menu`                   | `persistentMenu`: menu objects in Meta's persistent menu format.                                                                                                                       |
+| `messenger-get-started` | Facebook              | `messenger-get-started`                              | `payload` (up to 1,000 characters) sent when the user taps Get Started.                                                                                                                |
+| `messenger-greeting`    | Facebook              | `messenger-greeting`                                 | `greetings`: `{ locale, text }` up to 160 characters, one with locale `default`.                                                                                                       |
+| `ice-breakers`          | Facebook or Instagram | `messenger-ice-breakers` or `instagram-ice-breakers` | `iceBreakers`: up to 4 `{ question, payload }` questions (questions up to 80 characters). Facebook groups them per `locale`, one `default`; Instagram takes one list without a locale. |
+| `telegram-commands`     | Telegram              | `telegram-commands`                                  | `commands`: up to 100 `{ command, description }`, commands of 1 to 32 lowercase letters, digits or `_` without the slash.                                                              |
+
+### Mentions and reviews
+
+`listMentions({ account })` reads mentions of a LinkedIn organization, Instagram account or Facebook Page from `GET /v1/inbox/mentions`. `listReviews({ account, hasReply? })` reads Facebook Page recommendations and Google Business Profile reviews, with rating, text and any reply; `replyToReview` posts or replaces your reply and `deleteReviewReply` removes it.
+
+### Google Business reviews
+
+`listGoogleBusinessReviews({ account, locationId?, pageSize?, pageToken? })` reads a location's reviews from `GET /v1/accounts/{id}/gmb-reviews` with the average rating and total count, `getGoogleBusinessReview({ account, reviewId, locationId? })` reads one, and `batchGoogleBusinessReviews({ account, locationNames, pageSize?, pageToken?, orderBy? })` reads up to 50 locations at once through `gmb-reviews/batch`, ordered by `updateTime desc`, `rating` or `rating desc`. Each review has its rating, star rating, comment, times, the reviewer's display name and your reply; reviewer photos are dropped. Without `locationId` Zernio uses the account's selected location.
+
+## Read Instagram, Facebook and YouTube extras
+
+Instagram media URLs are signed, expiring links, so these return `permalink` and leave them out.
+
+- `instagramActiveStories({ account })` lists the account's live stories (`instagram/stories`); `instagramLiveMedia` lists live broadcasts.
+- `instagramTaggedPosts({ account, limit?, cursor? })` lists posts the account is tagged in (`instagram/tags`, up to 50 a page).
+- `instagramMentionedMedia({ account, mediaId })` and `instagramMentionedComment({ account, commentId })` read a post or comment that mentions the account, for example from a `mention.received` webhook.
+- `instagramCollaborators({ account, mediaId })` lists a post's collaborators and their invite status.
+- `instagramBusinessDiscovery({ account, username, limit? })` looks up a public Business or Creator account with Instagram's business discovery: profile counts and up to 25 recent posts.
+- `instagramFollowStatus({ account, userId })` says whether an Instagram user follows the account, or why Instagram will not say (`unavailableReason`).
+- `facebookVisitorPosts({ account, limit?, cursor? })` reads posts visitors left on a Page (`facebook-visitor-posts`, up to 100 a page) and `facebookTaggedPosts` reads posts that tag the Page (`facebook-tagged-posts`, up to 50), each with the author's ID and name.
+- `youtubeCaptions({ account, videoId, language?, format?, refresh? })` reads a video's transcript from `youtube-captions`: the text and timed `cues`, or `srt` with `format: "srt"`, plus `availableTracks`. Zernio caches transcripts; `refresh: true` fetches again.
+
+## Sync, bulk upload and validators
+
+- `syncExternalPosts({ account, url?, postId? })` asks Zernio to sync posts made outside it now through `POST /v1/posts/sync-external`, instead of waiting about 90 minutes for the background sync. Give a post `url` or platform `postId` to sync one post. It returns how many posts were found and synced and the synced posts.
+- `bulkUpload({ csv, dryRun? })` sends a CSV in Zernio's bulk format to `POST /v1/posts/bulk-upload` as multipart form data. `dryRun: true` checks every row without creating posts. It returns `total`, `valid`, `invalid`, per-row `results` with any errors, and `warnings`. The rows name their own accounts, so the client's tenant checks do not apply; check them before uploading.
+- `validatePostLength({ text })` returns the character count and limit per platform (`validate/post-length`); `validateMedia({ url })` checks a public media URL's type, size and per-platform limits (`validate/media`); `validateSubreddit({ subreddit, account? })` says whether a subreddit exists and accepts images and videos (`validate/subreddit`).
+
+## Google Business listing
+
+These manage the location behind a Google Business account. Each takes `{ account, locationId? }`; Zernio uses the selected location when `locationId` is omitted. Structured values follow Google's Business Information API.
+
+- `getGoogleBusinessLocationDetails({ readMask? })` reads `gmb-location-details`: title, regular and special hours, description, website, phones, categories and service items. `updateGoogleBusinessLocationDetails({ updateMask, fields })` writes the location fields named in `updateMask`; other top-level fields are refused before the request.
+- `getGoogleBusinessAttributes` and `updateGoogleBusinessAttributes({ attributes, attributeMask })` read and set `gmb-attributes` such as accessibility or Wi-Fi; `googleBusinessAttributeMetadata({ categoryName?, regionCode?, languageCode? })` lists which attributes a category supports.
+- `getGoogleBusinessServices` and `replaceGoogleBusinessServices({ serviceItems })` read and replace `gmb-services`; `getGoogleBusinessFoodMenus` and `updateGoogleBusinessFoodMenus({ menus })` do the same for restaurant `gmb-food-menus` (each menu needs `labels`).
+- `listGoogleBusinessPlaceActions`, `createGoogleBusinessPlaceAction({ uri, placeActionType })`, `updateGoogleBusinessPlaceAction({ name, uri?, placeActionType? })` and `deleteGoogleBusinessPlaceAction({ name })` manage `gmb-place-actions`, the booking and ordering links (`APPOINTMENT`, `ONLINE_APPOINTMENT`, `DINING_RESERVATION`, `FOOD_ORDERING`, `FOOD_DELIVERY`, `FOOD_TAKEOUT`, `SHOP_ONLINE`).
+- `listGoogleBusinessMedia`, `addGoogleBusinessMedia({ sourceUrl, mediaFormat?, description?, category? })` and `deleteGoogleBusinessMedia({ mediaId })` manage listing photos and videos (`gmb-media`).
+- `getGoogleBusinessVerifications`, `googleBusinessVerificationOptions({ languageCode })`, `startGoogleBusinessVerification({ method, phoneNumber?, emailAddress?, ... })` and `completeGoogleBusinessVerification({ verificationId, pin })` run Google's location verification (`gmb-verifications`). Phone and SMS methods need the number Google offered.
+
+## Reddit
+
+`redditVote({ account, thingId, direction })` upvotes (1), downvotes (-1) or clears a vote (0) on a post (`t3_`) or comment (`t1_`) through `POST /v1/accounts/{id}/reddit-vote`. `redditSearch({ account, query, subreddit?, sort?, limit?, after? })` runs a Reddit search through `/v1/reddit/search`, within one subreddit when given; `redditFeed({ account, subreddit?, sort?, time?, limit?, after? })` reads a subreddit's hot, new, top or rising posts from `/v1/reddit/feed`; and `redditComments({ account, postId, sort?, limit?, commentId? })` reads a post's comment tree from `/v1/reddit/comments/{postId}`, with the IDs of collapsed replies in `more`. Pages hold up to 100 items; pass the returned `after` fullname for the next.
+
+## Discord server tools
+
+These act as the connected Discord bot. Server, channel, user and role IDs are numeric snowflakes.
+
+- `sendDiscordDirectMessage({ account, userId, text?, embeds?, tts? })` sends a DM through `POST /v1/discord/dms` (up to 2,000 characters and 10 embeds).
+- Roles: `listDiscordRoles`, `createDiscordRole`, `updateDiscordRole` and `deleteDiscordRole` on `/v1/discord/guilds/{guildId}/roles`, with `name`, integer `color`, `hoist`, `mentionable` and a decimal `permissions` bit set.
+- Members: `listDiscordMembers({ guildId, limit?, after? })` (up to 1,000 a page), `searchDiscordMembers({ guildId, query })`, `getDiscordMember({ guildId, userId })`, and `setDiscordMemberRole({ guildId, userId, roleId, assigned })` to give or take a role.
+- Channels: `listDiscordPins` and `setDiscordPin({ channelId, messageId, pinned })` on `/v1/discord/channels/{channelId}/pins`; `createDiscordThread({ channelId, name, messageId?, autoArchiveDuration? })` starts a public thread; `crosspostDiscordMessage` publishes an announcement-channel message to following servers; `deleteDiscordMessage` deletes one.
+- Scheduled events: `listDiscordEvents`, `getDiscordEvent`, `createDiscordEvent({ guildId, name, startsAt, entity, description?, imageDataUri? })`, `updateDiscordEvent` and `deleteDiscordEvent` on `/v1/discord/guilds/{guildId}/events`. An `entity` is `{ type: "external", location, endsAt }` or a `voice` or `stage` channel with its `channelId`.
 
 ## Receive webhooks
 
@@ -252,24 +503,34 @@ export function webhookRoute(input: {
 
 `inbox` is your durable event store and `resolveTenants` maps Zernio account IDs to your tenants. See [events](/events) for both.
 
+Decoded events keep Zernio's name in `originalType`. `post.cancelled`, `post.recycled`, `post.external.created` and `post.external.updated` decode as `publication.updated`; `message.sent`, `message.delivered`, `message.read`, `message.failed`, `message.edited` and `message.deleted` as `message.updated`; `reaction.received` as `reaction.received`; and `review.new`, `review.updated`, `review.deleted` and `review.restored` as `review.updated`. `account.permissions_changed` (an account on your own OAuth app hit a missing permission and stays connected for its other areas) and `account.rate_limited` (a mailbox entered a sending cooldown) decode as `account.updated`; `conversation.started` (the first message between an account and a contact) and `conversation.control_changed` (Meta handover moved who answers) as `conversation.updated`; `referral.received` as `message.referral`; `message.played` as `message.updated`; and `analytics.synced`, sent after each hourly analytics sync of an account, as `insights.updated`. `webhook.test` deliveries carry no account and decode as `unknown`, as do other events.
+
+### Manage webhooks
+
+`zernioNative` manages subscriptions on your API key through `/v1/webhooks/settings`, so they can be provisioned from code:
+
+- `createWebhook({ name, url, secret?, events, isActive?, profileIds?, accountIds? })` subscribes an HTTPS endpoint to the listed events. Use the same `secret` as the adapter's `webhookSecret`.
+- `listWebhooks()`, `updateWebhook({ webhookId, ...fields })` and `deleteWebhook({ webhookId })` read, change and remove subscriptions. Returned settings never include the secret.
+- `testWebhook({ webhookId, event? })` sends a test delivery, optionally as a sample `post.failed` or other event marked `test: true`.
+
 ## Other platforms
 
-Zernio accounts on Pinterest, Reddit, Telegram, Discord, Google Business Profile, and Snapchat are listed and publish through the same `posts.publish` call. Zernio's `googlebusiness` appears as `google-business`. Each platform takes the options Zernio documents for it:
+Zernio accounts on Pinterest, Reddit, Telegram, Discord, Google Business Profile, and Snapchat are listed and publish through the same `posts.publish` call. Zernio currently refuses Reddit publishing; see the warning at the top of this page. Zernio's `googlebusiness` appears as `google-business`. Each platform takes the options Zernio documents for it:
 
-| Platform          | Options                                                                   |
-| ----------------- | ------------------------------------------------------------------------- |
-| `pinterest`       | `boardId`, `title`, `link`. Media is required.                            |
-| `reddit`          | `subreddit` (required), `title`, `flairId`, `nsfw`                        |
-| `discord`         | `channelId` (required)                                                    |
-| `google-business` | `locationId`                                                              |
-| `snapchat`        | `contentType`: `story`, `saved_story`, or `spotlight`. Media is required. |
-| `telegram`        | none                                                                      |
+| Platform          | Options                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pinterest`       | `boardId`, `title`, `link`. Media is required. `boardSectionId` puts the Pin in a section of `boardId` (Pinterest rejects a section from another board, so send both). A video Pin takes a cover from `coverImageUrl` or `coverImageKeyFrameTime` (seconds into the video), not both.                                                                                                                                                                                                                                                                                                                                                                           |
+| `reddit`          | `subreddit` (required), `title`, `flairId`, `nsfw`. `flairText` sets free-text flair where the subreddit allows it (`flairId` wins). `spoiler` marks a spoiler. `sendReplies: false` maps to `sendreplies` and stops inbox replies. `forceSelf` posts text only and skips media uploads. For a video, `nativeVideo` (default on) uploads to Reddit's player, `videoGif` sends it as a silent `videogif`, and `videoPosterUrl` sets its poster.                                                                                                                                                                                                                  |
+| `discord`         | `channelId` (required). `embeds`: 1 to 10 embeds with `title` (256), `description` (4,096), `url`, integer `color` and `image`/`thumbnail` `{ url }`, 6,000 characters combined. `poll`: `{ question, answers, durationHours?, allowMultiselect? }`, 1 to 10 answers, 1 to 768 hours, no media. `crosspost` publishes to followers of an announcement channel. A forum channel post needs `forumThreadName` (up to 100 characters) and takes up to 5 `forumAppliedTags`. `threadFromMessage: { name, autoArchiveDuration?, rateLimitPerUser? }` opens a thread under the message. `tts`, `webhookUsername` (up to 80) and `webhookAvatarUrl` override per post. |
+| `google-business` | `locationId`. `topicType`: `STANDARD`, `EVENT` or `OFFER`. An `EVENT` needs `eventTitle` (up to 58), `eventStart` and `eventEnd` as `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` in the location's local time, sent as Google's `{ year, month, day }` and `{ hours, minutes }`; an `OFFER` takes the same event fields plus `offerCouponCode` (`couponCode`), `offerRedeemUrl` (`redeemOnlineUrl`) and `offerTerms` (`termsConditions`). `callToActionType` (`LEARN_MORE`, `BOOK`, `ORDER`, `SHOP`, `SIGN_UP`, `CALL`) with `callToActionUrl` adds the `callToAction` button. `languageCode` overrides language detection.                                               |
+| `snapchat`        | `contentType`: `story`, `saved_story`, or `spotlight`. Media is required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `telegram`        | `parseMode` (`HTML`, Zernio's default, `Markdown` or `MarkdownV2`), `disableWebPagePreview`, `disableNotification` (deliver silently) and `protectContent` (block forwarding and saving).                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
-WhatsApp accounts are listed but not published to, because Zernio's WhatsApp surface is messaging. Accounts on networks the SDK has no name for, such as Slack, are left out of listings. Set `unknownPlatforms: "include"` when creating the adapter to list them under Zernio's own identifier for reading.
+WhatsApp accounts are listed but not published to (see [Not supported](#not-supported)). Accounts on networks the SDK has no name for, such as Slack, are left out of listings. Set `unknownPlatforms: "include"` when creating the adapter to list them under Zernio's own identifier for reading.
 
 ## Connect accounts
 
-The native adapter lists your Zernio profiles and starts a hosted connection flow. Native calls skip the client's authorization and concurrency checks, so run them only after your own checks.
+`zernioNative` lists your Zernio profiles and starts a hosted connection flow. Native calls skip the client's authorization and concurrency checks, so run them only after your own checks.
 
 ```ts
 const context: AdapterOperationContext = {
@@ -280,7 +541,7 @@ const context: AdapterOperationContext = {
 };
 
 const redirectUrl = "https://app.example.com/zernio/callback";
-const native = social.native("default", { acknowledgeUnsafe: true });
+const native = zernioNative({ apiKey: process.env.ZERNIO_API_KEY! });
 const profiles = await native.listProfiles(context);
 const profileId = profiles[0]?.["_id"];
 
@@ -291,4 +552,143 @@ if (typeof profileId === "string") {
 
 A profile groups accounts; its `_id` is not a connected-account ID and cannot be used as a publish target. After the provider flow completes, list accounts again on the server, identify the newly connected account from the authorized connection session, and store its `ref.accountId`, backend and platform with that tenant's grant. Recheck the account identity before granting access. A redirect or returned URL is not tenant authorization.
 
+`createConnection` also takes Zernio's connect options:
+
+- `reconnectAccountId` refreshes an existing account of the same platform and profile instead of adding a new one, which is how an expired connection is repaired. Add `expectedPlatformUserId` or `expectedUsername` (case-insensitive, `@` ignored) so the flow ends with `error=account_mismatch` and writes nothing when the user logs in to a different account.
+- `forceReauth: true` makes Instagram Login show its login page even when another Instagram account is signed in on the device; other platforms ignore it.
+- `scopes` requests only some permission areas (`posting`, `analytics`, `comments`, `messaging`, `ads`) instead of the platform's full set.
+- `oauthAppId` connects through one of your own OAuth apps (see below), so the consent screen shows your app.
+- `loginMethod` picks Instagram Login (`instagram_login`, the default) or Facebook Login (`facebook_login`).
+- `welcome: true` sends the user to a Zernio-hosted welcome screen first; `brandName` (1 to 60 characters), `primaryColor` (`#RRGGBB`) and `logoUrl` (HTTPS, square) style it and are rejected without `welcome`.
+
+```ts
+const { url } = await native.createConnection(
+  {
+    platform: "instagram",
+    profileId,
+    redirectUrl,
+    reconnectAccountId: expired.ref.accountId,
+    expectedUsername: "studio",
+    forceReauth: true,
+  },
+  context,
+);
+```
+
+### Connect a Discord channel
+
+`connectDiscord({ guildId, channelIds, profileId, redirectUrl? })` finishes a Discord connect with `POST /v1/connect/discord`, binding 1 to 25 channels of the server (numeric snowflake IDs) to a profile. Each channel becomes its own connected account; Zernio confirms with an empty response, so list accounts afterwards to read them.
+
+### Bring your own OAuth app
+
+White-label connects use your own platform app. `listOAuthApps({ limit?, cursor? })`, `createOAuthApp({ platform, label, clientId, clientSecret, metaAppId?, metaAppSecret?, scopeAreas? })`, `getOAuthApp`, `updateOAuthApp`, `testOAuthApp` (checks the keys with the platform) and `deleteOAuthApp({ appId, confirm? })` wrap `/v1/connect/oauth-apps`. The secrets go to Zernio only; returned records carry `status`, `lastError`, `accountCount` and the `redirectUri` to register with the platform, never a secret. Facebook and Instagram apps also return `webhook` (`callbackUrl`, `verifyToken`, `object` and `fields`): set that callback URL and verify token on the app's webhook product and subscribe the listed fields so Meta delivers comments and messages to your app. Slack apps return `hasSlackSigningSecret` and `slackEvents` (`requestUrl`, `botEvents`); TikTok apps return `sharedWebhookUrl`. Deleting with `confirm: true` also disconnects the accounts connected through the app and returns `disconnectedAccounts`. `getWelcomeScreen()` and `saveWelcomeScreen({ showByDefault, brandName?, logoUrl?, theme? })` read and save the default welcome screen at `/v1/connect/welcome-screen`.
+
+### Connect Bluesky with an app password
+
+`connectBluesky` connects a Bluesky account without a browser redirect through `POST /v1/connect/bluesky/credentials`. Pass the handle or email as `identifier`, an app password the user created in Bluesky Settings (never the account password), and `state` as `{userId}-{profileId}`. It returns the new account's `AccountRecord`. Keep the app password out of logs; the SDK sends it to Zernio only.
+
+```ts
+const bluesky = await native.connectBluesky(
+  {
+    identifier: "studio.bsky.social",
+    appPassword: process.env.BLUESKY_APP_PASSWORD!,
+    state: `${userId}-${profileId}`,
+  },
+  context,
+);
+```
+
+The other headless steps are not wrapped (see [Not supported](#not-supported)); use the hosted flow above, which shows Zernio's own picker.
+
+### Manage profiles and accounts
+
+Give each tenant its own profile so its accounts and queue stay separate:
+
+- `createProfile({ name, description?, color?, timezone?, externalId? })` sends `POST /v1/profiles`. `timezone` is the IANA zone for posts that name none, and `externalId` stores your tenant ID.
+- `updateProfile({ profileId, ...fields })` sends `PUT /v1/profiles/{id}`. `null` clears `description`, `timezone` or `externalId`.
+- `deleteProfile({ profileId })` permanently deletes the profile.
+- `moveAccount({ account, profileId })` moves a connected account to another profile.
+
+`getAccountHealth({ account })` reads `GET /v1/accounts/{id}/health`: overall `status` (`healthy`, `warning` or `error`), `token.valid`, `token.expiresAt` and `token.needsRefresh`, `permissions.canPost`, `canFetchAnalytics` and `missingRequired`, plus `issues`, `recommendations` and the disconnect reason. Tokens themselves are never returned. `disconnectAccount({ account })` disconnects and removes the account from Zernio; it cannot be undone, so confirm with the account owner first.
+
+## Look up publish destinations and settings
+
+These read the values publish options need and change account defaults. Each checks that the account belongs to the request and is on the platform the route serves.
+
+| Method                                                                                                                          | Route                                                                                                          | Returns or sets                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `listPinterestBoards`, `createPinterestBoard({ name, description?, privacy? })`, `setDefaultPinterestBoard({ boardId })`        | `/v1/accounts/{id}/pinterest-boards`                                                                           | Boards for `boardId`; a new board (`PUBLIC`, `PROTECTED` or `SECRET`); the board used when `boardId` is omitted.            |
+| `listYouTubePlaylists`, `createYouTubePlaylist({ title, description?, privacy? })`, `setDefaultYouTubePlaylist({ playlistId })` | `/v1/accounts/{id}/youtube-playlists`                                                                          | Playlists for `playlistId` and the default; a new playlist; the default playlist.                                           |
+| `listGoogleBusinessLocations({ search?, limit? })`                                                                              | `/v1/accounts/{id}/gmb-locations`                                                                              | Locations for `locationId` (up to 500), `hasMore` and the selected location.                                                |
+| `listSubreddits`, `setDefaultSubreddit({ subreddit })`, `subredditRules({ subreddit })`, `listRedditFlairs({ subreddit })`      | `/v1/accounts/{id}/reddit-subreddits`, `.../reddit-subreddits/{name}/rules`, `/v1/accounts/{id}/reddit-flairs` | Subreddits and the default; posting rules and Reddit's site rules; flairs for `flairId`.                                    |
+| `listDiscordChannels`                                                                                                           | `/v1/accounts/{id}/discord-channels`                                                                           | Channels of the server for `channelId`, with their Discord channel `type` (5 is announcement, 15 is forum).                 |
+| `listFacebookPages({ refresh? })`, `selectFacebookPage({ pageId })`                                                             | `/v1/accounts/{id}/facebook-page`                                                                              | Pages the connection can post to for `pageId`, and the default Page.                                                        |
+| `searchTikTokLocations({ query })`                                                                                              | `/v1/accounts/{id}/tiktok/locations`                                                                           | TikTok location tags for a 1 to 100 character query.                                                                        |
+| `tiktokCommercialMusic({ countryCode? })`                                                                                       | `/v1/accounts/{id}/tiktok/commercial-music`                                                                    | Trending Commercial Music Library tracks; a track `id` is the `musicSoundId` option.                                        |
+| `searchInstagramAudio({ audioType, query? })`, `getInstagramAudio({ audioId })`                                                 | `/v1/accounts/{id}/instagram/audio`                                                                            | Instagram `music` or `original_sound` audio and its metadata. Download URLs are not returned.                               |
+| `instagramPublishingLimit`                                                                                                      | `/v1/accounts/{id}/instagram/publishing-limit`                                                                 | `quotaUsage` of `quotaTotal` posts in the rolling `quotaDurationSeconds` window (Instagram's publishing limit).             |
+| `getBlueskySettings`, `updateBlueskySettings({ defaultLanguages })`                                                             | `/v1/accounts/{id}/bluesky-settings`                                                                           | Default post languages, 1 to 3 BCP-47 codes, or `null` to clear.                                                            |
+| `getDiscordSettings`, `updateDiscordSettings({ webhookUsername?, webhookAvatarUrl?, channelId? })`                              | `/v1/accounts/{id}/discord-settings`                                                                           | The account's channel and the webhook name and avatar used unless a post overrides them.                                    |
+| `getFacebookPageInfo`, `updateFacebookPageInfo({ about?, description?, website?, phone?, emails?, hours? })`                    | `/v1/accounts/{id}/facebook-page-info`                                                                         | The Page's public info; `about` is up to 100 characters.                                                                    |
+| `listLinkedInOrganizations`, `switchLinkedInAccountType({ accountType, organization? })`                                        | `/v1/accounts/{id}/linkedin-organizations`, `.../linkedin-organization`                                        | Organizations the member administers; post as the member (`personal`) or as an organization.                                |
+| `getWebhookSubscription`, `resubscribeWebhooks`                                                                                 | `/v1/accounts/{id}/webhook-subscription`                                                                       | Whether a Facebook Page sends events to Zernio, its subscribed fields and any `warning`; re-subscribes a Page that stopped. |
+
+### Account groups
+
+`listAccountGroups()`, `createAccountGroup({ name, accounts, profileId? })`, `updateAccountGroup({ groupId, name?, accounts? })` and `deleteAccountGroup({ groupId })` manage Zernio's account groups (`/v1/account-groups`), named sets of accounts. Deleting a group leaves its accounts connected.
+
+### Usage and activity logs
+
+`usageStats({ reconcile? })` reads `GET /v1/usage-stats`: plan name, billing period, access, `limits`, `usage` and `spend`. `listLogs({ type?, status?, account?, action?, search?, from?, to?, days?, limit?, skip? })` reads Zernio's activity logs from `GET /v1/logs` (publishing, connections, webhooks, messaging and API requests, up to 90 days back) with each entry's type, action, status, error, path and time. Logged request and response bodies, IP addresses and user agents are dropped, because they can hold message content.
+
+### List posts with filters
+
+`posts.list` reads one account's synced external posts. `listPosts({ account?, source?, status?, dateFrom?, dateTo?, updatedSince?, sortBy?, createdBy?, profileId?, includeHidden?, search?, tags?, limit?, cursor? })` reads `GET /v1/posts` with Zernio's filters: a `dateFrom`/`dateTo` window (`YYYY-MM-DD` or ISO 8601), `updatedSince` (an ISO 8601 time with `Z` or an offset) to fetch only posts changed since your last sync, `sortBy` (`scheduled-desc` by default, or `scheduled-asc`, `created-desc`, `created-asc`, `status`, `platform`), `createdBy` (a team member ID), up to 20 `tags` that must all match, and `includeHidden`. Results page with `nextCursor`. Zernio's cursor is unavailable with `source: "external"`, which pages by number, so there `nextCursor` is the next page number to pass back as `cursor`. Each post lists its destinations with status and platform post ID.
+
+## Drafts, approval and the queue
+
+`submitPost` creates a post that does not publish straight away. It takes one `account`, the `content` and `options` that `posts.publish` takes, with the same checks, and a `submission`:
+
+- `{ kind: "draft" }` saves a draft (`isDraft`).
+- `{ kind: "approval", at, timeZone? }` sets `requiresApproval` with `scheduledFor`, so the post waits in `pending_approval` until someone approves it. The outcome is `accepted`.
+- `{ kind: "queue", profileId, queueId? }` takes the profile's next free queue slot (`queuedFromProfile`, optionally a specific `queueId`) instead of a fixed time. Create queue slots in Zernio first.
+
+`reviewPost({ delivery, decision })` approves (`approve` schedules it) or rejects (`reject` returns it to draft) a `pending_approval` post through `POST /v1/posts/{id}/review`. Approving after the scheduled time publishes within a couple of minutes.
+
+```ts
+const pending = await native.submitPost(
+  { account, content: { text: "Launch day" }, submission: { kind: "approval", at } },
+  context,
+);
+
+if (pending.delivery)
+  await native.reviewPost({ delivery: pending.delivery, decision: "approve" }, context);
+```
+
+## Change, edit, retry and validate posts
+
+- `reschedulePost({ delivery, text?, at?, timeZone? })` changes the text or time of a draft, scheduled, failed or cancelled post with `PUT /v1/posts/{id}`. It is the `posts.update` path for posts that have not published; the new time must be in the future.
+- `updatePost({ post, text })` edits a published post's text with `POST /v1/posts/{id}/edit` on X, Facebook, LinkedIn, YouTube, Reddit, Discord, Telegram, Pinterest and Google Business Profile. X edits need X Premium and only work within an hour of posting, and X assigns a new post ID, so store the returned reference.
+- `updateYouTubeMetadata({ post, metadata })` changes a YouTube video's `title` (up to 100 characters), `description`, `tags` (500 characters combined), `categoryId`, `privacyStatus`, `thumbnailUrl`, `madeForKids`, `containsSyntheticMedia` or `playlistId` without a new upload, through `update-metadata` in direct video mode, so it also works on videos published outside Zernio.
+- `retryPost({ delivery })` retries a failed post at once with `POST /v1/posts/{id}/retry` and returns the new outcome. Only a `failed` post can be retried.
+- `validatePost({ account, content, options? })` sends the target to Zernio's validator, `POST /v1/tools/validate/post`, without creating anything, and returns `valid`, Zernio's `errors` and `warnings`, and the adapter's own `localIssues`. Each error keeps its `platform` and the explanation in `error`; each warning keeps `platform` and `warning`. Media must be public HTTPS URLs.
+- `validatePosts({ content, targets })` validates several destinations in one call. `content` is the shared `content` and `mediaItems`; a target's own `content` text becomes that destination's `platforms[].customContent` and its own media becomes `customMedia`, which replace the shared values for that destination only. Publishing does not need these overrides, because the adapter creates one Zernio post per target from that target's own content.
+
+Each of these reads the post first and refuses one whose single destination is a different account.
+
+## TikTok creator info and live posts
+
+TikTok requires apps to show the creator's privacy options before posting. `creatorInfo({ account, mediaType? })` reads `GET /v1/accounts/{id}/tiktok/creator-info` and returns the creator's `nickname`, `isVerified` and `canPostMore`, the `privacyLevels` to offer, the allowed `commercialContentTypes` and `maxVideoDurationSec`. Offer only those privacy levels in `options.privacy`.
+
+`listPlatformPosts({ account })` reads the 25 most recent posts live from the platform through `GET /v1/accounts/{id}/posts`, including posts made outside Zernio, with their ID, text, permalink and counters. `posts.list` reads Zernio's synced copy instead.
+
 Uploaded Zernio media refs expire locally after seven days. This SDK reuse limit is not a claim about the provider's public URL lifetime. Caller-owned HTTPS URLs do not receive this upload expiry. Configure `MemoryManagedMediaStore` or a persistent `ManagedMediaStore` from the backend subpath when references must survive adapter reconstruction.
+
+## Limits and requirements
+
+### Not supported
+
+- Reddit: Zernio lists Reddit as temporarily unavailable because Reddit has blocked third-party apps from its API; see [Reddit](#reddit).
+- A combined internal and external post feed: `posts.list` reads synced platform posts only (`source=external`).
+- Publishing to WhatsApp: WhatsApp accounts are listed but not published to, because Zernio's WhatsApp surface is messaging.
+- Headless selection steps: choosing a Facebook Page (`select-page`), a LinkedIn organization, a Pinterest board or a Google Business location carries the temporary OAuth token from Zernio's redirect, so these steps are not wrapped.

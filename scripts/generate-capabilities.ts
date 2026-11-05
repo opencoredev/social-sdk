@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { adapterNames, createDiagnosticAdapter } from "../packages/social-sdk/dist/cli.js";
+import { zernioNative } from "../packages/social-sdk/dist/cloud/zernio-native.js";
 
 // The same typed manifests that `social-sdk capabilities --adapter NAME --json` prints.
 const manifests = [];
@@ -397,8 +398,14 @@ function isCallable(value: unknown): value is CallableFunction {
   return typeof value === "function";
 }
 
+const noNetwork: typeof globalThis.fetch = async () => {
+  throw new Error("Capability generation cannot make network requests.");
+};
+
 /** Native surfaces that ship from their own subpath instead of the adapter's `native` property. */
-const nativeCompanions = new Map<string, () => object>([]);
+const nativeCompanions = new Map<string, () => object>([
+  ["zernio", () => zernioNative({ apiKey: "offline-placeholder", fetch: noNetwork })],
+]);
 
 const cell = (value: string) =>
   value

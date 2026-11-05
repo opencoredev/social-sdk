@@ -6,7 +6,10 @@ import { definedFields } from "../core/fields.js";
 import type {
   AccountRecord,
   AdapterOperationContext,
+  AnalyticsReport,
+  AnalyticsReportQuery,
   BackendPostRef,
+  CapabilityDeclaration,
   ConnectedAccountRef,
   DeliveryOutcome,
   DeliveryRef,
@@ -17,6 +20,7 @@ import type {
   Platform,
   PlatformPostRef,
   PreparationIssue,
+  PreparedPublishTarget,
   ScheduleCancellation,
   ScheduledJobRef,
 } from "../core/types.js";
@@ -26,6 +30,8 @@ import { httpsUrl } from "../transport/upload.js";
 import {
   array,
   isBoolean,
+  isFiniteNumber,
+  isJsonArray,
   isJsonObject,
   isString,
   object,
@@ -53,14 +59,653 @@ const bufferFormats: PublishFormats = (platform) =>
     ? ["text", "image", "video", "carousel", "document"]
     : publishFormats(platform);
 
+/**
+ * Substack Notes: text, one image or video, or a link card in `metadata.substack`, up to 10,000
+ * UTF-16 code units (developers.buffer.com/reference, createPost and Character Limits, 2026-11-04).
+ */
+const substack = "substack";
+
+const substackMaxLength = 10_000;
+
 /** Buffer needs a document title; the caption wins over the filename. */
 const documentTitle = (item: MediaAttachment): string | undefined =>
   [item.caption, item.filename].find((value) => value !== undefined && value.trim() !== "");
+
+/** Buffer metadata keys of the platforms that take a `thread` of replies. */
+const threadServices: Partial<Record<Platform, string>> = {
+  x: "twitter",
+  threads: "threads",
+  bluesky: "bluesky",
+  mastodon: "mastodon",
+};
+
+/** Options this adapter maps itself, on top of the shared managed options, per platform. */
+const ownKeys: Partial<Record<Platform, readonly string[]>> = {
+  x: ["aiGenerated", "retweet", "thread"],
+  threads: ["thread", "topic", "location"],
+  bluesky: ["thread"],
+  mastodon: ["thread", "spoilerText"],
+  instagram: [
+    "postType",
+    "firstComment",
+    "location",
+    "shopGridLink",
+    "aiGenerated",
+    "thumbnailOffset",
+    "userTags",
+  ],
+  facebook: ["postType", "firstComment", "annotations"],
+  linkedin: ["firstComment", "annotations"],
+  youtube: ["embeddable", "license", "notifySubscribers", "aiGenerated"],
+  tiktok: ["title", "thumbnailOffset"],
+  pinterest: ["thumbnailOffset"],
+  "google-business": ["postType", "callToAction", "event", "offer"],
+};
+
+/** Post-level Buffer fields, accepted on every platform. */
+const postKeys = [
+  "saveToDraft",
+  "needsApproval",
+  "shareMode",
+  "schedulingType",
+  "tagIds",
+  "ideaId",
+  "aiAssisted",
+  "draftId",
+  "animatedThumbnails",
+];
+
+/** Platforms whose Buffer metadata takes a `linkAttachment` link card. */
+const linkCardPlatforms: readonly Platform[] = [
+  "bluesky",
+  "facebook",
+  "linkedin",
+  "threads",
+  substack,
+];
+
+/** Video `thumbnailOffset` applies on these platforms only. */
+const coverPlatforms: readonly Platform[] = ["instagram", "tiktok", "pinterest"];
+
+const gbpButtons = ["book", "call", "learn_more", "none", "order", "shop", "signup"];
+
+/** What a target's options add to the Buffer `createPost` input. */
+interface BufferPlan {
+  readonly mode?: "addToQueue" | "shareNext";
+  readonly schedulingType: "automatic" | "notification";
+  readonly saveToDraft?: boolean;
+  readonly needsApproval: boolean;
+  readonly tagIds?: readonly string[];
+  readonly ideaId?: string;
+  readonly aiAssisted?: boolean;
+  readonly draftId?: string;
+  /** Animated (GIF) preview URLs by image position, sent as `metadata.animatedThumbnail`. */
+  readonly animatedThumbnails: ReadonlyMap<number, string>;
+  /** Metadata fields per Buffer service key, merged over the shared mapping. */
+  readonly metadata: readonly (readonly [string, JsonObject])[];
+  /** Thread replies after the root post, which takes the post's text and assets. */
+  readonly thread?: readonly string[];
+  readonly thumbnailOffset?: number;
+  /** User tags by image position. */
+  readonly userTags: ReadonlyMap<number, readonly JsonObject[]>;
+}
+
+function withoutKeys(config: JsonObject, keys: readonly string[]): JsonObject {
+  return Object.fromEntries(Object.entries(config).filter(([key]) => !keys.includes(key)));
+}
+
+function isPublicHttps(value: JsonField): value is string {
+  if (!isString(value)) return false;
+
+  try {
+    httpsUrl(value);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isDateTime(value: JsonField): value is string {
+  return isString(value) && Number.isFinite(Date.parse(value)) && /T/.test(value);
+}
+
+function isWhole(value: JsonField): value is number {
+  return isFiniteNumber(value) && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** The `content.link` this target maps to a Buffer link card. */
+function cardLink(target: PreparedPublishTarget) {
+  return linkCardPlatforms.includes(target.account.platform) ? target.content.link : undefined;
+}
+
+/** Parse the Buffer-specific options of one target into issues and the input additions. */
+function bufferPlan(target: PreparedPublishTarget, config: JsonObject) {
+  const issues: PreparationIssue[] = [];
+  const platform = target.account.platform;
+  const media = target.content.media ?? [];
+  const videos = media.filter((item) => item.kind === "video");
+  const fields: Record<string, JsonValue> = {};
+  const entries: [string, JsonObject][] = [];
+
+  const fail = (code: string, message: string) =>
+    issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
+
+  const flag = (key: string): boolean | undefined => {
+    const value = config[key];
+
+    if (value === undefined || isBoolean(value)) return value;
+
+    fail("options.boolean", `${key} must be a boolean.`);
+
+    return undefined;
+  };
+
+  const text = (key: string, code: string): string | undefined => {
+    const value = config[key];
+
+    if (value === undefined) return undefined;
+
+    if (isString(value) && value.trim() !== "") return value;
+
+    fail(code, `${key} must be a non-empty string when set.`);
+
+    return undefined;
+  };
+
+  const objectOption = (key: string, code: string, allowed: readonly string[]) => {
+    const value = config[key];
+
+    if (value === undefined) return undefined;
+
+    if (isJsonObject(value) && Object.keys(value).every((field) => allowed.includes(field)))
+      return value;
+
+    fail(code, `${key} takes only ${allowed.join(", ")}.`);
+
+    return undefined;
+  };
+
+  const saveToDraft = flag("saveToDraft");
+  const needsApproval = flag("needsApproval") === true;
+
+  if (needsApproval && saveToDraft === false)
+    fail("buffer.approval", "A post submitted for approval is always a draft.");
+
+  const shareMode = config["shareMode"];
+
+  if (shareMode !== undefined && shareMode !== "addToQueue" && shareMode !== "shareNext")
+    fail("buffer.share_mode", "Select addToQueue or shareNext.");
+  else if (shareMode !== undefined && target.schedule?.at !== undefined)
+    fail("buffer.share_mode", "Use either a queue slot or schedule.at, not both.");
+
+  const schedulingType = config["schedulingType"];
+
+  if (
+    schedulingType !== undefined &&
+    schedulingType !== "automatic" &&
+    schedulingType !== "notification"
+  )
+    fail("buffer.scheduling_type", "Select automatic or notification publishing.");
+
+  const tags = config["tagIds"];
+
+  const tagIds = isJsonArray(tags)
+    ? tags.filter((tag): tag is string => isString(tag) && /^[^\s@]{1,256}$/.test(tag))
+    : undefined;
+
+  if (tags !== undefined && (tagIds === undefined || tagIds.length !== array(tags).length))
+    fail("buffer.tags", "tagIds must be a list of Buffer tag IDs.");
+
+  const ideaId = text("ideaId", "buffer.idea");
+
+  if (ideaId !== undefined && /[\s@]/.test(ideaId)) fail("buffer.idea", "Use a Buffer idea ID.");
+
+  const aiAssisted = flag("aiAssisted");
+  const draftId = text("draftId", "buffer.draft");
+
+  if (draftId !== undefined && /[\s@]/.test(draftId))
+    fail("buffer.draft", "Use a Buffer draft ID.");
+
+  const animatedThumbnails = new Map<number, string>();
+  const animated = config["animatedThumbnails"];
+
+  if (animated !== undefined) {
+    const rows = isJsonArray(animated) ? animated : [];
+
+    for (const row of rows) {
+      const entry = isJsonObject(row) ? row : {};
+      const index = entry["imageIndex"] ?? 0;
+      const url = entry["url"];
+
+      if (
+        !isWhole(index) ||
+        media[index]?.kind !== "image" ||
+        !isPublicHttps(url) ||
+        animatedThumbnails.has(index) ||
+        Object.keys(entry).some((key) => key !== "imageIndex" && key !== "url")
+      )
+        fail(
+          "buffer.animated_thumbnail",
+          "Each animated thumbnail needs an image's imageIndex and a public HTTPS url, once per image.",
+        );
+      else animatedThumbnails.set(index, url);
+    }
+
+    if (rows.length === 0)
+      fail("buffer.animated_thumbnail", "animatedThumbnails must be a non-empty list.");
+  }
+
+  let thread: string[] | undefined;
+  const parts = config["thread"];
+
+  if (parts !== undefined) {
+    const replies = isJsonArray(parts) ? parts : [];
+
+    thread = replies.flatMap((part) => {
+      const row = isJsonObject(part) ? part : {};
+      const reply = row["text"];
+
+      return isString(reply) && reply.trim() !== "" && Object.keys(row).length === 1 ? [reply] : [];
+    });
+
+    if (threadServices[platform] === undefined)
+      fail(
+        "buffer.thread_unsupported",
+        "Buffer threads posts on X, Threads, Bluesky, and Mastodon.",
+      );
+    else if (replies.length === 0 || thread.length !== replies.length)
+      fail("buffer.thread", "thread must be a non-empty list of { text } replies.");
+  }
+
+  let thumbnailOffset: number | undefined;
+  const offset = config["thumbnailOffset"];
+
+  if (offset !== undefined) {
+    if (!isWhole(offset))
+      fail("buffer.cover_frame", "thumbnailOffset is a whole number of milliseconds.");
+    else if (!coverPlatforms.includes(platform) || videos.length !== 1)
+      fail(
+        "buffer.cover_frame",
+        "thumbnailOffset needs exactly one video on Instagram, TikTok, or Pinterest.",
+      );
+    else thumbnailOffset = offset;
+  }
+
+  const userTags = new Map<number, JsonObject[]>();
+  const tagList = config["userTags"];
+
+  if (tagList !== undefined) {
+    const rows = isJsonArray(tagList) ? tagList : [];
+
+    for (const row of rows) {
+      const tag = isJsonObject(row) ? row : {};
+      const { handle, x, y } = tag;
+      const index = tag["imageIndex"] ?? 0;
+      const image = isWhole(index) ? media[index] : undefined;
+
+      const position = (value: JsonField): value is number =>
+        isFiniteNumber(value) && value >= 0 && value <= 1;
+
+      if (
+        !isString(handle) ||
+        !/^[A-Za-z0-9._]{1,30}$/.test(handle) ||
+        !position(x) ||
+        !position(y) ||
+        image?.kind !== "image" ||
+        Object.keys(tag).some((key) => !["handle", "x", "y", "imageIndex"].includes(key))
+      ) {
+        fail(
+          "instagram.user_tags",
+          "Each user tag needs a handle without @, x and y from 0 to 1, and an image's imageIndex.",
+        );
+
+        continue;
+      }
+
+      if (image.altText === undefined)
+        fail("instagram.user_tags", "Buffer needs altText on an image that carries user tags.");
+
+      userTags.set(Number(index), [...(userTags.get(Number(index)) ?? []), { handle, x, y }]);
+    }
+
+    if (rows.length === 0) fail("instagram.user_tags", "userTags must be a non-empty list.");
+  }
+
+  const location = objectOption("location", `${platform}.location`, ["id", "name"]);
+
+  if (
+    location !== undefined &&
+    ![location["id"], location["name"]].some((value) => isString(value) && value.trim() !== "")
+  )
+    fail(`${platform}.location`, "A location needs an id or a name.");
+
+  const firstComment = text("firstComment", `${platform}.first_comment`);
+
+  if (firstComment !== undefined) fields["firstComment"] = firstComment;
+
+  const link = cardLink(target);
+
+  if (link !== undefined) {
+    if (media.length > 0)
+      fail("link.with_media", "A Buffer link card cannot be combined with attachments.");
+
+    fields["linkAttachment"] = {
+      url: link.url,
+      ...definedFields({ title: link.title, description: link.description }),
+    };
+  }
+
+  if (platform === "x") {
+    const ai = flag("aiGenerated");
+    const retweet = objectOption("retweet", "x.retweet", ["id", "comment"]);
+
+    if (retweet !== undefined) {
+      const comment = retweet["comment"];
+
+      if (!isString(retweet["id"]) || !/^\d{1,20}$/.test(retweet["id"]))
+        fail("x.retweet", "retweet needs the numeric ID of the post to repost or quote.");
+      else if (comment !== undefined && !isString(comment))
+        fail("x.retweet", "A quote comment is text.");
+      else fields["retweet"] = definedFields({ id: retweet["id"], comment });
+
+      if (ai !== undefined) fail("x.retweet", "Buffer labels AI content on original posts only.");
+    }
+
+    entries.push(["twitter", { ...definedFields({ isAiGenerated: ai, ...fields }) }]);
+  }
+
+  if (platform === "threads") {
+    const topic = text("topic", "threads.topic");
+
+    if (topic !== undefined) fields["topic"] = topic;
+
+    if (location !== undefined)
+      Object.assign(
+        fields,
+        definedFields({ locationId: location["id"], locationName: location["name"] }),
+      );
+
+    entries.push(["threads", fields]);
+  }
+
+  if (platform === "bluesky") entries.push(["bluesky", fields]);
+
+  if (platform === substack) {
+    if (media.length > 1)
+      fail("substack.media_count", "Buffer posts a Substack Note with one image or one video.");
+
+    entries.push([substack, fields]);
+  }
+
+  if (platform === "mastodon") {
+    const spoiler = text("spoilerText", "mastodon.spoiler_text");
+
+    entries.push(["mastodon", { ...definedFields({ spoilerText: spoiler }) }]);
+  }
+
+  const postType = config["postType"];
+
+  if (platform === "instagram") {
+    if (
+      postType !== undefined &&
+      postType !== "post" &&
+      postType !== "story" &&
+      postType !== "reel"
+    )
+      fail("instagram.post_type", "Select post, story, or reel.");
+    else if (postType === "reel" && (media.length !== 1 || videos.length !== 1))
+      fail("instagram.post_type", "An Instagram reel is a single video.");
+    else if (postType !== undefined) fields["type"] = postType;
+
+    const shopGridLink = config["shopGridLink"];
+
+    if (shopGridLink !== undefined && !isPublicHttps(shopGridLink))
+      fail("instagram.shop_grid_link", "shopGridLink must be a public HTTPS URL.");
+    else if (shopGridLink !== undefined) fields["link"] = shopGridLink;
+
+    if (location !== undefined)
+      fields["geolocation"] = definedFields({ id: location["id"], text: location["name"] });
+
+    const ai = flag("aiGenerated");
+
+    if (ai !== undefined) fields["isAiGenerated"] = ai;
+
+    entries.push(["instagram", fields]);
+  }
+
+  if (platform === "facebook") {
+    if (
+      postType !== undefined &&
+      postType !== "post" &&
+      postType !== "story" &&
+      postType !== "reel"
+    )
+      fail("facebook.post_type", "Select post, story, or reel.");
+    else if (postType === "reel" && (media.length !== 1 || videos.length !== 1))
+      fail("facebook.post_type", "A Facebook reel is a single video.");
+
+    const annotations = config["annotations"];
+
+    if (annotations !== undefined) {
+      const valid =
+        isJsonArray(annotations) &&
+        annotations.length > 0 &&
+        annotations.every((entry) => {
+          const row = isJsonObject(entry) ? entry : {};
+          const indices = row["indices"];
+
+          return (
+            Object.keys(row).length === 4 &&
+            ["content", "text", "url"].every((key) => isString(row[key])) &&
+            isPublicHttps(row["url"]) &&
+            isJsonArray(indices) &&
+            indices.length === 2 &&
+            indices.every(isWhole)
+          );
+        });
+
+      if (!valid)
+        fail(
+          "facebook.annotations",
+          "Each annotation needs content, text, an HTTPS url, and [start, end] indices.",
+        );
+      else fields["annotations"] = annotations;
+    }
+
+    // Buffer requires the Facebook post type whenever Facebook metadata is sent.
+    if (Object.keys(fields).length > 0 || postType !== undefined)
+      entries.push([
+        "facebook",
+        { ...fields, type: postType === "story" || postType === "reel" ? postType : "post" },
+      ]);
+  }
+
+  if (platform === "linkedin") {
+    const annotations = config["annotations"];
+
+    if (annotations !== undefined) {
+      const valid =
+        isJsonArray(annotations) &&
+        annotations.length > 0 &&
+        annotations.every((entry) => {
+          const row = isJsonObject(entry) ? entry : {};
+
+          return (
+            Object.keys(row).length === 7 &&
+            ["id", "entity", "link", "localizedName", "vanityName"].every((key) =>
+              isString(row[key]),
+            ) &&
+            isPublicHttps(row["link"]) &&
+            isWhole(row["start"]) &&
+            isWhole(row["length"])
+          );
+        });
+
+      if (!valid)
+        fail(
+          "linkedin.annotations",
+          "Each annotation needs id, entity, link, localizedName, vanityName, start, and length.",
+        );
+      else fields["annotations"] = annotations;
+    }
+
+    entries.push(["linkedin", fields]);
+  }
+
+  if (platform === "youtube") {
+    const embeddable = flag("embeddable");
+    const notifySubscribers = flag("notifySubscribers");
+    const ai = flag("aiGenerated");
+    const license = config["license"];
+
+    if (license !== undefined && license !== "youtube" && license !== "creativeCommon")
+      fail("youtube.license", "Select the youtube or creativeCommon license.");
+
+    entries.push([
+      "youtube",
+      definedFields({
+        embeddable,
+        notifySubscribers,
+        isAiGenerated: ai,
+        license: license === "youtube" || license === "creativeCommon" ? license : undefined,
+      }),
+    ]);
+  }
+
+  if (platform === "tiktok") {
+    const ai = flag("aiGenerated");
+    const value = config["title"];
+    let title: string | undefined;
+
+    if (value !== undefined && (!isString(value) || value.trim() === "" || value.length > 90))
+      fail("tiktok.title", "A TikTok photo title has 1 to 90 characters.");
+    else if (value !== undefined && (media.length === 0 || videos.length > 0))
+      fail("tiktok.title", "Buffer applies a TikTok title to photo posts only.");
+    else if (isString(value)) title = value;
+
+    entries.push(["tiktok", { ...definedFields({ isAiGenerated: ai, title }) }]);
+  }
+
+  if (platform === "google-business") {
+    const type = postType ?? "whats_new";
+    const action = objectOption("callToAction", "google_business.cta", ["type", "url"]);
+    const button = action?.["type"];
+    const url = action?.["url"];
+
+    if (type !== "whats_new" && type !== "event" && type !== "offer")
+      fail("google_business.post_type", "Select whats_new, event, or offer.");
+
+    if (action !== undefined && !(isString(button) && gbpButtons.includes(button)))
+      fail("google_business.cta", `Select a call to action: ${gbpButtons.join(", ")}.`);
+    else if (action !== undefined && button !== "none" && button !== "call" && !isPublicHttps(url))
+      fail("google_business.cta", "This call to action needs a public HTTPS url.");
+
+    const cta = definedFields({ button, link: isPublicHttps(url) ? url : undefined });
+
+    const event = objectOption("event", "google_business.event", [
+      "title",
+      "startDate",
+      "endDate",
+      "isFullDayEvent",
+    ]);
+
+    const offer = objectOption("offer", "google_business.offer", [
+      "title",
+      "startDate",
+      "endDate",
+      "code",
+      "terms",
+      "link",
+    ]);
+
+    const dated = (row: JsonObject) =>
+      isString(row["title"]) &&
+      row["title"].trim() !== "" &&
+      isDateTime(row["startDate"]) &&
+      isDateTime(row["endDate"]) &&
+      Date.parse(row["startDate"]) <= Date.parse(row["endDate"]);
+
+    if (
+      type === "event" &&
+      (event === undefined || !dated(event) || !isBoolean(event["isFullDayEvent"]))
+    )
+      fail(
+        "google_business.event",
+        "An event needs a title, ISO startDate and endDate, and isFullDayEvent.",
+      );
+    else if (type !== "event" && event !== undefined)
+      fail("google_business.event", "Event details need postType event.");
+
+    if (
+      type === "offer" &&
+      (offer === undefined ||
+        !dated(offer) ||
+        [offer["code"], offer["terms"]].some((value) => value !== undefined && !isString(value)) ||
+        (offer["link"] !== undefined && !isPublicHttps(offer["link"])))
+    )
+      fail(
+        "google_business.offer",
+        "An offer needs a title, ISO startDate and endDate; code and terms are text and link is HTTPS.",
+      );
+    else if (type !== "offer" && offer !== undefined)
+      fail("google_business.offer", "Offer details need postType offer.");
+
+    const details =
+      type === "whats_new"
+        ? { detailsWhatsNew: cta }
+        : type === "event" && event !== undefined
+          ? { detailsEvent: { ...event, ...cta } }
+          : type === "offer" && offer !== undefined
+            ? { detailsOffer: offer }
+            : {};
+
+    if (postType !== undefined || action !== undefined)
+      entries.push(["google", { type, ...details }]);
+  }
+
+  const plan: BufferPlan = {
+    schedulingType: schedulingType === "notification" ? "notification" : "automatic",
+    needsApproval,
+    metadata: entries.filter(([, value]) => Object.keys(value).length > 0),
+    userTags,
+    animatedThumbnails,
+    ...definedFields({
+      mode: shareMode === "addToQueue" || shareMode === "shareNext" ? shareMode : undefined,
+      saveToDraft,
+      tagIds,
+      ideaId,
+      aiAssisted,
+      draftId,
+      thread,
+      thumbnailOffset,
+    }),
+  };
+
+  return { issues, plan };
+}
 
 export interface BufferOptions extends ManagedOptions {
   /** Limit channel and post queries to one Buffer organization. Omit to read every organization on the key. */
   readonly organizationId?: string;
 }
+
+/** Every OAuth scope Buffer documents. This adapter itself needs only `bufferScopes`. */
+export const bufferScopeNames = [
+  "posts:read",
+  "posts:write",
+  "ideas:read",
+  "ideas:write",
+  "account:read",
+  "account:write",
+  "snippets:read",
+  "snippets:write",
+  "notes:read",
+  "notes:write",
+  "offline_access",
+] as const;
+
+export type BufferScope = (typeof bufferScopeNames)[number];
 
 export interface BufferAuthorizationUrlOptions {
   readonly clientId: string;
@@ -68,7 +713,287 @@ export interface BufferAuthorizationUrlOptions {
   readonly state: string;
   /** S256 challenge from `createBufferPkce()`. */
   readonly codeChallenge: string;
-  readonly scopes?: readonly string[];
+  /** Defaults to `bufferScopes`. Add `ideas:write` for `native.createIdea`. */
+  readonly scopes?: readonly BufferScope[];
+}
+
+/** A Buffer post this adapter created or read, addressed by the reference it returned. */
+export type BufferPostRef = DeliveryRef | ScheduledJobRef | BackendPostRef;
+
+export interface BufferPostingLimit {
+  readonly channelId: string;
+  readonly isAtLimit: boolean;
+  /** The network's daily limit; absent when unlimited. */
+  readonly limit?: number;
+  readonly scheduled: number;
+  readonly sent: number;
+}
+
+export interface BufferInstagramAudio {
+  readonly id: string;
+  readonly title: string;
+  readonly type: "music" | "originalSound";
+  readonly durationMs: number;
+  readonly displayArtist?: string;
+  readonly creatorUsername?: string;
+}
+
+export interface BufferPostEdit {
+  readonly text?: string;
+  /** A future time; the post moves to a custom schedule at it. */
+  readonly at?: string;
+  readonly saveToDraft?: boolean;
+  readonly tagIds?: readonly string[];
+  /**
+   * `request` submits your own draft for approval; `revert` withdraws an approval request back to
+   * a draft. Only on channels whose posting policy requires approval.
+   */
+  readonly approvalChange?: "request" | "revert";
+  /** Mark the post as edited with the help of AI. */
+  readonly aiAssisted?: boolean;
+  /** The Buffer draft this post was generated from. */
+  readonly draftId?: string;
+}
+
+/** A file or link attached to a Buffer idea. */
+export interface BufferIdeaMedia {
+  /** Public HTTPS URL. */
+  readonly url: string;
+  /** Buffer's public API does not accept `video` on ideas. */
+  readonly type: "image" | "gif" | "link" | "document";
+  readonly alt?: string;
+  readonly thumbnailUrl?: string;
+  /** Size in bytes. */
+  readonly size?: number;
+  /** Where the media came from, such as `{ name: "Unsplash", author, authorUrl }`. */
+  readonly source?: {
+    readonly name: string;
+    readonly id?: string;
+    readonly trigger?: string;
+    readonly author?: string;
+    readonly authorUrl?: string;
+  };
+}
+
+export interface BufferIdeaInput {
+  readonly organizationId?: string;
+  readonly title?: string;
+  readonly text?: string;
+  /** Target date, often the planned publish date. */
+  readonly date?: string;
+  readonly media?: readonly BufferIdeaMedia[];
+  /** Organization tags, each with its `id`, `name`, and `color`. */
+  readonly tags?: readonly { readonly id: string; readonly name: string; readonly color: string }[];
+  /** Buffer services the idea targets, such as `instagram` or `twitter`. */
+  readonly services?: readonly string[];
+  /** Whether AI tools helped write the idea. */
+  readonly aiAssisted?: boolean;
+  /** The post template the idea was created from. */
+  readonly templateId?: string;
+  /** Call-to-action identifier Buffer records for analytics. */
+  readonly cta?: string;
+  /** Idea group (board column) to place the idea in; omit for the unassigned group. */
+  readonly groupId?: string;
+  /** Place the idea after this idea in its group; omit for the top. */
+  readonly placeAfterId?: string;
+}
+
+export interface BufferIdeaGroup {
+  readonly id: string;
+  readonly name: string;
+  /** Locked when the organization holds more groups than its plan allows. */
+  readonly isLocked: boolean;
+}
+
+export interface BufferIdea {
+  readonly id: string;
+  readonly groupId?: string;
+  readonly position?: number;
+  readonly title?: string;
+  readonly text?: string;
+  readonly date?: string;
+  readonly aiAssisted: boolean;
+  readonly services: readonly string[];
+  readonly tags: readonly { readonly id: string; readonly name: string; readonly color: string }[];
+  readonly media: readonly {
+    readonly url: string;
+    readonly type: string;
+    readonly alt?: string;
+    readonly thumbnailUrl?: string;
+  }[];
+  /** ISO 8601, from Buffer's Unix timestamps. */
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface BufferIdeasQuery {
+  readonly organizationId?: string;
+  /** Only ideas in these groups. Not with `membership`. */
+  readonly groupIds?: readonly string[];
+  /** Only ideas in some group, or only unassigned ones. Not with `groupIds`. */
+  readonly membership?: "grouped" | "ungrouped";
+  /** Ideas with any of these tag IDs, untagged ideas, or both. */
+  readonly tags?: { readonly in?: readonly string[]; readonly isEmpty?: boolean };
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface BufferChannel {
+  readonly id: string;
+  /** The Social SDK platform, when this adapter maps the service. */
+  readonly platform?: Platform;
+  /** Buffer's service name, such as `twitter` or `substack`. */
+  readonly service: string;
+  /** The channel's ID on the network. */
+  readonly serviceId: string;
+  readonly name: string;
+  readonly displayName?: string;
+  readonly organizationId: string;
+  /** `page`, `profile`, `business`, `group`, `account`, or `channel`. */
+  readonly type: string;
+  /** IANA timezone of the channel's posting schedule. */
+  readonly timezone: string;
+  /** A locked channel cannot post; Buffer locks channels beyond the plan's limit. */
+  readonly isLocked: boolean;
+  readonly isDisconnected: boolean;
+  readonly isQueuePaused: boolean;
+  readonly linkShortening: { readonly isEnabled: boolean };
+  readonly postingGoal?: {
+    readonly goal: number;
+    readonly sentCount: number;
+    readonly scheduledCount: number;
+    /** `OnTrack`, `AtRisk`, or `Hit`. */
+    readonly status: string;
+    readonly periodStart: string;
+    readonly periodEnd: string;
+  };
+  /** What your credentials may do on the channel, such as `scheduleUpdates`. */
+  readonly allowedActions: readonly string[];
+  /** Buffer products that support the channel, such as `publish` or `analyze`. */
+  readonly products: readonly string[];
+  /** Network scopes Buffer holds for the channel; empty when Buffer does not track them. */
+  readonly scopes: readonly string[];
+  readonly url?: string;
+}
+
+export interface BufferOrganization {
+  readonly id: string;
+  readonly name: string;
+  readonly channelCount: number;
+  /** Members, counting the owner. */
+  readonly memberCount: number;
+  /** Plan limits: channels, members, scheduledPosts, ideas, tags, postTemplates, and more. */
+  readonly limits: Readonly<Record<string, number>>;
+}
+
+export interface BufferAccount {
+  readonly id: string;
+  readonly name?: string;
+  /** Account timezone, the default for new channels and posting plans. */
+  readonly timezone?: string;
+  readonly preferences?: {
+    readonly timeFormat?: string;
+    readonly startOfWeek?: string;
+    /** `Queue`, `Prioritize`, `FixedTime`, or `Now`: the composer's default. */
+    readonly defaultScheduleOption: string;
+  };
+}
+
+export interface BufferContentRule {
+  /** The rule type: `CountRule`, `LengthRule`, `ExclusiveRule`, `RequiresRule`, `FileSizeRule`, `DurationRule`, or `FormatRule`. */
+  readonly kind: string;
+  /** The content property it constrains, such as `text`, `image`, or `video`. */
+  readonly property: string;
+  readonly min?: number;
+  readonly max?: number;
+  readonly maxLength?: number;
+  readonly maxMegabytes?: number;
+  readonly maxDurationSeconds?: number;
+  readonly conflictsWith?: readonly string[];
+  readonly requires?: readonly string[];
+  readonly allowedFormats?: readonly string[];
+}
+
+export interface BufferContentConfiguration {
+  /** `post`, `story`, `reel`, or `comment`, grouped when they share rules. */
+  readonly contentTypes: readonly string[];
+  readonly supportedProperties: readonly string[];
+  readonly rules: readonly BufferContentRule[];
+}
+
+export interface BufferConfiguration {
+  readonly channels: readonly {
+    readonly channelId: string;
+    readonly service: string;
+    readonly channelType: string;
+    /** Per feature (`posting`, `comment`, `insights`, ...): `ok`, `needsRefresh`, `needsUpgrade`, `notEnoughData`, or `notEnoughRights`. */
+    readonly authorizationStatus: readonly {
+      readonly feature: string;
+      readonly status: string;
+      readonly reason?: string;
+    }[];
+    readonly content: readonly BufferContentConfiguration[];
+  }[];
+  readonly services: readonly {
+    readonly service: string;
+    readonly channelType: string;
+    readonly content: readonly BufferContentConfiguration[];
+  }[];
+}
+
+export interface BufferTeamMember {
+  readonly id: string;
+  readonly name?: string;
+  /** `urn:buffer:account:<id>`, for a mention annotation's `serviceEntityId`. */
+  readonly urn: string;
+  readonly isLocked: boolean;
+}
+
+/** Buffer `Service` values an idea can target (developers.buffer.com/reference, 2026-11-04). */
+const ideaServices = [
+  "bluesky",
+  "facebook",
+  "googlebusiness",
+  "instagram",
+  "linkedin",
+  "mastodon",
+  "pinterest",
+  "startPage",
+  "substack",
+  "threads",
+  "tiktok",
+  "twitter",
+  "whatsapp",
+  "youtube",
+];
+
+export interface BufferPostsQuery {
+  /** Channels to read; all must belong to one organization. */
+  readonly accounts: readonly ConnectedAccountRef[];
+  readonly status?: readonly (
+    | "draft"
+    | "error"
+    | "needs_approval"
+    | "scheduled"
+    | "sending"
+    | "sent"
+  )[];
+  /** Scheduled posting time range, ISO 8601 bounds. */
+  readonly dueAt?: { readonly start?: string; readonly end?: string };
+  /** `present` keeps posts with a scheduled time, `absent` those without; not with `dueAt` absent. */
+  readonly dueAtPresence?: "present" | "absent";
+  /** Creation time range, ISO 8601 bounds. */
+  readonly createdAt?: { readonly start?: string; readonly end?: string };
+  /** Post formats such as `reel`, `story`, `short`; `post` matches every other format. */
+  readonly postTypes?: readonly string[];
+  /** Posts with any of these tag IDs, untagged posts, or both. */
+  readonly tags?: { readonly in?: readonly string[]; readonly isEmpty?: boolean };
+  readonly sort?: readonly {
+    readonly field: "dueAt" | "createdAt";
+    readonly direction: "asc" | "desc";
+  }[];
+  readonly limit?: number;
+  readonly cursor?: string;
 }
 
 export interface BufferCodeExchangeOptions extends HttpOptions {
@@ -124,6 +1049,7 @@ const nativePlatforms = new Map<string, Platform>([
   ["pinterest", "pinterest"],
   ["mastodon", "mastodon"],
   ["googlebusiness", "google-business"],
+  [substack, substack],
 ]);
 
 const postSelection = `
@@ -135,8 +1061,105 @@ const postSelection = `
   sentAt
   status
   shareMode
+  schedulingType
   externalLink
+  createdAt
+  ideaId
+  via
+  notificationStatus
+  allowedActions
+  error {
+    message
+    rawError
+    supportUrl
+  }
+  tags {
+    id
+    name
+    color
+  }
+  assets {
+    type
+    source
+    thumbnail
+    mimeType
+    ... on ImageAsset {
+      image {
+        altText
+        animatedThumbnail
+      }
+    }
+  }
+  author {
+    id
+    name
+  }
+  metadata {
+    ... on CommonPostMetadata {
+      type
+    }
+  }
 `;
+
+const contentSelection = `
+  configurationContentTypes
+  supportedProperties
+  rules {
+    __typename
+    property
+    ... on CountRule {
+      min
+      max
+    }
+    ... on LengthRule {
+      maxLength
+    }
+    ... on ExclusiveRule {
+      conflictsWith
+    }
+    ... on RequiresRule {
+      requires
+    }
+    ... on FileSizeRule {
+      maxMegabytes
+    }
+    ... on DurationRule {
+      maxDurationSeconds
+    }
+    ... on FormatRule {
+      allowedFormats
+    }
+  }
+`;
+
+/** Read a content configuration entry of Buffer's `configuration` query. */
+function contentConfiguration(value: JsonValue): BufferContentConfiguration {
+  const row = object(value);
+  const names = (field: JsonField) => (isJsonArray(field) ? field.filter(isString) : undefined);
+
+  return {
+    contentTypes: names(row["configurationContentTypes"]) ?? [],
+    supportedProperties: names(row["supportedProperties"]) ?? [],
+    rules: array(row["rules"]).map((item) => {
+      const rule = object(item);
+
+      return {
+        kind: string(rule["__typename"]),
+        property: string(rule["property"]),
+        ...definedFields({
+          min: optionalNumber(rule["min"]),
+          max: optionalNumber(rule["max"]),
+          maxLength: optionalNumber(rule["maxLength"]),
+          maxMegabytes: optionalNumber(rule["maxMegabytes"]),
+          maxDurationSeconds: optionalNumber(rule["maxDurationSeconds"]),
+          conflictsWith: names(rule["conflictsWith"]),
+          requires: names(rule["requires"]),
+          allowedFormats: names(rule["allowedFormats"]),
+        }),
+      };
+    }),
+  };
+}
 
 const metricsSelection = `
   metrics {
@@ -151,6 +1174,22 @@ const metricsSelection = `
 const reject = (operation: string, message: string): never => {
   throw new SocialError({ code: "invalid_input", operation, message });
 };
+
+function postRecordId(ref: BufferPostRef): string {
+  switch (ref.kind) {
+    case "delivery":
+      return ref.deliveryId;
+    case "scheduled-job":
+      return ref.jobId;
+    case "backend-post":
+      return ref.recordId;
+    default: {
+      const exhaustive: never = ref;
+
+      return exhaustive;
+    }
+  }
+}
 
 function bufferId(value: string, operation: string, label: string): string {
   if (!value || value !== value.trim() || value.length > 256 || /[\s@]/.test(value))
@@ -740,18 +1779,65 @@ export function buffer(options: BufferOptions) {
     return row;
   };
 
-  const publicPost = (row: JsonObject): JsonObject => ({
-    id: string(row["id"]),
-    ...definedFields({
-      text: optionalString(row["text"]),
-      channelId: optionalString(row["channelId"]),
-      status: optionalString(row["status"]),
-      dueAt: optionalString(row["dueAt"]),
-      sentAt: optionalString(row["sentAt"]),
-      shareMode: optionalString(row["shareMode"]),
-      url: optionalString(row["externalLink"]),
-    }),
-  });
+  const publicPost = (row: JsonObject): JsonObject => {
+    const error = isJsonObject(row["error"]) ? row["error"] : undefined;
+    const author = isJsonObject(row["author"]) ? row["author"] : undefined;
+    const metadata = isJsonObject(row["metadata"]) ? row["metadata"] : undefined;
+
+    const list = (value: JsonField) =>
+      isJsonArray(value) ? value.filter(isJsonObject) : undefined;
+
+    return {
+      id: string(row["id"]),
+      ...definedFields({
+        text: optionalString(row["text"]),
+        channelId: optionalString(row["channelId"]),
+        status: optionalString(row["status"]),
+        dueAt: optionalString(row["dueAt"]),
+        sentAt: optionalString(row["sentAt"]),
+        createdAt: optionalString(row["createdAt"]),
+        shareMode: optionalString(row["shareMode"]),
+        url: optionalString(row["externalLink"]),
+        ideaId: optionalString(row["ideaId"]),
+        via: optionalString(row["via"]),
+        notificationStatus: optionalString(row["notificationStatus"]),
+        postType: optionalString(metadata?.["type"]),
+        allowedActions: isJsonArray(row["allowedActions"])
+          ? row["allowedActions"].filter(isString)
+          : undefined,
+        error: error && {
+          message: string(error["message"]),
+          ...definedFields({
+            supportUrl: optionalString(error["supportUrl"]),
+            rawError: optionalString(error["rawError"]),
+          }),
+        },
+        tags: list(row["tags"])?.map((tag) => ({
+          id: string(tag["id"]),
+          name: string(tag["name"]),
+          ...definedFields({ color: optionalString(tag["color"]) }),
+        })),
+        assets: list(row["assets"])?.map((asset) => {
+          const image = isJsonObject(asset["image"]) ? asset["image"] : undefined;
+
+          return {
+            type: string(asset["type"]),
+            url: string(asset["source"]),
+            ...definedFields({
+              thumbnailUrl: optionalString(asset["thumbnail"]),
+              mimeType: optionalString(asset["mimeType"]),
+              altText: optionalString(image?.["altText"]) || undefined,
+              animatedThumbnail: optionalString(image?.["animatedThumbnail"]),
+            }),
+          };
+        }),
+        author: author && {
+          id: string(author["id"]),
+          ...definedFields({ name: optionalString(author["name"]) }),
+        },
+      }),
+    };
+  };
 
   const outcome = (
     row: JsonObject,
@@ -800,6 +1886,16 @@ export function buffer(options: BufferOptions) {
       case "sent": {
         const url = optionalString(row["externalLink"]);
 
+        // A reminder post is published by a person; Buffer sending the reminder proves nothing.
+        if (row["schedulingType"] === "notification")
+          return {
+            ...base,
+            state: "unknown",
+            reason: "unmapped-state",
+            diagnostic:
+              "Buffer sent the publishing reminder. Someone publishes the post by hand; check the network.",
+          };
+
         return {
           ...base,
           state: "published",
@@ -816,15 +1912,22 @@ export function buffer(options: BufferOptions) {
         };
       }
 
-      case "error":
+      case "error": {
+        const error = isJsonObject(row["error"]) ? row["error"] : undefined;
+        const reason = optionalString(error?.["message"]);
+        const help = optionalString(error?.["supportUrl"]);
+
         return {
           ...base,
           state: "failed",
           code: "upstream_failure",
-          message:
-            "Buffer reports that this post failed. Inspect the channel connection and the post in Buffer.",
+          message: reason
+            ? `Buffer reports that this post failed: ${reason}${help ? ` (help: ${help})` : ""}`
+            : "Buffer reports that this post failed. Inspect the channel connection and the post in Buffer.",
           retryDisposition: { kind: "never" },
         };
+      }
+
       default:
         return {
           ...base,
@@ -836,9 +1939,10 @@ export function buffer(options: BufferOptions) {
   };
 
   const metricUnit = (value: JsonField): MetricValue["unit"] | undefined => {
+    // Buffer documents only count and percentage metric units.
     if (value === undefined || value === "count") return "count";
 
-    if (value === "percentage" || value === "milliseconds" || value === "seconds") return value;
+    if (value === "percentage") return value;
 
     return undefined;
   };
@@ -917,26 +2021,60 @@ export function buffer(options: BufferOptions) {
     });
   };
 
+  const manifest = capabilityManifest(
+    "buffer",
+    "GraphQL api.buffer.com, docs read 2026-10-09",
+    [
+      "accounts.read",
+      "posts.publish",
+      "posts.schedule",
+      "posts.read",
+      "posts.list",
+      "posts.status",
+      "posts.cancelScheduled",
+      "posts.deleteBackendRecord",
+      "analytics.read",
+      "analytics.report.read",
+    ],
+    bufferFormats,
+    (_platform, operation) =>
+      managedConstraints(operation, operation === "posts.publish" ? ["https-url"] : undefined),
+  );
+
+  // Substack sits outside the shared platform list, so the adapter declares it here.
+  const substackCapabilities: CapabilityDeclaration[] = [
+    "accounts.read",
+    "posts.publish",
+    "posts.schedule",
+    "posts.read",
+    "posts.list",
+    "posts.status",
+    "posts.cancelScheduled",
+    "posts.deleteBackendRecord",
+    "analytics.read",
+    "analytics.report.read",
+  ].map((operation) => ({
+    platform: substack,
+    operation,
+    availability: "available",
+    surface: "normalized",
+    ...definedFields({
+      formats: operation === "posts.publish" ? ["text", "image", "video"] : undefined,
+    }),
+    constraints: managedConstraints(
+      operation,
+      operation === "posts.publish" ? ["https-url"] : undefined,
+    ),
+    notes:
+      "Contract implementation; live account verification and provider/platform eligibility are separate. Substack Notes, listed under Buffer's `substack` service.",
+  }));
+
   const adapter = defineAdapter({
     id: "buffer",
-    capabilities: capabilityManifest(
-      "buffer",
-      "GraphQL api.buffer.com, docs read 2026-10-09",
-      [
-        "accounts.read",
-        "posts.publish",
-        "posts.schedule",
-        "posts.read",
-        "posts.list",
-        "posts.status",
-        "posts.cancelScheduled",
-        "posts.deleteBackendRecord",
-        "analytics.read",
-      ],
-      bufferFormats,
-      (_platform, operation) =>
-        managedConstraints(operation, operation === "posts.publish" ? ["https-url"] : undefined),
-    ),
+    capabilities: {
+      ...manifest,
+      capabilities: [...manifest.capabilities, ...substackCapabilities],
+    },
     accounts: {
       async list(input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
         const offset = input.cursor === undefined ? 0 : Number(input.cursor);
@@ -965,16 +2103,38 @@ export function buffer(options: BufferOptions) {
     },
     posts: {
       prepareTarget(target: Parameters<typeof managedPreparation>[0]) {
+        const config = optionsObject(target);
+
+        // The shared checks see only the options they map; this adapter parses the rest.
+        const shared = {
+          ...target,
+          options: withoutKeys(config, [...postKeys, ...(ownKeys[target.account.platform] ?? [])]),
+        };
+
+        const link = cardLink(target);
+
+        // A repost carries no text of its own.
+        const repost = target.account.platform === "x" && config["retweet"] !== undefined;
+
         const issues: PreparationIssue[] = [
-          ...managedPreparation(target, "buffer"),
-          ...managedOptionIssues(target, "buffer"),
+          ...managedPreparation(shared, "buffer").filter(
+            (issue) =>
+              (link === undefined || issue.code !== "link.explicit_text") &&
+              (!repost || issue.code !== "content.empty") &&
+              // Substack is declared by this adapter, not the shared platform list.
+              (target.account.platform !== substack || issue.code !== "platform.unsupported"),
+          ),
+          ...managedOptionIssues(shared, "buffer"),
+          ...bufferPlan(target, config).issues,
         ];
 
         const fail = (code: string, message: string) =>
           issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
 
         const at = target.schedule?.at;
-        const config = optionsObject(target);
+
+        if (link !== undefined && !isPublicHttps(link.url))
+          fail("link.url", "Provide the link as a public HTTPS URL.");
 
         if (at !== undefined && !(Date.parse(at) > clock().getTime()))
           fail("schedule.past", "Buffer custom schedules require a time in the future.");
@@ -991,7 +2151,27 @@ export function buffer(options: BufferOptions) {
             "Select whether Instagram should share the post to feed.",
           );
 
+        if (
+          target.account.platform === substack &&
+          (target.content.text ?? "").length > substackMaxLength
+        )
+          fail("substack.text_too_long", "Buffer limits Substack Notes to 10,000 characters.");
+
         for (const item of target.content.media ?? []) {
+          // Buffer rejects video assets with thumbnailUrl; thumbnailOffset picks a frame instead.
+          if (item.kind === "video" && item.thumbnail !== undefined)
+            fail(
+              "media.thumbnail_unsupported",
+              "Buffer takes no custom video thumbnail. Use thumbnailOffset on Instagram, TikTok, or Pinterest.",
+            );
+
+          if (
+            item.kind === "image" &&
+            item.thumbnail !== undefined &&
+            item.thumbnail.kind !== "https-url"
+          )
+            fail("media.thumbnail_url", "Buffer takes an image thumbnail as a public HTTPS URL.");
+
           if (item.kind === "document") {
             if (target.account.platform !== "linkedin")
               fail(
@@ -1065,10 +2245,25 @@ export function buffer(options: BufferOptions) {
         if (scheduled && !(Date.parse(at) > clock().getTime()))
           reject("posts.publish", "Buffer custom schedules require a time in the future.");
 
+        const config = optionsObject(target);
+        const { issues, plan } = bufferPlan(target, config);
+
+        if (issues.length > 0) reject("posts.publish", string(issues[0]?.message));
+
         const assets: JsonObject[] = [];
 
-        for (const item of target.content.media ?? []) {
+        // The cover frame of the one video, in milliseconds.
+        const cover = definedFields({
+          metadata:
+            plan.thumbnailOffset === undefined
+              ? undefined
+              : { thumbnailOffset: plan.thumbnailOffset },
+        });
+
+        for (const [index, item] of (target.content.media ?? []).entries()) {
           const source = item.source;
+          const userTags = plan.userTags.get(index);
+          const animated = plan.animatedThumbnails.get(index);
 
           if (source.kind !== "https-url")
             reject(
@@ -1092,20 +2287,30 @@ export function buffer(options: BufferOptions) {
           } else
             assets.push(
               item.kind === "video"
-                ? { video: { url: httpsUrl(source.url).href } }
+                ? { video: { url: httpsUrl(source.url).href, ...cover } }
                 : {
                     image: {
                       url: httpsUrl(source.url).href,
                       ...definedFields({
-                        metadata: item.altText ? { altText: item.altText } : undefined,
+                        thumbnailUrl:
+                          item.thumbnail?.kind === "https-url"
+                            ? httpsUrl(item.thumbnail.url).href
+                            : undefined,
+                        // Buffer's image metadata requires altText; "" sends none.
+                        metadata:
+                          item.altText || animated !== undefined
+                            ? {
+                                altText: item.altText ?? "",
+                                ...definedFields({ userTags, animatedThumbnail: animated }),
+                              }
+                            : undefined,
                       }),
                     },
                   },
             );
         }
 
-        const config = optionsObject(target);
-        const metadataEntries: [string, JsonValue][] = [];
+        const metadataEntries: [string, JsonObject][] = [];
 
         if (target.account.platform === "youtube") {
           const title = config["title"];
@@ -1143,13 +2348,7 @@ export function buffer(options: BufferOptions) {
           if (!isBoolean(shareToFeed))
             return reject("posts.publish", "Instagram shareToFeed must be selected explicitly.");
 
-          metadataEntries.push([
-            "instagram",
-            {
-              shouldShareToFeed: shareToFeed,
-              type: "post",
-            },
-          ]);
+          metadataEntries.push(["instagram", { shouldShareToFeed: shareToFeed, type: "post" }]);
         }
 
         if (target.account.platform === "pinterest") {
@@ -1163,25 +2362,38 @@ export function buffer(options: BufferOptions) {
           metadataEntries.push(["pinterest", { boardServiceId, ...definedFields({ title, url }) }]);
         }
 
-        if (target.account.platform === "tiktok" && config["aiGenerated"] !== undefined) {
-          if (!isBoolean(config["aiGenerated"]))
-            reject("posts.publish", "TikTok aiGenerated must be a boolean.");
+        const metadata: Record<string, JsonObject> = Object.fromEntries(metadataEntries);
 
-          metadataEntries.push(["tiktok", { isAiGenerated: config["aiGenerated"] }]);
-        }
+        for (const [service, fields] of plan.metadata)
+          metadata[service] = { ...metadata[service], ...fields };
 
-        const metadata = Object.fromEntries(metadataEntries);
+        const threadService = threadServices[target.account.platform];
+
+        // Buffer publishes the thread array itself: the root post first, then each reply.
+        if (plan.thread !== undefined && threadService !== undefined)
+          metadata[threadService] = {
+            ...metadata[threadService],
+            thread: [
+              { text: target.content.text ?? "", assets },
+              ...plan.thread.map((reply) => ({ text: reply, assets: [] })),
+            ],
+          };
 
         const input: JsonObject = {
           text: target.content.text ?? "",
           channelId: target.account.accountId,
-          schedulingType: "automatic",
-          mode: scheduled ? "customScheduled" : "shareNow",
-          needsApproval: false,
+          schedulingType: plan.schedulingType,
+          mode: scheduled ? "customScheduled" : (plan.mode ?? "shareNow"),
+          needsApproval: plan.needsApproval,
           assets,
           ...definedFields({
             dueAt: scheduled ? new Date(string(at)).toISOString() : undefined,
-            metadata: metadataEntries.length ? metadata : undefined,
+            saveToDraft: plan.saveToDraft,
+            tagIds: plan.tagIds === undefined ? undefined : [...plan.tagIds],
+            ideaId: plan.ideaId,
+            aiAssisted: plan.aiAssisted,
+            draftId: plan.draftId,
+            metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
           }),
         };
 
@@ -1357,8 +2569,1247 @@ export function buffer(options: BufferOptions) {
 
         return normalizeMetrics(postMetrics(row, ref.platform));
       },
+      /**
+       * `aggregatedPostMetrics` for one channel over `from` to `to`, at most 365 days. Returns one
+       * row with the requested metric types Buffer reports, such as `postCount` or `reactions`.
+       */
+      async getReport(
+        account: ConnectedAccountRef,
+        query: AnalyticsReportQuery,
+        context: AdapterOperationContext,
+      ): Promise<AnalyticsReport> {
+        if ((query.dimensions ?? []).length > 0)
+          reject("analytics.report.read", "Buffer aggregates one channel; it takes no dimensions.");
+
+        const start = Date.parse(`${query.from}T00:00:00Z`);
+        const end = Date.parse(`${query.to}T00:00:00Z`);
+
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end - start > 365 * 86_400_000)
+          reject("analytics.report.read", "Buffer aggregates at most 365 days.");
+
+        const owned = await ownedChannel(account, context, "analytics.report.read");
+
+        const data = await graphql(
+          "analytics.report.read",
+          `query AggregatedPostMetrics($input: AggregatedPostMetricsInput!) {
+            aggregatedPostMetrics(input: $input) {
+              ${metricsSelection}
+            }
+          }`,
+          {
+            input: {
+              organizationId: owned.organizationId,
+              channelIds: [account.accountId],
+              startDateTime: new Date(start).toISOString(),
+              endDateTime: new Date(end).toISOString(),
+            },
+          },
+          context,
+          "query",
+        );
+
+        const values = postMetrics(object(data["aggregatedPostMetrics"]), account.platform);
+
+        return {
+          query,
+          rows: [
+            {
+              dimensions: { channelId: account.accountId },
+              metrics: Object.fromEntries(
+                values
+                  .filter((metric) => query.metrics.includes(metric.name))
+                  .map((metric) => [metric.name, metric.value]),
+              ),
+            },
+          ],
+          fetchedAt: now(),
+          source: `buffer:${account.platform}:aggregate`,
+        };
+      },
+    },
+    native: {
+      /**
+       * `editPost`: change the text, custom time, draft state, or tags of a draft, scheduled, or
+       * approval post. Fields you leave out keep their value.
+       */
+      async editPost(
+        ref: BufferPostRef,
+        edit: BufferPostEdit,
+        context: AdapterOperationContext,
+      ): Promise<DeliveryOutcome> {
+        const row = await readPost(postRecordId(ref), ref, context, "posts.update");
+
+        if (!["draft", "scheduled", "needs_approval"].includes(String(row["status"])))
+          reject("posts.update", "Buffer edits only a draft, scheduled, or approval post.");
+
+        if (edit.at !== undefined && !(Date.parse(edit.at) > clock().getTime()))
+          reject("posts.update", "Pick a future time.");
+
+        for (const tag of edit.tagIds ?? []) bufferId(tag, "posts.update", "tag");
+
+        if (edit.approvalChange !== undefined) {
+          if (edit.approvalChange !== "request" && edit.approvalChange !== "revert")
+            reject("posts.update", "Set approvalChange to request or revert.");
+
+          if (row["status"] !== "draft" && row["status"] !== "needs_approval")
+            reject("posts.update", "Buffer changes the approval state of a draft only.");
+        }
+
+        if (edit.aiAssisted !== undefined && !isBoolean(edit.aiAssisted))
+          reject("posts.update", "aiAssisted must be a boolean.");
+
+        if (edit.draftId !== undefined) bufferId(edit.draftId, "posts.update", "draft");
+
+        const input = {
+          id: string(row["id"]),
+          ...definedFields({
+            text: edit.text,
+            dueAt: edit.at === undefined ? undefined : new Date(edit.at).toISOString(),
+            mode: edit.at === undefined ? undefined : "customScheduled",
+            saveToDraft: edit.saveToDraft,
+            tagIds: edit.tagIds === undefined ? undefined : [...edit.tagIds],
+            approvalChange: edit.approvalChange,
+            aiAssisted: edit.aiAssisted,
+            draftId: edit.draftId,
+          }),
+        };
+
+        if (Object.keys(input).length === 1) reject("posts.update", "Pass at least one change.");
+
+        const data = await graphql(
+          "posts.update",
+          `mutation EditPost($input: EditPostInput!) {
+            editPost(input: $input) {
+              ... on PostActionSuccess {
+                post {
+                  ${postSelection}
+                }
+              }
+              ... on MutationError {
+                message
+              }
+            }
+          }`,
+          { input },
+          context,
+          "mutation",
+        );
+
+        return actionOutcome(object(data["editPost"]), ref, "posts.update");
+      },
+
+      /**
+       * `posts` with Buffer's filters and sort: status, `dueAt` and `createdAt` ranges,
+       * `dueAtPresence`, `postTypes`, and tags, across channels of one organization.
+       */
+      async listPosts(
+        query: BufferPostsQuery,
+        context: AdapterOperationContext,
+      ): Promise<{ readonly items: readonly JsonObject[]; readonly nextCursor?: string }> {
+        const operation = "posts.list";
+        const limit = query.limit ?? 20;
+
+        if (query.accounts.length === 0) reject(operation, "Pass at least one channel.");
+
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+          reject(operation, "Use a page size from 1 to 100.");
+
+        if (query.cursor !== undefined && (!query.cursor || /[\s@]/.test(query.cursor)))
+          reject(operation, "Use the cursor Buffer returned from the previous page.");
+
+        const statuses = ["draft", "error", "needs_approval", "scheduled", "sending", "sent"];
+
+        if (query.status?.some((value) => !statuses.includes(value)))
+          reject(operation, `Filter status by ${statuses.join(", ")}.`);
+
+        // Buffer rejects `carousel` and `thread`: no stored post format resolves to them.
+        const postTypes = [
+          "event",
+          "ghost_post",
+          "offer",
+          "post",
+          "reel",
+          "short",
+          "story",
+          "whats_new",
+        ];
+
+        if (query.postTypes?.some((value) => !postTypes.includes(value)))
+          reject(operation, `Filter postTypes by ${postTypes.join(", ")}.`);
+
+        if (
+          query.dueAtPresence !== undefined &&
+          query.dueAtPresence !== "present" &&
+          query.dueAtPresence !== "absent"
+        )
+          reject(operation, "Set dueAtPresence to present or absent.");
+
+        if (query.dueAtPresence === "absent" && query.dueAt !== undefined)
+          reject(operation, "Posts without a scheduled time cannot also match a dueAt range.");
+
+        const range = (value: { readonly start?: string; readonly end?: string } | undefined) => {
+          if (value === undefined) return undefined;
+
+          const bounds = [value.start, value.end].filter((bound) => bound !== undefined);
+
+          if (bounds.length === 0 || bounds.some((bound) => !isDateTime(bound)))
+            return reject(operation, "Date ranges take ISO 8601 start and end times.");
+
+          return definedFields({
+            start: value.start === undefined ? undefined : new Date(value.start).toISOString(),
+            end: value.end === undefined ? undefined : new Date(value.end).toISOString(),
+          });
+        };
+
+        for (const tag of query.tags?.in ?? []) bufferId(tag, operation, "tag");
+
+        if (query.tags?.isEmpty !== undefined && !isBoolean(query.tags.isEmpty))
+          reject(operation, "tags.isEmpty must be a boolean.");
+
+        const sort = query.sort?.map((entry) => {
+          if (
+            (entry.field !== "dueAt" && entry.field !== "createdAt") ||
+            (entry.direction !== "asc" && entry.direction !== "desc")
+          )
+            reject(operation, "Sort by dueAt or createdAt, asc or desc.");
+
+          return { field: entry.field, direction: entry.direction };
+        });
+
+        const owned = await channels(context);
+        const organizations = new Set<string>();
+
+        for (const account of query.accounts) {
+          accountMatches(account, context);
+
+          const found = owned.find(
+            (item) =>
+              item.account.ref.accountId === account.accountId &&
+              item.account.ref.platform === account.platform,
+          );
+
+          if (!found)
+            throw new SocialError({
+              code: "not_found",
+              operation,
+              message: "Buffer has no connected channel matching this reference.",
+            });
+
+          organizations.add(found.organizationId);
+        }
+
+        if (organizations.size !== 1) reject(operation, "Pass channels of one organization.");
+
+        const channelIds = query.accounts.map((account) => account.accountId);
+
+        const data = await graphql(
+          operation,
+          `query Posts($first: Int, $after: String, $input: PostsInput!) {
+            posts(first: $first, after: $after, input: $input) {
+              edges {
+                node {
+                  ${postSelection}
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+            }
+          }`,
+          {
+            first: limit,
+            input: {
+              organizationId: string([...organizations][0]),
+              filter: {
+                channelIds,
+                ...definedFields({
+                  status: query.status === undefined ? undefined : [...query.status],
+                  dueAt: range(query.dueAt),
+                  dueAtPresence: query.dueAtPresence,
+                  createdAt: range(query.createdAt),
+                  postTypes: query.postTypes === undefined ? undefined : [...query.postTypes],
+                  tags:
+                    query.tags === undefined
+                      ? undefined
+                      : { in: [...(query.tags.in ?? [])], isEmpty: query.tags.isEmpty === true },
+                }),
+              },
+              ...definedFields({ sort }),
+            },
+            ...definedFields({ after: query.cursor }),
+          },
+          context,
+          "query",
+        );
+
+        const connection = object(data["posts"]);
+        const pageInfo = isJsonObject(connection["pageInfo"]) ? connection["pageInfo"] : {};
+
+        // Keep only the requested channels, even if Buffer widened the filter.
+        const items = array(connection["edges"]).flatMap((edge) => {
+          const node = object(edge)["node"];
+
+          if (!isJsonObject(node) || !channelIds.includes(String(node["channelId"]))) return [];
+
+          return [publicPost(node)];
+        });
+
+        return {
+          items,
+          ...definedFields({
+            nextCursor:
+              pageInfo["hasNextPage"] === true ? optionalString(pageInfo["endCursor"]) : undefined,
+          }),
+        };
+      },
+
+      /** `movePostInQueue` (beta): move a queued post to the `top` or `bottom` of its queue. */
+      async movePostInQueue(
+        ref: BufferPostRef,
+        position: "top" | "bottom",
+        context: AdapterOperationContext,
+      ): Promise<DeliveryOutcome> {
+        if (position !== "top" && position !== "bottom")
+          reject("posts.schedule", "Move the post to the top or bottom.");
+
+        const row = await readPost(postRecordId(ref), ref, context, "posts.schedule");
+
+        if (row["status"] !== "scheduled")
+          reject("posts.schedule", "Only a scheduled Buffer post moves in the queue.");
+
+        const data = await graphql(
+          "posts.schedule",
+          `mutation MovePostInQueue($input: MovePostInQueueInput!) {
+            movePostInQueue(input: $input) {
+              ... on PostActionSuccess {
+                post {
+                  ${postSelection}
+                }
+              }
+              ... on MutationError {
+                message
+              }
+            }
+          }`,
+          { input: { id: string(row["id"]), position } },
+          context,
+          "mutation",
+        );
+
+        return actionOutcome(object(data["movePostInQueue"]), ref, "posts.schedule");
+      },
+
+      /**
+       * `dailyPostingLimits`: whether one more post at `at` (default now) would exceed each
+       * channel's network limit. The channels must share one organization.
+       */
+      async dailyPostingLimits(
+        accounts: readonly ConnectedAccountRef[],
+        input: { readonly at?: string },
+        context: AdapterOperationContext,
+      ): Promise<readonly BufferPostingLimit[]> {
+        if (accounts.length === 0) reject("posts.schedule", "Pass at least one channel.");
+
+        for (const account of accounts) accountMatches(account, context);
+
+        if (input.at !== undefined && !Number.isFinite(Date.parse(input.at)))
+          reject("posts.schedule", "Pass the intended posting time as an ISO date.");
+
+        const data = await graphql(
+          "posts.schedule",
+          `
+            query DailyPostingLimits($input: DailyPostingLimitsInput!) {
+              dailyPostingLimits(input: $input) {
+                channelId
+                isAtLimit
+                limit
+                scheduled
+                sent
+              }
+            }
+          `,
+          {
+            input: {
+              channelIds: accounts.map((account) =>
+                bufferId(account.accountId, "posts.schedule", "channel"),
+              ),
+              ...definedFields({
+                date: input.at === undefined ? undefined : new Date(input.at).toISOString(),
+              }),
+            },
+          },
+          context,
+          "query",
+        );
+
+        return array(data["dailyPostingLimits"]).map((value) => {
+          const row = object(value);
+
+          return {
+            channelId: string(row["channelId"]),
+            isAtLimit: row["isAtLimit"] === true,
+            scheduled: optionalNumber(row["scheduled"]) ?? 0,
+            sent: optionalNumber(row["sent"]) ?? 0,
+            ...definedFields({ limit: optionalNumber(row["limit"]) }),
+          };
+        });
+      },
+
+      /**
+       * `createIdea`: save an idea in the organization's Create space, with media, tags, target
+       * services, and its place in an idea group. Needs the `ideas:write` scope for OAuth tokens.
+       * Pass the returned ID as the `ideaId` option to link a post to it.
+       */
+      async createIdea(
+        input: BufferIdeaInput,
+        context: AdapterOperationContext,
+      ): Promise<{ readonly id: string }> {
+        const operation = "ideas.create";
+        const organization = input.organizationId ?? organizationId;
+
+        if (organization === undefined)
+          reject(operation, "Pass the Buffer organization that owns the idea.");
+
+        if (input.title === undefined && input.text === undefined && input.media === undefined)
+          reject(operation, "An idea needs a title, text, or media.");
+
+        if (input.date !== undefined && !Number.isFinite(Date.parse(input.date)))
+          reject(operation, "Pass the idea date as an ISO date.");
+
+        const mediaTypes = ["image", "gif", "link", "document"];
+
+        const media = input.media?.map((item) => {
+          if (!mediaTypes.includes(item.type))
+            reject(
+              operation,
+              "Idea media is an image, gif, link, or document; Buffer's API takes no idea video.",
+            );
+
+          if (
+            !isPublicHttps(item.url) ||
+            (item.thumbnailUrl !== undefined && !isPublicHttps(item.thumbnailUrl))
+          )
+            reject(operation, "Idea media and thumbnails need public HTTPS URLs.");
+
+          if (item.size !== undefined && !isWhole(item.size))
+            reject(operation, "Idea media size is a whole number of bytes.");
+
+          const source = item.source;
+
+          if (source !== undefined && (!isString(source.name) || source.name.trim() === ""))
+            reject(operation, "An idea media source needs a name.");
+
+          return {
+            url: httpsUrl(item.url).href,
+            type: item.type,
+            ...definedFields({
+              alt: item.alt,
+              thumbnailUrl:
+                item.thumbnailUrl === undefined ? undefined : httpsUrl(item.thumbnailUrl).href,
+              size: item.size,
+              source: source && {
+                name: source.name,
+                ...definedFields({
+                  id: source.id,
+                  trigger: source.trigger,
+                  author: source.author,
+                  authorUrl: source.authorUrl,
+                }),
+              },
+            }),
+          };
+        });
+
+        for (const tag of input.tags ?? []) {
+          bufferId(tag.id, operation, "tag");
+
+          if (!isString(tag.name) || !isString(tag.color) || !/^#[0-9A-Fa-f]{6}$/.test(tag.color))
+            reject(operation, "Each idea tag needs its id, name, and hex color such as #F523F1.");
+        }
+
+        if (input.services?.some((service) => !ideaServices.includes(service)))
+          reject(operation, `Target Buffer services: ${ideaServices.join(", ")}.`);
+
+        if (input.aiAssisted !== undefined && !isBoolean(input.aiAssisted))
+          reject(operation, "aiAssisted must be a boolean.");
+
+        if (input.groupId !== undefined) bufferId(input.groupId, operation, "idea group");
+
+        if (input.placeAfterId !== undefined) bufferId(input.placeAfterId, operation, "idea");
+
+        const data = await graphql(
+          operation,
+          `
+            mutation CreateIdea($input: CreateIdeaInput!) {
+              createIdea(input: $input) {
+                ... on IdeaResponse {
+                  idea {
+                    id
+                  }
+                }
+                ... on InvalidInputError {
+                  message
+                }
+                ... on UnauthorizedError {
+                  message
+                }
+                ... on LimitReachedError {
+                  message
+                }
+                ... on UnexpectedError {
+                  message
+                }
+              }
+            }
+          `,
+          {
+            input: {
+              organizationId: bufferId(string(organization), operation, "organization"),
+              content: definedFields({
+                title: input.title,
+                text: input.text,
+                date: input.date === undefined ? undefined : new Date(input.date).toISOString(),
+                media,
+                tags: input.tags?.map((tag) => ({ id: tag.id, name: tag.name, color: tag.color })),
+                services: input.services === undefined ? undefined : [...input.services],
+                aiAssisted: input.aiAssisted,
+              }),
+              ...definedFields({
+                templateId: input.templateId,
+                cta: input.cta,
+                group:
+                  input.groupId === undefined && input.placeAfterId === undefined
+                    ? undefined
+                    : definedFields({ groupId: input.groupId, placeAfterId: input.placeAfterId }),
+              }),
+            },
+          },
+          context,
+          "mutation",
+        );
+
+        const result = object(data["createIdea"]);
+        const idea = result["idea"];
+
+        if (isJsonObject(idea)) return { id: string(idea["id"]) };
+
+        const message = optionalString(result["message"]);
+
+        if (message) throw new SocialError({ code: "invalid_input", operation, message });
+
+        throw new SocialError({
+          code: "ambiguous_outcome",
+          operation,
+          message: "Buffer did not confirm the idea. Check the Create space before retrying.",
+          retryDisposition: { kind: "reconcile-first" },
+        });
+      },
+
+      /** `ideaGroups`: the idea groups (Create-space board columns) of an organization. */
+      async listIdeaGroups(
+        input: { readonly organizationId?: string },
+        context: AdapterOperationContext,
+      ): Promise<readonly BufferIdeaGroup[]> {
+        const organization = input.organizationId ?? organizationId;
+
+        if (organization === undefined)
+          reject("ideas.read", "Pass the Buffer organization that owns the ideas.");
+
+        const data = await graphql(
+          "ideas.read",
+          `
+            query IdeaGroups($input: IdeaGroupsInput!) {
+              ideaGroups(input: $input) {
+                id
+                name
+                isLocked
+              }
+            }
+          `,
+          {
+            input: { organizationId: bufferId(string(organization), "ideas.read", "organization") },
+          },
+          context,
+          "query",
+        );
+
+        return array(data["ideaGroups"]).map((value) => {
+          const row = object(value);
+
+          return {
+            id: string(row["id"]),
+            name: string(row["name"]),
+            isLocked: row["isLocked"] === true,
+          };
+        });
+      },
+
+      /** `ideas`: a page of an organization's ideas, filtered by group and tags. */
+      async listIdeas(
+        query: BufferIdeasQuery,
+        context: AdapterOperationContext,
+      ): Promise<{ readonly items: readonly BufferIdea[]; readonly nextCursor?: string }> {
+        const operation = "ideas.read";
+        const organization = query.organizationId ?? organizationId;
+        const limit = query.limit ?? 20;
+
+        if (organization === undefined)
+          reject(operation, "Pass the Buffer organization that owns the ideas.");
+
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+          reject(operation, "Use a page size from 1 to 100.");
+
+        if (query.cursor !== undefined && (!query.cursor || /[\s@]/.test(query.cursor)))
+          reject(operation, "Use the cursor Buffer returned from the previous page.");
+
+        if (query.groupIds !== undefined && query.membership !== undefined)
+          reject(operation, "Filter by groupIds or membership, not both.");
+
+        if (
+          query.membership !== undefined &&
+          query.membership !== "grouped" &&
+          query.membership !== "ungrouped"
+        )
+          reject(operation, "Set membership to grouped or ungrouped.");
+
+        for (const id of query.groupIds ?? []) bufferId(id, operation, "idea group");
+
+        for (const tag of query.tags?.in ?? []) bufferId(tag, operation, "tag");
+
+        const data = await graphql(
+          operation,
+          `
+            query Ideas($first: Int, $after: String, $input: IdeasInput!) {
+              ideas(first: $first, after: $after, input: $input) {
+                edges {
+                  node {
+                    id
+                    groupId
+                    position
+                    createdAt
+                    updatedAt
+                    content {
+                      title
+                      text
+                      date
+                      aiAssisted
+                      services
+                      tags {
+                        id
+                        name
+                        color
+                      }
+                      media {
+                        url
+                        type
+                        alt
+                        thumbnailUrl
+                      }
+                    }
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
+            }
+          `,
+          {
+            first: limit,
+            input: {
+              organizationId: bufferId(string(organization), operation, "organization"),
+              ...definedFields({
+                groupFilter:
+                  query.groupIds !== undefined
+                    ? { groups: [...query.groupIds] }
+                    : query.membership !== undefined
+                      ? { membership: query.membership }
+                      : undefined,
+                tagsFilter:
+                  query.tags === undefined
+                    ? undefined
+                    : { in: [...(query.tags.in ?? [])], isEmpty: query.tags.isEmpty === true },
+              }),
+            },
+            ...definedFields({ after: query.cursor }),
+          },
+          context,
+          "query",
+        );
+
+        const connection = object(data["ideas"]);
+        const pageInfo = isJsonObject(connection["pageInfo"]) ? connection["pageInfo"] : {};
+
+        // Buffer reports idea times as Unix seconds.
+        const time = (value: JsonField) =>
+          new Date((optionalNumber(value) ?? 0) * 1000).toISOString();
+
+        const items = array(connection["edges"]).map((edge) => {
+          const node = object(object(edge)["node"]);
+          const content = object(node["content"]);
+
+          return {
+            id: string(node["id"]),
+            aiAssisted: content["aiAssisted"] === true,
+            services: isJsonArray(content["services"]) ? content["services"].filter(isString) : [],
+            tags: (isJsonArray(content["tags"]) ? content["tags"] : []).map((value) => {
+              const tag = object(value);
+
+              return {
+                id: string(tag["id"]),
+                name: string(tag["name"]),
+                color: string(tag["color"]),
+              };
+            }),
+            media: (isJsonArray(content["media"]) ? content["media"] : []).map((value) => {
+              const item = object(value);
+
+              return {
+                url: string(item["url"]),
+                type: string(item["type"]),
+                ...definedFields({
+                  alt: optionalString(item["alt"]),
+                  thumbnailUrl: optionalString(item["thumbnailUrl"]),
+                }),
+              };
+            }),
+            createdAt: time(node["createdAt"]),
+            updatedAt: time(node["updatedAt"]),
+            ...definedFields({
+              groupId: optionalString(node["groupId"]),
+              position: optionalNumber(node["position"]),
+              title: optionalString(content["title"]),
+              text: optionalString(content["text"]),
+              date: optionalString(content["date"]),
+            }),
+          };
+        });
+
+        return {
+          items,
+          ...definedFields({
+            nextCursor:
+              pageInfo["hasNextPage"] === true ? optionalString(pageInfo["endCursor"]) : undefined,
+          }),
+        };
+      },
+
+      /**
+       * `channels` with Buffer's `isLocked` and `product` filters, and each channel's timezone,
+       * posting goal, link shortening, allowed actions, products, and scopes.
+       */
+      async listChannels(
+        input: {
+          readonly organizationId?: string;
+          readonly isLocked?: boolean;
+          readonly product?: "publish" | "analyze" | "engage" | "comments" | "startPage" | "buffer";
+        },
+        context: AdapterOperationContext,
+      ): Promise<readonly BufferChannel[]> {
+        const operation = "accounts.read";
+        const products = ["publish", "analyze", "engage", "comments", "startPage", "buffer"];
+
+        if (input.isLocked !== undefined && !isBoolean(input.isLocked))
+          reject(operation, "isLocked must be a boolean.");
+
+        if (input.product !== undefined && !products.includes(input.product))
+          reject(operation, `Filter product by ${products.join(", ")}.`);
+
+        const orgs =
+          input.organizationId === undefined
+            ? await organizations(context)
+            : [bufferId(input.organizationId, operation, "organization")];
+
+        const items: BufferChannel[] = [];
+
+        for (const org of orgs) {
+          const data = await graphql(
+            operation,
+            `
+              query ChannelSettings($input: ChannelsInput!) {
+                channels(input: $input) {
+                  id
+                  name
+                  displayName
+                  service
+                  serviceId
+                  organizationId
+                  type
+                  timezone
+                  isLocked
+                  isDisconnected
+                  isQueuePaused
+                  externalLink
+                  allowedActions
+                  products
+                  scopes
+                  linkShortening {
+                    isEnabled
+                  }
+                  postingGoal {
+                    goal
+                    sentCount
+                    scheduledCount
+                    status
+                    periodStart
+                    periodEnd
+                  }
+                }
+              }
+            `,
+            {
+              input: {
+                organizationId: org,
+                ...definedFields({
+                  filter:
+                    input.isLocked === undefined && input.product === undefined
+                      ? undefined
+                      : definedFields({ isLocked: input.isLocked, product: input.product }),
+                }),
+              },
+            },
+            context,
+            "query",
+          );
+
+          for (const value of array(data["channels"])) {
+            const row = object(value);
+            const goal = isJsonObject(row["postingGoal"]) ? row["postingGoal"] : undefined;
+            const shortening = isJsonObject(row["linkShortening"]) ? row["linkShortening"] : {};
+            const names = (field: JsonField) => (isJsonArray(field) ? field.filter(isString) : []);
+
+            items.push({
+              id: string(row["id"]),
+              service: string(row["service"]),
+              serviceId: string(row["serviceId"]),
+              name: string(row["name"]),
+              organizationId: optionalString(row["organizationId"]) ?? org,
+              type: string(row["type"]),
+              timezone: string(row["timezone"]),
+              isLocked: row["isLocked"] === true,
+              isDisconnected: row["isDisconnected"] === true,
+              isQueuePaused: row["isQueuePaused"] === true,
+              linkShortening: { isEnabled: shortening["isEnabled"] === true },
+              allowedActions: names(row["allowedActions"]),
+              products: names(row["products"]),
+              scopes: names(row["scopes"]),
+              ...definedFields({
+                platform: mappedPlatform(nativePlatforms, string(row["service"]), options),
+                displayName: optionalString(row["displayName"]),
+                url: optionalString(row["externalLink"]),
+                postingGoal: goal && {
+                  goal: optionalNumber(goal["goal"]) ?? 0,
+                  sentCount: optionalNumber(goal["sentCount"]) ?? 0,
+                  scheduledCount: optionalNumber(goal["scheduledCount"]) ?? 0,
+                  status: string(goal["status"]),
+                  periodStart: string(goal["periodStart"]),
+                  periodEnd: string(goal["periodEnd"]),
+                },
+              }),
+            });
+          }
+        }
+
+        return items;
+      },
+
+      /** `account.organizations`: each organization's plan limits and member count. */
+      async listOrganizations(
+        context: AdapterOperationContext,
+      ): Promise<readonly BufferOrganization[]> {
+        const data = await graphql(
+          "accounts.read",
+          `
+            query OrganizationLimits {
+              account {
+                organizations {
+                  id
+                  name
+                  channelCount
+                  members {
+                    totalCount
+                  }
+                  limits {
+                    channels
+                    members
+                    scheduledPosts
+                    scheduledStoriesPerChannel
+                    scheduledThreadsPerChannel
+                    ideas
+                    ideaGroups
+                    tags
+                    postTemplates
+                    savedReplies
+                    generateContent
+                  }
+                }
+              }
+            }
+          `,
+          {},
+          context,
+          "query",
+        );
+
+        return array(object(data["account"])["organizations"]).flatMap((value) => {
+          const row = object(value);
+          const id = string(row["id"]);
+
+          // An adapter scoped to one organization reports only that one.
+          if (organizationId !== undefined && id !== organizationId) return [];
+
+          const limits = object(row["limits"]);
+
+          return [
+            {
+              id,
+              name: string(row["name"]),
+              channelCount: optionalNumber(row["channelCount"]) ?? 0,
+              memberCount: optionalNumber(object(row["members"])["totalCount"]) ?? 0,
+              limits: Object.fromEntries(
+                Object.entries(limits).flatMap(([key, limit]) =>
+                  isFiniteNumber(limit) ? [[key, limit]] : [],
+                ),
+              ),
+            },
+          ];
+        });
+      },
+
+      /** `account`: the authenticated user's timezone and scheduling preferences. */
+      async getAccount(context: AdapterOperationContext): Promise<BufferAccount> {
+        const data = await graphql(
+          "accounts.read",
+          `
+            query AccountPreferences {
+              account {
+                id
+                name
+                timezone
+                preferences {
+                  timeFormat
+                  startOfWeek
+                  defaultScheduleOption
+                }
+              }
+            }
+          `,
+          {},
+          context,
+          "query",
+        );
+
+        const row = object(data["account"]);
+        const preferences = isJsonObject(row["preferences"]) ? row["preferences"] : undefined;
+
+        return {
+          id: string(row["id"]),
+          ...definedFields({
+            name: optionalString(row["name"]),
+            timezone: optionalString(row["timezone"]),
+            preferences: preferences && {
+              defaultScheduleOption: string(preferences["defaultScheduleOption"]),
+              ...definedFields({
+                timeFormat: optionalString(preferences["timeFormat"]),
+                startOfWeek: optionalString(preferences["startOfWeek"]),
+              }),
+            },
+          }),
+        };
+      },
+
+      /**
+       * `configuration` (experimental): each channel's per-feature authorization and content
+       * rules, and Buffer's per-service capability catalog.
+       */
+      async getConfiguration(
+        input: { readonly organizationId?: string },
+        context: AdapterOperationContext,
+      ): Promise<BufferConfiguration> {
+        const organization = input.organizationId ?? organizationId;
+
+        if (organization === undefined)
+          reject("accounts.read", "Pass the Buffer organization to read configuration for.");
+
+        const data = await graphql(
+          "accounts.read",
+          `query Configuration($input: ConfigurationInput!) {
+            configuration(input: $input) {
+              channels {
+                channelId
+                service
+                channelType
+                authorizationStatus {
+                  feature
+                  status
+                  reason
+                }
+                content {
+                  ${contentSelection}
+                }
+              }
+              services {
+                service
+                channelType
+                content {
+                  ${contentSelection}
+                }
+              }
+            }
+          }`,
+          {
+            input: {
+              organizationId: bufferId(string(organization), "accounts.read", "organization"),
+            },
+          },
+          context,
+          "query",
+        );
+
+        const result = object(data["configuration"]);
+
+        return {
+          channels: array(result["channels"]).map((value) => {
+            const row = object(value);
+
+            return {
+              channelId: string(row["channelId"]),
+              service: string(row["service"]),
+              channelType: string(row["channelType"]),
+              authorizationStatus: array(row["authorizationStatus"]).map((item) => {
+                const entry = object(item);
+
+                return {
+                  feature: string(entry["feature"]),
+                  status: string(entry["status"]),
+                  ...definedFields({ reason: optionalString(entry["reason"]) }),
+                };
+              }),
+              content: array(row["content"]).map(contentConfiguration),
+            };
+          }),
+          services: array(result["services"]).map((value) => {
+            const row = object(value);
+
+            return {
+              service: string(row["service"]),
+              channelType: string(row["channelType"]),
+              content: array(row["content"]).map(contentConfiguration),
+            };
+          }),
+        };
+      },
+
+      /**
+       * `selectableTeamMembers` (experimental): members of an organization, or those who can read
+       * Notes on one channel, for mentions and pickers. Emails are not read.
+       */
+      async listTeamMembers(
+        input: {
+          readonly organizationId?: string;
+          readonly account?: ConnectedAccountRef;
+          readonly search?: string;
+          readonly limit?: number;
+          readonly cursor?: string;
+        },
+        context: AdapterOperationContext,
+      ): Promise<{ readonly items: readonly BufferTeamMember[]; readonly nextCursor?: string }> {
+        const operation = "accounts.read";
+        const limit = input.limit ?? 50;
+
+        if (input.account !== undefined && input.organizationId !== undefined)
+          reject(operation, "Scope team members by organizationId or account, not both.");
+
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+          reject(operation, "Use a page size from 1 to 100.");
+
+        if (input.cursor !== undefined && (!input.cursor || /[\s@]/.test(input.cursor)))
+          reject(operation, "Use the cursor Buffer returned from the previous page.");
+
+        let scope: JsonObject;
+
+        if (input.account !== undefined) {
+          await ownedChannel(input.account, context, operation);
+
+          scope = { channelId: input.account.accountId };
+        } else {
+          const organization = input.organizationId ?? organizationId;
+
+          if (organization === undefined)
+            reject(operation, "Pass the organization or channel to list team members for.");
+
+          scope = { organizationId: bufferId(string(organization), operation, "organization") };
+        }
+
+        const data = await graphql(
+          operation,
+          `
+            query SelectableTeamMembers(
+              $first: Int
+              $after: String
+              $input: SelectableTeamMembersInput!
+            ) {
+              selectableTeamMembers(first: $first, after: $after, input: $input) {
+                edges {
+                  node {
+                    id
+                    name
+                    urn
+                    isLocked
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
+            }
+          `,
+          {
+            first: limit,
+            input: { scope, ...definedFields({ search: input.search?.trim() || undefined }) },
+            ...definedFields({ after: input.cursor }),
+          },
+          context,
+          "query",
+        );
+
+        const connection = object(data["selectableTeamMembers"]);
+        const pageInfo = isJsonObject(connection["pageInfo"]) ? connection["pageInfo"] : {};
+
+        return {
+          items: array(connection["edges"]).map((edge) => {
+            const node = object(object(edge)["node"]);
+
+            return {
+              id: string(node["id"]),
+              urn: string(node["urn"]),
+              isLocked: node["isLocked"] === true,
+              ...definedFields({ name: optionalString(node["name"]) }),
+            };
+          }),
+          ...definedFields({
+            nextCursor:
+              pageInfo["hasNextPage"] === true ? optionalString(pageInfo["endCursor"]) : undefined,
+          }),
+        };
+      },
+
+      /**
+       * `searchInstagramAudio` (beta): search Meta's licensed music or original sounds for an
+       * Instagram channel. Buffer's post input has no audio field, so results are for reference.
+       */
+      async searchInstagramAudio(
+        account: ConnectedAccountRef,
+        input: { readonly query: string; readonly audioType: "music" | "originalSound" },
+        context: AdapterOperationContext,
+      ): Promise<readonly BufferInstagramAudio[]> {
+        if (account.platform !== "instagram")
+          reject("media.audio", "Instagram audio search needs an Instagram channel.");
+
+        if (!input.query.trim()) reject("media.audio", "Pass the text to search for.");
+
+        if (input.audioType !== "music" && input.audioType !== "originalSound")
+          reject("media.audio", "Search music or originalSound.");
+
+        await ownedChannel(account, context, "media.audio");
+
+        const data = await graphql(
+          "media.audio",
+          `
+            query SearchInstagramAudio($input: SearchInstagramAudioInput!) {
+              searchInstagramAudio(input: $input) {
+                ... on SearchInstagramAudioSuccess {
+                  audio {
+                    id
+                    title
+                    type
+                    duration
+                    displayArtist
+                    creatorUsername
+                  }
+                }
+                ... on ChannelRefreshRequired {
+                  message
+                }
+              }
+            }
+          `,
+          {
+            input: {
+              channelId: account.accountId,
+              query: input.query,
+              audioType: input.audioType,
+            },
+          },
+          context,
+          "query",
+        );
+
+        const result = object(data["searchInstagramAudio"]);
+        const audio = result["audio"];
+
+        if (audio === undefined)
+          throw new SocialError({
+            code: "reconnect_required",
+            operation: "media.audio",
+            message: "Buffer needs this Instagram channel refreshed before it can search audio.",
+            retryDisposition: { kind: "after-reconnect" },
+          });
+
+        return array(audio).map((value) => {
+          const row = object(value);
+          const type = row["type"];
+
+          return {
+            id: string(row["id"]),
+            title: string(row["title"]),
+            type: type === "originalSound" ? "originalSound" : "music",
+            durationMs: optionalNumber(row["duration"]) ?? 0,
+            ...definedFields({
+              displayArtist: optionalString(row["displayArtist"]),
+              creatorUsername: optionalString(row["creatorUsername"]),
+            }),
+          };
+        });
+      },
     },
   });
+
+  /** The outcome of a post mutation that returns the post or a MutationError. */
+  function actionOutcome(
+    result: JsonObject,
+    ref: BufferPostRef,
+    operation: string,
+  ): DeliveryOutcome {
+    const post = result["post"];
+
+    if (isJsonObject(post))
+      return outcome(
+        post,
+        {
+          kind: "connected-account",
+          version: 1,
+          backend: ref.backend,
+          platform: ref.platform,
+          accountId: ref.accountId,
+        },
+        0,
+      );
+
+    const message = optionalString(result["message"]);
+
+    if (message) throw new SocialError({ code: "invalid_input", operation, message });
+
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: "Buffer did not confirm the change. Read the post before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  }
 
   return adapter;
 }

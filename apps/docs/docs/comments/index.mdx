@@ -239,9 +239,10 @@ video and requires a `moderationStatus` of `published`, `heldForReview`, or
 `rejected`; omitting it raises `invalid_input`. `banAuthor: true` is valid only
 with `rejected`.
 
-Native `deleteComment` calls `comments.delete`, which YouTube allows only for
-the comment's original author. To remove another user's comment from your
-video, set its moderation status to `rejected`.
+Native `deleteComment` calls `comments.delete`. Google's reference does not
+say which comments a channel may delete; it documents a 403 `forbidden` for
+insufficient permissions, which raises `missing_permission`. To remove another
+user's comment from your video, set its moderation status to `rejected`.
 
 ```ts
 const held = await native.heldComments({ maxResults: 20, context });

@@ -105,6 +105,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",
         "analytics.read",
+        "analytics.report.read",
       ],
     ],
     [
@@ -122,6 +123,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "analytics.read",
         "media.upload",
         "webhooks.verify",
+        "posts.update",
       ],
     ],
     [
@@ -132,9 +134,11 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "posts.publish",
         "posts.schedule",
         "posts.status",
+        "posts.list",
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",
         "analytics.read",
+        "analytics.account.read",
         "media.upload",
       ],
     ],
@@ -146,9 +150,11 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "posts.publish",
         "posts.schedule",
         "posts.status",
+        "posts.list",
         "posts.cancelScheduled",
         "posts.deleteBackendRecord",
         "analytics.read",
+        "analytics.account.read",
         "media.upload",
       ],
     ],
@@ -169,6 +175,17 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "media.upload",
         "webhooks.verify",
         "posts.removeFromPlatform",
+        "posts.update",
+        "posts.publish.preflight",
+        "search.posts",
+        "comments.replies.read",
+        "comments.moderate",
+        "comments.delete",
+        "likes.write",
+        "posts.repost",
+        "bookmarks.write",
+        "follows.write",
+        "mentions.read",
         "comments.read",
         "comments.write",
         "messages.read",
@@ -724,7 +741,7 @@ for (const provider of ["zernio", "post-for-me"] as const) {
   });
 }
 
-it("managed TikTok format checks stay scoped to Zernio", () => {
+it("Post for Me checks the TikTok photo title it maps", () => {
   const social = createSocial({ backend: postForMe({ apiKey: "test" }) });
 
   const account = connectedAccountRef({
@@ -763,11 +780,8 @@ it("managed TikTok format checks stay scoped to Zernio", () => {
   });
 
   assert.equal(preparation.ok, false);
-  assert.deepEqual(
-    preparation.issues.filter((issue) => issue.code === "tiktok.title"),
-    [],
-  );
-  assert.ok(preparation.issues.some((issue) => issue.code === "options.unmapped"));
+  assert.ok(preparation.issues.some((issue) => issue.code === "tiktok.title"));
+  assert.ok(!preparation.issues.some((issue) => issue.code === "options.unmapped"));
 });
 
 it("Zernio maps TikTok photo title, description, mediaType and autoAddMusic", async () => {

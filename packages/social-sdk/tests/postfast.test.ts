@@ -107,6 +107,43 @@ it("PostFast sends its API key header and maps supported accounts", async () => 
   assert.equal((await adapter.accounts.get(x, context)).displayName, "Demo");
 });
 
+it("PostFast keeps disabledReason on reconnect-required accounts", async () => {
+  const adapter = postfast({
+    apiKey: "test",
+    clock,
+    fetch: async () =>
+      Response.json([
+        { id: "sm1", platform: "X", platformUsername: "demo", connectionStatus: "CONNECTED" },
+        {
+          id: "sm2",
+          platform: "YOUTUBE",
+          platformUsername: "channel",
+          connectionStatus: "DISABLED",
+          disabledReason: "TOKEN_REVOKED",
+        },
+        { id: "sm4", platform: "BLUESKY", connectionStatus: "PENDING", disabledReason: 7 },
+      ]),
+  });
+
+  const page = await adapter.accounts.list({}, context);
+
+  assert.deepEqual(
+    page.items.map((item) => [item.ref.accountId, item.status, item.native]),
+    [
+      ["sm1", "connected", undefined],
+      ["sm2", "reconnect-required", { disabledReason: "TOKEN_REVOKED" }],
+      ["sm4", "unknown", undefined],
+    ],
+  );
+  assert.deepEqual(
+    page.items.map((item) => "native" in item),
+    [false, true, false],
+  );
+  assert.deepEqual((await adapter.accounts.get(youtube, context)).native, {
+    disabledReason: "TOKEN_REVOKED",
+  });
+});
+
 it("PostFast requires a future schedule and uploaded media", () => {
   const social = createSocial({
     backend: postfast({ apiKey: "test", clock, fetch: async () => Response.json({}) }),
@@ -142,21 +179,27 @@ it("PostFast requires a future schedule and uploaded media", () => {
       schedule: { at: future },
     }).includes("media.url_unsupported"),
   );
+
+  const blueskyVideo = {
+    kind: "video",
+    mimeType: "video/mp4",
+    source: { kind: "blob", blob: new Blob([new Uint8Array(1)]), fingerprint: "v" },
+  } as const;
+
+  // PostFast's Bluesky guide documents one MP4 video per post.
+  assert.ok(
+    !codes({
+      targets: [{ account: bluesky }],
+      content: { text: "hi", media: [blueskyVideo] },
+      schedule: { at: future },
+    }).some((code) => code.startsWith("bluesky.")),
+  );
   assert.ok(
     codes({
       targets: [{ account: bluesky }],
-      content: {
-        text: "hi",
-        media: [
-          {
-            kind: "video",
-            mimeType: "video/mp4",
-            source: { kind: "blob", blob: new Blob([new Uint8Array(1)]), fingerprint: "v" },
-          },
-        ],
-      },
+      content: { text: "hi", media: [blueskyVideo, { ...blueskyVideo, mimeType: "video/webm" }] },
       schedule: { at: future },
-    }).includes("bluesky.video_unsupported"),
+    }).includes("bluesky.video"),
   );
   assert.ok(
     codes({
@@ -236,7 +279,7 @@ it("PostFast requires a future schedule and uploaded media", () => {
     }).capabilities.capabilities.find(
       (entry) => entry.platform === "bluesky" && entry.operation === "posts.publish",
     )?.formats,
-    ["text", "image", "carousel"],
+    ["text", "image", "video", "carousel"],
   );
   assert.equal(
     social.posts.prepare({

@@ -183,7 +183,7 @@ const result = await social.posts.publish(
 );
 ```
 
-Postiz queues every post and a worker posts it when it is due. A confirmed queued row with a future time returns `scheduled`; a due queued row returns `processing`. If creation returns an ID but the follow-up read fails, the outcome is `accepted` with a delivery reference and no invented queue state, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed` without a reason, because the public API does not return one. Look at the post and channel in Postiz.
+Postiz queues every post and a worker posts it when it is due. A confirmed queued row with a future time returns `scheduled`; a due queued row returns `processing`. If creation returns an ID but the follow-up read fails, the outcome is `accepted` with a delivery reference and no invented queue state, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed`, and its message carries the platform's reason from the post's `error` field, such as "Account banned from posting". When Postiz has no reason, look at the post and channel in Postiz.
 
 The delivery, job, and record IDs have the form `<postiz post id>@<publish time>`. Postiz lists posts only by publish date, so the adapter keeps the time in the ID to find the post again. Store the IDs as opaque strings. If someone moves the post in Postiz by more than a day, the adapter can no longer find it, and reads, cancellation, and analytics fail with `not_found`. Manage a moved post in Postiz.
 
@@ -222,13 +222,15 @@ function isWaiting(outcome: DeliveryOutcome): boolean {
 }
 ```
 
-If the submission itself was ambiguous, the outcome is `unknown` with no `delivery`. Check Postiz before you publish again. TikTok can finish a post before it returns the post ID; Postiz then reports the post as published without one, and the adapter returns `unknown` until you resolve it in Postiz.
+If the submission itself was ambiguous, the outcome is `unknown` with no `delivery`. Check Postiz before you publish again. TikTok can finish a post before it returns the post ID; Postiz then stores the ID as `missing`, and the adapter returns `unknown` until you resolve it, in Postiz or with `native.listMissingContent` and `native.setReleaseId` (see [Native methods](#native-methods)).
 
 ## Media
 
-The adapter uploads media to Postiz and sends the returned file ID and path with the post. A `Blob` or stream is uploaded as a file. Postiz takes each file in one request, so the adapter reads a stream into memory first; for large videos, prefer a `Blob` backed by a file, or an HTTPS URL. An HTTPS URL is imported by Postiz. That upload route detects MIME from bytes; the post-create schema separately checks storage-path extensions. This adapter requires source URL paths and returned storage paths ending in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, or `.mp4`. Upload acceptance alone does not prove that a path can be used to create a post. Supported publish types are JPEG, PNG, GIF, and WebP images up to 10 MB, and MP4 videos up to 1 GB. Documents are rejected. A `thumbnail` is accepted only on a Reddit video, where it is required (see below), and rejected everywhere else. `altText` is sent with each file.
+The adapter uploads media to Postiz and sends the returned file ID and path with the post. A `Blob` or stream is uploaded as a file. Postiz takes each file in one request, so the adapter reads a stream into memory first; for large videos, prefer a `Blob` backed by a file, or an HTTPS URL. An HTTPS URL is imported by Postiz. That upload route detects MIME from bytes; the post-create schema separately checks storage-path extensions. This adapter requires source URL paths and returned storage paths ending in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, or `.mp4`. Upload acceptance alone does not prove that a path can be used to create a post. Supported publish types are JPEG, PNG, GIF, and WebP images up to 10 MB, and MP4 videos up to 1 GB. Documents are rejected. A `thumbnail` is accepted only on a Reddit video, where it is required (see below), and on a YouTube video, where it becomes the custom thumbnail; it is rejected everywhere else. `altText` is sent with each file.
 
 You can also upload first with `media.upload` and publish the returned reference. The reference resolves through the adapter's `mediaStore`, which is in memory by default, so upload and publish with the same adapter instance or configure a shared store.
+
+Set `adjustMedia: true` on the adapter to send `adjust` with each `media.upload`. Postiz then scales videos to a 1080 px short side (long side at most 1920 px) and re-encodes them as H.264 MP4 with AAC audio, and scales down larger images, in the background. Before it publishes a reference uploaded this way, the adapter reads `GET /media/:id/status` once and posts the adjusted file. While Postiz is still processing it, the target fails with `media_error`; check `native.getMediaStatus(ref, context)` and publish again once it reports `ready`. When the adjustment fails, Postiz keeps the original and reports `ready` with a `warning`, or `failed` when the original cannot be published. Media uploaded inline during `posts.publish` is never adjusted.
 
 ```ts
 await social.posts.publish(
@@ -254,9 +256,9 @@ await social.posts.publish(
 
 ## Supported operations
 
-The adapter supports account listing, publishing now or on a schedule, delivery status, cancelling a future scheduled post, deleting a failed or draft record, media upload, and post analytics. Cancelling deletes the Postiz record. Neither operation removes a post that already published.
+The adapter supports account listing, publishing now or on a schedule, delivery status, post listing, cancelling a future scheduled post, deleting a failed or draft record, media upload, post analytics, and channel analytics. Cancelling deletes the Postiz record.
 
-Postiz deletes posts by group. The adapter gives each post it creates its own group, and it refuses to cancel or delete a post in any other group, such as one created in the Postiz dashboard or through another API client.
+Postiz deletes posts by group: deleting one post also deletes every other post in its group. Postiz's public API ignores a `group` in the create request and gives each saved post a new group of its own ([`posts.repository.ts`](https://github.com/gitroomhq/postiz-app/blob/bd8353f09f8dbaec54f15985f26d34b56ac69636/libraries/nestjs-libraries/src/database/prisma/posts/posts.repository.ts), read 2026-11-04). After a create, the adapter reads the post back and puts that group in the delivery, job, and record identifiers it returns. Cancelling and deleting need one of those identifiers: the adapter deletes the post only while it is still in that group and no other nearby post shares it. An identifier from `posts.list`, or one whose group Postiz has since changed, is refused (see [Not supported](#not-supported)).
 
 ```ts
 if (outcome.state === "scheduled") {
@@ -272,26 +274,177 @@ if (outcome.state === "published") {
 }
 ```
 
-A disabled channel is listed with status `unknown`, because Postiz does not say why it was disabled. Pinterest, Reddit, Mastodon, Telegram, Discord, Twitch, and Google My Business (`gmb`) channels are listed as `pinterest`, `reddit`, `mastodon`, `telegram`, `discord`, `twitch`, and `google-business`. Pinterest needs a numeric `boardId`, Reddit needs `subreddit` and a `title` of at least two characters, and Discord needs `channelId`. Postiz's Reddit integration uploads exactly one attachment, so a Reddit post takes text, one image, or one MP4 video, never a carousel. An MP4 also needs a `thumbnail` at a public HTTPS URL ending in `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`; Postiz uploads it to Reddit as the video poster. Postiz posts Twitch content as a chat message: it sends at most 500 characters and drops attachments, so preparation rejects Twitch media (`twitch.media_unsupported`) and longer text (`twitch.text_too_long`) before anything is uploaded. A TikTok `title` is kept only on an inbox draft. Channels on other providers, such as Slack, Medium, and WordPress, are left out unless you set `unknownPlatforms: "include"`, which lists them for reading only. Provider-specific variants such as `linkedin-page` and `instagram-standalone` are mapped to the normalized `linkedin` and `instagram` platforms instead. Facebook in this adapter means Facebook Pages, not personal profiles. Comments, messages, and post feeds are not part of this adapter. See Postiz's [integration list](https://docs.postiz.com/public-api/integrations/list) for the provider's wider set; providers beyond the ones above are not declared by this SDK.
+`analytics.getAccountMetrics` reads `GET /analytics/:integration` for the channel over the last 30 days and returns the latest value of each series, such as `followers` or `impressions`, the same way.
 
-Postiz limits how many posts one workspace can create per hour. Its documentation gives 100 per hour on Postiz Cloud, and the self-hosted code defaults to 90 when `API_LIMIT` is unset. The stock Docker Compose explicitly sets `API_LIMIT=30`; your deployment configuration determines the effective limit. Each target is one create request. Past the limit Postiz answers with HTTP 429, which the adapter reports as `rate_limited`. The adapter never retries a create, because a retry after a timeout can post twice.
+```ts
+const channelMetrics = await social.analytics.getAccountMetrics(account, { authorization });
+```
+
+`posts.list` reads `GET /posts`, which Postiz filters only by date range. Each page covers one week, newest first: the first page ends 30 days from now, and paging stops one year back. Only the account's own posts are returned, so a page can be empty while later pages are not; keep following `nextCursor`. Each item carries the record `id` (the same `<postiz post id>@<publish time>` form), `publishDate`, `state`, `text`, and `url` once published.
+
+```ts
+const page = await social.posts.list(account, { limit: 25, authorization });
+```
+
+A disabled channel is listed with status `unknown`, because Postiz does not say why it was disabled. To list one customer's channels, pass that customer's ID as `group` when you create the adapter; Postiz then filters `GET /integrations` by it. `native.listGroups` lists the customers (`GET /groups`). Pinterest, Reddit, Mastodon, Telegram, Discord, Twitch, and Google My Business (`gmb`) channels are listed as `pinterest`, `reddit`, `mastodon`, `telegram`, `discord`, `twitch`, and `google-business`. Pinterest needs a numeric `boardId`, Reddit needs `subreddit` and a `title` of at least two characters, and Discord needs `channelId`. Postiz's Reddit integration uploads exactly one attachment, so a Reddit post takes text, one image, or one MP4 video, never a carousel. Set `content.link` with only a `url` to make a Reddit link post (`type: "link"` with that `url`); a link post takes no attachments. An MP4 also needs a `thumbnail` at a public HTTPS URL ending in `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`; Postiz uploads it to Reddit as the video poster. Postiz posts Twitch content as a chat message: it sends at most 500 characters and drops attachments, so preparation rejects Twitch media (`twitch.media_unsupported`) and longer text (`twitch.text_too_long`) before anything is uploaded. Set `messageType: "announcement"` to send a highlighted announcement instead of a regular message. Postiz-only channels such as Slack, Medium, and WordPress are covered in [Postiz-only channels](#postiz-only-channels). Any other provider identifier is left out unless you set `unknownPlatforms: "include"`, which lists it for reading only. Provider-specific variants such as `linkedin-page` and `instagram-standalone` are mapped to the normalized `linkedin` and `instagram` platforms instead. Facebook in this adapter means Facebook Pages, not personal profiles. Comments and messages are not part of this adapter. See Postiz's [integration list](https://docs.postiz.com/public-api/integrations/list) for the provider's wider set; providers beyond the ones above are not declared by this SDK.
+
+Postiz limits how many create requests one workspace can make per hour. Its documentation gives 100 per hour on Postiz Cloud, and the self-hosted code defaults to 90 when `API_LIMIT` is unset. The stock Docker Compose explicitly sets `API_LIMIT=30`; your deployment configuration determines the effective limit. Postiz counts a request once even when it carries several posts in one request, but this adapter does not batch: each target is its own create request, so each target keeps its own outcome and group. Past the limit Postiz answers with HTTP 429, which the adapter reports as `rate_limited`. The adapter never retries a create, because a retry after a timeout can post twice.
+
+## Post options
+
+These options work on every Postiz target and set fields of the create request:
+
+| Social SDK option   | Postiz field        | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `saveToDraft: true` | `type: "draft"`     | Save the post as a Postiz draft instead of scheduling it. It keeps `schedule.at` as its date, or now. The outcome is `accepted`, and nothing publishes until you move it with `native.changeStatus(ref, "schedule", context)` or in Postiz.                                                                                                                                                                                                                 |
+| `workspaceTags`     | `tags`              | Postiz tag names, such as `["Launch"]`. Postiz attaches only tags that already exist in the workspace, matched by name, and ignores the rest.                                                                                                                                                                                                                                                                                                               |
+| `shortLink: true`   | `shortLink`         | Let Postiz shorten the URLs in the text. The adapter sends `false` unless you ask.                                                                                                                                                                                                                                                                                                                                                                          |
+| `repeatEveryDays`   | `inter`             | Repeat the post every N days, a whole number of 1 or more, like the composer's "Repeat Post Every". Postiz publishes it again each interval after the first date. Its post list then shows the post once per occurrence in the range, with the same Postiz post ID; `native.listPosts` reports the interval as `repeatEveryDays`.                                                                                                                           |
+| `thread`            | extra `value` items | Follow-up parts, each `{ text, delayMinutes? }`. Where the platform threads natively, such as X, they publish as a thread of replies; elsewhere Postiz posts them as comments on the first post, and LinkedIn and Instagram comments carry text only. `delayMinutes` waits that many minutes after the previous part (`delay`). Parts carry text only. YouTube, TikTok, Pinterest, MeWe, and Tumblr take no extra parts, so preparation rejects them there. |
+
+```ts
+await social.posts.publish(
+  {
+    targets: [
+      {
+        account,
+        options: {
+          workspaceTags: ["Launch"],
+          thread: [
+            { text: "2/ What changed" },
+            { text: "3/ Try it: https://example.com", delayMinutes: 5 },
+          ],
+        },
+      },
+    ],
+    content: { text: "1/ We shipped the new scheduler." },
+  },
+  { authorization },
+);
+```
+
+`thumbnailTimestamp` sets the cover frame of a single video, in milliseconds into the video, on Instagram and TikTok. Postiz sends it as `thumbnailTimestamp` on the video's media object. TikTok applies it only to direct posts (not `draft: true`), and Postiz reports that in its testing the cover applied only to public TikTok posts.
 
 ## Platform options
 
-| Platform | Social SDK option                                 | Postiz setting                                                       |
-| -------- | ------------------------------------------------- | -------------------------------------------------------------------- |
-| X        | `replySettings`                                   | `who_can_reply_post`, default `everyone`                             |
-| YouTube  | `title`, `visibility`, `madeForKids`              | `title`, `type`, `selfDeclaredMadeForKids`                           |
-| TikTok   | `privacy`                                         | `privacy_level`                                                      |
-| TikTok   | `disableComments`, `disableDuet`, `disableStitch` | `comment`, `duet`, `stitch`, each inverted                           |
-| TikTok   | `brandedContent`, `ownBrand`, `aiGenerated`       | `brand_content_toggle`, `brand_organic_toggle`, `video_made_with_ai` |
-| TikTok   | `draft`                                           | `content_posting_method` of `UPLOAD` or `DIRECT_POST`                |
+| Platform        | Social SDK option                                                                        | Postiz setting                                                                   |
+| --------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| X               | `replySettings`: `everyone`, `following`, `mentionedUsers`, `subscribers`, or `verified` | `who_can_reply_post`, default `everyone`                                         |
+| X               | `community`, an X Community URL such as `https://x.com/i/communities/123`                | `community`, to post in that community instead of the main timeline              |
+| X               | `aiGenerated`, `paidPartnership`                                                         | `made_with_ai`, `paid_partnership` disclosure labels                             |
+| X               | `article: { title, status }`, `status` `draft` or `published`                            | `post_type: "article"`, `article_title`, `article_status`                        |
+| Instagram       | `postType: "story"`                                                                      | `post_type: "story"`, from exactly one image or video                            |
+| Instagram       | `trialReel`, `graduationStrategy` (`MANUAL` or `SS_PERFORMANCE`)                         | `is_trial_reel`, `graduation_strategy`, for a single-video reel                  |
+| Instagram       | `collaborators`, a list of usernames                                                     | `collaborators`, each invited as `{ label }`                                     |
+| Instagram       | `audio: { id, audioVolume?, videoVolume? }`                                              | `audio` with `id`, `audio_volume`, `video_volume` (0 to 100)                     |
+| Facebook        | `content.link` with only a `url`                                                         | `url`, a link preview                                                            |
+| Facebook        | `postType: "story"`                                                                      | `post_type: "story"`; each attachment publishes as its own story                 |
+| Facebook        | `textFormatPresetId`                                                                     | `text_format_preset_id`, a text background                                       |
+| Facebook        | `title`                                                                                  | `title` of a video post                                                          |
+| YouTube         | `title`, `visibility`, `madeForKids`                                                     | `title`, `type`, `selfDeclaredMadeForKids`                                       |
+| YouTube         | `tags`, a list of strings                                                                | `tags`, as `{ value, label }`                                                    |
+| YouTube         | the video's `thumbnail`                                                                  | `thumbnail`, an uploaded Postiz file                                             |
+| TikTok          | `privacy`                                                                                | `privacy_level`                                                                  |
+| TikTok          | `disableComments`, `disableDuet`, `disableStitch`                                        | `comment`, `duet`, `stitch`, each inverted                                       |
+| TikTok          | `brandedContent`, `ownBrand`, `aiGenerated`                                              | `brand_content_toggle`, `brand_organic_toggle`, `video_made_with_ai`             |
+| TikTok          | `draft`                                                                                  | `content_posting_method` of `UPLOAD` or `DIRECT_POST`                            |
+| TikTok          | `title`, up to 90 characters                                                             | `title`                                                                          |
+| TikTok          | `autoAddMusic`                                                                           | `autoAddMusic` of `yes` or `no`, for a direct photo post                         |
+| LinkedIn        | `carousel`, `carouselName`                                                               | `post_as_images_carousel`, `carousel_name`                                       |
+| Pinterest       | `boardId`, `title`, `link`                                                               | `board`, `title`, `link`                                                         |
+| Pinterest       | `dominantColor`, a hex color such as `#FF5733`                                           | `dominant_color`                                                                 |
+| Reddit          | `subreddit`, `title`                                                                     | `subreddit[0].value` with `subreddit`, `title`, and `type`                       |
+| Google Business | `topicType`: `STANDARD`, `EVENT`, or `OFFER`                                             | `topicType`                                                                      |
+| Google Business | `callToAction: { type, url }`                                                            | `callToActionType`, `callToActionUrl`                                            |
+| Google Business | `event: { title, startDate, endDate, startTime?, endTime? }`                             | `eventTitle`, `eventStartDate`, `eventEndDate`, `eventStartTime`, `eventEndTime` |
+| Google Business | `offer: { couponCode?, redeemUrl?, terms? }`                                             | `offerCouponCode`, `offerRedeemUrl`, `offerTerms`                                |
+| Twitch          | `messageType`: `message` (default) or `announcement`                                     | `messageType`; an announcement is highlighted in chat                            |
+| Twitch          | `announcementColor`: `primary`, `blue`, `green`, `orange`, or `purple`                   | `announcementColor`, the banner color; needs `messageType: "announcement"`       |
 
-Instagram targets post to the feed. Postiz has no setting that keeps a reel off the grid, so `shareToFeed: false` is rejected. A TikTok `UPLOAD` draft goes to the creator's inbox and must be published there within 24 hours. Postiz ignores every setting except its provider `title` in this mode. The SDK does not map that title and rejects it as an unmapped option; it makes no claim that a caption, privacy, interaction or disclosure setting is retained. The adapter warns about this boundary. The adapter always sends `autoAddMusic: "no"`.
+Instagram targets post to the feed. Postiz has no setting that keeps a reel off the grid, so `shareToFeed: false` is rejected. Instagram stories carry one image or video each. A trial reel starts with limited visibility; with `SS_PERFORMANCE` Instagram graduates it to full visibility based on its performance, and with `MANUAL` you graduate it yourself. Reel audio attaches only to a single-video reel on an Instagram account linked to a Facebook Page; Postiz rejects it on `instagram-standalone` channels. Find audio IDs with `native.triggerTool(account, { methodName: "audioSearch", data: { q: "summer vibes", type: "music" } }, context)`.
+
+An X article posts long-form HTML: Postiz keeps `p`, `h1` to `h3`, `ul`, `ol`, `li`, `strong`, `u`, and `a`, raises the length limit to 100,000 characters, and takes images only. An article saved as a `draft` cannot have thread replies. The adapter does not map `article_cover`.
+
+A Facebook link sends only the URL as `url`, and Facebook builds the preview from the page itself; a `content.link` with a `title` or `description` is still rejected rather than dropping them. A Facebook story needs at least one attachment and takes no link. Facebook draws a text background only on a text-only Page post of up to 130 characters, so the adapter rejects `textFormatPresetId` with media or longer text. Facebook publishes no list of the presets; pick one in Postiz to find its ID. A Facebook `title` applies only to a post whose first attachment is a video.
+
+A YouTube thumbnail must be a public HTTPS image URL ending in `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`. The adapter imports it into Postiz with `/upload-from-url` and sends the returned file as the `thumbnail` setting.
+
+A TikTok `UPLOAD` draft goes to the creator's inbox and must be published there within 24 hours. TikTok keeps only the `title` in this mode, so the adapter makes no claim that a caption, privacy, interaction or disclosure setting is retained, and warns about this boundary. The `title` also applies to direct posts. `autoAddMusic` applies only to direct photo posts; without it the adapter sends `autoAddMusic: "no"`.
+
+A LinkedIn carousel posts two or more images as one swipeable document instead of a collage, with `carouselName` as its name.
+
+To mention a LinkedIn company page, look up its ID with `native.triggerTool` and the `mention` tool, passing the page's vanity name (the part after `linkedin.com/company/`) as `data.query`. The output is a list of `{ id, label, image }`. Put the match in the text as a span, which the adapter sends unchanged and Postiz renders as a link to the page:
+
+```html
+<p>Built with <span data-mention-id="{id}" data-mention-label="{label}">@{label}</span></p>
+```
+
+Only company pages can be found, by their exact vanity name; LinkedIn does not let Postiz tag people.
+
+A Google Business `EVENT` post needs `event` with a title and dates (`YYYY-MM-DD`, times `HH:MM`); an `OFFER` post can carry `event` dates and `offer` details. A call-to-action of any type except `NONE` needs a public HTTPS `url`.
+
+## Postiz-only channels
+
+Postiz publishes to channel types that have no shared Social SDK platform. The adapter lists each one under its Postiz identifier as the platform, such as `slack` or `medium`, and publishes to it with `posts.publish`, `posts.schedule`, status reads, `posts.list`, cancellation, and record deletion. Postiz fills `__type` from the channel, so the adapter sends only the settings below. Postiz documents each provider at [docs.postiz.com/public-api/providers](https://docs.postiz.com/public-api/providers/slack) (checked 2026-11-04). Preparation checks each channel's text limit from Postiz's [platform overview](https://docs.postiz.com/general/platforms/overview) and the attachments it accepts, and rejects a missing required setting before anything is uploaded. Analytics are not declared for these channels.
+
+| Platform    | Text limit | Attachments                   | Social SDK options                                                                                                        | Postiz settings                                                       |
+| ----------- | ---------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `slack`     | 400,000    | images                        | `channelId` (required): the Slack channel ID, such as `C0123456789`                                                       | `channel`                                                             |
+| `lemmy`     | 10,000     | none                          | `communities` (required): a list of `{ id, name, title, url? }`; `name` and `title` at least 2 characters                 | `subreddit[].value` with `subreddit`, `id`, `title`, `url`            |
+| `warpcast`  | 800        | images                        | `channels`: Farcaster channel IDs; omit to cast to the main feed                                                          | `subreddit[].value.id`                                                |
+| `nostr`     | 100,000    | images                        | none; the relays come from the channel                                                                                    | none                                                                  |
+| `vk`        | 2,048      | images                        | none; the wall or community comes from the channel                                                                        | none                                                                  |
+| `kick`      | 500        | images                        | none                                                                                                                      | none                                                                  |
+| `medium`    | 100,000    | none                          | `title` and `subtitle` (required, 2+ characters), `canonicalUrl`, `publicationId`, `tags` (up to 4 names)                 | `title`, `subtitle`, `canonical`, `publication`, `tags`               |
+| `devto`     | 100,000    | none                          | `title` (required, 2+ characters), `mainImage`, `canonicalUrl`, `organizationId`, `tags` (up to 4 names)                  | `title`, `main_image`, `canonical`, `organization`, `tags`            |
+| `hashnode`  | 10,000     | none                          | `title` (required, 6+ characters), `subtitle`, `mainImage`, `canonicalUrl`, `publicationId` (required), `tags` (required) | `title`, `subtitle`, `main_image`, `canonical`, `publication`, `tags` |
+| `wordpress` | 100,000    | none                          | `title` (required), `postType` (required), `status`, `mainImage`, `categoryIds`, `tagIds`                                 | `title`, `type`, `status`, `main_image`, `categories`, `tags`         |
+| `listmonk`  | 300,000    | none                          | `subject`, `preview`, `listId` (all required), `templateId`                                                               | `subject`, `preview`, `list`, `template`                              |
+| `dribbble`  | 40,000     | exactly one image             | `title` (required), `teamUrl`                                                                                             | `title`, `team`                                                       |
+| `tumblr`    | 32,768     | up to 30 images and one video | `title`, `link`, `sourceUrl`, `tags` (a list of names)                                                                    | `title`, `link`, `sourceUrl`, `tags` as one comma-separated string    |
+| `mewe`      | 63,206     | none                          | `postType` (required): `timeline` or `group`; `groupId`, required for `group`                                             | `postType`, `group`                                                   |
+| `moltbook`  | 300        | none                          | `submolt` (required): the community ID                                                                                    | `submolt`                                                             |
+| `skool`     | 50,000     | images                        | `groupId`, `labelId`, `title` (all required)                                                                              | `group`, `label`, `title`                                             |
+| `whop`      | 50,000     | images                        | `companyId`, `experienceId` (both required), `title`                                                                      | `company`, `experience`, `title`                                      |
+
+- Slack takes Slack's own formatting (`*bold*`, `_italic_`, `:emoji:`), and Postiz sends `altText` with Slack and Tumblr images.
+- Lemmy and Warpcast reuse Postiz's `subreddit` field for communities and channels. Each Lemmy community gets the post under its own `title`; `url` turns it into a link post.
+- Farcaster channels are named `wrapcast` in Postiz's API and `warpcast` on its settings page; the adapter lists either as `warpcast`.
+- Medium, Dev.to, and Hashnode take Markdown; WordPress and Listmonk take HTML. `canonicalUrl` points search engines at the original when you syndicate an article.
+- `mainImage` is the cover of a Dev.to or Hashnode article, or the featured image of a WordPress post: a public HTTPS image URL ending in `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp`. The adapter imports it with `/upload-from-url` and sends the returned file as `main_image`.
+- Hashnode `tags` are `{ id, name }` pairs of Hashnode tag IDs; Medium and Dev.to `tags` are names, sent as `{ value, label }`. Dev.to tags should be lowercase existing Dev.to tags.
+- WordPress `postType` depends on the site, such as `post` or `page`. `status` is `publish`, `draft`, `pending` (submit for review), or `private`. `categoryIds` and `tagIds` are numeric WordPress IDs, not names.
+- Listmonk sends a newsletter campaign to the list `listId`; `preview` is the text email clients show before the message opens, and the default template applies without `templateId`.
+- A Dribbble shot is one GIF, JPG, or PNG image of exactly 400×300 or 800×600 pixels, up to 8 MB. Dribbble rejects other sizes; the adapter checks only the count. `teamUrl` posts for a team you belong to.
+- Tumblr `sourceUrl` credits reblogged or quoted content. Each Tumblr blog is its own channel.
+- MeWe, Skool, and Whop IDs come from the Postiz composer: select the group, label, company, or forum there once to find the ID. A Whop `experienceId` is the forum to post in.
+- Moltbook posts go to the `submolt` community.
+
+```ts
+await social.posts.publish(
+  {
+    targets: [
+      {
+        account: wordpressAccount,
+        options: {
+          title: "Company updates",
+          postType: "post",
+          status: "draft",
+          categoryIds: [12],
+          mainImage: "https://cdn.example.com/featured.jpg",
+        },
+      },
+      { account: slackAccount, options: { channelId: "C0123456789" } },
+    ],
+    content: { text: "<p>What shipped this month.</p>" },
+  },
+  { authorization },
+);
+```
 
 ## Connect links
 
-`native.createConnectLink` returns an OAuth URL that connects a channel to your Postiz workspace. The link expires after one hour. Pass a Postiz provider identifier such as `x`, `linkedin-page`, `instagram-standalone`, or `tiktok`. To reconnect an existing channel, pass its ID as `refreshAccountId`. Bluesky connects with an app password in the Postiz dashboard, so it has no link.
+`native.createConnectLink` returns an OAuth URL that connects a channel to your Postiz workspace. The link expires after one hour. Pass a Postiz provider identifier: `x`, `threads`, `youtube`, `tiktok`, `tiktok-business`, `instagram`, `instagram-standalone`, `linkedin`, `linkedin-page`, `facebook`, `pinterest`, `reddit`, `gmb`, `discord`, or `twitch`. To reconnect an existing channel, pass its ID as `refreshAccountId`. Bluesky connects with an app password and Mastodon with an instance URL in the Postiz dashboard, so they have no link; Telegram is not offered either.
 
 ```ts
 const context: AdapterOperationContext = {
@@ -305,4 +458,71 @@ const adapter = postiz({ apiKey: process.env.POSTIZ_API_KEY! });
 const { url } = await adapter.native.createConnectLink({ provider: "linkedin-page" }, context);
 ```
 
-After the person approves, Postiz redirects to its own dashboard, not to your application. Map the new channels to tenants in your own database before you use them. See [capabilities](/reference/capabilities) for the generated matrix.
+After the person approves, Postiz redirects to its own dashboard, not to your application. Map the new channels to tenants in your own database before you use them.
+
+## Native methods
+
+`adapter.native` exposes the rest of Postiz's public API. Each method takes the same `AdapterOperationContext` as above and sends one request, or two when it first reads a post to prove it belongs to the account. Native methods run outside `createSocial`, so check the tenant's grant for the account yourself before you call one. Post methods take the `delivery`, `job`, or record reference an outcome returned, and work only on posts the adapter can find by that reference.
+
+| Method                                                                       | Postiz route                         | What it does                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native.me(context)`                                                         | `GET /me`                            | The workspace the credentials act on. With an OAuth token it also returns the approving `user`; with an API key `user` is absent.                                                                                                                                                                                                                                            |
+| `native.isConnected(context)`                                                | `GET /is-connected`                  | `true` when Postiz accepts the credentials. A rejected key fails with `reconnect_required`.                                                                                                                                                                                                                                                                                  |
+| `native.listGroups(context)`                                                 | `GET /groups`                        | The workspace's customers, as `{ id, name }`, for the `group` option.                                                                                                                                                                                                                                                                                                        |
+| `native.deleteChannel(account, { confirmAccountId }, context)`               | `DELETE /integrations/:id`           | Delete the channel. Postiz also deletes every scheduled post on it. Pass the channel ID again as `confirmAccountId`.                                                                                                                                                                                                                                                         |
+| `native.getChannelSettings(account, context)`                                | `GET /integration-settings/:id`      | The channel's posting `rules`, `maxLength`, settings schema, and the `tools` it offers.                                                                                                                                                                                                                                                                                      |
+| `native.triggerTool(account, { methodName, data }, context)`                 | `POST /integration-trigger/:id`      | Run one of those tools with string parameters and return its `output`, such as Instagram `audioSearch`, LinkedIn `mention`, Reddit flairs, or Discord channels.                                                                                                                                                                                                              |
+| `native.findSlot(account, context)`                                          | `GET /find-slot/:id`                 | The channel's next free posting time, as `{ at }`, to pass as `schedule.at`.                                                                                                                                                                                                                                                                                                 |
+| `native.listMedia({ page, search }, context)`                                | `GET /media`                         | The workspace media library, newest first, 18 files per page from page 1, filtered by original file name.                                                                                                                                                                                                                                                                    |
+| `native.getMediaStatus(ref, context)`                                        | `GET /media/:id/status`              | Whether a file uploaded with `adjustMedia` is `processing`, `ready`, or `failed`.                                                                                                                                                                                                                                                                                            |
+| `native.listNotifications({ page }, context)`                                | `GET /notifications`                 | Workspace notifications, such as publishing errors, newest first, 100 per page from page 0.                                                                                                                                                                                                                                                                                  |
+| `native.changeStatus(ref, status, context)`                                  | `PUT /posts/:id/status`              | Move a queued or draft post to `draft`, which stops its publishing workflow, or to `schedule`, which publishes it at its stored date. A date already past publishes it right away.                                                                                                                                                                                           |
+| `native.updateSettings(ref, settings, context)`                              | `PUT /posts/:id/settings`            | Merge provider settings, in Postiz's own keys such as `who_can_reply_post`, into a queued or draft post. Content and date stay as they are, and Postiz validates the merged settings.                                                                                                                                                                                        |
+| `native.editPost(ref, { text, media, republish? }, context)`                 | `POST /posts`                        | Replace the text and media of the post's first part, sending its own `value[].id`. A queued or draft post is saved with `type: "update"`, which keeps its date, state, settings, workspace tags, and repeat interval. A published or failed post changes only with `republish: true`: Postiz then publishes the edited post again now, sent as `republish: true`. See below. |
+| `native.listPosts({ startDate, endDate, customer? }, context)`               | `GET /posts`                         | Every top-level post in the workspace in the date range, with its `state`, failure `error`, `repeatEveryDays`, tags, and channel. `customer` limits it to one customer's channels, by an ID from `native.listGroups`. The list is not scoped to one account, so check the tenant's grants before you show it.                                                                |
+| `native.listMissingContent(ref, context)`                                    | `GET /posts/:id/missing`             | For a published post whose platform ID is `missing`, recent content on the platform as `{ id, url }`.                                                                                                                                                                                                                                                                        |
+| `native.setReleaseId(ref, releaseId, context)`                               | `PUT /posts/:id/release-id`          | Connect that post to the platform content ID you matched, so status and analytics work.                                                                                                                                                                                                                                                                                      |
+| `native.generateVideo(request, context)`                                     | `POST /generate-video`               | Generate a video with Postiz's AI tools (`image-text-slides` or `veo3`). It spends the workspace's Postiz credits and returns the files by ID and path.                                                                                                                                                                                                                      |
+| `native.videoFunction(input, context)`                                       | `POST /video/function`               | Helpers for video generation, such as `loadVoices` for `image-text-slides`.                                                                                                                                                                                                                                                                                                  |
+| `native.startClipping(request, context)`                                     | `POST /clipping`                     | Cut a long YouTube video into up to 10 vertical clips. Clips land in the media library, plus one draft per clip on each listed channel; nothing is scheduled. It spends the plan's clipping minutes.                                                                                                                                                                         |
+| `native.getClipping(id, context)`, `native.listClippings({ page }, context)` | `GET /clipping/:id`, `GET /clipping` | Poll a clipping until its `status` is `completed` or `failed`, and list past clippings.                                                                                                                                                                                                                                                                                      |
+
+```ts
+const settings = await adapter.native.getChannelSettings(account, context);
+const audio = await adapter.native.triggerTool(
+  instagramAccount,
+  { methodName: "audioSearch", data: { q: "summer vibes", type: "music" } },
+  context,
+);
+const { at: nextSlot } = await adapter.native.findSlot(account, context);
+
+if (outcome.state === "unknown" && outcome.delivery) {
+  const candidates = await adapter.native.listMissingContent(outcome.delivery, context);
+  const match = candidates[0];
+  if (match) await adapter.native.setReleaseId(outcome.delivery, match.id, context);
+}
+```
+
+`native.editPost` reads the post first and returns its delivery outcome after the save. Postiz's post list does not return a post's current media, so pass every file the post should keep; `media: []` removes them all. Follow-up parts stay as they were, and a custom thumbnail cannot be set in an edit. The adapter re-sends the stored settings, because Postiz replaces them. A queued or draft post with `republish` is rejected, because it keeps its date anyway. Postiz gives the edited post a new group. When you edit with an identifier the adapter returned, the outcome's identifiers carry the new group, so cancel or delete the post with those; the identifiers from before the edit are refused.
+
+```ts
+const outcome = await adapter.native.editPost(
+  delivery,
+  { text: "Launching Thursday, not Wednesday.", media: [] },
+  context,
+);
+
+const posts = await adapter.native.listPosts(
+  { startDate: "2026-11-01T00:00:00Z", endDate: "2026-11-30T23:59:59Z", customer: customerId },
+  context,
+);
+```
+
+## Limits and requirements
+
+### Not supported
+
+- Removing a published post: cancelling and deleting change only the Postiz record, so neither removes a post that already published.
+- Cancelling or deleting other posts: the adapter refuses a post it did not create or edit, such as one created in the Postiz dashboard or through another API client, and a post edited in the Postiz dashboard since, because Postiz deletes the whole group and the adapter cannot show the group holds only that post. It also refuses when the read after a create failed, because the identifier then has no group.
+
+See [capabilities](/reference/capabilities) for the generated matrix.

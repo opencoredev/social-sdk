@@ -10,6 +10,7 @@ import {
   type PlatformPostRef,
 } from "@opencoredev/social-sdk";
 import { zernio } from "@opencoredev/social-sdk/cloud/zernio";
+import { zernioNative } from "@opencoredev/social-sdk/cloud/zernio-native";
 import {
   acceptWebhook,
   decodeWebhook,
@@ -243,8 +244,11 @@ export function zernioWebhookRoute(input: {
   };
 }
 
-/** Start a hosted Zernio connection flow for one profile. */
-export async function connectAccount(social: ZernioSocial, redirectUrl: string, tenantId: string) {
+/**
+ * Start a hosted Zernio connection flow for one profile. Native calls skip the client's
+ * authorization policy, so call this only after your own tenant checks.
+ */
+export async function connectAccount(apiKey: string, redirectUrl: string, tenantId: string) {
   const context: AdapterOperationContext = {
     backendInstance: "default",
     correlationId: crypto.randomUUID(),
@@ -252,7 +256,7 @@ export async function connectAccount(social: ZernioSocial, redirectUrl: string, 
     authorization: { tenantId },
   };
 
-  const native = social.native("default", { acknowledgeUnsafe: true });
+  const native = zernioNative({ apiKey });
   const profiles = await native.listProfiles(context);
   const profileId = profiles[0]?.["_id"];
 

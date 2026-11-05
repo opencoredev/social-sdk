@@ -217,7 +217,7 @@ Native `publishReel` accepts the same options except `userTags`, native `publish
 The table above describes the direct Instagram adapter. Managed backends have their own option names and map only the fields their APIs document, rejecting the rest at preparation:
 
 - [Zernio](/backends/zernio): `placement`, `collaborators`, `userTags` (with an optional `mediaIndex`), `locationId`, `trialReel`, `thumbOffsetMs`, `audioName`, `audioConfiguration` (volumes from 0 to 100), `muteAudio`, `aiGenerated`, `paidPartnership` with `brandedContentSponsors`, `commentsEnabled`, `firstComment`, and `shareToFeed`.
-- [Post for Me](/backends/post-for-me): `placement`, `shareToFeed`, `collaborators`, `locationId`, `trialReel`, `audioName`, and `aiGenerated`. `userTags` is not mapped.
+- [Post for Me](/backends/post-for-me): `placement`, `shareToFeed`, `collaborators`, `locationId`, `trialReel`, `audioName`, and `aiGenerated`. Instead of `userTags`, tag media with `mediaOptions[].tags`; Post for Me does not state the scale of `x` and `y`, so the SDK sends them unchanged; see [Media tags](/backends/post-for-me#media-tags).
 - [PostFast](/backends/postfast): `shareToFeed`, `placement`, `collaborators`, `locationId` (not on carousels), `aiGenerated`, `trialReel: "performance"`, `thumbOffsetMs`, and `firstComment`.
 - [Postiz](/backends/postiz): `postType: "story"`, `trialReel` with `graduationStrategy`, `collaborators`, `audio`, and `thumbnailTimestamp`. Postiz always posts to the feed, so `shareToFeed: false` is rejected.
 - [Buffer](/backends/buffer): a required boolean `shareToFeed`, `postType`, `location`, `userTags`, `thumbnailOffset`, `shopGridLink`, `aiGenerated`, and `firstComment`.

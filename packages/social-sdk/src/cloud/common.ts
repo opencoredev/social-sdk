@@ -433,6 +433,8 @@ export function managedReplySupported(
 export function managedOptionIssues(
   target: PreparedPublishTarget,
   provider: ManagedProvider,
+  /** Further option keys a provider maps and validates itself. */
+  extraKeys: Partial<Record<Platform, readonly string[]>> = {},
 ): PreparationIssue[] {
   const config = optionsObject(target);
 
@@ -467,9 +469,7 @@ export function managedOptionIssues(
             "draft",
             ...(provider === "zernio"
               ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
-              : provider === "postiz"
-                ? ["title"]
-                : []),
+              : []),
           ],
   };
 
@@ -478,7 +478,12 @@ export function managedOptionIssues(
   const fail = (code: string, message: string) =>
     issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
 
-  if (Object.keys(config).some((key) => !keys[target.account.platform]?.includes(key)))
+  const allowed = [
+    ...(keys[target.account.platform] ?? []),
+    ...(extraKeys[target.account.platform] ?? []),
+  ];
+
+  if (Object.keys(config).some((key) => !allowed.includes(key)))
     fail(
       "options.unmapped",
       "A supplied platform option has no verified mapping in this managed adapter.",
@@ -507,7 +512,13 @@ export function managedOptionIssues(
 
   if (
     config["replySettings"] !== undefined &&
-    !["everyone", "following", "mentionedUsers"].includes(String(config["replySettings"]))
+    ![
+      "everyone",
+      "following",
+      "mentionedUsers",
+      // Zernio and Post for Me document these two X reply audiences as well.
+      ...(provider === "zernio" || provider === "post-for-me" ? ["subscribers", "verified"] : []),
+    ].includes(String(config["replySettings"]))
   )
     fail("x.reply_settings", "Select a supported reply setting explicitly.");
 
@@ -579,24 +590,6 @@ export function managedOptionIssues(
     !["story", "saved_story", "spotlight"].includes(String(config["contentType"]))
   )
     fail("snapchat.content_type", "Select story, saved_story, or spotlight.");
-
-  if (
-    provider === "postiz" &&
-    target.account.platform === "tiktok" &&
-    config["title"] !== undefined
-  ) {
-    if (config["draft"] !== true)
-      fail(
-        "tiktok.title",
-        "Postiz only keeps a TikTok title on an inbox draft; set draft to true.",
-      );
-    else if (
-      !isString(config["title"]) ||
-      config["title"].length === 0 ||
-      config["title"].length > 90
-    )
-      fail("tiktok.title", "TikTok titles are limited to 90 characters.");
-  }
 
   if (target.account.platform === "tiktok") {
     if (provider !== "buffer") {

@@ -65,6 +65,21 @@ const result = await social.posts.publish(
 
 A successful submission returns a `scheduled` outcome whose job ID is the PostFast post ID. If your workspace requires post approval, the outcome is `accepted` with backend state `SCHEDULED/PENDING_APPROVAL` until someone approves it in PostFast. Call `getDelivery` later to see `published`, `failed`, or the approval state. An `accepted` outcome also occurs when creation returns a post ID but the follow-up read fails; retain its delivery reference and read status later. It does not prove pending approval in that case. PostFast has no webhooks, so poll for status.
 
+### Drafts and approval
+
+The native `submitPost({ account, content, options?, schedule?, submission })` creates a post that does not go straight onto the schedule, with the same options and checks as `posts.publish`:
+
+- `{ kind: "draft" }` sends `status: "DRAFT"`. A DRAFT needs no `schedule`; PostFast keeps it until someone schedules it in the app. The outcome is `accepted` with backend state `DRAFT`.
+- `{ kind: "approval" }` sends `status: "SCHEDULED"` with `approvalStatus: "PENDING_APPROVAL"` and needs a future `schedule.at`. It publishes only after someone approves it in PostFast.
+
+```ts
+const native = postfast({ apiKey: process.env.POSTFAST_API_KEY! }).native;
+const draft = await native.submitPost(
+  { account, content: { text: "Draft for review" }, submission: { kind: "draft" } },
+  context,
+);
+```
+
 The remaining examples pass `authorization` the same way. Related server helpers are in `examples/snippets/backend-postfast.ts`.
 
 ## Poll for status
@@ -104,7 +119,11 @@ If the submission itself was ambiguous, the outcome is `unknown` with no `delive
 
 ## Media
 
-PostFast references media by storage key, not by URL. The adapter asks PostFast for a signed upload URL, uploads the bytes there without your API key, and sends the key with the post. HTTPS media URLs are rejected at preparation, because the SDK does not fetch remote files for you. Supported types are JPEG, PNG, GIF, and WebP images up to 10 MB, and MP4, WebM, and MOV (QuickTime) videos up to 250 MB. PostFast's schema has no alt text field, so attachments with `altText` are rejected.
+PostFast references media by storage key, not by URL. The adapter asks PostFast for a signed upload URL, uploads the bytes there without your API key, and sends the key with the post. HTTPS media URLs are rejected at preparation, because the SDK does not fetch remote files for you. Supported types are JPEG, PNG, GIF, and WebP images up to 10 MB, MP4, WebM, and MOV (QuickTime) videos up to 250 MB, and for LinkedIn one PDF, DOC, DOCX, PPT or PPTX document up to 60 MB.
+
+A video's `thumbnail`, given as a JPEG or PNG `Blob` with its `type` set, is uploaded and sent as the media item's `coverImageKey`, the cover image; on YouTube it becomes `youtubeThumbnailKey` instead, which needs a phone-verified channel. TikTok `coverTimestampMs` and Instagram `thumbOffsetMs` pick a cover frame instead and are sent as `coverTimestamp` in milliseconds.
+
+`native.uploadCaptions({ file, format })` uploads an SRT (`application/x-subrip`) or WebVTT (`text/vtt`) caption file up to 10 MB and returns its key. Pass it as the YouTube `captionKey` with the video's `language`; PostFast adds it as one caption track after the upload.
 
 Pass a `Blob` in the post, or upload it first with `media.upload` and publish the returned reference. The reference resolves through the adapter's `mediaStore`, which is in memory by default, so upload and publish with the same adapter instance or configure a shared store.
 
@@ -138,11 +157,25 @@ await social.posts.publish(
 );
 ```
 
-PostFast documents Bluesky support for text and images only, so a Bluesky target with a video is rejected at preparation.
+Bluesky video is supported: PostFast's Bluesky guide (updated October 2026) accepts one MP4 video up to 100 MB per post, with no images alongside it. Other Bluesky videos are rejected at preparation with `bluesky.video`.
 
 ## Supported operations
 
-The adapter supports account listing, scheduled publishing, delivery status, cancelling a future scheduled post, deleting a failed backend record, media upload, and post analytics. Cancelling deletes the PostFast record. Neither operation removes a post that already published.
+The adapter supports account listing, scheduled publishing, delivery status, `posts.list`, cancelling a future scheduled post, deleting a failed backend record, media upload, post analytics and follower counts. Cancelling deletes the PostFast record.
+
+Account listing maps PostFast's `connectionStatus` to the account `status`:
+
+| PostFast `connectionStatus` | `status`             |
+| --------------------------- | -------------------- |
+| `CONNECTED`                 | `connected`          |
+| `DISABLED`                  | `reconnect-required` |
+| Missing or any other value  | `unknown`            |
+
+When PostFast sends a `disabledReason` string, the account keeps it unchanged as `native.disabledReason`. Show it to the user when asking them to reconnect. Accounts without one have no `native` field.
+
+`posts.list` reads an account's posts from `GET /social-posts?socialMediaIds=`, 1 to 50 per page, ordered by schedule time. It includes the posts PostFast imports from the last 60 days on Facebook Pages, Instagram, Threads and TikTok when an account connects, including posts made outside PostFast.
+
+The native `bulkDelete({ ids })` deletes 1 to 100 posts in one bulk request (`POST /social-posts/bulk-delete`) and returns `deletedIds` and `notFoundIds`. Like the single delete, it removes PostFast records only; published posts stay live.
 
 ```ts
 if (outcome.state === "scheduled") {
@@ -162,7 +195,9 @@ if (outcome.state === "failed" && outcome.delivery) {
 }
 ```
 
-Post analytics need the platform post reference from a `published` outcome, because it carries the PostFast record ID. Metrics include likes, comments, shares, impressions, reach, interactions, and video views where the platform reports them, plus watch time and Instagram save rate.
+Post analytics need the platform post reference from a `published` outcome, because it carries the PostFast record ID. Metrics include likes, comments, shares, impressions, reach, interactions, and video views where the platform reports them, plus watch time, Instagram save rate and `reelsSkipRate` (the share of Reel viewers who skipped in the first three seconds), and TikTok `favorites` from `extras`.
+
+`getAccountMetrics` returns `followers` from the account's `followerCount`, refreshed daily around 04:00 UTC, with `followerCountUpdatedAt` as the measured day. X and Google Business Profile have no count yet. The native `followerHistory({ account, from?, to? })` reads daily snapshots and the net change from `GET /social-media/:id/follower-history` (90 days by default, up to 365).
 
 ```ts
 if (outcome.state === "published") {
@@ -170,18 +205,37 @@ if (outcome.state === "published") {
 }
 ```
 
-Pinterest, Telegram, and Google Business Profile accounts are listed as `pinterest`, `telegram`, and `google-business`. Pinterest needs `boardId` (and accepts `link`), Google Business Profile needs `locationId`, and Telegram takes no options. PostFast accepts uploaded media only, so pins need uploaded bytes rather than a URL. Accounts on other networks are left out unless you set `unknownPlatforms: "include"`, which lists them for reading only. Comments, messages, and post feeds are not part of this adapter.
+Pinterest, Telegram, and Google Business Profile accounts are listed as `pinterest`, `telegram`, and `google-business`. Pinterest needs `boardId` (and accepts `link`), Google Business Profile needs `locationId`, and Telegram takes no options. PostFast accepts uploaded media only, so pins need uploaded bytes rather than a URL. Accounts on other networks are left out unless you set `unknownPlatforms: "include"`, which lists them for reading only. Comments are covered by the Social Inbox below.
 
 ## Platform options
 
-| Platform  | Social SDK option                                    | PostFast control                                                                       |
-| --------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| YouTube   | `title`, `visibility`, `madeForKids`                 | `youtubeTitle`, `youtubePrivacy`, `youtubeMadeForKids`; always `youtubeIsShort: false` |
-| Instagram | `shareToFeed`                                        | `instagramPostToGrid`                                                                  |
-| TikTok    | `disableComments`, `disableDuet`, `disableStitch`    | `tiktokAllowComments`, `tiktokAllowDuet`, `tiktokAllowStitch`                          |
-| TikTok    | `ownBrand`, `brandedContent`, `aiGenerated`, `draft` | `tiktokBrandOrganic`, `tiktokBrandContent`, `tiktokIsAigc`, `tiktokIsDraft`            |
+| Platform  | Social SDK option                                    | PostFast control                                                                                                     |
+| --------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| YouTube   | `title`, `visibility`, `madeForKids`                 | `youtubeTitle`, `youtubePrivacy`, `youtubeMadeForKids`                                                               |
+| YouTube   | `isShort`                                            | `youtubeIsShort` (defaults to `false`)                                                                               |
+| YouTube   | `tags`, `playlistId`, `containsSyntheticMedia`       | `youtubeTags`, `youtubePlaylistId`, `youtubeContainsSyntheticMedia`                                                  |
+| YouTube   | `language`, `captionKey`                             | `youtubeLanguage`, `youtubeCaptionKey`                                                                               |
+| Instagram | `shareToFeed`                                        | `instagramPostToGrid`                                                                                                |
+| Instagram | `placement`: `feed`, `story`, `reels`                | `instagramPublishType`: `TIMELINE`, `STORY`, `REEL`                                                                  |
+| Instagram | `collaborators`, `locationId`, `aiGenerated`         | `instagramCollaborators`, `instagramLocationId`, `instagramIsAiGenerated`                                            |
+| Instagram | `trialReel: "performance"`                           | `instagramTrialReelStrategy: "SS_PERFORMANCE"`                                                                       |
+| Facebook  | `reel`, `story`                                      | `facebookContentType`: `REEL`, `STORY`                                                                               |
+| Facebook  | `collaborators`, `locationId`, `geoRestriction`      | `facebookReelsCollaborators`, `facebookPlaceId`, `facebookTargetCountries`                                           |
+| Facebook  | `carouselCards`, `carouselLink`, `carouselEndCard`   | `mediaLink`, `mediaCaption`, `mediaDescription` per image; `facebookCarouselMainLink`; `facebookCarouselShowEndCard` |
+| TikTok    | `title`, `autoAddMusic`, `musicSoundId`              | `tiktokTitle`, `tiktokAutoAddMusic`, `tiktokMusicSoundId`                                                            |
+| X         | `repostUrl`                                          | `xRetweetUrl`                                                                                                        |
+| Threads   | `topicTag`                                           | `threadsTopicTag`                                                                                                    |
+| LinkedIn  | `documentTitle` with one document                    | `linkedinAttachmentTitle`, `linkedinAttachmentKey`                                                                   |
+| TikTok    | `disableComments`, `disableDuet`, `disableStitch`    | `tiktokAllowComments`, `tiktokAllowDuet`, `tiktokAllowStitch`                                                        |
+| TikTok    | `ownBrand`, `brandedContent`, `aiGenerated`, `draft` | `tiktokBrandOrganic`, `tiktokBrandContent`, `tiktokIsAigc`, `tiktokIsDraft`                                          |
 
-The generic YouTube video route explicitly sends `youtubeIsShort: false`, selecting ordinary videos. This adapter does not expose a Shorts selector.
+`isShort: true` publishes a YouTube Short (`youtubeIsShort`); without it the adapter sends `youtubeIsShort: false` for an ordinary video. `tags` are up to 100 characters each, 500 combined; `playlistId` comes from `native.youtubePlaylists`; `captionKey` needs `language`, a BCP-47 code such as `en` or `pt-BR`.
+
+`firstComment` posts a first comment about ten seconds after publication on X, Instagram, Facebook, YouTube, Threads and TikTok (up to 1,200 characters on TikTok, where comments must be on). PostFast does not support it on LinkedIn, Pinterest, Bluesky or Google Business Profile, so it is rejected there.
+
+Instagram `placement: "reels"` needs one video; `locationId` (a Page ID from `native.searchPlaces`) works on a single image, video, Reel or Story, not carousels. PostFast documents only the performance trial Reel strategy, so `trialReel: "manual"` is rejected. Facebook `locationId` and `geoRestriction` (up to 25 ISO country codes) apply to feed posts; a link carousel takes 2 to 10 images, one card each, and its main link defaults to the first card's. `carouselEndCard: true` sends `facebookCarouselShowEndCard`, which adds Facebook's end card after the last card; PostFast leaves it off by default, and the option needs `carouselCards`. TikTok `musicSoundId` comes from `native.tiktokSounds` and cannot be combined with `autoAddMusic: true` or a draft. X `repostUrl` reposts an X post at the scheduled time and needs no text (PostFast sends empty `content`); Threads `topicTag` is 1 to 50 characters without `.` or `&`.
+
+Google Business Profile takes `topicType` (`STANDARD`, `EVENT` or `OFFER`), `callToActionType` (`BOOK`, `ORDER`, `SHOP`, `LEARN_MORE`, `SIGN_UP` or `CALL`) with `callToActionUrl`, and for events and offers `eventTitle` (up to 58 characters), `eventStart` and `eventEnd` (ISO 8601, required for EVENT and OFFER), `offerCouponCode`, `offerRedeemUrl` and `offerTerms`. They map to `gbpTopicType`, `gbpCallToActionType` and the other `gbp*` controls. A post takes at most one image.
 
 PostFast TikTok videos use account-default privacy and photos default public. The deprecated `tiktokPrivacy` control does not override privacy. Every non-draft TikTok target must request `PUBLIC_TO_EVERYONE`; other values are rejected before dispatch. Only explicit `draft: true` avoids direct publication. Obtain creator consent after preview and pass all choices:
 
@@ -221,3 +275,48 @@ const { url } = await adapter.native.createConnectLink(
 ```
 
 After connection, list accounts on the server and verify the new returned account IDs against the pending tenant connection. `externalId` links the provider flow to your customer record; it is not a social account ID or an authorization grant. Store the returned account IDs, platforms, and backend name in your tenant grants before using them. See [capabilities](/reference/capabilities) for the generated matrix.
+
+## Lookups
+
+Native lookups return the IDs that platform options need:
+
+- `pinterestBoards({ account })` lists Pinterest boards (`boardId` for `options.boardId`) from `GET /social-media/:id/pinterest-boards`.
+- `youtubePlaylists({ account })` lists the channel's playlists (`playlistId`).
+- `gbpLocations({ account })` lists Google Business Profile locations (`locationId`).
+- `tiktokSounds({ account, genre?, countryCode?, dateRange? })` lists up to 100 trending licensed sounds (`musicSoundId`), already ranked.
+- `searchPlaces({ query })` finds Facebook Pages with an address; each `id` works as Facebook and Instagram `locationId`. PostFast allows 110 searches an hour.
+
+## Social Inbox
+
+PostFast's Social Inbox collects comments on the workspace's own posts on TikTok, Instagram, Facebook Pages and Threads, from the moment an account connects. The native adapter reads and answers it through `/social-inbox`:
+
+- `listInboxConversations({ account, page?, limit?, unreadOnly?, statuses?, assignedToUserId? })` lists comment threads with `canReply`, `maxReplyLength`, `unreadCount`, triage `status` and `assignedToUserId`; gate replies on those fields. `statuses` filters by triage state (`OPEN`, `SNOOZED`, `CLOSED`, sent comma-separated) and `assignedToUserId` (a PostFast user UUID) keeps only that teammate's conversations.
+- `listInboxItems({ conversationId, page?, limit?, order? })` lists a thread's comments and your replies, oldest first unless `order` is `DESC`; each item `id` is what the next calls take.
+- `replyToInboxItem({ itemId, text, idempotencyKey? })` replies publicly under a comment. Pass an `idempotencyKey` so a retry does not double-send.
+- `privateReply({ itemId, text })` sends a private reply, delivered as one DM, to an Instagram comment that has `canPrivateReply`, within seven days and up to 1,000 bytes.
+- `moderateInboxItem({ itemId, action })` takes `hide`, `unhide` or `delete` and changes the comment on the platform through `POST /social-inbox/items/:id/state`. Delete cannot be undone and is unavailable on Threads.
+- `markInboxRead({ conversationId })` and `inboxUnreadCount()` manage PostFast's own unread state; nothing changes on the platform.
+- `setInboxStatus({ conversationId, status })` sets the triage state to `OPEN`, `SNOOZED` or `CLOSED` through `POST /social-inbox/conversations/:id/status` and returns the updated conversation. Triage is PostFast state only.
+- `assignInboxConversation({ conversationId, assigneeUserId })` assigns the conversation to a workspace member (a PostFast user UUID) through `POST /social-inbox/conversations/:id/assign`. Pass `assigneeUserId: null` to unassign; the adapter then sends `{}`. PostFast rejects a user outside the workspace with `inbox.assigneeNotMember`.
+
+Both triage calls return the conversation fields that `listInboxConversations` returns. If the response does not show the requested `status` or `assignedToUserId`, the call throws `ambiguous_outcome` with a reconcile-first retry disposition: read the conversation with `listInboxConversations` before sending it again.
+
+```ts
+await adapter.native.setInboxStatus({ conversationId, status: "CLOSED" }, context);
+await adapter.native.assignInboxConversation(
+  { conversationId, assigneeUserId: "c7d8e9f0-1234-5678-9abc-def012345678" },
+  context,
+);
+```
+
+## Limits and requirements
+
+### Not supported
+
+- Publishing now: PostFast's API has no publish-now call, so every target needs a future `schedule.at`; see [Every post is scheduled](#every-post-is-scheduled).
+- Removing a published post: cancelling and deleting change only the PostFast record, so neither removes a post that already published.
+- Alt text: PostFast's schema has no alt text field, so attachments with `altText` are rejected.
+- Direct messages are not part of this adapter.
+- Normalized `comments` API: it is not mapped to the Social Inbox, because the inbox groups comments by conversation rather than by post.
+- TikTok `full_video_watched_rate`: the raw value is not mapped because PostFast does not document its scale.
+- PostFast's `sendEmail` connect-link option, which emails the link from PostFast, is not exposed; send the link through your own app.

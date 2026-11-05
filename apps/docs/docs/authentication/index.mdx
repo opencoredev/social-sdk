@@ -172,8 +172,10 @@ Login Kit for Web accepts only registered redirect URIs that are absolute
 up to 10 per app. `ConnectionManager` also accepts local HTTP and query-bearing
 callbacks for other providers, so it will not catch a TikTok mismatch for you.
 
-Access tokens last 24 hours and refresh tokens 365 days. A refresh can return
-a different refresh token, and TikTok requires you to use the new one.
+TikTok documents 2-hour access tokens and 180-day refresh tokens; read the
+actual lifetimes from `expires_in` and `refresh_expires_in` in each response.
+Every refresh returns a different refresh token, and TikTok requires you to use
+the new one.
 
 ```ts
 const provider = tiktokOAuth({ clientId, clientSecret, redirectUri, credentialSink });
