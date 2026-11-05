@@ -26,6 +26,9 @@ const x = connectedAccountRef({ backend: "default", platform: "x", accountId: "i
 
 const tiktok = connectedAccountRef({ backend: "default", platform: "tiktok", accountId: "int5" });
 
+/** Postiz's public create gives each saved post a fresh uuidv4 group. */
+const assignedGroup = "5e1f0c3a-8b2d-4f6e-9a7c-1d3b5f7e9a20";
+
 const row = (fields: JsonObject): JsonObject => ({
   id: "p1",
   content: "hello",
@@ -33,7 +36,7 @@ const row = (fields: JsonObject): JsonObject => ({
   releaseURL: null,
   releaseId: null,
   state: "QUEUE",
-  group: "social-sdk-g1",
+  group: assignedGroup,
   integration: { id: "int1", providerIdentifier: "x", name: "Demo" },
   ...fields,
 });
@@ -56,7 +59,8 @@ it("Postiz sends the raw API key and maps supported channels", async () => {
 
       return Response.json([
         { id: "int1", name: "Demo", identifier: "x", profile: "demo", disabled: false },
-        { id: "int9", name: "Lemmy", identifier: "lemmy", profile: "forum", disabled: false },
+        // An identifier this adapter does not map is skipped by default.
+        { id: "int9", name: "Other", identifier: "other-network", profile: "o", disabled: false },
         {
           id: "int2",
           name: "Page",
@@ -221,6 +225,8 @@ it("Postiz prepares media, schedule, and platform rules", () => {
 
 it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async () => {
   const calls: string[] = [];
+  // Postiz's public create assigns each saved post a fresh group (uuidv4) of its own.
+  const assigned = "0d4f6a52-7c1e-4b8a-9f3d-2e6b1c8a5d70";
 
   const adapter = postiz({
     apiKey: "test",
@@ -244,9 +250,6 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
 
       if (init?.method === "POST") {
         const body = object(JSON.parse(String(init.body)));
-        const group = string(object(array(body["posts"])[0])["group"]);
-
-        assert.match(group, /^social-sdk-[0-9a-f-]{36}$/);
 
         assert.deepEqual(body, {
           type: "schedule",
@@ -262,7 +265,6 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
                   image: [{ id: "m1", path: "https://uploads.postiz.com/m1.mp4", alt: "Clip" }],
                 },
               ],
-              group,
               settings: {
                 privacy_level: "PUBLIC_TO_EVERYONE",
                 duet: false,
@@ -285,7 +287,9 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
       assert.equal(url.searchParams.get("endDate"), "2026-09-26T09:00:00.000Z");
 
       return Response.json({
-        posts: [row({ integration: { id: "int5", providerIdentifier: "tiktok" } })],
+        posts: [
+          row({ group: assigned, integration: { id: "int5", providerIdentifier: "tiktok" } }),
+        ],
       });
     },
   });
@@ -325,7 +329,11 @@ it("Postiz uploads bytes, schedules the post, and maps TikTok settings", async (
   const outcome = result.outcomes[0];
 
   assert.equal(outcome?.state, "scheduled");
-  assert.equal(outcome?.state === "scheduled" ? outcome.job.jobId : undefined, `p1@${future}`);
+  // The job identifier carries the group Postiz assigned, which cancellation requires.
+  assert.equal(
+    outcome?.state === "scheduled" ? outcome.job.jobId : undefined,
+    `p1@${future}~${assigned}`,
+  );
   assert.deepEqual(calls, [
     "POST /public/v1/upload",
     "POST /public/v1/posts",
@@ -554,7 +562,7 @@ it("Postiz cancels only a future post alone in its group and requires confirmati
     backend: "default",
     platform: "x" as const,
     accountId: "int1",
-    jobId: `p1@${future}`,
+    jobId: `p1@${future}~${assignedGroup}`,
   };
 
   assert.deepEqual(await adapter.posts.cancelScheduled(job, context), {
@@ -569,15 +577,30 @@ it("Postiz cancels only a future post alone in its group and requires confirmati
     );
 
   methods.length = 0;
+
+  // Another post shares the group, so deleting by group would remove it too.
   posts = [row({}), row({ id: "p2", integration: { id: "int2" } })];
   await assert.rejects(
     adapter.posts.cancelScheduled(job, context),
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
 
+  // A listing identifier names no group, so it cannot show this adapter saved the post.
+  posts = [row({})];
+  await assert.rejects(
+    adapter.posts.cancelScheduled({ ...job, jobId: `p1@${future}` }, context),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+
+  // Postiz rotated the group, as a dashboard edit does, so the identifier is stale.
   posts = [row({ group: "AbCdEfGh12" })];
   await assert.rejects(
     adapter.posts.cancelScheduled(job, context),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+
+  await assert.rejects(
+    adapter.posts.cancelScheduled({ ...job, jobId: `p1@${future}~../other` }, context),
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
 
@@ -593,22 +616,137 @@ it("Postiz cancels only a future post alone in its group and requires confirmati
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
 
+  const record = {
+    kind: "backend-post" as const,
+    version: 1 as const,
+    backend: "default",
+    platform: "x" as const,
+    accountId: "int1",
+    recordId: `p1@${future}~${assignedGroup}`,
+  };
+
   posts = [row({ state: "PUBLISHED", releaseId: "n1" })];
   await assert.rejects(
-    adapter.posts.deleteBackendRecord(
-      {
-        kind: "backend-post",
-        version: 1,
-        backend: "default",
-        platform: "x",
-        accountId: "int1",
-        recordId: `p1@${future}`,
-      },
-      context,
-    ),
+    adapter.posts.deleteBackendRecord(record, context),
     (error) => error instanceof SocialError && error.code === "invalid_input",
   );
-  assert.deepEqual(methods, ["GET", "GET", "GET", "GET", "GET"]);
+
+  posts = [row({ state: "DRAFT" })];
+  await assert.rejects(
+    adapter.posts.deleteBackendRecord({ ...record, recordId: `p1@${future}` }, context),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+  assert.deepEqual(methods, ["GET", "GET", "GET", "GET", "GET", "GET", "GET"]);
+
+  deleted = { id: "p1" };
+  await adapter.posts.deleteBackendRecord(record, context);
+  assert.deepEqual(methods.slice(-2), ["GET", "DELETE"]);
+});
+
+/**
+ * A fake that follows Postiz's public API source (gitroomhq/postiz-app at bd8353f):
+ * `POST /posts` drops any `group` the client sends and saves each post with a fresh uuidv4
+ * group, also on an edit, and `DELETE /posts/:id` deletes the post's whole group.
+ */
+function groupingPostiz() {
+  const posts: JsonObject[] = [];
+  const deletes: string[] = [];
+  let created = 0;
+
+  const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? "GET";
+
+    if (method === "POST") {
+      const item = object(array(object(JSON.parse(String(init?.body)))["posts"])[0]);
+      const value = object(array(item["value"])[0]);
+      const existing = posts.find((post) => post["id"] === value["id"]);
+      const group = crypto.randomUUID();
+
+      if (existing) {
+        Object.assign(existing, { content: string(value["content"]), group });
+
+        return Response.json([{ postId: existing["id"], integration: "int1" }], { status: 201 });
+      }
+
+      created++;
+      posts.push(
+        row({
+          id: `p${created}`,
+          content: string(value["content"]),
+          group,
+          // Postiz stores the settings as a JSON string.
+          settings: JSON.stringify(object(item["settings"])),
+        }),
+      );
+
+      return Response.json([{ postId: `p${created}`, integration: "int1" }], { status: 201 });
+    }
+
+    if (method === "DELETE") {
+      const id = url.pathname.split("/").at(-1);
+      const group = posts.find((post) => post["id"] === id)?.["group"];
+      const first = posts.find((post) => post["group"] === group);
+
+      deletes.push(String(id));
+
+      for (let index = posts.length - 1; index >= 0; index--)
+        if (posts[index]?.["group"] === group) posts.splice(index, 1);
+
+      return Response.json(first === undefined ? null : { id: first["id"] });
+    }
+
+    return Response.json({ posts });
+  };
+
+  return { posts, deletes, fetch };
+}
+
+it("Postiz cancels a post it published and edited, using the group Postiz assigned", async () => {
+  const fake = groupingPostiz();
+  const adapter = postiz({ apiKey: "test", clock, fetch: fake.fetch });
+
+  const published = await createSocial({ backend: adapter, clock }).posts.publish({
+    targets: [{ account: x }],
+    content: { text: "First" },
+    schedule: { at: future },
+  });
+
+  const outcome = published.outcomes[0];
+  const first = fake.posts[0]?.["group"];
+
+  assert.equal(outcome?.state, "scheduled");
+  assert.equal(
+    outcome?.state === "scheduled" ? outcome.job.jobId : undefined,
+    `p1@${future}~${String(first)}`,
+  );
+
+  if (outcome?.state !== "scheduled") return;
+
+  // The adapter never sends a group; Postiz would read one as a group to replace.
+  const edited = await adapter.native.editPost(outcome.job, { text: "Second", media: [] }, context);
+  const second = fake.posts[0]?.["group"];
+
+  assert.notEqual(second, first);
+  assert.equal(edited.state, "scheduled");
+
+  if (edited.state !== "scheduled") return;
+
+  assert.equal(edited.job.jobId, `p1@${future}~${String(second)}`);
+
+  // The identifier from before the edit names a group Postiz has since replaced.
+  await assert.rejects(
+    adapter.posts.cancelScheduled(outcome.job, context),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+  assert.deepEqual(fake.deletes, []);
+
+  assert.deepEqual(await adapter.posts.cancelScheduled(edited.job, context), {
+    state: "cancelled",
+    backendRecord: "deleted",
+  });
+  assert.deepEqual(fake.deletes, ["p1"]);
+  assert.deepEqual(fake.posts, []);
 });
 
 it("Postiz reads post analytics and creates OAuth connect links", async () => {
@@ -927,4 +1065,43 @@ it("Postiz rejects Twitch media and long messages before any upload", async () =
     { code: "invalid_input" },
   );
   assert.equal(requests, 0);
+});
+
+it("Postiz publishes a Reddit link post with a title and no commentary", async () => {
+  const reddit = connectedAccountRef({ backend: "default", platform: "reddit", accountId: "red1" });
+  const sent: JsonObject[] = [];
+
+  const adapter = postiz({
+    apiKey: "test",
+    clock,
+    fetch: async (_input, init) => {
+      if (init?.method === "POST") {
+        sent.push(object(JSON.parse(String(init.body))));
+
+        return Response.json([{ postId: "p1", integration: "red1" }], { status: 201 });
+      }
+
+      return Response.json({
+        posts: [row({ integration: { id: "red1", providerIdentifier: "reddit" } })],
+      });
+    },
+  });
+
+  const social = createSocial({ backend: adapter, clock });
+
+  const request = {
+    targets: [{ account: reddit, options: { subreddit: "typescript", title: "Read this" } }],
+    content: { link: { url: "https://example.com/article" } },
+  };
+
+  assert.deepEqual(social.posts.prepare(request).issues, []);
+  await social.posts.publish(request);
+
+  const [post] = array(sent[0]?.["posts"] ?? []);
+  const settings = object(object(post ?? {})["settings"] ?? {});
+  const [entry] = array(settings["subreddit"] ?? []);
+  const value = object(object(entry ?? {})["value"] ?? {});
+
+  assert.equal(value["type"], "link");
+  assert.equal(value["url"], "https://example.com/article");
 });

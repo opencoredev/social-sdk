@@ -114,7 +114,7 @@ it("Post for Me, PostFast, Postiz and Buffer list the extra platforms", async ()
 
   assert.deepEqual(
     (await pfm.accounts.list({}, context)).items.map((item) => item.ref.platform),
-    ["pinterest"],
+    ["pinterest", "tiktok"],
   );
 
   const fast = postfast({
@@ -434,7 +434,7 @@ it("PostFast publishes Pinterest, Telegram and Google Business, and exposes isSh
   assert.equal(await youtube(), false);
 });
 
-it("Postiz maps Pinterest, Reddit, Discord and TikTok inbox-draft titles", async () => {
+it("Postiz maps Pinterest, Reddit, Discord and TikTok titles", async () => {
   const sent: JsonObject[] = [];
 
   const adapter = postiz({
@@ -536,7 +536,9 @@ it("Postiz maps Pinterest, Reddit, Discord and TikTok inbox-draft titles", async
       .issues.map((issue) => issue.code);
 
   assert.ok(!codes({ ...choices, draft: true, title: "Inbox title" }).includes("options.unmapped"));
-  assert.ok(codes({ ...choices, draft: false, title: "Nope" }).includes("tiktok.title"));
+  // Postiz documents the title for direct posts too; only the 90-character limit applies.
+  assert.ok(!codes({ ...choices, draft: false, title: "Direct title" }).includes("tiktok.title"));
+  assert.ok(codes({ ...choices, draft: false, title: "x".repeat(91) }).includes("tiktok.title"));
 });
 
 it("Buffer maps Pinterest boards and LinkedIn documents", async () => {

@@ -9,7 +9,13 @@ import type {
   ScheduledJobRef,
 } from "../core/types.js";
 import { array, isString, object, string } from "../transport/validation.js";
-import { accountMatches, samePlatform, zernioPlatform, type managedHttp } from "./common.js";
+import {
+  accountMatches,
+  postForMePlatform,
+  samePlatform,
+  zernioPlatform,
+  type managedHttp,
+} from "./common.js";
 
 type ScopedRef = BackendPostRef | ScheduledJobRef | PlatformPostRef;
 
@@ -27,6 +33,24 @@ const unconfirmed = (): never => {
     retryDisposition: { kind: "reconcile-first" },
   });
 };
+
+/**
+ * Platforms where Zernio's unpublish deletes the native post. Zernio documents every connected
+ * platform except Instagram, TikTok and Snapchat (docs.zernio.com/posts/unpublish-post, 2026-11-04).
+ */
+export const zernioRemovablePlatforms: readonly string[] = [
+  "x",
+  "threads",
+  "bluesky",
+  "youtube",
+  "linkedin",
+  "facebook",
+  "pinterest",
+  "reddit",
+  "discord",
+  "telegram",
+  "google-business",
+];
 
 /** Mutations affect whole provider records. Reject records shared by destinations. */
 export function managedLifecycle(
@@ -61,7 +85,10 @@ export function managedLifecycle(
     const rawId = provider === "zernio" ? entry["accountId"] : entry["id"];
     const accountId = isString(rawId) ? rawId : object(rawId)["_id"];
 
-    if (accountId !== ref.accountId || !samePlatform(entry["platform"], ref.platform))
+    const entryPlatform =
+      provider === "post-for-me" ? postForMePlatform(entry["platform"]) : entry["platform"];
+
+    if (accountId !== ref.accountId || !samePlatform(entryPlatform, ref.platform))
       throw new SocialError({
         code: "unauthorized",
         operation: "posts.lifecycle",
@@ -86,7 +113,7 @@ export function managedLifecycle(
     ref: PlatformPostRef,
     context: AdapterOperationContext,
   ): Promise<void> {
-    if (!["x", "threads", "bluesky", "youtube", "linkedin", "facebook"].includes(ref.platform))
+    if (!zernioRemovablePlatforms.includes(ref.platform))
       reject("Zernio does not support native removal for this platform.");
     const id = string(ref.native?.["backendRecordId"]);
     const record = await owned(ref, id, context);
@@ -159,10 +186,14 @@ export function managedLifecycle(
       context: AdapterOperationContext,
     ): Promise<void> {
       const record = await owned(ref, ref.recordId, context);
+      // Zernio deletes any record that never reached a platform; Post for Me records stay draft-only.
+      const deletable = provider === "zernio" ? ["draft", "failed", "cancelled"] : ["draft"];
 
-      if (record["status"] !== "draft")
+      if (!deletable.includes(String(record["status"])))
         reject(
-          "Delete only a draft backend record. Cancel a future schedule explicitly; never infer native deletion.",
+          provider === "zernio"
+            ? "Delete only a draft, failed or cancelled backend record. Cancel a future schedule explicitly; never infer native deletion."
+            : "Delete only a draft backend record. Cancel a future schedule explicitly; never infer native deletion.",
         );
       await deleteRecord(ref.recordId, context);
     },

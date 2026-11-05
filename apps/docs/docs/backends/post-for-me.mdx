@@ -48,13 +48,13 @@ const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
 const image = new Blob([await readFile("./assets/dashboard.png")]);
 ```
 
-The adapter supports account listing, publishing, post reads and status, media upload, feed-based post analytics, and verified webhooks. This SDK surface covers X, Threads, Bluesky, YouTube, TikTok, Instagram, LinkedIn, and Facebook Pages; Pinterest accounts are listed and publish with `boardId`, `title`, and `link` options; omit `boardId` to let Post for Me use its default. Accounts on other networks are left out of listings unless you set `unknownPlatforms: "include"`, which lists them under Post for Me's own identifier for reading only. Comments and normalized messaging are unavailable in this adapter. Verify the `Post-For-Me-Webhook-Secret` header with your endpoint secret; this shared-secret check authenticates the header and does not authenticate the body. Resolve accounts to tenants, quarantine unknown mappings, and process accepted events durably. See [events](/events) and [capabilities](/reference/capabilities).
+The adapter supports account listing, publishing, post reads and status, media upload, feed-based post analytics, and verified webhooks. This SDK surface covers X, Threads, Bluesky, YouTube, TikTok (including TikTok Business accounts, which Post for Me lists as `tiktok_business` and the SDK lists as `tiktok`), Instagram, LinkedIn, and Facebook Pages; Pinterest accounts are listed and publish with `boardId` (or `boardIds` for several boards), `title`, and `link` options; omit both board options to let Post for Me use its default. Accounts on other networks are left out of listings unless you set `unknownPlatforms: "include"`, which lists them under Post for Me's own identifier for reading only. Comments and normalized messaging are unavailable in this adapter. Verify the `Post-For-Me-Webhook-Secret` header with your endpoint secret; this shared-secret check authenticates the header and does not authenticate the body. Resolve accounts to tenants, quarantine unknown mappings, and process accepted events durably. See [events](/events) and [capabilities](/reference/capabilities).
 
 Run the setup on your server with your own assets and connected accounts. The later examples reuse its typed accounts, future `at`, and `authorization`. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; a tenant ID alone does not enforce access. Related server helpers are in `examples/snippets/backend-post-for-me.ts`.
 
 ## Publish an image
 
-Pass the file as a `Blob` with its MIME type and filename; the adapter uploads it to Post for Me before it creates the post. The adapter rejects `altText`, because Post for Me has no field for it.
+Pass the file as a `Blob` with its MIME type and filename; the adapter uploads it to Post for Me before it creates the post. Each item's `altText` is sent as the media `alt_text`, which Post for Me passes to platforms that support alt text. A video's `thumbnail` given as an HTTPS URL is sent as `thumbnail_url` and becomes the cover; other thumbnail sources are rejected at preparation.
 
 ```ts
 const result = await social.posts.publish(
@@ -80,7 +80,7 @@ const result = await social.posts.publish(
 );
 ```
 
-Type each account as `ConnectedAccountRef<"x">` and so on so TypeScript checks the options. For TikTok, the adapter accepts only `SELF_ONLY` and `PUBLIC_TO_EVERYONE` privacy. Obtain creator consent after preview and supply every interaction, disclosure, AI-content and draft choice explicitly:
+Type each account as `ConnectedAccountRef<"x">` and so on so TypeScript checks the options. For TikTok, `privacy` maps to Post for Me's `privacy_status`: `PUBLIC_TO_EVERYONE` to `public`, `SELF_ONLY` to `private`, `FOLLOWER_OF_CREATOR` to `followers` and `MUTUAL_FOLLOW_FRIENDS` to `friends`. Offer only the levels the creator's TikTok settings allow. Obtain creator consent after preview and supply every interaction, disclosure, AI-content and draft choice explicitly:
 
 ```ts
 const tiktokOptions = {
@@ -95,6 +95,72 @@ const tiktokOptions = {
   draft: false,
 } satisfies import("@opencoredev/social-sdk").PublishOptionsFor<"tiktok">;
 ```
+
+On photo posts, `title` (up to 90 characters) sets the TikTok title and `autoAddMusic: true` sends `auto_add_music` so TikTok adds music; both are rejected on videos. A TikTok target's settings are sent under both `platform_configurations.tiktok` and `tiktok_business`, so they apply whichever kind of TikTok account it is.
+
+## Platform options
+
+Each target's `options` map to Post for Me's `platform_configurations` for that platform ([API reference](https://api.postforme.dev/docs), checked 2026-11-04). Preparation checks them and rejects keys without a mapping as `options.unmapped`.
+
+| Platform  | Option                                           | Post for Me field                                        | Rules                                                                                                   |
+| --------- | ------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| X         | `replySettings`                                  | `reply_settings`                                         | `following`, `mentionedUsers`, `subscribers` or `verified`.                                             |
+| X         | `poll`                                           | `poll.options`, `poll.duration_minutes`                  | 2 to 4 options of 1 to 25 characters, 5 to 10080 minutes. No media or quote.                            |
+| X         | `quotePostId`, `communityId`                     | `quote_tweet_id`, `community_id`                         | Quote a post, or post into an X Community by its ID.                                                    |
+| Instagram | `placement`                                      | `placement`                                              | `feed` (`timeline`), `story` (`stories`) or `reels` (one video). `shareToFeed` maps to `share_to_feed`. |
+| Instagram | `collaborators`, `locationId`                    | `collaborators`, `location`                              | Up to 3 collaborator usernames; the numeric ID of a Page with location data.                            |
+| Instagram | `trialReel`, `audioName`                         | `trial_reel_type`, `audio_name`                          | Reels only. `manual` or `performance` graduation; a name for the Reel's original audio.                 |
+| Instagram | `aiGenerated`                                    | `is_ai_generated`                                        | Instagram's AI label.                                                                                   |
+| Facebook  | `reel`, `story`                                  | `placement: "reels"` or `"stories"`                      | A Reel needs one video.                                                                                 |
+| Facebook  | `collaborators`, `locationId`                    | `collaborators`, `location`                              | Page IDs invited to a Reel; a Page ID with location data.                                               |
+| Facebook  | `captionEachImage`                               | `set_caption_for_each_image`                             | `true` repeats the caption on each image of a multi-image post.                                         |
+| YouTube   | `title`, `visibility`, `madeForKids`             | `title`, `privacy_status`, `made_for_kids`               | Required for every YouTube target.                                                                      |
+| YouTube   | `tags`, `categoryId`                             | `tags`, `category_id`                                    | Tags up to 100 characters each, 500 combined; a numeric category.                                       |
+| YouTube   | `containsSyntheticMedia`, `paidProductPlacement` | `contains_synthetic_media`, `has_paid_product_placement` | YouTube's altered-content and paid-promotion disclosures.                                               |
+| LinkedIn  | `documentTitle`                                  | `title`                                                  | Title in the document viewer, up to 200 characters, for one PDF or Office document.                     |
+| LinkedIn  | `reshare`                                        | `reshare_post_id`                                        | The LinkedIn UGC post ID to reshare; the text becomes the commentary. No media.                         |
+| Pinterest | `boardIds`                                       | `board_ids`                                              | Pin to up to 10 boards at once. Not with `boardId`.                                                     |
+| Threads   | `placement`                                      | `placement`                                              | `reels` or `timeline`, sent unchanged. See [Threads placement](#threads-placement).                     |
+
+Every platform also takes `mediaOptions`, one object per attachment in media order (`{}` for an attachment with no options). `skipProcessing: true` sets the media item's `skip_processing`, so Post for Me posts that file as-is instead of processing it; Post for Me suggests it for large files and warns that the post is more likely to fail when the file does not meet the platform's requirements. The SDK sends media in attachment order, which is the order Post for Me uses when no media `index` is given, so it does not send `index`. `tags` sets the media item's `tags`; see [Media tags](#media-tags). Other `mediaOptions` fields, such as Zernio's `subtitles`, are rejected with `media.options`.
+
+```ts
+await social.posts.publish({
+  content: { text: "Full cut", media: [largeVideo] },
+  targets: [{ account: facebookPage, options: { mediaOptions: [{ skipProcessing: true }] } }],
+  schedule: { at: "2026-12-01T09:00:00Z" },
+});
+```
+
+### Media tags
+
+On Instagram and Facebook targets, `mediaOptions[].tags` sends user tags and Instagram product tags as Post for Me's `UserTagDto`, one list per attachment. Each tag has an `id` (a Facebook user ID, an Instagram username or an Instagram product ID), a `type` of `user` or `product`, a `platform` of `facebook` or `instagram`, and optional `x` and `y`.
+
+Post for Me describes `x` and `y` only as the "percentage distance" from the left and top edges of the image, not required for videos or stories. It does not say whether that is 0 to 1 or 0 to 100, so the SDK does not convert or range-check them: it checks that they are finite numbers and sends them as given. Check the scale with Post for Me before relying on tag positions. These are not the direct Instagram adapter's `userTags`, which take 0 to 1; on this backend that option is rejected as `options.unmapped`.
+
+Preparation rejects with `media.tags` a tag whose `platform` differs from the target's platform, a `product` tag outside Instagram, an empty `id`, a non-number `x` or `y`, an unknown field, or an empty list.
+
+```ts
+await social.posts.publish({
+  content: { text: "Studio day", media: [photo] },
+  targets: [
+    {
+      account: instagramAccount,
+      options: {
+        mediaOptions: [
+          { tags: [{ id: "studio.account", type: "user", platform: "instagram", x: 40, y: 60 }] },
+        ],
+      },
+    },
+  ],
+});
+```
+
+### Threads placement
+
+A Threads target's `placement` accepts `reels` or `timeline` and sends it unchanged as `platform_configurations.threads.placement`. Post for Me describes the field only as "Threads post placement" and does not explain what `reels` means for Threads, so the SDK forwards the value without interpreting it or checking the media. Any other value is rejected with `threads.placement`.
+
+Options this adapter does not map are listed under [Not supported](#not-supported).
 
 Provider-uploaded media refs expire after 24 hours while unattached. Post for Me deletes attached media after publication or schedule deletion. The SDK limits an uploaded ref to one submission and invalidates it before dispatch, including an uncertain write. Upload fresh bytes for another submission. These refs are not permanent reusable assets; caller-owned HTTPS URLs receive neither this expiry nor the single-submission limit.
 
@@ -164,13 +230,46 @@ if (outcome.state === "scheduled") {
 }
 ```
 
-`deleteBackendRecord` only deletes drafts. Neither call removes a post that already published, and this adapter has no `removeFromPlatform`.
+`deleteBackendRecord` only deletes drafts. Neither call removes a post that already published (see [Not supported](#not-supported)). A cancelled post stays in Post for Me as a draft (`isDraft: true`), which Post for Me never processes.
+
+## Reschedule or edit a post before it publishes
+
+The native `updatePost({ delivery, text?, at? })` changes the caption or the time of a draft or scheduled post with `PUT /v1/social-posts/{id}`; this is the `posts.update` capability. It reads the post first, refuses one that belongs to another account or has already published, and sends the stored media and configurations back, because the update replaces the whole post. A new `text` also clears any stored `caption` in `platform_configurations` and `account_configurations`, since those overrides would otherwise keep the old caption; their other settings stay.
+
+```ts
+if (delivery) await native.updatePost({ delivery, at: "2026-12-01T09:00:00Z" }, context);
+```
+
+## Preview a post
+
+`previewPost({ account, content, options? })` renders how a post will look per account with `POST /v1/social-post-previews`, without creating it. TikTok requires creators to see their content before they consent, so a preview fits before you set `consentGiven`. Media must be public HTTPS URLs; each item is sent as a media object with its `url` and, when set, `alt_text` and `thumbnail_url`. Each returned preview lists its media URLs. Options are sent as the same platform configuration a publish would send, except that a preview sends YouTube `title` and `visibility` and TikTok `privacy` only when set, and TikTok interaction settings only when you give them.
+
+`previewPosts({ content, targets })` previews several accounts in one request. `content` supplies the shared `caption` and `media`; a target's own `content` (text or media) and `options` become that account's entry in `account_configurations`, as `{ social_account_id, configuration }`, which overrides the shared values for that account only. Publishing does not need these overrides: the SDK creates one Post for Me post per target, so each target's `content` override is already its own caption and media.
+
+```ts
+const { previews, localIssues } = await native.previewPosts(
+  {
+    content: { text: "Launch day", media: [hero] },
+    targets: [
+      { account: instagram },
+      {
+        account: x,
+        content: { text: "Launch day, thread below" },
+        options: { replySettings: "following" },
+      },
+    ],
+  },
+  context,
+);
+```
 
 ## Read analytics from the feed
 
 Feed media includes HTTPS URLs without query strings or fragments. The adapter omits every query-bearing URL, including ordinary version parameters, because the feed does not identify which parameters grant private access.
 
-Connect the account with the `feeds` permission to read feeds or analytics; a posts-only connection can return an empty feed. LinkedIn metrics are available for company pages only, and Instagram metrics can lag publication. Post metrics come from the account feed, so they report `freshness: "unknown"`. An existing feed row without metrics returns `[]`; an absent matching row throws `upstream_failure`. Empty or omitted counters do not mean zero. Facebook `reactions_like` maps to likes and `reactions_total` to reactions. Views use `media_views` when present, otherwise `video_views`, without adding overlapping counters. List the feed, build a post reference from each `platform_post_id`, and read its metrics.
+Connect the account with the `feeds` permission to read feeds or analytics; a posts-only connection can return an empty feed. LinkedIn metrics are available for company pages only, and Instagram metrics can lag publication. Post metrics come from the account feed, so they report `freshness: "unknown"`. An existing feed row without metrics returns `[]`; an absent matching row throws `upstream_failure`. Empty or omitted counters do not mean zero. Facebook `reactions_like` maps to likes and `reactions_total` to reactions. Instagram `saved` maps to `saves`, `profile_visits` and `total_interactions` to `profileVisits` and `interactions`, and Reel watch time (`ig_reels_avg_watch_time`, `ig_reels_video_view_total_time`) to `averageWatchTime` and `totalWatchTime` in milliseconds. Views use `media_views` when present, otherwise `video_views`, without adding overlapping counters. List the feed, build a post reference from each `platform_post_id`, and read its metrics.
+
+To find the feed row for a post the SDK published, call `findFeedPosts({ account, socialPostIds?, externalPostIds?, platformPostIds?, metrics?, limit?, cursor? })` instead of paging the whole feed. `socialPostIds` filters by `social_post_id`, the Post for Me post ID that is a delivery's `deliveryId`; `externalPostIds` filters by `external_post_id`, the `external_id` this adapter sets from the target idempotency key; `platformPostIds` filters by `platform_post_id`. Each list is sent as a repeated query parameter and matches any of its values. `metrics: true` adds `expand=metrics`. Rows carry `social_post_id`, `external_post_id`, `social_post_result_id`, `platform_post_id`, `platform_url`, `caption`, `posted_at`, media URLs and, when expanded, `metrics`.
 
 ```ts
 const feed = await social.posts.list(account, { limit: 10, authorization });
@@ -193,7 +292,14 @@ The `post` from a `published` outcome works the same way.
 
 ## Receive webhooks
 
-Create the subscription separately with `POST https://api.postforme.dev/v1/webhooks` using your server API key, endpoint `url`, and selected `event_types`. There is no dashboard subscription UI and no SDK subscription-creation helper. Store the returned `WebhookDto.secret` in your server secret store as `POST_FOR_ME_WEBHOOK_SECRET`; it is distinct from the API key. Pass it as `webhookSecret` as shown in setup.
+Post for Me has no dashboard subscription UI, so create the subscription from code with the native `createWebhook({ url, eventTypes })`, which sends `POST /v1/webhooks`. The result includes the generated `secret` once: store it in your server secret store as `POST_FOR_ME_WEBHOOK_SECRET`, distinct from the API key, and pass it as `webhookSecret` as shown in setup. `listWebhooks()`, `updateWebhook({ webhookId, url?, eventTypes? })` and `deleteWebhook({ webhookId })` manage existing subscriptions; their results never include the secret.
+
+```ts
+const { secret } = await native.createWebhook(
+  { url: "https://app.example.com/hooks/post-for-me", eventTypes: ["social.post.result.created"] },
+  context,
+);
+```
 
 The decoder supports `social.post.created`, `social.post.updated`, `social.post.deleted`, `social.post.result.created`, `social.account.created`, and `social.account.updated`. Read the raw bytes, check the shared-secret header, then decode and durably accept the event before returning a 2xx acknowledgment. Do not acknowledge a failed inbox write. Only the verify call sits inside the `try`, so a decoding or inbox failure is not reported as an authentication error.
 
@@ -274,4 +380,30 @@ const { url } = await native.createConnection(
 
 With customer OAuth credentials, `redirectUrl` maps to `redirect_url_override`. With provider-system credentials (Quickstart), that override is unavailable: configure the project redirect in the provider dashboard instead. The callback includes `provider`, `projectId`, `isSuccess`, `accountIds`, `failedAccountIds`, and `error`. Successful connections can also emit `social.account.created`; failures do not emit that success event. Validate the pending tenant session, read the returned accounts on the server, and store only verified account IDs as tenant grants. Redirect parameters alone do not grant access.
 
-`native.createConnection` cannot send `platform_data`. LinkedIn uses the personal default, which does not meet organization-only Quickstart requirements. Bluesky requires a handle and app password that this helper cannot supply. Use the provider's documented [LinkedIn organization setup](https://www.postforme.dev/resources/understanding-linkedin-connection-types) or [Bluesky setup](https://www.postforme.dev/resources/getting-started-with-the-bluesky-api), or its dashboard, for those configurations. Selecting Instagram connection modes or X OAuth modes also requires provider setup outside this helper; adding `platformData` to SDK options is unsupported.
+`platformData` sends Post for Me's `platform_data`: `linkedin.connectionType` (`organization` for Company Pages, which provider-system Quickstart credentials require; see [LinkedIn connection types](https://www.postforme.dev/resources/understanding-linkedin-connection-types)), `bluesky.handle` with an app password (`appPassword`, never the account password), `instagram.connectionType` (`instagram` or `facebook` login) and `x.connectionType` (`oauth1` or `oauth2`). `forceReauth: true` sends `force_reauth`, which shows the account picker or consent screen again when an account reconnects, for example to grant a Page that was left out.
+
+```ts
+const linkedin = await native.createConnection(
+  {
+    platform: "linkedin",
+    externalId: "customer-42",
+    permissions: ["posts", "feeds"],
+    platformData: { linkedin: { connectionType: "organization" } },
+  },
+  context,
+);
+```
+
+### Disconnect or delete accounts
+
+- `disconnectAccount({ account })` sends `POST /v1/social-accounts/{id}/disconnect`: Post for Me removes the account's tokens and marks it disconnected, keeping the record and post history. It returns the account with `status: "reconnect-required"` and no tokens.
+- `deleteAccount({ account })` permanently deletes the account and its post history. It cannot be undone; prefer disconnecting.
+- `updateAccount({ account, externalId })` sets your own `external_id` on the account.
+
+## Limits and requirements
+
+### Not supported
+
+- Removing a published post: this adapter has no `removeFromPlatform`, and neither `cancelScheduled` nor `deleteBackendRecord` removes a post that already published.
+- YouTube `description`, `localizations`, `license` and the other upload settings are not mapped yet.
+- Importing an account from your own OAuth tokens (`POST /v1/social-accounts`) is not wrapped, because the SDK does not pass platform tokens through its APIs.

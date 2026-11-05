@@ -178,6 +178,11 @@ export function samePlatform(identifier: JsonField, slug: Platform): boolean {
   return isString(identifier) && normalizePlatform(identifier) === slug;
 }
 
+/** Post for Me lists TikTok Business accounts as `tiktok_business`; both publish as TikTok. */
+export function postForMePlatform(identifier: JsonField): JsonField {
+  return identifier === "tiktok_business" ? "tiktok" : identifier;
+}
+
 /** Zernio names X "twitter" and Google Business Profile "googlebusiness". */
 export function zernioPlatform(value: string): string {
   return value === "x" ? "twitter" : value === "google-business" ? "googlebusiness" : value;
@@ -325,6 +330,34 @@ export function managedHttp(
   };
 }
 
+/**
+ * Decode the answer to a dispatched write inside the uncertain-write boundary. The request's
+ * own errors keep their classification: an HTTP error status stays a definite failure. Once the
+ * write got a 2xx, a body the decoder throws on cannot prove what happened, so it is
+ * `ambiguous_outcome` with `reconcile-first`. A `SocialError` the decoder raises on purpose,
+ * such as a provider's stated rejection or its own unconfirmed error, is kept.
+ */
+export async function acknowledged<T>(
+  operation: string,
+  sent: Promise<JsonValue>,
+  decode: (body: JsonValue) => T,
+): Promise<T> {
+  const body = await sent;
+
+  try {
+    return decode(body);
+  } catch (error) {
+    if (error instanceof SocialError) throw error;
+
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: "The provider did not confirm the change. Reconcile before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  }
+}
+
 export type PublishFormats = (platform: KnownPlatform) => CapabilityDeclaration["formats"];
 
 export const publishFormats: PublishFormats = (platform) => {
@@ -337,6 +370,12 @@ export const publishFormats: PublishFormats = (platform) => {
 
   return ["text", "image", "video", "carousel"];
 };
+
+/** The default formats plus `document` on LinkedIn, for backends that publish LinkedIn documents. */
+export const linkedinDocumentFormats: PublishFormats = (platform) =>
+  platform === "linkedin"
+    ? [...(publishFormats(platform) ?? []), "document"]
+    : publishFormats(platform);
 
 const managedEligibility = [
   "A connected account returned by the managed provider is required.",
@@ -433,6 +472,8 @@ export function managedReplySupported(
 export function managedOptionIssues(
   target: PreparedPublishTarget,
   provider: ManagedProvider,
+  /** Further option keys a provider maps and validates itself. */
+  extraKeys: Partial<Record<Platform, readonly string[]>> = {},
 ): PreparationIssue[] {
   const config = optionsObject(target);
 
@@ -467,9 +508,7 @@ export function managedOptionIssues(
             "draft",
             ...(provider === "zernio"
               ? ["photoCoverIndex", "title", "description", "mediaType", "autoAddMusic"]
-              : provider === "postiz"
-                ? ["title"]
-                : []),
+              : []),
           ],
   };
 
@@ -478,7 +517,12 @@ export function managedOptionIssues(
   const fail = (code: string, message: string) =>
     issues.push({ code, message, severity: "error", targetIndex: target.targetIndex });
 
-  if (Object.keys(config).some((key) => !keys[target.account.platform]?.includes(key)))
+  const allowed = [
+    ...(keys[target.account.platform] ?? []),
+    ...(extraKeys[target.account.platform] ?? []),
+  ];
+
+  if (Object.keys(config).some((key) => !allowed.includes(key)))
     fail(
       "options.unmapped",
       "A supplied platform option has no verified mapping in this managed adapter.",
@@ -507,7 +551,13 @@ export function managedOptionIssues(
 
   if (
     config["replySettings"] !== undefined &&
-    !["everyone", "following", "mentionedUsers"].includes(String(config["replySettings"]))
+    ![
+      "everyone",
+      "following",
+      "mentionedUsers",
+      // Zernio and Post for Me document these two X reply audiences as well.
+      ...(provider === "zernio" || provider === "post-for-me" ? ["subscribers", "verified"] : []),
+    ].includes(String(config["replySettings"]))
   )
     fail("x.reply_settings", "Select a supported reply setting explicitly.");
 
@@ -579,24 +629,6 @@ export function managedOptionIssues(
     !["story", "saved_story", "spotlight"].includes(String(config["contentType"]))
   )
     fail("snapchat.content_type", "Select story, saved_story, or spotlight.");
-
-  if (
-    provider === "postiz" &&
-    target.account.platform === "tiktok" &&
-    config["title"] !== undefined
-  ) {
-    if (config["draft"] !== true)
-      fail(
-        "tiktok.title",
-        "Postiz only keeps a TikTok title on an inbox draft; set draft to true.",
-      );
-    else if (
-      !isString(config["title"]) ||
-      config["title"].length === 0 ||
-      config["title"].length > 90
-    )
-      fail("tiktok.title", "TikTok titles are limited to 90 characters.");
-  }
 
   if (target.account.platform === "tiktok") {
     if (provider !== "buffer") {

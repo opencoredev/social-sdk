@@ -133,11 +133,16 @@ export function managedMedia(
   ): Promise<string> {
     accountMatches(account, context);
 
-    if (item.kind === "document")
+    // Zernio and Post for Me both publish PDF and Office documents as LinkedIn document posts.
+    if (
+      item.kind === "document" &&
+      (account.platform !== "linkedin" || item.source.kind === "media-ref")
+    )
       throw new SocialError({
         code: "unsupported_capability",
         operation: "media.resolve",
-        message: "Managed backends accept image and video media only through this adapter.",
+        message:
+          "Managed backends accept documents for LinkedIn posts only, as an HTTPS URL or uploadable bytes.",
       });
 
     if (item.source.kind !== "media-ref")

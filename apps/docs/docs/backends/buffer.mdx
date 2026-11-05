@@ -1,6 +1,6 @@
 ---
 title: Buffer
-description: Configure the Buffer managed backend with an API key or OAuth access token, GraphQL publishing and scheduling, public media URLs, and post status.
+description: Configure the Buffer managed backend with an API key or OAuth token for GraphQL publishing, queues, drafts, platform metadata, post status and metrics.
 ---
 
 [Buffer](https://buffer.com) is an optional managed backend. Buffer holds the social channels connected to a Buffer organization and publishes or queues posts through its GraphQL API at `https://api.buffer.com`. Create a personal API key under Settings → API, or let other people approve your Buffer OAuth app. The key or access token stays on the server and is sent as `Authorization: Bearer`.
@@ -43,11 +43,11 @@ const at = new Date(Date.now() + 7 * 86_400_000).toISOString();
 
 A Buffer API key acts for the Buffer account that created it and can read every organization on that account. Pass `organizationId` when you want the adapter to query only one organization. Connected channels are Buffer records; your application must map them to tenants before any write.
 
-The adapter lists channels, publishes now or at `schedule.at`, reads posts and delivery status, cancels a future scheduled post, deletes draft, approval, or failed Buffer records, and reads post metrics after a post is sent. It does not upload files, verify webhooks, comment, message, or remove a post from the destination network. See [capabilities](/reference/capabilities). Related server helpers are in `examples/snippets/backend-buffer.ts`.
+The adapter lists channels, publishes now, at `schedule.at`, or into the channel's queue, saves drafts and approval requests, reads posts and delivery status, edits and reorders unsent posts, cancels a future scheduled post, deletes draft, approval, or failed Buffer records, reads post metrics after a post is sent, and reads a channel's aggregated metrics. It does not upload files, verify webhooks, comment, message, or remove a post from the destination network. See [capabilities](/reference/capabilities). Related server helpers are in `examples/snippets/backend-buffer.ts`.
 
 ## Publish now or schedule
 
-Omit `schedule` to send `mode: shareNow`. Set a future `schedule.at` to send `mode: customScheduled` with that UTC timestamp. Both paths use `schedulingType: automatic`. Buffer's `addToQueue` slot picker is not mapped.
+Omit `schedule` to send `mode: shareNow`. Set a future `schedule.at` to send `mode: customScheduled` with that UTC timestamp. Both paths use `schedulingType: automatic` unless you choose reminder publishing below. With neither `schedule.at` nor `shareMode`, the post shares now. To use the channel's posting schedule instead, omit `schedule` and set the `shareMode` option: `addToQueue` takes the next free slot after the posts already queued, and `shareNext` puts the post at the front of the queue. A queued post returns `scheduled`. `shareMode` and `schedule.at` cannot be combined.
 
 ```ts
 const result = await social.posts.publish(
@@ -60,11 +60,33 @@ const result = await social.posts.publish(
 );
 ```
 
-`timeZone` is application metadata only; Buffer's `dueAt` is UTC. Store `result.outcomes[0]?.delivery` and read it later with `getDelivery`. Buffer statuses map as `scheduled` → `scheduled`, `sending` → `processing`, `draft` or `needs_approval` → `accepted`, `sent` → `published`, and `error` → `failed`. A `published` outcome uses the Buffer post ID. Buffer's public schema does not return the destination network's post ID.
+These options work on every Buffer target:
+
+| Option                           | Buffer field                       | What it does                                                                                                                                                                                                            |
+| -------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shareMode`                      | `mode`                             | `addToQueue` or `shareNext`, as above.                                                                                                                                                                                  |
+| `schedulingType: "notification"` | `schedulingType`                   | Reminder publishing: at the due time Buffer reminds someone to publish the post by hand, instead of its workers sending it. The default is `automatic`.                                                                 |
+| `saveToDraft: true`              | `saveToDraft`                      | Save the post as a Buffer draft. Buffer does not check posting limits for a draft and publishes nothing until someone schedules it. The outcome is `accepted`.                                                          |
+| `needsApproval: true`            | `needsApproval`                    | Submit the post for approval, on a channel whose posting policy requires it. Such a post is always a draft, so `saveToDraft: false` with it is rejected. The outcome is `accepted` with Buffer status `needs_approval`. |
+| `tagIds`                         | `tagIds`                           | Buffer tag IDs to label the post with. Tags are a beta Buffer feature.                                                                                                                                                  |
+| `ideaId`                         | `ideaId`                           | Link the post to a Buffer idea, such as one from `native.createIdea`.                                                                                                                                                   |
+| `aiAssisted: true`               | `aiAssisted`                       | Record that the post was written with the help of AI. This is Buffer's own provenance flag, separate from the network AI labels below.                                                                                  |
+| `draftId`                        | `draftId`                          | Link the post to the Buffer draft it was generated from.                                                                                                                                                                |
+| `animatedThumbnails`             | image `metadata.animatedThumbnail` | A list of `{ imageIndex, url }`: a public HTTPS animated preview, such as a GIF, for the image at that position in `media`. See [Media](#media-is-a-public-https-url).                                                  |
+
+A reminder post never reports `published`: when Buffer marks it `sent`, the outcome is `unknown`, because Buffer sent the reminder and cannot tell whether the person posted it. Check the network instead.
+
+`timeZone` is application metadata only; Buffer's `dueAt` is UTC. Store `result.outcomes[0]?.delivery` and read it later with `getDelivery`. Buffer statuses map as `scheduled` → `scheduled`, `sending` → `processing`, `draft` or `needs_approval` → `accepted`, `sent` → `published`, and `error` → `failed`. A `failed` outcome's message carries Buffer's failure reason from the post's `error.message`, plus its help-center `supportUrl` when Buffer has one. A `published` outcome uses the Buffer post ID. Buffer's public schema does not return the destination network's post ID.
+
+`posts.get`, `posts.list`, and `native.listPosts` return each post's `id`, `text`, `status`, `dueAt`, `sentAt`, `createdAt`, `shareMode`, and `url`, plus what Buffer stores with it: `assets` (each `{ type, url, thumbnailUrl, mimeType, altText?, animatedThumbnail? }`), workspace `tags` (`{ id, name, color }`), the `author` (`{ id, name? }`; the adapter does not read the author's email), the network `postType` (such as `reel`), `ideaId`, `via` (`buffer`, `api`, or `network`), `notificationStatus` for reminder posts (`notified` or `markedAsPublished`), and `allowedActions`, the actions your credentials may take on the post, such as `updatePost` or `requestPostApproval`. A failed post carries `error` with Buffer's `message`, `supportUrl`, and `rawError`, the network's original error, which Buffer marks as internal and may leave empty.
 
 ## Media is a public HTTPS URL
 
-Buffer has no upload mutation. Host the file yourself and pass a stable public HTTPS URL. Buffer fetches the file when the post publishes, which can be hours or days later, so expiring or signed URLs fail after create. This adapter maps image and video assets, including an ordered multi-image carousel when the destination supports it. It does not map Buffer document assets, because those require a title and thumbnail the SDK does not collect.
+Buffer has no upload mutation. Host the file yourself and pass a stable public HTTPS URL. Buffer fetches the file when the post publishes, which can be hours or days later, so expiring or signed URLs fail after create. This adapter maps image and video assets, including an ordered multi-image carousel when the destination supports it, and document assets on LinkedIn: a document needs an HTTPS `thumbnail` and a `caption` or `filename` for its title (see below).
+
+Buffer rejects custom video thumbnail images. To pick the cover frame of a single video on Instagram, TikTok, or Pinterest, set the `thumbnailOffset` option in milliseconds; the adapter sends it as the video's `metadata.thumbnailOffset`. To tag Instagram accounts on an image, set `userTags` to a list of `{ username, x, y, mediaIndex? }`: `username` with or without the `@` (sent as Buffer's `handle`), `x` and `y` as fractions of the image width and height from 0 to 1, and `mediaIndex` the image's position in `media` (default 0). Buffer's own names, `handle` without the `@` and `imageIndex`, also work; use one name of each pair per tag. Buffer's image metadata requires alt text, so set `altText` on each tagged image; an empty `altText` is sent as `""` with the tags.
+
+An image's `thumbnail`, at a public HTTPS URL, is sent as the image asset's `thumbnailUrl`, the static preview Buffer shows. For an animated image such as a GIF, the `animatedThumbnails` option sets `metadata.animatedThumbnail`, the animated preview: a list of `{ imageIndex, url }`, one per image. Buffer's image metadata requires `altText`, so the adapter sends an empty `altText` when the image has none. A video `thumbnail` is rejected (`media.thumbnail_unsupported`) because Buffer rejects video assets that set `thumbnailUrl`; use `thumbnailOffset` instead.
 
 ```ts
 const scheduled = await social.posts.publish(
@@ -95,11 +117,63 @@ const scheduled = await social.posts.publish(
 );
 ```
 
-YouTube requires `title`, `categoryId`, `visibility`, and `madeForKids`; these are sent as Buffer `metadata.youtube`. Instagram requires an explicit boolean `shareToFeed`, sent as `metadata.instagram.shouldShareToFeed` with `type: post`; stories and reels are not mapped. TikTok's Buffer metadata documents only optional `isAiGenerated`, so other TikTok options are rejected while Buffer's media shape rules still apply. X reply settings have no Buffer Twitter field.
+YouTube requires `title`, `categoryId`, `visibility`, and `madeForKids`; these are sent as Buffer `metadata.youtube`. Instagram requires an explicit boolean `shareToFeed`, sent as `metadata.instagram.shouldShareToFeed` with `type: post`, or the `postType` you choose. Without `postType`, the post goes out as a feed post. X reply settings have no Buffer Twitter field.
+
+## Platform options
+
+| Platform                                       | Social SDK option                                            | Buffer metadata                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| X, Threads, Bluesky, Mastodon                  | `thread`, a list of `{ text }` replies                       | `metadata.<service>.thread`: the post itself first, then each reply                  |
+| Bluesky, Facebook, LinkedIn, Threads, Substack | `content.link`                                               | `linkAttachment` link card with `url`, `title`, `description`                        |
+| Instagram, Facebook, LinkedIn                  | `firstComment`                                               | `firstComment`, posted as the first comment                                          |
+| X                                              | `aiGenerated`                                                | `isAiGenerated`, on original posts only                                              |
+| X                                              | `retweet: { id, comment? }`                                  | `retweet`: repost the post with that ID, or quote it with `comment`                  |
+| Instagram                                      | `postType`: `post`, `story`, or `reel`                       | `type`                                                                               |
+| Instagram                                      | `location: { id?, name? }`                                   | `geolocation` with `id` and `text`                                                   |
+| Instagram                                      | `shopGridLink`                                               | `link`, the Shop Grid link                                                           |
+| Instagram                                      | `aiGenerated`                                                | `isAiGenerated`                                                                      |
+| Facebook                                       | `postType`: `post`, `reel`, or `story`                       | `type`, sent as `post` whenever other Facebook metadata is                           |
+| Facebook                                       | `annotations`                                                | `annotations`, each `{ content, indices, text, url }`                                |
+| LinkedIn                                       | `annotations`                                                | `annotations`, each `{ id, entity, length, link, localizedName, start, vanityName }` |
+| Threads                                        | `topic`, `location: { id?, name? }`                          | `topic`, `locationId`, `locationName`                                                |
+| Mastodon                                       | `spoilerText`                                                | `spoilerText`, a content warning shown before the text                               |
+| YouTube                                        | `embeddable`, `notifySubscribers`, `aiGenerated`             | `embeddable`, `notifySubscribers`, `isAiGenerated`                                   |
+| YouTube                                        | `license`: `youtube` or `creativeCommon`                     | `license`                                                                            |
+| TikTok                                         | `aiGenerated`                                                | `isAiGenerated`, for videos                                                          |
+| TikTok                                         | `title`, up to 90 characters                                 | `title`, for photo posts                                                             |
+| Pinterest                                      | `boardId`, `title`, `link`                                   | `boardServiceId`, `title`, `url`                                                     |
+| Google Business                                | `postType`: `whats_new`, `event`, or `offer`                 | `metadata.google.type`                                                               |
+| Google Business                                | `callToAction: { type, url? }`                               | `button` and `link`                                                                  |
+| Google Business                                | `event: { title, startDate, endDate, isFullDayEvent }`       | `detailsEvent`                                                                       |
+| Google Business                                | `offer: { title, startDate, endDate, code?, terms?, link? }` | `detailsOffer`                                                                       |
+
+A thread publishes in order, each reply answering the previous one. Buffer takes the whole thread in the service's metadata, such as `metadata.twitter.thread` for X, so the adapter sends the post's own text and media as the first item; the replies carry text only. A link card needs no text of its own and cannot be combined with attachments, and Buffer is replacing the older link asset with `linkAttachment` on December 15, 2026. On X, a `retweet` without `comment` reposts, and needs no text of its own; Buffer labels AI content only on original posts, so `aiGenerated` with `retweet` is rejected. An Instagram or Facebook reel is a single video. Annotations mark mentions and links in the text by position; build them from the entity IDs the network gives you.
+
+Substack channels are listed and publish as `substack`, Buffer's service for Substack Notes. A Note takes text up to 10,000 characters and one image, one video, or a `content.link` link card in `metadata.substack.linkAttachment`; preparation rejects more attachments (`substack.media_count`) and longer text (`substack.text_too_long`). Buffer reports Substack's `freeSubscriptions` and `paidSubscriptions` per Note as post metrics.
+
+For Google Business, a `whats_new` update can carry a call to action (`book`, `call`, `learn_more`, `none`, `order`, `shop`, or `signup`; all but `none` and `call` need an HTTPS `url`). An `event` needs a title, ISO start and end dates, and `isFullDayEvent`; an `offer` needs a title and dates and can carry a coupon `code`, `terms`, and an HTTPS `link`. Buffer marks this Google metadata as deprecated while it designs separate update, event, and offer types.
+
+```ts
+await social.posts.publish(
+  {
+    targets: [
+      {
+        account,
+        options: {
+          shareMode: "addToQueue",
+          thread: [{ text: "2/ What changed" }, { text: "3/ Try it today" }],
+        },
+      },
+    ],
+    content: { text: "1/ The new scheduler is live." },
+  },
+  { authorization },
+);
+```
 
 ## Cancel or delete a Buffer record
 
-`posts.cancelScheduled` deletes a still-future `scheduled` post. `posts.deleteBackendRecord` deletes a `draft`, `needs_approval`, or `error` record. A sent or in-flight post is rejected. Buffer's `deletePost` removes the Buffer record; it is not advertised as native network removal.
+`posts.cancelScheduled` deletes a still-future `scheduled` post. `posts.deleteBackendRecord` deletes a `draft`, `needs_approval`, or `error` record. A sent or in-flight post is rejected. Buffer's `deletePost` removes the Buffer record only (see [Not supported](#not-supported)).
 
 ## Connect other Buffer accounts with OAuth
 
@@ -166,14 +240,71 @@ export async function refresh(tokens: { refreshToken: string }) {
 }
 ```
 
-Default scopes are `posts:read`, `posts:write`, `account:read`, and `offline_access`. Ideas, snippets, and account writes are not used by this adapter.
+Default scopes are `posts:read`, `posts:write`, `account:read`, and `offline_access`. Pass `scopes` to request others from `bufferScopeNames`, the scopes Buffer documents: `ideas:read` and `ideas:write` (ideas; `native.createIdea` needs `ideas:write`), `account:write` (account settings), `snippets:read` and `snippets:write` (snippets), and `notes:read` and `notes:write` (collaboration notes on posts and drafts). Ideas, snippets, and account writes are not used by the default scopes; the adapter needs `ideas:write` only for `native.createIdea`.
 
 ## Errors, rate limits, and metrics
 
 GraphQL usually returns HTTP 200. Non-recoverable failures arrive in `errors` with codes such as `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `UNEXPECTED`, and `RATE_LIMIT_EXCEEDED`. Recoverable create/delete failures arrive as `MutationError.message` on HTTP 200 and become `invalid_input`. HTTP 429 includes `Retry-After`. Limits are per API key or app client and depend on the Buffer plan; the documented windows are 15 minutes, 24 hours, and 30 days. Query complexity, depth, alias, directive, and token limits also apply.
 
-`analytics.getPostMetrics` reads `Post.metrics` after status `sent`. Buffer documents that field for personal API keys and automations. OAuth app clients may not receive metrics. Values refresh about once a day. The adapter keeps only metrics whose unit is `count`, `percentage`, `milliseconds`, or `seconds`.
+`analytics.getPostMetrics` reads `Post.metrics` after status `sent`. Metrics need a personal API key: they require Buffer's `insightsRead` scope, which an OAuth app client cannot request, so app tokens cannot read them. Values refresh about once a day. Buffer reports each metric as a `count` or a `percentage` (such as `engagementRate`, from 0 to 100), and the adapter keeps only those two units.
 
-Pinterest, Mastodon, and Google Business Profile channels are listed and publish as `pinterest`, `mastodon`, and `google-business`. Pinterest needs `boardId` and accepts `title` and `link`. WhatsApp channels are listed, but this adapter does not publish to them. Start Page, Substack, and Buffer's ideas, tags, and templates are outside this adapter, and channels on those services are left out unless you set `unknownPlatforms: "include"`. LinkedIn document assets publish from an HTTPS URL when you also supply an HTTPS `thumbnail` and a `caption` or `filename` for the title. Live publication, plan eligibility, and channel reconnects remain Buffer-side constraints.
+`analytics.getReport` reads `aggregatedPostMetrics` for one channel. Pass `from` and `to` dates covering at most 365 days with both ends counted (Buffer includes the whole `to` day), and the metric types you want, such as `postCount`, `reactions`, `comments`, `impressions`, or `engagementRate`. The report has one row keyed by `channelId` with the requested metrics Buffer returned; Buffer always returns `postCount`, `reactions`, and `comments`, and other types only where the network reports them. It takes no dimensions, and needs a personal API key like post metrics.
+
+```ts
+const report = await social.analytics.getReport(
+  account,
+  { from: "2026-07-01", to: "2026-09-30", metrics: ["postCount", "reactions", "engagementRate"] },
+  { authorization },
+);
+```
+
+Pinterest, Mastodon, and Google Business Profile channels are listed and publish as `pinterest`, `mastodon`, and `google-business`. Pinterest needs `boardId` and accepts `title` and `link`. WhatsApp channels are listed but not published to (see [Not supported](#not-supported)). Substack channels publish as `substack` (see [Platform options](#platform-options)). Start Page is outside this adapter, and its channels are left out unless you set `unknownPlatforms: "include"`. Edits and deletions of ideas, tags, and templates are outside this adapter, as is creating tags or templates: beyond the `tagIds` and `ideaId` options, it creates and lists ideas only through the idea methods under [Native methods](#native-methods). LinkedIn document assets publish from an HTTPS URL when you also supply an HTTPS `thumbnail` and a `caption` or `filename` for the title. Live publication, plan eligibility, and channel reconnects remain Buffer-side constraints.
+
+## Native methods
+
+`adapter.native` exposes Buffer operations that do not fit the normalized API. Each takes an `AdapterOperationContext` with the adapter's `backendInstance`. Native methods run outside `createSocial`, so check the tenant's grant for the channel yourself first. Post methods take the `delivery`, `job`, or record reference an outcome returned and first read the post to confirm it belongs to that channel.
+
+| Method                                                                                       | Buffer operation                       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native.editPost(ref, edit, context)`                                                        | `editPost`                             | Change the `text`, the custom time `at`, `saveToDraft`, or `tagIds` of a draft, scheduled, or approval post, and return its new outcome. Fields you leave out keep their value. `approvalChange: "request"` submits your own draft for approval and `"revert"` withdraws the request, on channels whose posting policy requires approval. `aiAssisted` and `draftId` set the same provenance fields as on create.                                                                                                                                                                                                                                                                                                          |
+| `native.listPosts(query, context)`                                                           | `posts`                                | Posts of one or more channels in one organization, filtered by Buffer: `status` (such as `["scheduled", "error"]`), `dueAt` and `createdAt` ranges (`{ start?, end? }`), `dueAtPresence` (`present` or `absent`, not with a `dueAt` range), `postTypes` (such as `reel`, `story`, `short`; `post` matches every other format, and Buffer rejects `carousel` and `thread`), and `tags` (`{ in?, isEmpty? }`), sorted by `sort` (`dueAt` or `createdAt`, `asc` or `desc`). Pages with `limit` and `cursor` like `posts.list`.                                                                                                                                                                                                |
+| `native.movePostInQueue(ref, position, context)`                                             | `movePostInQueue` (beta)               | Move a scheduled post to the `top` or `bottom` of its channel's queue.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `native.dailyPostingLimits(accounts, { at }, context)`                                       | `dailyPostingLimits`                   | For channels in one organization, whether one more post at `at` (default now) would pass the network's daily posting limit, with the `limit` and the `scheduled` and `sent` counts. For X the count covers rolling 24-hour windows; other networks use the channel's local day.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `native.createIdea(input, context)`                                                          | `createIdea`                           | Save an idea in the organization's Create space: `title`, `text`, target `date`, `media` (each `{ url, type, alt?, thumbnailUrl?, size?, source? }`, `type` an `image`, `gif`, `link`, or `document`; Buffer's API takes no idea video), organization `tags` (each `{ id, name, color }`), target `services` (Buffer service names such as `instagram` or `twitter`), `aiAssisted`, the `templateId` of the post template it came from, a `cta` identifier Buffer records for analytics, and its place on the board: `groupId` and `placeAfterId` (omit both for the top of the unassigned group). Pass `organizationId` unless the adapter was created with one. Needs `ideas:write` for OAuth tokens.                    |
+| `native.listIdeaGroups({ organizationId? }, context)`                                        | `ideaGroups`                           | The organization's idea groups, the Create board's columns, as `{ id, name, isLocked }`. A group locks when the organization holds more than its plan allows. Needs `ideas:read` for OAuth tokens.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `native.listIdeas(query, context)`                                                           | `ideas`                                | A page of ideas with their content, tags, media, `groupId`, and `position`, filtered by `groupIds` or `membership` (`grouped` or `ungrouped`, not both) and by `tags` (`{ in?, isEmpty? }`). Pages with `limit` and `cursor`. Needs `ideas:read` for OAuth tokens.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `native.searchInstagramAudio(account, { query, audioType }, context)`                        | `searchInstagramAudio` (beta)          | Search Meta's licensed `music` or `originalSound` catalog for an Instagram channel. Buffer's post input has no audio field, so the results are for reference; the adapter cannot attach Instagram audio to a post.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `native.listChannels({ organizationId?, isLocked?, product? }, context)`                     | `channels`                             | Channels with Buffer's filters: `isLocked` (`true` for locked channels only, `false` for usable ones; Buffer locks channels beyond the plan's limit, and a locked channel cannot post) and `product` (`publish`, `analyze`, `engage`, `comments`, `startPage`, or `buffer`), with each channel's settings: `timezone` (the IANA zone of its posting schedule), `postingGoal` (`goal`, `sentCount`, `scheduledCount`, `status` `OnTrack`, `AtRisk`, or `Hit`, and the period), `linkShortening.isEnabled`, `allowedActions` (such as `scheduleUpdates`), `products`, network `scopes`, `serviceId`, `type`, `isDisconnected`, and `isQueuePaused`. Without `organizationId` it reads every organization the adapter covers. |
+| `native.listOrganizations(context)`                                                          | `account.organizations`                | Each organization's `channelCount`, `memberCount`, and plan `limits`: `channels`, `members`, `scheduledPosts`, `scheduledStoriesPerChannel`, `scheduledThreadsPerChannel`, `ideas`, `ideaGroups`, `tags`, `postTemplates`, `savedReplies`, and `generateContent`. Check them before a bulk schedule. The owner's email is not read.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `native.getAccount(context)`                                                                 | `account`                              | The authenticated user's `id`, `name`, account `timezone` (the default for new channels), and `preferences`: `timeFormat`, `startOfWeek`, and `defaultScheduleOption` (`Queue`, `Prioritize`, `FixedTime`, or `Now`, the composer's default). The email is not read.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `native.getConfiguration({ organizationId? }, context)`                                      | `configuration` (experimental)         | Buffer's own rules: for each channel, `authorizationStatus` per feature (`posting`, `comment`, `mention`, `directMessage`, `insights`, `engagementReaction`) as `ok`, `needsRefresh`, `needsUpgrade`, `notEnoughData`, or `notEnoughRights` with an optional `reason`, and its `content` rules; and `services`, the per-service catalog. Each content entry lists its `contentTypes`, `supportedProperties`, and `rules` such as a `LengthRule` `maxLength` or a `CountRule` `max`. The adapter's own preparation still uses its static limits.                                                                                                                                                                            |
+| `native.listTeamMembers({ organizationId? or account?, search?, limit?, cursor? }, context)` | `selectableTeamMembers` (experimental) | Team members you may offer in a picker, such as for mentions in Notes: all members of an organization, or those who can read Notes on one channel. Each has `id`, `name`, `urn` (use it as a mention's `serviceEntityId`), and `isLocked`. `search` matches name or email; the adapter does not read emails. Buffer sorts by display name, so a renamed member can appear twice across pages.                                                                                                                                                                                                                                                                                                                              |
+
+```ts
+import type { AdapterOperationContext } from "@opencoredev/social-sdk";
+
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: crypto.randomUUID(),
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+  authorization,
+};
+const adapter = buffer({ apiKey: process.env.BUFFER_API_KEY! });
+const [limit] = await adapter.native.dailyPostingLimits([account], { at }, context);
+
+if (limit?.isAtLimit) throw new Error("This channel is at its daily posting limit.");
+```
+
+## Limits and requirements
+
+### Not supported
+
+- Webhooks: Buffer offers no public webhooks, so poll `getDelivery` for status.
+- Comments and messages: Buffer's API exposes no comments or inbox to this adapter.
+- Post templates, collaboration notes, snippets, and content items: these are Buffer beta and experimental Create-space features with no publishing role here. Request the `snippets:*` or `notes:*` scopes and call Buffer's API directly if you need them.
+- Instagram audio on posts: see `searchInstagramAudio` above.
+- Uploads: host media yourself, as described above.
+- Removing a published post: Buffer's `deletePost` removes the Buffer record; it is not advertised as native network removal.
+- Publishing to WhatsApp: WhatsApp channels are listed, but this adapter does not publish to them.
 
 Run the setup on your server with your own assets and connected channels. In a multi-tenant app, configure an [authorization policy](/concepts/tenant-authorization) backed by your account grants; listing channels is not a tenant grant.

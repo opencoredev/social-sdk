@@ -313,7 +313,8 @@ failures use `reconnect_required` or `unauthorized`; denied scopes use
 throttling uses `rate_limited`; and inaccessible resources can be `not_found`
 or `gone`. Do not turn errors into empty pages or zero metrics.
 
-There is no direct Facebook adapter, so the direct routes above have no
-Facebook post reads or analytics. Managed backends that cover Facebook
+The direct Facebook adapter reads Page posts through `posts.list` and
+`posts.get`, comments, post and Page counts, and daily Page Insights; see the
+[Facebook page](/platforms/facebook). Managed backends that cover Facebook
 declare their own support. Inspect `social.capabilities()` before enabling a
 feature.
