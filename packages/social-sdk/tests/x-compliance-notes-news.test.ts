@@ -324,3 +324,75 @@ it("searches and reads X News stories at /2/news/", async () => {
     code: "invalid_input",
   });
 });
+
+const uncertain = { code: "ambiguous_outcome", retryDisposition: { kind: "reconcile-first" } };
+
+it("a compliance job answer without a readable job is an uncertain outcome", async () => {
+  for (const data of [null, {}, { id: "1423095206576984067" }]) {
+    const { native, seen } = fake({ "POST api.x.com/2/compliance/jobs": { data } });
+
+    await assert.rejects(
+      native.createComplianceJob({ account, type: "tweets", context }),
+      uncertain,
+    );
+    assert.equal(seen.length, 1);
+  }
+});
+
+it("deleting all stream rules with an unreadable answer is an uncertain outcome", async () => {
+  const { native, seen } = fake({ "POST api.x.com/2/tweets/search/stream/rules": { data: 7 } });
+
+  await assert.rejects(native.deleteAllStreamRules({ account, context }), uncertain);
+  assert.equal(seen.length, 1);
+});
+
+it("a compliance upload answered with a server error is an uncertain outcome", async () => {
+  const { native, seen } = fake(
+    {},
+    { "PUT storage.googleapis.com/upload": () => new Response(null, { status: 503 }) },
+  );
+
+  await assert.rejects(
+    native.uploadComplianceIds({
+      account,
+      job: { uploadUrl: job.upload_url },
+      ids: ["12"],
+      context,
+    }),
+    { ...uncertain, upstreamStatus: 503 },
+  );
+  assert.equal(seen.length, 1);
+});
+
+it("compliance uploads and downloads stop at the budget even when fetch ignores the signal", async () => {
+  const adapter = x({
+    auth: { userId: "11", accessToken: "user" },
+    appBearerToken: "app",
+    fetch: () => new Promise<Response>(() => {}),
+  });
+
+  assert.ok(adapter.native);
+
+  const short: AdapterOperationContext = {
+    ...context,
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 30 },
+  };
+
+  await assert.rejects(
+    adapter.native.uploadComplianceIds({
+      account,
+      job: { uploadUrl: job.upload_url },
+      ids: ["12"],
+      context: short,
+    }),
+    uncertain,
+  );
+  await assert.rejects(
+    adapter.native.downloadComplianceResults({
+      account,
+      job: { downloadUrl: job.download_url },
+      context: short,
+    }),
+    { code: "timeout" },
+  );
+});

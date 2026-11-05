@@ -33,7 +33,7 @@ import {
   normalizeMetrics,
 } from "../core/projections.js";
 import { readBinary } from "../transport/binary.js";
-import { createHttp, HttpError } from "../transport/http.js";
+import { abortable, createHttp, HttpError } from "../transport/http.js";
 import { isJsonValue, parseJson } from "../transport/json.js";
 import {
   activityStreamUrl,
@@ -2847,6 +2847,40 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       }
     };
 
+  /** Decodes the answer to a write X received; an answer that does not decode leaves it uncertain. */
+  function confirmedAnswer<T>(decode: () => T, operation: string): T {
+    try {
+      return decode();
+    } catch (error) {
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message:
+          "X did not return a readable confirmation. Read the current state before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+        cause: error,
+      });
+    }
+  }
+
+  /** Fetch that settles when the signal aborts, even if an injected fetch ignores it. */
+  async function fetchAbortable(
+    url: string | URL,
+    init: RequestInit,
+    signal: AbortSignal,
+  ): Promise<Response> {
+    const pending = (options.fetch ?? globalThis.fetch)(url, { ...init, signal });
+
+    void pending.then(
+      (response) => {
+        if (signal.aborted) void response.body?.cancel().catch(() => undefined);
+      },
+      () => undefined,
+    );
+
+    return abortable(pending, signal);
+  }
+
   async function readAccount(context: AdapterOperationContext) {
     const user = object(object(await request("/2/users/me", context))["data"]);
 
@@ -4298,12 +4332,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     const timer = setTimeout(onAbort, remainingBudget(context));
 
     try {
-      const response = await (options.fetch ?? globalThis.fetch)(url, {
-        method: "GET",
-        headers: credential === "none" ? {} : { Authorization: `Bearer ${bearer}` },
-        redirect: "manual",
-        signal: controller.signal,
-      });
+      const response = await fetchAbortable(
+        url,
+        {
+          method: "GET",
+          headers: credential === "none" ? {} : { Authorization: `Bearer ${bearer}` },
+          redirect: "manual",
+        },
+        controller.signal,
+      );
 
       if (!response.ok) {
         void response.body?.cancel().catch(() => undefined);
@@ -6332,15 +6369,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           if (name !== undefined && (!name.trim() || [...name].length > 64))
             throw invalid(operation, "Compliance job names are 1-64 characters.");
 
-          return complianceJob(
-            object(
-              await appRequest()(
-                "/2/compliance/jobs",
-                context,
-                { type, ...definedFields({ name, resumable }) },
-                { "compliance_job.fields": complianceJobFields },
-              ),
-            )["data"],
+          const created = await appRequest()(
+            "/2/compliance/jobs",
+            context,
+            { type, ...definedFields({ name, resumable }) },
+            { "compliance_job.fields": complianceJobFields },
+          );
+
+          return confirmedAnswer(
+            () => complianceJob(object(created)["data"], operation),
             operation,
           );
         },
@@ -6415,13 +6452,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           let response: Response;
 
           try {
-            response = await (options.fetch ?? globalThis.fetch)(url, {
-              method: "PUT",
-              headers,
-              body: ids.join("\n"),
-              redirect: "manual",
-              signal: controller.signal,
-            });
+            response = await fetchAbortable(
+              url,
+              { method: "PUT", headers, body: ids.join("\n"), redirect: "manual" },
+              controller.signal,
+            );
           } catch (error) {
             throw new SocialError({
               code: context.signal?.aborted ? "cancelled" : "ambiguous_outcome",
@@ -6437,6 +6472,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }
 
           void response.body?.cancel().catch(() => undefined);
+
+          // A server error does not prove X rejected the IDs; the upload may have taken effect.
+          if (response.status >= 500)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: `The compliance upload answered HTTP ${response.status}. Read the job status before replacing the job.`,
+              upstreamStatus: response.status,
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
           if (!response.ok)
             throw new SocialError({
@@ -7584,7 +7629,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             { delete_all: "true", ...definedFields({ dry_run: dryRun ? "true" : undefined }) },
           );
 
-          return parseRulesUpdate(object(result), dryRun);
+          return dryRun
+            ? parseRulesUpdate(object(result), dryRun)
+            : confirmedAnswer(
+                () => parseRulesUpdate(object(result), dryRun),
+                "x.deleteAllStreamRules",
+              );
         },
         { queryOnly: ({ dryRun }) => dryRun === true },
       ),
