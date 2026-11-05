@@ -562,7 +562,7 @@ describe("facebook pages adapter", () => {
     });
   });
 
-  it("reads, replies to, hides, and deletes comments", async () => {
+  it("reads, replies to, hides, and deletes comments [feature:facebook.comments.write]", async () => {
     const { calls, adapter: fb } = adapter([
       { data: [{ id: "c1", message: "Nice" }], paging: { cursors: { after: "x" } } },
       { id: "c2" },
