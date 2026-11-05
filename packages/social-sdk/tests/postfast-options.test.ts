@@ -873,3 +873,17 @@ it("reads Instagram reelsSkipRate and TikTok favorites", async () => {
     ],
   );
 });
+
+it("PostFast publishes one MP4 video to Bluesky as a VIDEO media item [feature:postfast.publish.bluesky.video]", async () => {
+  const body = await created({
+    targets: [{ account: account("bluesky") }],
+    content: { text: "clip", media: [video] },
+    schedule: { at: future },
+  });
+
+  const items = array(post(body)["mediaItems"]).map(object);
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.["type"], "VIDEO");
+  assert.equal(typeof items[0]?.["key"], "string");
+});
