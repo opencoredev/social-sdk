@@ -47,6 +47,7 @@ import {
 import { httpsUrl } from "../transport/upload.js";
 import { isJsonValue } from "../transport/json.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
+import { remainingBudget } from "../transport/budget.js";
 import { verifyMetaWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
@@ -868,11 +869,28 @@ function outgoingMessageWire(message: InstagramOutgoingMessage): JsonObject {
   }
 }
 
-function sentMessage(value: JsonObject): InstagramSentMessage {
-  return definedFields({
-    recipientId: optionalString(value["recipient_id"]),
-    messageId: optionalString(value["message_id"]),
-  });
+/**
+ * Meta documents `{ recipient_id, message_id }` for a sent message. A send that returns no
+ * message ID may still have been delivered, so it is uncertain rather than a success or failure.
+ */
+function sentMessage(value: JsonValue): InstagramSentMessage {
+  const messageId = isJsonObject(value) ? value["message_id"] : undefined;
+
+  if (!isJsonObject(value) || !isString(messageId) || messageId.length === 0)
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation: messageOperation,
+      message:
+        "Instagram did not return a message ID for the send. Read the conversation before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+
+  const recipientId = value["recipient_id"];
+
+  return {
+    messageId,
+    ...definedFields({ recipientId: optionalString(recipientId) }),
+  };
 }
 
 const metricName = /^[a-z][a-z0-9_]{0,63}$/;
@@ -1584,7 +1602,7 @@ export interface InstagramUpcomingEvent {
 
 export interface InstagramSentMessage {
   readonly recipientId?: string;
-  readonly messageId?: string;
+  readonly messageId: string;
 }
 
 /** A `web_url` or `postback` button for templates and persistent menus. */
@@ -3723,41 +3741,74 @@ export function instagram(
           body = source.blob.slice(offset);
         }
 
-        let response: Response;
+        // The upload shares the operation's elapsed budget with Graph requests, and the
+        // deadline covers both the request and reading the response body.
+        const deadline = new AbortController();
+
+        const timer = setTimeout(
+          () => deadline.abort(),
+          Math.min(2_147_483_647, remainingBudget(context)),
+        );
+
+        const signal =
+          context.signal === undefined
+            ? deadline.signal
+            : AbortSignal.any([context.signal, deadline.signal]);
+
+        let status: number;
+        let parsed: JsonValue | undefined;
 
         try {
-          response = await fetchWithoutRedirects(options.fetch ?? globalThis.fetch, uri, {
+          const response = await fetchWithoutRedirects(options.fetch ?? globalThis.fetch, uri, {
             method: "POST",
             headers,
-            ...definedFields({ body, signal: context.signal }),
+            signal,
+            ...definedFields({ body }),
           });
+
+          status = response.status;
+          parsed = parseUploadResponse(await response.text());
         } catch (cause) {
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "instagram.media.upload",
             message:
-              "The Instagram video upload did not return a response. Read getUploadStatus and resume from bytes_transferred.",
+              "The Instagram video upload did not return a readable response. Read getUploadStatus and resume from bytes_transferred.",
             retryDisposition: { kind: "reconcile-first" },
             cause,
           });
+        } finally {
+          clearTimeout(timer);
         }
 
-        const parsed = parseUploadResponse(await response.text());
+        if (status >= 200 && status < 300 && isJsonObject(parsed) && parsed["success"] === true)
+          return;
+
         const debug = isJsonObject(parsed) ? optionalObject(parsed["debug_info"]) : undefined;
 
-        if (!response.ok || !isJsonObject(parsed) || parsed["success"] !== true)
+        // Meta documents an explicit refusal as a `debug_info` object, and a 4xx status is a
+        // definite rejection. Anything else, such as a 5xx or a success response without
+        // `success: true`, leaves the upload state unknown.
+        if (debug === undefined && (status < 400 || status >= 500))
           throw new SocialError({
-            code: "upstream_failure",
+            code: "ambiguous_outcome",
             operation: "instagram.media.upload",
-            message:
-              optionalString(debug?.["message"]) ??
-              `Instagram did not confirm the video upload (HTTP ${response.status}).`,
-            retryDisposition:
-              debug?.["retriable"] === true ? { kind: "reconcile-first" } : { kind: "never" },
-            ...definedFields({
-              details: definedFields({ type: optionalString(debug?.["type"]) }),
-            }),
+            message: `Instagram did not confirm the video upload (HTTP ${status}). Read getUploadStatus and resume from bytes_transferred.`,
+            retryDisposition: { kind: "reconcile-first" },
           });
+
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "instagram.media.upload",
+          message:
+            optionalString(debug?.["message"]) ??
+            `Instagram did not confirm the video upload (HTTP ${status}).`,
+          retryDisposition:
+            debug?.["retriable"] === true ? { kind: "reconcile-first" } : { kind: "never" },
+          ...definedFields({
+            details: definedFields({ type: optionalString(debug?.["type"]) }),
+          }),
+        });
       },
       async getUploadStatus({ account, containerId, context }) {
         authorize(account, context);
@@ -4155,13 +4206,10 @@ export function instagram(
         const message = outgoingMessageWire({ kind: "text", text });
 
         return sentMessage(
-          validatedObject(
-            await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
-              recipient: { comment_id: nonEmptyText(commentId, messageOperation, "commentId") },
-              message,
-            }),
-            messageOperation,
-          ),
+          await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
+            recipient: { comment_id: nonEmptyText(commentId, messageOperation, "commentId") },
+            message,
+          }),
         );
       },
       async sendDirectMessage({
@@ -4176,18 +4224,15 @@ export function instagram(
         const body = outgoingMessageWire(message);
 
         return sentMessage(
-          validatedObject(
-            await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
-              recipient: { id: nonEmptyText(recipientId, messageOperation, "recipientId") },
-              message: body,
-              ...definedFields({
-                reply_to: replyToMessageId === undefined ? undefined : { mid: replyToMessageId },
-                messaging_type: humanAgent === true ? "MESSAGE_TAG" : undefined,
-                tag: humanAgent === true ? "HUMAN_AGENT" : undefined,
-              }),
+          await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
+            recipient: { id: nonEmptyText(recipientId, messageOperation, "recipientId") },
+            message: body,
+            ...definedFields({
+              reply_to: replyToMessageId === undefined ? undefined : { mid: replyToMessageId },
+              messaging_type: humanAgent === true ? "MESSAGE_TAG" : undefined,
+              tag: humanAgent === true ? "HUMAN_AGENT" : undefined,
             }),
-            messageOperation,
-          ),
+          }),
         );
       },
       async reactToMessage({ account, recipientId, messageId, reaction, context }) {

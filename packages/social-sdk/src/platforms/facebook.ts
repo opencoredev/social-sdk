@@ -2241,6 +2241,35 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       });
   };
 
+  /**
+   * Decode a dispatched write's answer. A write whose answer is not an object may still have
+   * taken effect, so it is uncertain and must be reconciled rather than repeated.
+   */
+  const writeObject = (value: JsonField, operation: string): JsonObject => {
+    if (isJsonObject(value)) return value;
+
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: "Facebook returned an unreadable answer to the write. Reconcile before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  };
+
+  /** Read the ID a write returned; without it the write is uncertain, not failed. */
+  const writeId = (result: JsonObject, key: string, operation: string): string => {
+    const id = result[key];
+
+    if (isString(id) && id.length > 0) return id;
+
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: `Facebook returned no ${key} for the write. Reconcile before retrying.`,
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  };
+
   const confirmSuccess = (value: JsonField, operation: string, message: string): void => {
     if (!isJsonObject(value) || value["success"] !== true)
       throw new SocialError({
@@ -2789,7 +2818,10 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     let started: JsonObject;
 
     try {
-      started = object(await request(page, input.context, { upload_phase: "start" }));
+      started = writeObject(
+        await request(page, input.context, { upload_phase: "start" }),
+        operation,
+      );
     } catch (error) {
       // A definite refusal created no Reel, so it does not count against the limit.
       if (
@@ -2803,14 +2835,14 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       throw error;
     }
 
-    const videoId = string(started["video_id"]);
+    const videoId = writeId(started, "video_id", operation);
 
     try {
       // Inside the try: the container already exists, so a bad upload URL must still
       // return its delivery instead of losing the only reference to it.
       await sendToRupload(started, upload, input.context, "facebook.reels.upload");
 
-      const finish = object(
+      const finish = writeObject(
         await request(page, input.context, {
           upload_phase: "finish",
           video_id: videoId,
@@ -2829,6 +2861,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
               input.scheduleAt === undefined ? undefined : scheduleSeconds(input.scheduleAt),
           }),
         }),
+        operation,
       );
 
       confirmSuccess(finish, operation, "Facebook did not confirm the Reel.");
@@ -3259,7 +3292,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     if (input.scheduleAt !== undefined) scheduleIssue(input.scheduleAt, "video", operation);
 
-    const result = object(
+    const result = writeObject(
       await videoRequest(`/${encodeURIComponent(pageId)}/videos`, input.context, {
         crossposted_video_id: videoId,
         ...definedFields({
@@ -3270,9 +3303,10 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
             input.scheduleAt === undefined ? undefined : scheduleSeconds(input.scheduleAt),
         }),
       }),
+      operation,
     );
 
-    const id = string(result["id"]);
+    const id = writeId(result, "id", operation);
 
     return input.scheduleAt === undefined
       ? processing(input.account, 0, id, "VIDEO_SUBMITTED")
@@ -3287,10 +3321,11 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     if (!numericId.test(input.collaboratorPageId))
       fail(operation, "collaboratorPageId must be a numeric Facebook Page ID.");
 
-    const result = object(
+    const result = writeObject(
       await request(`/${encodeURIComponent(videoId)}/collaborators`, input.context, {
         target_id: input.collaboratorPageId,
       }),
+      operation,
     );
 
     confirmSuccess(result, operation, "Facebook did not confirm the collaborator invitation.");
@@ -3387,20 +3422,22 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
           : fail(operation, "Pass a hosted photoUrl or the photo bytes.");
 
     // The Story photo is uploaded unpublished first, as the Page Stories guide requires.
-    const uploaded = object(
+    const uploaded = writeObject(
       await request(
         pagePath("/photos"),
         input.context,
         mediaBody(photo, "url", { published: false }),
       ),
+      operation,
     );
 
-    const photoId = string(uploaded["id"]);
+    const photoId = writeId(uploaded, "id", operation);
     let result: JsonObject;
 
     try {
-      result = object(
+      result = writeObject(
         await request(pagePath("/photo_stories"), input.context, { photo_id: photoId }),
+        operation,
       );
     } catch (error) {
       // A definite refusal made no Story, so the staged photo can go. An unclear answer keeps it.
@@ -3417,7 +3454,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     confirmSuccess(result, operation, "Facebook did not confirm the photo Story.");
 
-    return published(input.account, 0, string(result["post_id"]));
+    return published(input.account, 0, writeId(result, "post_id", operation));
   };
 
   const publishVideoStory: FacebookNative["publishVideoStory"] = async (input) => {
@@ -3425,11 +3462,12 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     const operation = "facebook.stories.publish";
     const upload = ruploadSource(input, operation);
 
-    const started = object(
+    const started = writeObject(
       await request(pagePath("/video_stories"), input.context, { upload_phase: "start" }),
+      operation,
     );
 
-    const videoId = string(started["video_id"]);
+    const videoId = writeId(started, "video_id", operation);
 
     try {
       await sendToRupload(started, upload, input.context, "facebook.stories.upload");
@@ -3555,7 +3593,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     )
       fail(operation, "projection must be EQUIRECTANGULAR, CUBEMAP, or HALF_EQUIRECTANGULAR.");
 
-    const result = object(
+    const result = writeObject(
       await request(pagePath("/live_videos"), input.context, {
         status: input.status,
         ...definedFields({
@@ -3575,10 +3613,11 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
           projection: input.projection,
         }),
       }),
+      operation,
     );
 
     return {
-      id: string(result["id"]),
+      id: writeId(result, "id", operation),
       ...definedFields({ secureStreamUrl: optionalString(result["secure_stream_url"]) }),
     };
   };
@@ -3604,7 +3643,10 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     if (Object.keys(body).length === 0)
       fail(operation, "Pass a status, startAt, title, or description.");
 
-    const result = object(await request(`/${encodeURIComponent(id)}`, input.context, body));
+    const result = writeObject(
+      await request(`/${encodeURIComponent(id)}`, input.context, body),
+      operation,
+    );
 
     if (result["id"] !== id && result["success"] !== true)
       throw new SocialError({
@@ -3673,15 +3715,16 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     )
       fail(operation, "correctOption is the 1-based number of one of the options.");
 
-    const result = object(
+    const result = writeObject(
       await request(`/${encodeURIComponent(id)}/polls`, input.context, {
         question: input.question,
         options: [...input.options],
         ...definedFields({ correct_option: input.correctOption, show_results: input.showResults }),
       }),
+      operation,
     );
 
-    return { id: string(result["id"]) };
+    return { id: writeId(result, "id", operation) };
   };
 
   const updateLivePoll: FacebookNative["updateLivePoll"] = async (input) => {
@@ -3832,8 +3875,9 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     authorize(input.account, input.context);
     const id = requireId(input.liveVideoId, "liveVideoId", "facebook.live.end");
 
-    const result = object(
+    const result = writeObject(
       await request(`/${encodeURIComponent(id)}`, input.context, { end_live_video: true }),
+      "facebook.live.end",
     );
 
     if (result["id"] !== id && result["success"] !== true)
@@ -4112,15 +4156,16 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     const operation = "facebook.comments.write";
     const objectId = requireId(input.objectId, "objectId", operation);
 
-    const result = object(
+    const result = writeObject(
       await request(
         `/${encodeURIComponent(objectId)}/comments`,
         input.context,
         commentBody(input, operation, true),
       ),
+      operation,
     );
 
-    return { id: string(result["id"]) };
+    return { id: writeId(result, "id", operation) };
   };
 
   const editComment: FacebookNative["editComment"] = async (input) => {
@@ -4146,8 +4191,9 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     if (!numericId.test(input.userId)) fail(operation, "userId must be a numeric Page-scoped ID.");
 
     // Meta answers with the blocked ID mapped to true.
-    const result = object(
+    const result = writeObject(
       await request(pagePath("/blocked"), input.context, { user: input.userId }),
+      operation,
     );
 
     if (!Object.values(result).includes(true))
@@ -4464,10 +4510,10 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
   };
 
   const sentMessage = (value: JsonField, operation: string): FacebookSentMessage => {
-    const result = object(value);
-    const messageId = optionalString(result["message_id"]);
+    const result = isJsonObject(value) ? value : undefined;
+    const messageId = optionalString(result?.["message_id"]);
 
-    if (messageId === undefined)
+    if (result === undefined || messageId === undefined || messageId.length === 0)
       throw new SocialError({
         code: "ambiguous_outcome",
         operation,
@@ -4633,7 +4679,10 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       };
     }
 
-    const result = object(await request(pagePath("/messages"), input.context, body));
+    const result = writeObject(
+      await request(pagePath("/messages"), input.context, body),
+      operation,
+    );
 
     return definedFields({ recipientId: optionalString(result["recipient_id"]) });
   };
@@ -4645,14 +4694,15 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     if (!input.name.trim() || [...input.name].length > 50)
       fail(operation, "A persona name must be 1 to 50 characters.");
 
-    const result = object(
+    const result = writeObject(
       await request(pagePath("/personas"), input.context, {
         name: input.name,
         profile_picture_url: httpsUrl(input.profilePictureUrl).href,
       }),
+      operation,
     );
 
-    return { id: string(result["id"]) };
+    return { id: writeId(result, "id", operation) };
   };
 
   const listPersonas: FacebookNative["listPersonas"] = async (input) => {
@@ -4716,9 +4766,12 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       body.set("filedata", input.file, "filedata");
     }
 
-    const result = object(await request(pagePath("/message_attachments"), input.context, body));
+    const result = writeObject(
+      await request(pagePath("/message_attachments"), input.context, body),
+      operation,
+    );
 
-    return { attachmentId: string(result["attachment_id"]) };
+    return { attachmentId: writeId(result, "attachment_id", operation) };
   };
 
   const userProfileFields = [
@@ -5197,13 +5250,14 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     if (!input.name.trim()) fail(operation, "A custom label needs a name.");
 
-    const result = object(
+    const result = writeObject(
       await request(pagePath("/custom_labels"), input.context, { page_label_name: input.name }),
+      operation,
     );
 
     const id = result["id"];
 
-    return { id: isFiniteNumber(id) ? String(id) : string(id) };
+    return { id: isFiniteNumber(id) ? String(id) : writeId(result, "id", operation) };
   };
 
   const listCustomLabels: FacebookNative["listCustomLabels"] = async (input) => {
@@ -5276,7 +5330,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     )
       fail(operation, "parameterFormat must be POSITIONAL or NAMED.");
 
-    const result = object(
+    const result = writeObject(
       await request(pagePath("/message_templates"), input.context, {
         name: input.name,
         language: input.language,
@@ -5284,10 +5338,11 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         components: [...input.components],
         ...definedFields({ parameter_format: input.parameterFormat }),
       }),
+      operation,
     );
 
     return {
-      id: string(result["id"]),
+      id: writeId(result, "id", operation),
       ...definedFields({
         status: optionalString(result["status"]),
         category: optionalString(result["category"]),
