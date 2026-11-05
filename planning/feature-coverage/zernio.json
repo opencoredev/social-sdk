@@ -2797,30 +2797,31 @@
     "id": "zernio.read.posts_filters",
     "provider": "zernio",
     "area": "read",
-    "title": "Post list filters: dateFrom, dateTo, updatedSince, sortBy, createdBy, includeHidden",
+    "title": "Post list filters: dateFrom, dateTo, sortBy, createdBy, includeHidden",
     "access": "public",
     "scope": "core",
     "source": {
-      "url": "https://zernio.com/openapi.json",
-      "checked": "2026-11-04",
-      "apiVersion": "1.490.0"
+      "url": "https://docs.zernio.com/posts/list-posts",
+      "checked": "2026-11-05",
+      "apiVersion": "1.52.2"
     },
     "sdk": "missing",
     "docs": "missing",
-    "gap": "posts.list cannot filter by date window or a changed-since cursor",
+    "gap": "posts.list cannot filter by date window",
     "effort": "S",
     "probe": {
       "src": [
-        "\\bupdatedSince\\b",
-        "\\bdateFrom\\b"
+        "\\bdateFrom\\b",
+        "\\bsortBy\\b"
       ],
       "test": [
-        "updatedSince"
+        "dateFrom"
       ],
       "docs": [
-        "updatedSince|dateFrom"
+        "dateFrom"
       ]
     },
-    "round": 2
+    "round": 2,
+    "note": "Relocked 2026-11-05: Zernio's list-posts reference no longer lists updatedSince and answers 400 for unlisted query parameters; incremental sync uses analyticsDelta."
   }
 ]
