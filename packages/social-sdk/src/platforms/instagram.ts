@@ -1842,6 +1842,8 @@ export function instagram(
     reservedQuery: ["access_token", "appsecret_proof"],
     // Graph's `?method=` override turns a GET into a write; see raw-request.ts.
     methodOverrideQuery: ["method"],
+    // Graph read-after-write: a failed `fields` read-back still leaves the write applied.
+    readAfterWriteQuery: ["fields"],
     decodeError: (body, status, { url, path }) =>
       providerErrorDecoder(url.origin, path)(body, status),
     mapError: metaOAuthReconnect,

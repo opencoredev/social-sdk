@@ -295,7 +295,7 @@ export type BlueskyRawHost = "pds" | "video";
 export interface BlueskyNative {
   /**
    * Sends one XRPC request the SDK does not wrap. `pds` uses the app-password JWT or the OAuth session's DPoP transport and adds the chat proxy header to `chat.bsky.*` methods; `video` takes `/xrpc/<nsid>` paths and sends a service token minted for that method.
-   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   * The raw layer never retries or reconciles; the caller owns any write it sends. A configured OAuth session may still replay an explicit DPoP nonce challenge or refresh its own credentials.
    */
   readonly request: (
     input: AccountRawProviderRequest<BlueskyRawHost>,
@@ -3350,7 +3350,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     apiRevision: "AT Protocol XRPC 2026-09",
     runtime: ["node>=22.12", "bun"],
     capabilities: [
-      rawRequestCapability("bluesky", "the configured PDS and the Bluesky video service"),
+      rawRequestCapability(
+        "bluesky",
+        "the configured PDS and the Bluesky video service",
+        "A configured OAuth session may still replay an explicit DPoP nonce challenge or refresh its own credentials.",
+      ),
       {
         operation: "webhooks.verify",
         platform: "bluesky",
@@ -4368,6 +4372,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         headers.set("Authorization", `Bearer ${auth.accessJwt}`);
     },
     decodeError: decodeXrpcError,
+    ...definedFields({ timeoutMs: options.timeoutMs }),
   });
 
   const assertNativeAccount = (

@@ -123,6 +123,13 @@ export interface RawRequestConfig<THost extends string> {
    * these are rejected before any request; send the real HTTP method instead.
    */
   readonly methodOverrideQuery?: readonly string[];
+  /**
+   * Query parameters that make the provider read the object back after a write, such as Meta
+   * Graph's `fields`. Graph answers a failed read-back with a standard error even though the write
+   * was applied, so a 4xx on such a write is `ambiguous_outcome` unless it is an authentication,
+   * permission or rate-limit rejection.
+   */
+  readonly readAfterWriteQuery?: readonly string[];
   readonly decodeError?: (
     body: JsonValue,
     status: number,
@@ -369,6 +376,15 @@ export async function rawProviderRequest<THost extends string>(
     else invalid("Query values must be strings or string lists.");
   }
 
+  const readAfterWrite = new Set(
+    (config.readAfterWriteQuery ?? []).map((name) => name.toLowerCase()),
+  );
+
+  const readsBack =
+    method !== "GET" &&
+    method !== "HEAD" &&
+    Object.keys(input.query ?? {}).some((key) => readAfterWrite.has(key.toLowerCase()));
+
   const reserved = new Set([...sharedReservedHeaders, ...(config.reservedHeaders ?? [])]);
   const headers = new Headers();
 
@@ -454,6 +470,29 @@ export async function rawProviderRequest<THost extends string>(
         void response.body?.cancel().catch(() => undefined);
       }
 
+      const data =
+        errorBody === undefined
+          ? undefined
+          : config.decodeError?.(errorBody, response.status, dispatch);
+
+      if (
+        readsBack &&
+        response.status < 500 &&
+        response.status !== 401 &&
+        response.status !== 403 &&
+        response.status !== 429 &&
+        data?.code !== "oauth-token-invalid"
+      )
+        throw new SocialError({
+          code: "ambiguous_outcome",
+          operation,
+          backend: context.backendInstance,
+          correlationId: context.correlationId,
+          message: `Upstream returned HTTP ${response.status} for a write that reads the object back; the write may have been applied. Reconcile before retrying.`,
+          upstreamStatus: response.status,
+          retryDisposition: { kind: "reconcile-first" },
+        });
+
       throw new HttpError(
         `Upstream request failed with HTTP ${response.status}.`,
         "http",
@@ -461,9 +500,7 @@ export async function rawProviderRequest<THost extends string>(
         response.status,
         retryDelay(response.headers.get("retry-after"), Date.now()),
         requestId(response.headers),
-        errorBody === undefined
-          ? undefined
-          : config.decodeError?.(errorBody, response.status, dispatch),
+        data,
       );
     }
 
@@ -556,12 +593,13 @@ export function managedRawRequest(
 export function rawRequestCapability(
   platform: CapabilityDeclaration["platform"],
   hosts: string,
+  caveat?: string,
 ): CapabilityDeclaration {
   return {
     platform,
     operation: "raw.request",
     availability: "available",
     surface: "native",
-    notes: `native.request sends one request to ${hosts} with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends.`,
+    notes: `native.request sends one request to ${hosts} with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends.${caveat === undefined ? "" : ` ${caveat}`}`,
   };
 }

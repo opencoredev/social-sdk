@@ -12996,7 +12996,7 @@
           "operation": "raw.request",
           "availability": "available",
           "surface": "native",
-          "notes": "native.request sends one request to the configured PDS and the Bluesky video service with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+          "notes": "native.request sends one request to the configured PDS and the Bluesky video service with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends. A configured OAuth session may still replay an explicit DPoP nonce challenge or refresh its own credentials."
         },
         {
           "operation": "webhooks.verify",
