@@ -9687,11 +9687,14 @@
             "allowedMimeTypes": [
               "image/jpeg",
               "image/png",
+              "image/webp",
               "image/gif",
-              "video/mp4"
+              "video/mp4",
+              "video/quicktime",
+              "video/webm"
             ]
           },
-          "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG image Blobs, each at most 5 MiB, or one MP4 video up to the 16 GiB upload ceiling (account size/duration eligibility may be lower) / one GIF up to 15 MiB via 4 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. Self-serve replies require a parent-author mention or quote summoning this account; Enterprise is exempt (February 2026 changelog)."
+          "notes": "User-context OAuth2 token; current X API access/billing required. Up to four static JPEG/PNG/WEBP image Blobs, each at most 5 MiB, or one MP4/QuickTime/WebM video up to the 16 GiB upload ceiling (account size/duration eligibility may be lower) / one GIF up to 15 MiB via 4 MiB chunked upload with bounded processing poll. Post attach can still reject over-duration video with 403. Self-serve replies require a parent-author mention or quote summoning this account; Enterprise is exempt (February 2026 changelog)."
         },
         {
           "platform": "x",
@@ -10047,7 +10050,7 @@
             "users.read",
             "media.write"
           ],
-          "notes": "MP4 Blob chunked INIT/APPEND/FINALIZE with 4 MiB segments and bounded STATUS poll honoring check_after_secs."
+          "notes": "MP4, QuickTime, or WebM Blob chunked INIT/APPEND/FINALIZE with 4 MiB segments and bounded STATUS poll honoring check_after_secs."
         },
         {
           "platform": "x",
@@ -10112,6 +10115,442 @@
           "operation": "posts.schedule",
           "availability": "not-implemented-by-adapter",
           "notes": "X API v2 has no scheduled-post field; POST /2/tweets publishes immediately. X Ads API scheduled Tweets (ads-api.x.com/12/accounts/:account_id/scheduled_tweets) need Ads API approval, an ads account, and OAuth 1.0a-signed requests, which this OAuth 2.0 adapter does not implement (https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests, checked 2026-09-24). Scheduled Tweets default to nullcast=true (promoted-only, not on the public timeline); organic nullcast=false Tweets can only be created by the ads account's full promotable user (https://docs.x.com/x-ads-api/creatives, checked 2026-09-24). Use an application-owned job runner to publish at a chosen time."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.lookup",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Batch lookup of up to 100 Posts with GET /2/tweets?ids=."
+        },
+        {
+          "platform": "x",
+          "operation": "posts.quotes.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Quote Posts of a Post with GET /2/tweets/{id}/quote_tweets."
+        },
+        {
+          "platform": "x",
+          "operation": "reposts.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read",
+            "timeline.read"
+          ],
+          "notes": "repostedBy, reposts, and repostsOfMe. repostsOfMe needs a user token with timeline.read."
+        },
+        {
+          "platform": "x",
+          "operation": "users.lookup",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "tweet.read"
+          ],
+          "notes": "Batch user lookup by up to 100 IDs or usernames."
+        },
+        {
+          "platform": "x",
+          "operation": "users.search",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "tweet.read"
+          ],
+          "notes": "User search with GET /2/users/search; needs a user token."
+        },
+        {
+          "platform": "x",
+          "operation": "users.affiliates.read",
+          "availability": "available",
+          "requiredScopes": [
+            "users.read",
+            "tweet.read"
+          ],
+          "notes": "Affiliates of a verified organization with GET /2/users/{id}/affiliates."
+        },
+        {
+          "platform": "x",
+          "operation": "search.counts",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Recent counts accept a user or app token; full-archive counts need appBearerToken and an eligible plan."
+        },
+        {
+          "platform": "x",
+          "operation": "bookmarks.folders",
+          "availability": "available",
+          "requiredScopes": [
+            "bookmark.read",
+            "bookmark.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "List and create bookmark folders and read a folder's Post IDs."
+        },
+        {
+          "platform": "x",
+          "operation": "spaces.read",
+          "availability": "available",
+          "requiredScopes": [
+            "space.read",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Space lookup, search, Space Posts, and ticket buyers. spaceBuyers needs the host's user token."
+        },
+        {
+          "platform": "x",
+          "operation": "communities.read",
+          "availability": "available",
+          "requiredScopes": [
+            "list.read",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Community lookup by ID and keyword search. Search needs a user token."
+        },
+        {
+          "platform": "x",
+          "operation": "trends.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Trends by WOEID and personalized trends. Personalized trends need a user token."
+        },
+        {
+          "platform": "x",
+          "operation": "usage.read",
+          "availability": "available",
+          "notes": "Project Post usage needs appBearerToken; credit balance accepts a user or app token."
+        },
+        {
+          "platform": "x",
+          "operation": "media.dm.upload",
+          "availability": "available",
+          "requiredScopes": [
+            "media.write",
+            "dm.write",
+            "users.read",
+            "tweet.read"
+          ],
+          "notes": "DM image, GIF, and video uploads with dm_image, dm_gif, or dm_video. Optional additional_owners on native uploads."
+        },
+        {
+          "platform": "x",
+          "operation": "media.subtitles",
+          "availability": "available",
+          "requiredScopes": [
+            "media.write",
+            "users.read",
+            "tweet.read"
+          ],
+          "notes": "Upload SRT or WebVTT subtitles and attach or remove them on an uploaded video with /2/media/subtitles."
+        },
+        {
+          "platform": "x",
+          "operation": "analytics.private.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "non_public_metrics and organic_metrics for the account's own Posts from the last 30 days; user token only."
+        },
+        {
+          "platform": "x",
+          "operation": "analytics.posts.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Post engagement time series with GET /2/tweets/analytics for owned Posts; user token only."
+        },
+        {
+          "platform": "x",
+          "operation": "analytics.media.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read"
+          ],
+          "notes": "Video metrics with GET /2/media/analytics for owned media; user token only."
+        },
+        {
+          "platform": "x",
+          "operation": "messages.event.read",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.read",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "One DM event by ID with GET /2/dm_events/{event_id}."
+        },
+        {
+          "platform": "x",
+          "operation": "messages.delete",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.write",
+            "dm.read"
+          ],
+          "notes": "Deletes a DM event the account sent; requires X to confirm deleted: true."
+        },
+        {
+          "platform": "x",
+          "operation": "messages.media.read",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.read"
+          ],
+          "notes": "Downloads legacy DM media bytes into memory up to maxBytes (default 15 MiB)."
+        },
+        {
+          "platform": "x",
+          "operation": "messages.block",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Blocks or unblocks DMs from a user with /2/users/{id}/dm/block and /dm/unblock."
+        },
+        {
+          "platform": "x",
+          "operation": "bookmarks.bulk",
+          "availability": "available",
+          "requiredScopes": [
+            "bookmark.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "Bookmarks up to 25 posts per request with tweet_ids, optionally into a bookmark folder (folder_id)."
+        },
+        {
+          "platform": "x",
+          "operation": "media.metadata",
+          "availability": "available",
+          "requiredScopes": [
+            "media.write"
+          ],
+          "notes": "POST /2/media/metadata: alt text, download, expiration, domain, origin, and sensitive-media controls."
+        },
+        {
+          "platform": "x",
+          "operation": "streams.activity",
+          "availability": "available",
+          "notes": "X Activity API persistent stream (GET /2/activity/stream) with backfill_minutes and start/end recovery; needs appBearerToken and Activity subscriptions."
+        },
+        {
+          "platform": "x",
+          "operation": "streams.volume",
+          "availability": "available",
+          "notes": "Volume streams: sample, sample10, firehose, en/ja/ko/pt firehoses, likes firehose and likes sample10. Enterprise access; needs appBearerToken."
+        },
+        {
+          "platform": "x",
+          "operation": "streams.compliance",
+          "availability": "available",
+          "notes": "Post, user and Like compliance streams and the Post label stream. Enterprise access; needs appBearerToken."
+        },
+        {
+          "platform": "x",
+          "operation": "compliance.jobs",
+          "availability": "available",
+          "notes": "Batch compliance jobs: create, list, read, upload IDs to the signed upload_url, download results, and cancel. Needs appBearerToken."
+        },
+        {
+          "platform": "x",
+          "operation": "notes.community",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write"
+          ],
+          "notes": "Community Notes for AI Note Writers: create, evaluate, delete, notes written, and eligible Posts (test_mode)."
+        },
+        {
+          "platform": "x",
+          "operation": "news.read",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "X News stories: search (query, max_age_hours) and lookup by ID; user token or appBearerToken."
+        },
+        {
+          "platform": "x",
+          "operation": "chat.groups",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.read",
+            "dm.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "X Chat (beta) group lifecycle, members, admins, admin requests and settings, invite links, and join requests. Encrypted fields and action signatures come from X's Chat XDK."
+        },
+        {
+          "platform": "x",
+          "operation": "chat.inbox",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.read",
+            "dm.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "X Chat (beta) archive, mute, read and unread, typing, disappearing messages, screen capture, pinned messages, message deletion, message requests, and chat settings."
+        },
+        {
+          "platform": "x",
+          "operation": "chat.keys",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.read",
+            "dm.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "X Chat (beta) conversation keys and user public keys for end-to-end encryption; the SDK carries keys built by the Chat XDK."
+        },
+        {
+          "platform": "x",
+          "operation": "chat.media",
+          "availability": "available",
+          "requiredScopes": [
+            "media.write"
+          ],
+          "notes": "X Chat (beta) encrypted media upload (initialize, append, finalize) and download."
+        },
+        {
+          "platform": "x",
+          "operation": "live.x.broadcasts.user",
+          "availability": "available",
+          "requiredScopes": [
+            "broadcast.read",
+            "broadcast.write"
+          ],
+          "notes": "User-scoped broadcasts and stream sources (/2/users/{id}/broadcasts and /sources), publish without the announcing Post (should_not_tweet), ingest region lookup, per-broadcast chat mutes, and scheduled-broadcast updates."
+        },
+        {
+          "platform": "x",
+          "operation": "calls.manage",
+          "availability": "available",
+          "requiredScopes": [
+            "calls.read",
+            "calls.write",
+            "calls.join"
+          ],
+          "notes": "X Calls (beta, OpenAPI 2.173): create, read, join and leave calls; list, schedule, update, cancel, and RSVP to scheduled calls."
+        },
+        {
+          "platform": "x",
+          "operation": "bots.manage",
+          "availability": "available",
+          "notes": "Bot accounts (beta, OpenAPI 2.173): list, create, update, delete, and rotate or revoke bot bearer tokens. Most routes need appBearerToken."
+        },
+        {
+          "platform": "x",
+          "operation": "developer.account",
+          "availability": "available",
+          "requiredScopes": [
+            "developer.read",
+            "developer.write"
+          ],
+          "notes": "Developer account read and ensure (GET/POST /2/account, beta, OpenAPI 2.173)."
+        },
+        {
+          "platform": "x",
+          "operation": "streams.rules.counts",
+          "availability": "available",
+          "notes": "Filtered-stream rule totals and caps; needs appBearerToken."
+        },
+        {
+          "platform": "x",
+          "operation": "streams.webhooks",
+          "availability": "available",
+          "notes": "Links filtered-stream delivery to a registered webhook; needs appBearerToken and Enterprise access."
+        },
+        {
+          "platform": "x",
+          "operation": "streams.connections",
+          "availability": "available",
+          "notes": "Connections API history and termination for streaming endpoints; needs appBearerToken."
+        },
+        {
+          "platform": "x",
+          "operation": "webhooks.manage",
+          "availability": "available",
+          "notes": "Register, list, re-validate, delete, and replay webhook configs. Prefers appBearerToken; replay needs it."
+        },
+        {
+          "platform": "x",
+          "operation": "activity.subscriptions",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "X Activity API subscriptions. Private events (likes, DMs, replies, mentions, mutes, blocks) need the user's OAuth 2.0 token and the matching read scope."
+        },
+        {
+          "platform": "x",
+          "operation": "articles.publish",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read",
+            "tweet.write",
+            "users.read"
+          ],
+          "notes": "Create a DraftJS Article draft and publish it as a long-form Post with /2/articles."
+        },
+        {
+          "platform": "x",
+          "operation": "chat.encrypted",
+          "availability": "available",
+          "requiredScopes": [
+            "dm.read",
+            "dm.write",
+            "tweet.read",
+            "users.read"
+          ],
+          "notes": "X Chat (beta) conversations, events, and messages. Sends plaintext content or an encrypted event built by X's Chat XDK; the SDK does not encrypt or decrypt."
+        },
+        {
+          "platform": "x",
+          "operation": "live.x.broadcasts",
+          "availability": "available",
+          "requiredScopes": [
+            "broadcast.read",
+            "broadcast.write"
+          ],
+          "notes": "Live video broadcasts (beta): stream sources, scheduled broadcasts, go live, end, chat history and send, and chat moderators and mutes."
+        },
+        {
+          "platform": "x",
+          "operation": "media.lookup",
+          "availability": "available",
+          "requiredScopes": [
+            "tweet.read"
+          ],
+          "notes": "Media lookup by media key with GET /2/media?media_keys=."
         },
         {
           "platform": "x",

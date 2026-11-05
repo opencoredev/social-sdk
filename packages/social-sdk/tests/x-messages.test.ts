@@ -114,8 +114,12 @@ it("lists X conversations and messages and sends through social.messages", async
     .sort();
 
   assert.deepEqual(available, [
+    "messages.block:available",
     "messages.conversation.write:available",
+    "messages.delete:available",
+    "messages.event.read:available",
     "messages.group.write:available",
+    "messages.media.read:available",
     "messages.read:available",
     "messages.write:available",
   ]);

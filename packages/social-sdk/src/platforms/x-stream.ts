@@ -229,25 +229,26 @@ function isoTime(value: string | undefined, name: string): void {
     });
 }
 
-/** Validate caller options and build the connection URL. Performs no I/O. */
-export function streamUrl(options: XStreamOptions): URL {
+function streamInput(message: string): SocialError {
+  return new SocialError({ code: "invalid_input", operation: "streams.read", message });
+}
+
+/** Checks the recovery and stall options every X streaming endpoint shares. */
+function validateWindow(options: {
+  readonly backfillMinutes?: number | undefined;
+  readonly startTime?: string | undefined;
+  readonly endTime?: string | undefined;
+  readonly stallTimeoutMs?: number | undefined;
+}): void {
   const backfill = options.backfillMinutes;
 
   if (backfill !== undefined && (!Number.isSafeInteger(backfill) || backfill < 0 || backfill > 5))
-    throw new SocialError({
-      code: "invalid_input",
-      operation: "streams.read",
-      message: "backfillMinutes must be an integer from 1 through 5, or 0 for no backfill.",
-    });
+    throw streamInput("backfillMinutes must be an integer from 1 through 5, or 0 for no backfill.");
 
   const stall = options.stallTimeoutMs;
 
   if (stall !== undefined && (!Number.isSafeInteger(stall) || stall < 1000 || stall > 600_000))
-    throw new SocialError({
-      code: "invalid_input",
-      operation: "streams.read",
-      message: "stallTimeoutMs must be an integer from 1000 through 600000.",
-    });
+    throw streamInput("stallTimeoutMs must be an integer from 1000 through 600000.");
 
   isoTime(options.startTime, "startTime");
   isoTime(options.endTime, "endTime");
@@ -257,14 +258,29 @@ export function streamUrl(options: XStreamOptions): URL {
     options.endTime !== undefined &&
     Date.parse(options.startTime) >= Date.parse(options.endTime)
   )
-    throw new SocialError({
-      code: "invalid_input",
-      operation: "streams.read",
-      message: "startTime must be earlier than endTime.",
-    });
+    throw streamInput("startTime must be earlier than endTime.");
+}
 
-  const url = new URL("https://api.x.com/2/tweets/search/stream");
+function setWindow(
+  url: URL,
+  options: {
+    readonly backfillMinutes?: number | undefined;
+    readonly startTime?: string | undefined;
+    readonly endTime?: string | undefined;
+  },
+): void {
+  if (options.backfillMinutes !== undefined && options.backfillMinutes > 0)
+    url.searchParams.set("backfill_minutes", String(options.backfillMinutes));
 
+  if (options.startTime !== undefined) url.searchParams.set("start_time", options.startTime);
+
+  if (options.endTime !== undefined) url.searchParams.set("end_time", options.endTime);
+}
+
+function setFields(
+  url: URL,
+  options: Omit<XStreamOptions, "expansions"> & { readonly expansions?: readonly string[] },
+): void {
   const unique = (values: readonly string[]) =>
     values.filter((value, index) => values.indexOf(value) === index).join(",");
 
@@ -277,18 +293,263 @@ export function streamUrl(options: XStreamOptions): URL {
 
   if (options.mediaFields?.length)
     url.searchParams.set("media.fields", unique(options.mediaFields));
+}
 
-  if (backfill !== undefined && backfill > 0)
-    url.searchParams.set("backfill_minutes", String(backfill));
+/** Validate caller options and build the connection URL. Performs no I/O. */
+export function streamUrl(options: XStreamOptions): URL {
+  validateWindow(options);
 
-  if (options.startTime !== undefined) url.searchParams.set("start_time", options.startTime);
+  const url = new URL("https://api.x.com/2/tweets/search/stream");
 
-  if (options.endTime !== undefined) url.searchParams.set("end_time", options.endTime);
+  setFields(url, options);
+  setWindow(url, options);
 
   return url;
 }
 
-function statusError(response: Response, context: AdapterOperationContext): SocialError {
+/**
+ * Volume streams (Enterprise). `sample` is the 1% sample, `sample10` the 10% sample (Decahose),
+ * `firehose` all public Posts, `firehose_<lang>` the language firehoses, and `likes_*` public Likes.
+ */
+export type XVolumeStream =
+  | "sample"
+  | "sample10"
+  | "firehose"
+  | "firehose_en"
+  | "firehose_ja"
+  | "firehose_ko"
+  | "firehose_pt"
+  | "likes_firehose"
+  | "likes_sample10";
+
+/** Compliance streams (Enterprise): Post, user and Like compliance events, and Post labels. */
+export type XComplianceStream = "posts" | "users" | "likes" | "labels";
+
+interface StreamRoute {
+  readonly path: string;
+  /** Highest partition number; omitted when the endpoint takes no partition. */
+  readonly partitions?: number;
+  /** Whether the endpoint accepts `start_time` and `end_time`. */
+  readonly window: boolean;
+  /**
+   * Which field and expansion parameters the endpoint accepts: Post streams take the Post set,
+   * Likes streams their own expansions, and the rest none.
+   */
+  readonly fields: "post" | "like" | "none";
+}
+
+// Paths, partition ranges and parameters from X OpenAPI 2.173 (checked 2026-11-04):
+// https://docs.x.com/x-api/posts/volume-streams/introduction
+// https://docs.x.com/x-api/compliance/streams/introduction
+const volumeRoutes: Readonly<Record<XVolumeStream, StreamRoute>> = {
+  sample: { path: "/2/tweets/sample/stream", window: false, fields: "post" },
+  sample10: { path: "/2/tweets/sample10/stream", partitions: 2, window: true, fields: "post" },
+  firehose: { path: "/2/tweets/firehose/stream", partitions: 20, window: true, fields: "post" },
+  firehose_en: {
+    path: "/2/tweets/firehose/stream/lang/en",
+    partitions: 8,
+    window: true,
+    fields: "post",
+  },
+  firehose_ja: {
+    path: "/2/tweets/firehose/stream/lang/ja",
+    partitions: 2,
+    window: true,
+    fields: "post",
+  },
+  firehose_ko: {
+    path: "/2/tweets/firehose/stream/lang/ko",
+    partitions: 2,
+    window: true,
+    fields: "post",
+  },
+  firehose_pt: {
+    path: "/2/tweets/firehose/stream/lang/pt",
+    partitions: 2,
+    window: true,
+    fields: "post",
+  },
+  likes_firehose: {
+    path: "/2/likes/firehose/stream",
+    partitions: 20,
+    window: true,
+    fields: "like",
+  },
+  likes_sample10: {
+    path: "/2/likes/sample10/stream",
+    partitions: 2,
+    window: true,
+    fields: "like",
+  },
+};
+
+const complianceRoutes: Readonly<Record<XComplianceStream, StreamRoute>> = {
+  posts: { path: "/2/tweets/compliance/stream", partitions: 4, window: true, fields: "none" },
+  users: { path: "/2/users/compliance/stream", partitions: 4, window: true, fields: "none" },
+  likes: { path: "/2/likes/compliance/stream", window: true, fields: "none" },
+  labels: { path: "/2/tweets/label/stream", window: true, fields: "none" },
+};
+
+/** Expansions X documents for the Likes volume streams (OpenAPI 2.173). */
+export type XLikeExpansion = "attachments.media_keys" | "liked_tweet_author_id" | "liked_tweet_id";
+
+const likeExpansions: ReadonlySet<string> = new Set<XLikeExpansion>([
+  "attachments.media_keys",
+  "liked_tweet_author_id",
+  "liked_tweet_id",
+]);
+
+/** Post expansions that only the Likes streams accept. */
+const likeOnlyExpansions: ReadonlySet<string> = new Set<XLikeExpansion>([
+  "liked_tweet_author_id",
+  "liked_tweet_id",
+]);
+
+/** Post fields the Likes streams do not list in their `tweet.fields` enum. */
+const nonLikeTweetFields: ReadonlySet<string> = new Set<XTweetField>(["note_post"]);
+
+/** Options for the volume, compliance and Activity streams. */
+export interface XDataStreamOptions extends Omit<XStreamOptions, "expansions"> {
+  /**
+   * Post streams take Post expansions. The Likes streams take `attachments.media_keys`,
+   * `liked_tweet_author_id`, and `liked_tweet_id`.
+   */
+  readonly expansions?: readonly (XTweetExpansion | XLikeExpansion)[];
+  /** Required by partitioned endpoints: 1 through the endpoint's partition count. */
+  readonly partition?: number;
+}
+
+/**
+ * One message from a volume, compliance or Activity stream. `data` carries X's `data` object
+ * unchanged: a Post, a Like, a compliance event such as `{ delete: ... }`, or an Activity event
+ * with `event_type` and `payload`.
+ */
+export type XDataStreamEvent =
+  | {
+      readonly kind: "data";
+      readonly data: JsonObject;
+      readonly includes?: JsonObject;
+      readonly errors?: readonly JsonObject[];
+    }
+  | { readonly kind: "error"; readonly errors: readonly JsonObject[] }
+  | { readonly kind: "other"; readonly message: JsonObject };
+
+function routeUrl(route: StreamRoute, name: string, options: XDataStreamOptions): URL {
+  validateWindow(options);
+
+  if (route.partitions === undefined) {
+    if (options.partition !== undefined) throw streamInput(`The ${name} takes no partition.`);
+  } else if (
+    options.partition === undefined ||
+    !Number.isSafeInteger(options.partition) ||
+    options.partition < 1 ||
+    options.partition > route.partitions
+  )
+    throw streamInput(`The ${name} needs a partition from 1 through ${route.partitions}.`);
+
+  if (!route.window && (options.startTime !== undefined || options.endTime !== undefined))
+    throw streamInput(`The ${name} has no startTime/endTime recovery window.`);
+
+  const fields =
+    options.tweetFields ?? options.expansions ?? options.userFields ?? options.mediaFields;
+
+  if (route.fields === "none" && fields !== undefined)
+    throw streamInput(`The ${name} does not take field or expansion options.`);
+
+  const expansions = options.expansions ?? [];
+
+  if (route.fields === "post") {
+    const unsupported = expansions.find((expansion) => likeOnlyExpansions.has(expansion));
+
+    if (unsupported !== undefined)
+      throw streamInput(`The ${name} does not take the ${unsupported} expansion.`);
+  }
+
+  if (route.fields === "like") {
+    const unsupported =
+      expansions.find((expansion) => !likeExpansions.has(expansion)) ??
+      options.tweetFields?.find((field) => nonLikeTweetFields.has(field));
+
+    if (unsupported !== undefined)
+      throw streamInput(`The ${name} does not take ${unsupported}; X documents it for Posts only.`);
+  }
+
+  const url = new URL(`https://api.x.com${route.path}`);
+
+  if (route.fields !== "none") setFields(url, options);
+
+  if (options.partition !== undefined) url.searchParams.set("partition", String(options.partition));
+
+  setWindow(url, options);
+
+  return url;
+}
+
+/** Builds the URL of a volume stream. Performs no I/O. */
+export function volumeStreamUrl(stream: XVolumeStream, options: XDataStreamOptions): URL {
+  return routeUrl(volumeRoutes[stream], `${stream} stream`, options);
+}
+
+/** Builds the URL of a compliance stream. Performs no I/O. */
+export function complianceStreamUrl(stream: XComplianceStream, options: XDataStreamOptions): URL {
+  return routeUrl(complianceRoutes[stream], `${stream} compliance stream`, options);
+}
+
+/** Builds the URL of the X Activity API stream (`GET /2/activity/stream`). Performs no I/O. */
+export function activityStreamUrl(options: XDataStreamOptions): URL {
+  return routeUrl(
+    { path: "/2/activity/stream", window: true, fields: "none" },
+    "activity stream",
+    options,
+  );
+}
+
+/** Classify one newline-delimited message from a volume, compliance or Activity stream. */
+export function parseDataStreamMessage(line: string, name: string): XDataStreamEvent {
+  let parsed: JsonValue;
+
+  try {
+    parsed = parseJson(line);
+  } catch {
+    throw invalidResponse("streams.read", `X ${name} sent an invalid JSON message.`);
+  }
+
+  const message = jsonObjectValue(parsed);
+
+  if (message === undefined)
+    throw invalidResponse("streams.read", `X ${name} sent a non-object message.`);
+
+  const data = jsonObjectValue(message["data"]);
+  const errors = objectArray(message["errors"]);
+
+  if (data !== undefined)
+    return {
+      kind: "data",
+      data,
+      ...definedFields({
+        includes: jsonObjectValue(message["includes"]),
+        errors: errors !== undefined && errors.length > 0 ? errors : undefined,
+      }),
+    };
+
+  if (errors !== undefined && errors.length > 0) return { kind: "error", errors };
+
+  return { kind: "other", message };
+}
+
+/** What a connection is for: its URL, a name used in errors, and the 403 explanation. */
+export interface StreamTarget {
+  readonly url: URL;
+  readonly name: string;
+  readonly denied: string;
+  readonly stallTimeoutMs?: number | undefined;
+}
+
+function statusError(
+  response: Response,
+  context: AdapterOperationContext,
+  target: StreamTarget,
+): SocialError {
   const status = response.status;
   const now = Date.now();
   let delay = retryDelay(response.headers.get("retry-after"), now);
@@ -308,7 +569,7 @@ function statusError(response: Response, context: AdapterOperationContext): Soci
     return new SocialError({
       ...common,
       code: "reconnect_required",
-      message: "X rejected the app-only bearer token for the filtered stream.",
+      message: `X rejected the app-only bearer token for the ${target.name}.`,
       retryDisposition: { kind: "after-reconnect" },
     });
 
@@ -316,8 +577,7 @@ function statusError(response: Response, context: AdapterOperationContext): Soci
     return new SocialError({
       ...common,
       code: "missing_permission",
-      message:
-        "X denied the filtered stream. It needs an app-only bearer token and pay-per-use or Enterprise access; backfill and recovery need Enterprise.",
+      message: target.denied,
       retryDisposition: { kind: "never" },
     });
 
@@ -325,7 +585,7 @@ function statusError(response: Response, context: AdapterOperationContext): Soci
     return new SocialError({
       ...common,
       code: "billing_required",
-      message: "X requires API credits or a plan change for the filtered stream.",
+      message: `X requires API credits or a plan change for the ${target.name}.`,
       retryDisposition: { kind: "never" },
     });
 
@@ -333,31 +593,30 @@ function statusError(response: Response, context: AdapterOperationContext): Soci
     return new SocialError({
       ...common,
       code: "rate_limited",
-      message:
-        "X rate-limited the filtered stream connection or the connection limit is reached. Close other connections and back off before reconnecting.",
+      message: `X rate-limited the ${target.name} connection or the connection limit is reached. Close other connections and back off before reconnecting.`,
       retryDisposition: { kind: "after-delay", delayMs: delay ?? 60_000 },
     });
 
   return new SocialError({
     ...common,
     code: "upstream_failure",
-    message: `X filtered stream connection failed with HTTP ${status}.`,
+    message: `X ${target.name} connection failed with HTTP ${status}.`,
     retryDisposition: { kind: "never" },
   });
 }
 
 /**
- * Open one filtered-stream connection and yield its messages. The connection is made when
+ * Open one streaming connection and yield its non-blank lines. The connection is made when
  * iteration starts and closes when the caller stops iterating, the context signal aborts, the
  * stall timeout elapses, or X ends the response. This function never reconnects.
  */
-export async function* readFilteredStream(
+export async function* readStreamLines(
   config: StreamConfig,
-  options: XStreamOptions,
+  target: StreamTarget,
   context: AdapterOperationContext,
-): AsyncGenerator<XStreamEvent, void, undefined> {
-  const url = streamUrl(options);
-  const stallTimeoutMs = options.stallTimeoutMs ?? xStreamDefaultStallTimeoutMs;
+): AsyncGenerator<string, void, undefined> {
+  const { url, name } = target;
+  const stallTimeoutMs = target.stallTimeoutMs ?? xStreamDefaultStallTimeoutMs;
   const outer = context.signal;
 
   const common = {
@@ -370,7 +629,7 @@ export async function* readFilteredStream(
     throw new SocialError({
       ...common,
       code: "cancelled",
-      message: "The filtered stream was cancelled before connecting.",
+      message: `The ${name} was cancelled before connecting.`,
     });
 
   const connectBudget = remainingBudget(context);
@@ -389,7 +648,7 @@ export async function* readFilteredStream(
       return new SocialError({
         ...common,
         code: "cancelled",
-        message: "The filtered stream was cancelled by the caller.",
+        message: `The ${name} was cancelled by the caller.`,
       });
 
     if (reason === connectTimeout || reason === stalled)
@@ -398,8 +657,8 @@ export async function* readFilteredStream(
         code: "timeout",
         message:
           reason === stalled
-            ? `X filtered stream sent no data or keep-alive within ${stallTimeoutMs} ms. Reconnect explicitly.`
-            : "X filtered stream did not connect within the operation budget.",
+            ? `X ${name} sent no data or keep-alive within ${stallTimeoutMs} ms. Reconnect explicitly.`
+            : `X ${name} did not connect within the operation budget.`,
         retryDisposition: { kind: "never" },
       });
 
@@ -409,8 +668,8 @@ export async function* readFilteredStream(
       upstreamCode: "stream-connection-interrupted",
       message:
         phase === "connect"
-          ? "The filtered stream connection failed before X responded."
-          : "The filtered stream connection dropped. Reconnect explicitly.",
+          ? `The ${name} connection failed before X responded.`
+          : `The ${name} connection dropped. Reconnect explicitly.`,
       retryDisposition: { kind: "never" },
     });
   };
@@ -440,7 +699,7 @@ export async function* readFilteredStream(
 
     if (!response.ok) {
       void response.body?.cancel().catch(() => undefined);
-      throw statusError(response, context);
+      throw statusError(response, context, target);
     }
 
     if (!response.body) throw invalidResponse("streams.read", "X returned an empty stream body.");
@@ -464,23 +723,23 @@ export async function* readFilteredStream(
       try {
         buffer += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
       } catch {
-        throw invalidResponse("streams.read", "X filtered stream sent invalid UTF-8.");
+        throw invalidResponse("streams.read", `X ${name} sent invalid UTF-8.`);
       }
 
       const lines = buffer.split("\n");
       buffer = chunk.done ? "" : (lines.pop() ?? "");
 
       if (buffer.length > maxMessageLength)
-        throw invalidResponse("streams.read", "X filtered stream message exceeds 1 MiB.");
+        throw invalidResponse("streams.read", `X ${name} message exceeds 1 MiB.`);
 
       for (const line of lines) {
         if (line.length > maxMessageLength)
-          throw invalidResponse("streams.read", "X filtered stream message exceeds 1 MiB.");
+          throw invalidResponse("streams.read", `X ${name} message exceeds 1 MiB.`);
 
         const text = line.trim();
 
         // Blank lines are X keep-alive heartbeats.
-        if (text) yield parseStreamMessage(text);
+        if (text) yield text;
       }
 
       if (chunk.done) return;
@@ -492,4 +751,35 @@ export async function* readFilteredStream(
     if (!controller.signal.aborted) controller.abort(new Error("stream closed"));
     void reader?.cancel().catch(() => undefined);
   }
+}
+
+/**
+ * Open one filtered-stream connection and yield its messages. The connection is made when
+ * iteration starts and closes when the caller stops iterating, the context signal aborts, the
+ * stall timeout elapses, or X ends the response. This function never reconnects.
+ */
+export async function* readFilteredStream(
+  config: StreamConfig,
+  options: XStreamOptions,
+  context: AdapterOperationContext,
+): AsyncGenerator<XStreamEvent, void, undefined> {
+  const target: StreamTarget = {
+    url: streamUrl(options),
+    name: "filtered stream",
+    denied:
+      "X denied the filtered stream. It needs an app-only bearer token and pay-per-use or Enterprise access; backfill and recovery need Enterprise.",
+    stallTimeoutMs: options.stallTimeoutMs,
+  };
+
+  for await (const line of readStreamLines(config, target, context)) yield parseStreamMessage(line);
+}
+
+/** Open one volume, compliance or Activity stream connection and yield its messages. */
+export async function* readDataStream(
+  config: StreamConfig,
+  target: StreamTarget,
+  context: AdapterOperationContext,
+): AsyncGenerator<XDataStreamEvent, void, undefined> {
+  for await (const line of readStreamLines(config, target, context))
+    yield parseDataStreamMessage(line, target.name);
 }
