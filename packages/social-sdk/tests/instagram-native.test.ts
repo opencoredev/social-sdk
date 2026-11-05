@@ -285,6 +285,10 @@ describe("Instagram publishing options", () => {
     assert.deepEqual(issues([image()], { userTags: [{ username: "a", x: 1.5, y: 0 }] }), [
       "instagram.options",
     ]);
+    assert.deepEqual(
+      issues([image()], { userTags: [{ username: "a", x: 0.5, y: 0.5, mediaIndex: 0 }] }),
+      ["instagram.options"],
+    );
     assert.deepEqual(issues([image()], { shareToFeeds: true }), ["instagram.options"]);
     assert.deepEqual(issues([video], { trial: { graduationStrategy: "AUTO" } }), [
       "instagram.options",

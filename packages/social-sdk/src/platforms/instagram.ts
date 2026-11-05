@@ -270,6 +270,12 @@ function decodeInstagramPublishOptions(
         ? entry
         : invalidOption(operation, "Each user tag must be an object.");
 
+      if (tag["mediaIndex"] !== undefined)
+        invalidOption(
+          operation,
+          "userTags[].mediaIndex is a Zernio option; Instagram's user_tags tag a single image.",
+        );
+
       return {
         username: nonEmptyText(tag["username"], operation, "userTags[].username"),
         x: unitCoordinate(tag["x"], operation, "userTags[].x"),
