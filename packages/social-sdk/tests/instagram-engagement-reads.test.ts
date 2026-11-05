@@ -402,6 +402,26 @@ describe("Instagram read fields", () => {
     assert.equal(graph.calls.length, 2);
   });
 
+  it("keeps the next cursor when the posted_after window empties a tagged media page", async () => {
+    const graph = fakeGraph([
+      [() => true, () => ({ data: [], paging: { cursors: { before: "b1", after: "a1" } } })],
+    ]);
+
+    const instagramNative = native(instagramLogin(graph.fetch));
+
+    const windowed = await instagramNative.listTaggedMedia({
+      account,
+      postedAfter: "2026-10-01T00:00:00Z",
+      context: context(),
+    });
+
+    assert.deepEqual(windowed, { items: [], nextCursor: "a1" });
+
+    const unfiltered = await instagramNative.listMentions({ account, context: context() });
+
+    assert.deepEqual(unfiltered, { items: [] });
+  });
+
   it("requests media_audio_type, Reel feed sharing, comment state and total views", async () => {
     const graph = fakeGraph([
       [

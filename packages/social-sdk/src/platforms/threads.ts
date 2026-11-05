@@ -13,6 +13,7 @@ import {
   type ConnectedAccountRef,
   type PreparedPublishTarget,
   type Page,
+  type PreparationIssue,
   type ProfileRecord,
   profileRef,
   type SearchPostsInput,
@@ -1518,10 +1519,26 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     ...outcomeFields(a, id, backendState),
   });
 
-  const published = (a: ConnectedAccountRef, id: string, postId: string): DeliveryOutcome => ({
+  const storyCrossShareFailed: PreparationIssue = {
+    code: "FAILED",
+    path: "crossreshare_to_ig_status",
+    message: "The Threads post was published, but the Instagram Story cross-share failed.",
+    severity: "warning",
+  };
+
+  const published = (
+    a: ConnectedAccountRef,
+    id: string,
+    postId: string,
+    instagramStoryStatus?: ThreadsWorkflow["instagramStoryStatus"],
+  ): DeliveryOutcome => ({
     state: "published",
     ...outcomeFields(a, id, "PUBLISHED"),
     post: platformPostRef({ backend, platform: "threads", accountId: a.accountId, postId }),
+    // The Threads post is live, so a failed Story cross-share is a warning, not a failure.
+    ...definedFields({
+      issues: instagramStoryStatus === "FAILED" ? [storyCrossShareFailed] : undefined,
+    }),
   });
 
   const ambiguous = (
@@ -1559,7 +1576,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     a: ConnectedAccountRef,
     c: AdapterOperationContext,
   ): Promise<DeliveryOutcome> {
-    if (w.nativeId) return published(a, w.id, w.nativeId);
+    if (w.nativeId) return published(a, w.id, w.nativeId, w.instagramStoryStatus);
 
     if (w.stage === "unknown")
       return ambiguous(
@@ -1733,19 +1750,19 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       // Threads publishes the post even when the Story cross-share fails, so the status is kept
       // beside the published outcome. Source, accessed 2026-11-04:
       // https://developers.facebook.com/documentation/threads/create-posts/share-to-ig-stories
-      const storyStatus = pub["crossreshare_to_ig_status"];
+      const storyField = pub["crossreshare_to_ig_status"];
+
+      const instagramStoryStatus =
+        storyField === "SUCCESS" || storyField === "FAILED" ? storyField : undefined;
 
       await store.update(cur.id, {
         nativeId,
         stage: "published",
         backendState: "PUBLISHED",
-        ...definedFields({
-          instagramStoryStatus:
-            storyStatus === "SUCCESS" || storyStatus === "FAILED" ? storyStatus : undefined,
-        }),
+        ...definedFields({ instagramStoryStatus }),
       });
 
-      return published(a, cur.id, nativeId);
+      return published(a, cur.id, nativeId, instagramStoryStatus);
     } catch (e) {
       // Code 190 rejects the token before publication, so the container stays publishable.
       if (e instanceof SocialError && e.code === "reconnect_required") {
@@ -2992,7 +3009,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const owner = accountRef(backend, ref.accountId);
 
-        if (w.nativeId) return published(owner, w.id, w.nativeId);
+        if (w.nativeId) return published(owner, w.id, w.nativeId, w.instagramStoryStatus);
 
         if (w.stage === "unknown")
           return ambiguous(owner, w.id, w.backendState, "Explicit resumePublication is required.");

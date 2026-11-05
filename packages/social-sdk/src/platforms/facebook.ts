@@ -3461,8 +3461,23 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         error.code !== "timeout" &&
         error.code !== "ambiguous_outcome" &&
         error.code !== "cancelled"
-      )
-        await deleteObject(photoId, input.context, operation).catch(() => undefined);
+      ) {
+        const removed = await deleteObject(photoId, input.context, operation).then(
+          () => true,
+          () => false,
+        );
+
+        // Like publishPhotos, report the staged photo the caller still has to remove.
+        if (!removed)
+          throw new SocialError({
+            code: error.code,
+            operation,
+            message: error.message,
+            details: { unpublishedPhotoIds: [photoId] },
+            retryDisposition: error.retryDisposition,
+            cause: error,
+          });
+      }
 
       throw error;
     }
@@ -6296,10 +6311,17 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       async listPageSettings(input) {
         authorize(input.account, input.context);
 
-        return graphPage(object(await request(pagePath("/settings"), input.context)), [
-          "setting",
-          "value",
-        ]);
+        // Both list edges return Graph's `data` + `paging` wrapper, so they take `limit` and `after`.
+        // https://developers.facebook.com/docs/graph-api/reference/page/settings/ (v27.0)
+        return graphPage(
+          object(
+            await request(pagePath("/settings"), input.context, undefined, {
+              limit: String(pageLimit(input.limit, "facebook.page.settings")),
+              ...definedFields({ after: input.cursor }),
+            }),
+          ),
+          ["setting", "value"],
+        );
       },
       updatePageSetting,
       async listPageRoles(input) {
@@ -6391,8 +6413,14 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       async listSubscribedApps(input) {
         authorize(input.account, input.context);
 
+        // https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/ (v27.0)
         return rowsWithLists(
-          object(await request(pagePath("/subscribed_apps"), input.context)),
+          object(
+            await request(pagePath("/subscribed_apps"), input.context, undefined, {
+              limit: String(pageLimit(input.limit, "facebook.webhooks.subscribed_apps")),
+              ...definedFields({ after: input.cursor }),
+            }),
+          ),
           ["id", "name"],
           ["subscribed_fields"],
         );

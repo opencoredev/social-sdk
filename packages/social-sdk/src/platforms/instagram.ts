@@ -1978,6 +1978,8 @@ export function instagram(
     result: JsonObject,
     fields: readonly string[],
     cursorOnly = false,
+    /** The provider filtered the page after selecting it, so an empty page is not the end. */
+    filtered = false,
   ): Page<JsonObject> => {
     const items = array(result["data"]).map((entry) => publicFields(entry, fields));
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
@@ -1986,7 +1988,7 @@ export function instagram(
     // Graph API omits `paging.next` on the last page even when `cursors.after` is present.
     const nextCursor =
       (cursorOnly || isString(paging["next"])) &&
-      (!cursorOnly || items.length > 0) &&
+      (!cursorOnly || items.length > 0 || filtered || isString(paging["next"])) &&
       isString(cursors["after"]) &&
       cursors["after"].length > 0
         ? cursors["after"]
@@ -2501,7 +2503,7 @@ export function instagram(
       "instagram.mentions.read",
     );
 
-    return page(result, tagFields, true);
+    return page(result, tagFields, true, postedAfter !== undefined || postedBefore !== undefined);
   };
 
   // Field lists from the IG Comment, Conversation, and Message references (Graph v25.0,

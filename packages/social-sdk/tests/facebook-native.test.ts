@@ -585,6 +585,34 @@ describe("facebook Stories and live video", () => {
     ]);
   });
 
+  it("keeps the staged photo ID when a refused photo Story cannot be cleaned up", async () => {
+    const calls: string[] = [];
+
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      calls.push(`${init?.method ?? "GET"} ${new URL(String(input)).pathname}`);
+
+      if (calls.length === 1) return Response.json({ id: "p3" });
+
+      return Response.json({ error: { code: 100, message: "Invalid photo" } }, { status: 400 });
+    };
+
+    const fb = facebook({ auth: { pageId: "123", accessToken: "t" }, fetch, clock: () => start });
+
+    await assert.rejects(
+      fb.native!.publishPhotoStory({
+        account: page,
+        photoUrl: "https://cdn.example.com/s.jpg",
+        context,
+      }),
+      { code: "upstream_failure", details: { unpublishedPhotoIds: ["p3"] } },
+    );
+    assert.deepEqual(calls, [
+      "POST /v27.0/123/photos",
+      "POST /v27.0/123/photo_stories",
+      "DELETE /v27.0/p3",
+    ]);
+  });
+
   it("publishes a video Story through /video_stories start, upload, and finish", async () => {
     const { calls, adapter } = fake([
       { video_id: "vs1", upload_url: "https://rupload.facebook.com/video-upload/v27.0/vs1" },
@@ -939,6 +967,41 @@ describe("facebook Page management", () => {
     assert.deepEqual(apps.items, [
       { id: "app1", name: "Our app", subscribed_fields: ["feed", "messages"] },
     ]);
+  });
+});
+
+describe("facebook Page list edges", () => {
+  it("forwards cursor and limit to /settings and /subscribed_apps", async () => {
+    const { calls, adapter } = fake([
+      { data: [], paging: { cursors: { after: "s2" }, next: "https://graph.facebook.com/next" } },
+      { data: [], paging: { cursors: { after: "a2" }, next: "https://graph.facebook.com/next" } },
+    ]);
+
+    const settings = await adapter.native!.listPageSettings({
+      account: page,
+      cursor: "s1",
+      limit: 10,
+      context,
+    });
+
+    const apps = await adapter.native!.listSubscribedApps({
+      account: page,
+      cursor: "a1",
+      limit: 5,
+      context,
+    });
+
+    assert.equal(calls[0]?.url.searchParams.get("after"), "s1");
+    assert.equal(calls[0]?.url.searchParams.get("limit"), "10");
+    assert.equal(calls[1]?.url.searchParams.get("after"), "a1");
+    assert.equal(calls[1]?.url.searchParams.get("limit"), "5");
+    assert.equal(settings.nextCursor, "s2");
+    assert.equal(apps.nextCursor, "a2");
+
+    await assert.rejects(adapter.native!.listSubscribedApps({ account: page, limit: 0, context }), {
+      code: "invalid_input",
+    });
+    assert.equal(calls.length, 2);
   });
 });
 

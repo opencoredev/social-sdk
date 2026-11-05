@@ -150,6 +150,41 @@ test("Threads keeps crossreshare_to_ig_status from the publish response on the w
   assert.equal(workflow?.instagramStoryStatus, "FAILED");
 });
 
+test("Threads reports a failed Instagram Story cross-share as a warning on every published outcome", async () => {
+  const { adapter, posts } = publishing({ id: "native-1", crossreshare_to_ig_status: "FAILED" });
+
+  const outcome = await posts.publishTarget(
+    target({ text: "hi" }, { shareToInstagramStory: "light" }),
+    context,
+  );
+
+  const delivery = outcome.delivery;
+  assert.ok(delivery);
+  const resumed = await adapter.native?.resumePublication(account, delivery.deliveryId, context);
+  const observed = await posts.getDelivery?.(delivery, context);
+
+  for (const result of [outcome, resumed, observed]) {
+    assert.equal(result?.state, "published");
+    assert.ok(result?.state === "published");
+    assert.deepEqual(
+      result.issues?.map((issue) => [issue.path, issue.code, issue.severity]),
+      [["crossreshare_to_ig_status", "FAILED", "warning"]],
+    );
+  }
+});
+
+test("Threads adds no issues when the Instagram Story cross-share succeeds", async () => {
+  const { posts } = publishing({ id: "native-1", crossreshare_to_ig_status: "SUCCESS" });
+
+  const outcome = await posts.publishTarget(
+    target({ text: "hi" }, { shareToInstagramStory: "light" }),
+    context,
+  );
+
+  assert.ok(outcome.state === "published");
+  assert.equal(outcome.issues, undefined);
+});
+
 test("Threads sets is_spoiler_media and is_made_with_ai on the carousel parent only", async () => {
   const { posts, seen, parentCreate } = publishing();
 
