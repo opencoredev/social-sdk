@@ -1168,17 +1168,16 @@ export function zernioNative(options: ManagedOptions) {
       return profileFields(response["profile"]);
     },
     async deleteProfile(input: { readonly profileId: string }, context: AdapterOperationContext) {
-      const response = object(
-        await request(
-          `/v1/profiles/${encodeURIComponent(input.profileId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
-        ),
+      const response = await request(
+        `/v1/profiles/${encodeURIComponent(input.profileId)}`,
+        context,
+        undefined,
+        {},
+        "DELETE",
       );
 
-      if (!isString(response["message"])) unconfirmed("profiles.write");
+      // The deletion was dispatched; a body that is not the acknowledgement cannot confirm it.
+      if (!isJsonObject(response) || !isString(response["message"])) unconfirmed("profiles.write");
     },
     /** Move a connected account to another profile (PATCH /v1/accounts/{id}). */
     async moveAccount(
@@ -3540,7 +3539,9 @@ export function zernioNative(options: ManagedOptions) {
     },
     /**
      * List Zernio posts with filters (GET /v1/posts): a date window (`dateFrom`, `dateTo`),
-     * a changed-since cursor (`updatedSince`, in Zernio's OpenAPI v1.490.0), sort order, author, status, tags and hidden posts. Zernio's opaque cursor is unavailable
+     * sort order, author, status, tags and hidden posts. Zernio answers 400 for a query
+     * parameter its list-posts reference does not list, so there is no changed-since filter;
+     * `analyticsDelta` syncs what changed. Zernio's opaque cursor is unavailable
      * with `source: "external"`, which pages by number, so there `nextCursor` is the next page.
      */
     async listPosts(
@@ -3550,7 +3551,6 @@ export function zernioNative(options: ManagedOptions) {
         readonly status?: ZernioPostStatus;
         readonly dateFrom?: string;
         readonly dateTo?: string;
-        readonly updatedSince?: string;
         readonly sortBy?:
           | "scheduled-desc"
           | "scheduled-asc"
@@ -3579,12 +3579,12 @@ export function zernioNative(options: ManagedOptions) {
         if (date !== undefined && !/^\d{4}-\d{2}-\d{2}(T.+)?$/.test(date))
           invalid("posts.read", "dateFrom and dateTo are YYYY-MM-DD or ISO 8601 times.");
 
-      if (
-        input.updatedSince !== undefined &&
-        (!/(Z|[+-]\d{2}:\d{2})$/.test(input.updatedSince) ||
-          Number.isNaN(Date.parse(input.updatedSince)))
-      )
-        invalid("posts.read", "updatedSince is an ISO 8601 time with Z or an offset.");
+      // Earlier builds accepted updatedSince; refuse it rather than return an unfiltered list.
+      if ("updatedSince" in input)
+        invalid(
+          "posts.read",
+          "Zernio's list-posts reference has no updatedSince filter. Use analyticsDelta to sync changed posts.",
+        );
 
       const external = input.source === "external";
 
@@ -3611,7 +3611,6 @@ export function zernioNative(options: ManagedOptions) {
             platform: input.account && wirePlatform(input.account.platform),
             dateFrom: input.dateFrom,
             dateTo: input.dateTo,
-            updatedSince: input.updatedSince,
             sortBy: input.sortBy,
             createdBy: input.createdBy,
             profileId: input.profileId,

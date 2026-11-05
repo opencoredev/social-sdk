@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { connectedAccountRef } from "../src/index.js";
 import { zernio } from "../src/cloud/zernio.js";
 import { zernioNative } from "../src/cloud/zernio-native.js";
+import type { SocialError } from "../src/core/errors.js";
 import { decodeWebhook } from "../src/server/webhooks.js";
 import { definedFields } from "../src/core/fields.js";
 import { isJsonValue } from "../src/transport/json.js";
@@ -697,7 +698,7 @@ it("reads usage-stats and /v1/logs without logged bodies", async () => {
   });
 });
 
-it("lists posts with dateFrom, dateTo, updatedSince and sortBy filters", async () => {
+it("lists posts with dateFrom, dateTo and sortBy filters, and refuses updatedSince", async () => {
   const { native, calls } = fake({
     "GET /v1/posts": {
       posts: [
@@ -725,7 +726,6 @@ it("lists posts with dateFrom, dateTo, updatedSince and sortBy filters", async (
       account: account("x", "x1"),
       dateFrom: "2026-11-01",
       dateTo: "2026-11-30",
-      updatedSince: "2026-11-02T00:00:00Z",
       sortBy: "created-asc",
       createdBy: "507f1f77bcf86cd799439011",
       includeHidden: true,
@@ -740,7 +740,6 @@ it("lists posts with dateFrom, dateTo, updatedSince and sortBy filters", async (
     platform: "twitter",
     dateFrom: "2026-11-01",
     dateTo: "2026-11-30",
-    updatedSince: "2026-11-02T00:00:00Z",
     sortBy: "created-asc",
     createdBy: "507f1f77bcf86cd799439011",
     includeHidden: "true",
@@ -760,9 +759,18 @@ it("lists posts with dateFrom, dateTo, updatedSince and sortBy filters", async (
     ],
     nextCursor: "c2",
   });
-  await assert.rejects(native.listPosts({ updatedSince: "2026-11-02T00:00:00" }, context), {
-    code: "invalid_input",
+
+  // Zernio's list-posts reference does not list updatedSince and answers 400 for it, so a
+  // caller from an earlier build is refused before any request instead of getting every post.
+  const legacy = { limit: 10, updatedSince: "2026-11-02T00:00:00Z" };
+
+  await assert.rejects(native.listPosts(legacy, context), (error: SocialError) => {
+    assert.equal(error.code, "invalid_input");
+    assert.match(error.message, /analyticsDelta/);
+
+    return true;
   });
+  assert.equal(calls.length, 1);
 });
 
 it("reads instagram/stories, live media, tags, mentions, collaborators, business-discovery and follow-status", async () => {

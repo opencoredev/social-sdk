@@ -410,6 +410,23 @@ it("Buffer tags Instagram accounts on an image with userTags", async () => {
   );
 
   assert.ok(noAlt.issues.includes("instagram.user_tags"));
+
+  // An empty altText passes preparation, so the tags must still reach Buffer with altText "".
+  const emptyAlt = await publish(
+    "instagram",
+    { text: "Team", media: [image("team", "")] },
+    { ...instagramBase, userTags: [{ handle: "partner", x: 0.5, y: 0.5 }] },
+  );
+
+  assert.deepEqual(emptyAlt.issues, []);
+  assert.deepEqual(emptyAlt.input?.["assets"], [
+    {
+      image: {
+        url: "https://cdn.example.test/team.jpg",
+        metadata: { altText: "", userTags: [{ handle: "partner", x: 0.5, y: 0.5 }] },
+      },
+    },
+  ]);
 });
 
 it("Buffer sends content.link as a linkAttachment card", async () => {

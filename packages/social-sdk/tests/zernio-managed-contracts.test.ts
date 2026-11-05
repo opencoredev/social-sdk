@@ -40,8 +40,6 @@ const listPostsParameters = new Set([
   "tag",
   "sortBy",
   "accountId",
-  // In Zernio's OpenAPI v1.490.0 for GET /v1/posts, though the human list-posts page omits it.
-  "updatedSince",
 ]);
 
 it("Zernio native post listing sends only documented query parameters", async () => {

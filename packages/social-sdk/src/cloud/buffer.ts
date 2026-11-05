@@ -36,6 +36,7 @@ import {
   isString,
   object,
   optionalNumber,
+  optionalObject,
   optionalString,
   string,
   type JsonField,
@@ -2296,9 +2297,10 @@ export function buffer(options: BufferOptions) {
                           item.thumbnail?.kind === "https-url"
                             ? httpsUrl(item.thumbnail.url).href
                             : undefined,
-                        // Buffer's image metadata requires altText; "" sends none.
+                        // Buffer's image metadata requires altText; "" sends none unless
+                        // user tags or an animated thumbnail need the metadata object.
                         metadata:
-                          item.altText || animated !== undefined
+                          item.altText || animated !== undefined || userTags !== undefined
                             ? {
                                 altText: item.altText ?? "",
                                 ...definedFields({ userTags, animatedThumbnail: animated }),
@@ -3089,12 +3091,14 @@ export function buffer(options: BufferOptions) {
           "mutation",
         );
 
-        const result = object(data["createIdea"]);
-        const idea = result["idea"];
+        // The mutation was dispatched; anything short of an idea ID or a stated error is uncertain.
+        const result = optionalObject(data["createIdea"]) ?? {};
+        const idea = optionalObject(result["idea"]);
+        const id = idea === undefined ? undefined : optionalString(idea["id"]);
 
-        if (isJsonObject(idea)) return { id: string(idea["id"]) };
+        if (id) return { id };
 
-        const message = optionalString(result["message"]);
+        const message = idea === undefined ? optionalString(result["message"]) : undefined;
 
         if (message) throw new SocialError({ code: "invalid_input", operation, message });
 

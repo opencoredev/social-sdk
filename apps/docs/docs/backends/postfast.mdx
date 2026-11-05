@@ -299,6 +299,8 @@ PostFast's Social Inbox collects comments on the workspace's own posts on TikTok
 - `setInboxStatus({ conversationId, status })` sets the triage state to `OPEN`, `SNOOZED` or `CLOSED` through `POST /social-inbox/conversations/:id/status` and returns the updated conversation. Triage is PostFast state only.
 - `assignInboxConversation({ conversationId, assigneeUserId })` assigns the conversation to a workspace member (a PostFast user UUID) through `POST /social-inbox/conversations/:id/assign`. Pass `assigneeUserId: null` to unassign; the adapter then sends `{}`. PostFast rejects a user outside the workspace with `inbox.assigneeNotMember`.
 
+Both replies return the created `OUTBOUND` item, whose `deliveryStatus` stays `PENDING` until the platform accepts it. If a reply response does not show the item's `id` and `OUTBOUND` direction, or a moderation response does not show the requested `state`, the call throws `ambiguous_outcome` with a reconcile-first retry disposition: the write may have landed, so read the conversation with `listInboxItems` before sending it again.
+
 Both triage calls return the conversation fields that `listInboxConversations` returns. If the response does not show the requested `status` or `assignedToUserId`, the call throws `ambiguous_outcome` with a reconcile-first retry disposition: read the conversation with `listInboxConversations` before sending it again.
 
 ```ts

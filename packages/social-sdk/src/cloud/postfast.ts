@@ -530,6 +530,32 @@ function inboxItem(value: JsonValue): JsonObject {
   ]);
 }
 
+/**
+ * The OUTBOUND item a reply route answers with. The reply was dispatched, so a body without
+ * the item's ID, its direction or a known delivery status cannot confirm it. `PENDING` stays
+ * pending.
+ */
+function sentInboxItem(value: JsonValue, change: string): JsonObject {
+  const delivery = isJsonObject(value) ? value["deliveryStatus"] : undefined;
+
+  if (
+    !isJsonObject(value) ||
+    !isString(value["id"]) ||
+    !value["id"] ||
+    value["direction"] !== "OUTBOUND" ||
+    !(
+      delivery === undefined ||
+      delivery === null ||
+      delivery === "PENDING" ||
+      delivery === "SENT" ||
+      delivery === "FAILED"
+    )
+  )
+    unconfirmed(change);
+
+  return inboxItem(value);
+}
+
 /** A Social Inbox conversation without contact IDs, avatars or post previews. */
 function inboxConversation(value: JsonValue): JsonObject {
   return publicFields(value, [
@@ -1769,11 +1795,12 @@ export function postfast(options: ManagedOptions) {
       ) {
         if (!input.text.trim()) reject("comments.write", "Reply text is required.");
 
-        return inboxItem(
+        return sentInboxItem(
           await request(`/social-inbox/items/${encodeURIComponent(input.itemId)}/reply`, context, {
             text: input.text,
             ...definedFields({ idempotencyKey: input.idempotencyKey }),
           }),
+          "reply",
         );
       },
       /** Instagram only: one private DM reply per comment, within seven days, up to 1,000 bytes. */
@@ -1784,7 +1811,7 @@ export function postfast(options: ManagedOptions) {
         if (new TextEncoder().encode(input.text).length > 1000 || !input.text.trim())
           reject("comments.write", "A private reply is 1 to 1,000 bytes.");
 
-        return inboxItem(
+        return sentInboxItem(
           await request(
             `/social-inbox/items/${encodeURIComponent(input.itemId)}/private-reply`,
             context,
@@ -1793,6 +1820,7 @@ export function postfast(options: ManagedOptions) {
               ...definedFields({ idempotencyKey: input.idempotencyKey }),
             },
           ),
+          "private reply",
         );
       },
       /** Hide, unhide or delete a comment on the platform (POST /social-inbox/items/:id/state). */
@@ -1800,16 +1828,19 @@ export function postfast(options: ManagedOptions) {
         input: { readonly itemId: string; readonly action: "hide" | "unhide" | "delete" },
         context: AdapterOperationContext,
       ) {
-        const item = inboxItem(
-          await request(`/social-inbox/items/${encodeURIComponent(input.itemId)}/state`, context, {
-            action: input.action.toUpperCase(),
-          }),
+        const response = await request(
+          `/social-inbox/items/${encodeURIComponent(input.itemId)}/state`,
+          context,
+          { action: input.action.toUpperCase() },
         );
 
         const expected =
           input.action === "hide" ? "HIDDEN" : input.action === "unhide" ? "VISIBLE" : "DELETED";
 
-        if (item["state"] !== expected)
+        // The moderation was dispatched; a body that is not the item cannot confirm it.
+        const item = isJsonObject(response) ? inboxItem(response) : undefined;
+
+        if (item === undefined || item["state"] !== expected)
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "comments.moderate",

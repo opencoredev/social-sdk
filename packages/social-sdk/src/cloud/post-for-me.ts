@@ -1155,17 +1155,16 @@ export function postForMe(options: ManagedOptions) {
       ) {
         accountMatches(input.account, context);
 
-        const result = object(
-          await request(
-            `/v1/social-accounts/${encodeURIComponent(input.account.accountId)}`,
-            context,
-            undefined,
-            {},
-            "DELETE",
-          ),
+        const result = await request(
+          `/v1/social-accounts/${encodeURIComponent(input.account.accountId)}`,
+          context,
+          undefined,
+          {},
+          "DELETE",
         );
 
-        if (result["success"] !== true) unconfirmed("accounts.write");
+        // The deletion was dispatched; a body that is not the acknowledgement cannot confirm it.
+        if (!isJsonObject(result) || result["success"] !== true) unconfirmed("accounts.write");
       },
       /** Set your own `external_id` on an account (PATCH /v1/social-accounts/{id}). */
       async updateAccount(
