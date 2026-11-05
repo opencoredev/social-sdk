@@ -277,7 +277,9 @@ it("Buffer creates an idea with createIdea", async () => {
     content: { title: "Launch thread", text: "Outline" },
   });
 
-  const limited = fakeBuffer(() => ({ createIdea: { message: "Idea limit reached" } }));
+  const limited = fakeBuffer(() => ({
+    createIdea: { __typename: "InvalidInputError", message: "Idea limit reached" },
+  }));
 
   await assert.rejects(
     limited.adapter.native.createIdea({ title: "One more" }, context),

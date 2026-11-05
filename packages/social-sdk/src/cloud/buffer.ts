@@ -766,6 +766,19 @@ export interface BufferPostEdit {
   readonly draftId?: string;
 }
 
+/** The `BufferPostEdit` fields `editPost` sends; any other key is rejected before the request. */
+const bufferPostEditFields: ReadonlySet<string> = new Set(
+  Object.keys({
+    text: true,
+    at: true,
+    saveToDraft: true,
+    tagIds: true,
+    approvalChange: true,
+    aiAssisted: true,
+    draftId: true,
+  } satisfies Record<keyof BufferPostEdit, true>),
+);
+
 /** A file or link attached to a Buffer idea. */
 export interface BufferIdeaMedia {
   /** Public HTTPS URL. */
@@ -1202,9 +1215,12 @@ function postRecordId(ref: BufferPostRef): string {
   }
 }
 
+function isBufferId(value: JsonField): value is string {
+  return isString(value) && value !== "" && value.length <= 256 && !/[\s@]/.test(value);
+}
+
 function bufferId(value: string, operation: string, label: string): string {
-  if (!value || value !== value.trim() || value.length > 256 || /[\s@]/.test(value))
-    reject(operation, `Use a Buffer ${label} identifier.`);
+  if (!isBufferId(value)) reject(operation, `Use a Buffer ${label} identifier.`);
 
   return value;
 }
@@ -1461,8 +1477,11 @@ function payloadRejection(input: {
 }): SocialError | undefined {
   const { result, operation, context, kind } = input;
 
-  if (!isString(result["message"])) return undefined;
   const typename = result["__typename"];
+
+  // Every MutationError member carries the `__typename` the selection asks for; a payload with a
+  // message but no type name is not a documented error answer.
+  if (!isString(result["message"]) || !isString(typename) || typename === "") return undefined;
 
   const base = {
     operation,
@@ -2055,21 +2074,18 @@ export function buffer(options: BufferOptions) {
         };
       }
 
-      case "error": {
-        const error = isJsonObject(row["error"]) ? row["error"] : undefined;
-        const reason = optionalString(error?.["message"]);
-        const help = optionalString(error?.["supportUrl"]);
-
+      case "error":
+        // Buffer's `error.message`, `supportUrl` and `rawError` are free text that can echo post
+        // content or signed media URLs, so the outcome keeps a fixed message. An authorized
+        // `posts.get` or `native.listPosts` read returns the post's `error` as data.
         return {
           ...base,
           state: "failed",
           code: "upstream_failure",
-          message: reason
-            ? `Buffer reports that this post failed: ${reason}${help ? ` (help: ${help})` : ""}`
-            : "Buffer reports that this post failed. Inspect the channel connection and the post in Buffer.",
+          message:
+            "Buffer reports that this post failed. Inspect the channel connection and the post in Buffer.",
           retryDisposition: { kind: "never" },
         };
-      }
 
       default:
         return {
@@ -2564,7 +2580,11 @@ export function buffer(options: BufferOptions) {
             const result = object(data["createPost"]);
 
             if (isJsonObject(result["post"]))
-              return outcome(object(result["post"]), target.account, target.targetIndex);
+              return outcome(
+                confirmedPost(result["post"], target.account),
+                target.account,
+                target.targetIndex,
+              );
 
             const rejection = payloadRejection({
               result,
@@ -2792,6 +2812,14 @@ export function buffer(options: BufferOptions) {
         edit: BufferPostEdit,
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
+        // A field this method does not send, such as `assets` or `metadata`, must not be dropped
+        // silently: the edit would resolve while the post kept its old media or settings.
+        if (Object.keys(edit).some((key) => !bufferPostEditFields.has(key)))
+          reject(
+            "posts.update",
+            "editPost changes text, at, saveToDraft, tagIds, approvalChange, aiAssisted, and draftId only. Use a raw editPost request for assets or metadata.",
+          );
+
         const row = await readPost(postRecordId(ref), ref, context, "posts.update");
 
         if (!["draft", "scheduled", "needs_approval"].includes(String(row["status"])))
@@ -2849,7 +2877,7 @@ export function buffer(options: BufferOptions) {
           { input },
           context,
           (data) => {
-            return actionOutcome(object(data["editPost"]), ref, "posts.update", context);
+            return actionOutcome(object(data["editPost"]), ref, input.id, "posts.update", context);
           },
         );
       },
@@ -3052,7 +3080,13 @@ export function buffer(options: BufferOptions) {
           { input: { id: string(row["id"]), position } },
           context,
           (data) => {
-            return actionOutcome(object(data["movePostInQueue"]), ref, "posts.schedule", context);
+            return actionOutcome(
+              object(data["movePostInQueue"]),
+              ref,
+              string(row["id"]),
+              "posts.schedule",
+              context,
+            );
           },
         );
       },
@@ -3251,9 +3285,9 @@ export function buffer(options: BufferOptions) {
             // The mutation was dispatched; anything short of an idea ID or a stated error is uncertain.
             const result = optionalObject(data["createIdea"]) ?? {};
             const idea = optionalObject(result["idea"]);
-            const id = idea === undefined ? undefined : optionalString(idea["id"]);
+            const id = idea?.["id"];
 
-            if (id) return { id };
+            if (isBufferId(id)) return { id };
 
             const rejection =
               idea === undefined
@@ -3944,27 +3978,51 @@ export function buffer(options: BufferOptions) {
     },
   });
 
+  /**
+   * The post a `PostActionSuccess` returned, checked against what the mutation addressed: a Buffer
+   * post ID (equal to the edited post's ID on edits), a `PostStatus` string, and, when present,
+   * the target channel. Anything else leaves the change unconfirmed.
+   */
+  function confirmedPost(
+    value: JsonField,
+    account: ConnectedAccountRef,
+    expectedId?: string,
+  ): JsonObject {
+    const post = object(value);
+    const id = post["id"];
+    const channel = post["channelId"];
+
+    if (
+      !isBufferId(id) ||
+      (expectedId !== undefined && id !== expectedId) ||
+      !isString(post["status"]) ||
+      post["status"] === "" ||
+      (channel !== undefined && channel !== account.accountId)
+    )
+      throw new HttpError("Buffer did not return the changed post.", "invalid-response", true);
+
+    return post;
+  }
+
   /** The outcome of a post mutation that returns the post or a MutationError. */
   function actionOutcome(
     result: JsonObject,
     ref: BufferPostRef,
+    expectedId: string,
     operation: string,
     context: AdapterOperationContext,
   ): DeliveryOutcome {
     const post = result["post"];
 
-    if (isJsonObject(post))
-      return outcome(
-        post,
-        {
-          kind: "connected-account",
-          version: 1,
-          backend: ref.backend,
-          platform: ref.platform,
-          accountId: ref.accountId,
-        },
-        0,
-      );
+    const account: ConnectedAccountRef = {
+      kind: "connected-account",
+      version: 1,
+      backend: ref.backend,
+      platform: ref.platform,
+      accountId: ref.accountId,
+    };
+
+    if (isJsonObject(post)) return outcome(confirmedPost(post, account, expectedId), account, 0);
 
     const rejection = payloadRejection({ result, operation, context, kind: "mutation" });
 

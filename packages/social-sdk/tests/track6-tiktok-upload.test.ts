@@ -117,9 +117,14 @@ function fakeTikTok(input: {
     const put = { url: String(request), headers: new Headers(init?.headers), bytes };
     recorder.puts.push(put);
 
-    return input.onPut
-      ? input.onPut(put, recorder.puts.length - 1)
-      : new Response(null, { status: 201 });
+    if (input.onPut) return input.onPut(put, recorder.puts.length - 1);
+
+    // TikTok answers 206 for each chunk before the last and 201 once every part is uploaded.
+    const range = /^bytes \d+-(\d+)\/(\d+)$/.exec(put.headers.get("content-range") ?? "");
+
+    return new Response(null, {
+      status: range !== null && Number(range[1]) + 1 < Number(range[2]) ? 206 : 201,
+    });
   };
 
   return { recorder, fetch };

@@ -1722,19 +1722,16 @@ export function postiz(options: PostizOptions) {
         };
       }
 
-      case "ERROR": {
-        const reason = optionalString(row["error"]);
-
+      case "ERROR":
+        // Postiz's `error` is the network's free text, which can echo post content or media URLs,
+        // so the outcome keeps a fixed message. `posts.list` returns the post's `error` as data.
         return {
           ...base,
           state: "failed",
           code: "upstream_failure",
-          message: reason
-            ? `Postiz reports that this post failed: ${reason}`
-            : "Postiz reports that this post failed without a reason; inspect the post and channel in Postiz.",
+          message: "Postiz reports that this post failed. Inspect the post and channel in Postiz.",
           retryDisposition: { kind: "never" },
         };
-      }
 
       case "DRAFT":
         return { ...base, state: "accepted" };
@@ -2870,8 +2867,13 @@ export function postiz(options: PostizOptions) {
           ),
           (reply) => {
             const result = object(reply);
+            const publishDate = result["publishDate"];
 
-            if (result["postId"] !== row["id"])
+            // The documented answer is `{ postId, publishDate }`, both strings.
+            if (
+              result["postId"] !== row["id"] ||
+              (publishDate !== undefined && !isString(publishDate))
+            )
               throw new SocialError({
                 code: "ambiguous_outcome",
                 operation: "posts.update",
@@ -2880,7 +2882,7 @@ export function postiz(options: PostizOptions) {
                 retryDisposition: { kind: "reconcile-first" },
               });
 
-            return definedFields({ publishDate: optionalString(result["publishDate"]) });
+            return definedFields({ publishDate });
           },
         );
       },
@@ -3267,9 +3269,17 @@ export function postiz(options: PostizOptions) {
             }),
           }),
           (reply) => {
-            const result = object(reply);
+            const id = string(object(reply)["id"]);
 
-            return { id: string(result["id"]) };
+            // The documented answer is `{ id }`, the clipping ID to poll.
+            if (id.trim() !== id || id.length > 256)
+              throw new HttpError(
+                "Postiz returned an unusable clipping ID.",
+                "invalid-response",
+                true,
+              );
+
+            return { id };
           },
         );
       },

@@ -598,11 +598,13 @@ it("disconnects, deletes and relabels accounts", async () => {
       access_token: "SECRET",
     },
     "DELETE /v1/social-accounts/spc_1": { success: true },
+    // SocialAccountDto echoes the stored external_id.
     "PATCH /v1/social-accounts/spc_1": {
       id: "spc_1",
       platform: "x",
       user_id: "u1",
       status: "connected",
+      external_id: "tenant-2",
     },
   });
 

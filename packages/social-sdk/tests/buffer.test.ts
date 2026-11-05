@@ -487,7 +487,9 @@ it("Buffer maps GraphQL and HTTP failures without echoing secrets", async () => 
       if (query.includes("query Channels")) return envelope({ channels: [channel({})] });
 
       if (query.includes("createPost"))
-        return envelope({ createPost: { message: "Text is required" } });
+        return envelope({
+          createPost: { __typename: "ValidationError", message: "Text is required" },
+        });
 
       return envelope(null, [{ message: "Not authorized", extensions: { code: "UNAUTHORIZED" } }]);
     },

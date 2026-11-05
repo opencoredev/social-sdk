@@ -183,7 +183,7 @@ const result = await social.posts.publish(
 );
 ```
 
-Postiz queues every post and a worker posts it when it is due. A confirmed queued row with a future time returns `scheduled`; a due queued row returns `processing`. If creation returns an ID but the follow-up read fails, the outcome is `accepted` with a delivery reference and no invented queue state, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed`, and its message carries the platform's reason from the post's `error` field, such as "Account banned from posting". When Postiz has no reason, look at the post and channel in Postiz.
+Postiz queues every post and a worker posts it when it is due. A confirmed queued row with a future time returns `scheduled`; a due queued row returns `processing`. If creation returns an ID but the follow-up read fails, the outcome is `accepted` with a delivery reference and no invented queue state, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed` with a fixed message. The platform's reason stays out of the message, because it is free text that can repeat post content or media URLs; `native.listPosts` returns it as the post's `error` field, so check the tenant's grant before you show it.
 
 The delivery, job, and record IDs have the form `<postiz post id>@<publish time>`. Postiz lists posts only by publish date, so the adapter keeps the time in the ID to find the post again. Store the IDs as opaque strings. If someone moves the post in Postiz by more than a day, the adapter can no longer find it, and reads, cancellation, and analytics fail with `not_found`. Manage a moved post in Postiz.
 
@@ -539,6 +539,7 @@ The API key reaches the whole workspace, and the SDK cannot tell which accounts 
 
 ### Not supported
 
+- Deleting a whole group: Postiz's [Delete Post by Group](https://docs.postiz.com/public-api/posts/delete-by-group) (`DELETE /posts/group/:group`) removes every post in a group at once. The adapter does not wrap it, for the same reason it refuses group deletes below: it cannot show that a group holds only posts you mean to remove. Send it as a [raw request](#raw-requests) if you own the whole group.
 - Removing a published post: cancelling and deleting change only the Postiz record, so neither removes a post that already published.
 - Cancelling or deleting other posts: the adapter refuses a post it did not create or edit, such as one created in the Postiz dashboard or through another API client, and a post edited in the Postiz dashboard since, because Postiz deletes the whole group and the adapter cannot show the group holds only that post. It also refuses when the read after a create failed, because the identifier then has no group.
 

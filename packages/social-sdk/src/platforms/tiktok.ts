@@ -12,7 +12,7 @@ import type {
   ProfileRecord,
 } from "../core/types.js";
 import { profileRef } from "../core/types.js";
-import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import { acknowledged, managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import {
   rawProviderRequest,
   rawRequestCapability,
@@ -120,6 +120,21 @@ const portabilityStates: readonly TikTokPortabilityState[] = [
   "expired",
   "cancelled",
 ];
+
+/** TikTok error codes are lowercase snake_case machine codes; anything else is not kept. */
+function tiktokErrorCode(code: string): string | undefined {
+  return /^[a-z][a-z0-9_]{0,99}$/.test(code) ? code : undefined;
+}
+
+/** A publish init answer's `publish_id`, which TikTok documents as a string. */
+function tiktokPublishId(result: JsonObject): string {
+  const id = string(result["publish_id"]);
+
+  if (id.trim() === "" || id.length > 256)
+    throw new HttpError("TikTok returned an unusable publish_id.", "invalid-response", true);
+
+  return id;
+}
 
 function isPortabilityState(value: JsonField): value is TikTokPortabilityState {
   return portabilityStates.some((state) => state === value);
@@ -437,12 +452,17 @@ function withTikTokErrorBodies(
       const errorObject = object(object(body)["error"]);
 
       if (response.status === 429) {
-        onRateLimitCode(string(errorObject["code"]));
+        onRateLimitCode(tiktokErrorCode(string(errorObject["code"])));
 
         return response;
       }
 
-      if (errorObject["code"] !== undefined)
+      // Only a stated rejection code turns into the envelope; an HTTP error never reads as "ok".
+      if (
+        isString(errorObject["code"]) &&
+        errorObject["code"] !== "" &&
+        errorObject["code"] !== "ok"
+      )
         return new Response(JSON.stringify(body), {
           status: 200,
           headers: response.headers,
@@ -496,8 +516,11 @@ export function tiktok(
 
     try {
       const result = await httpRequest(...args);
+      // Inspect the envelope without throwing: decoding the answer belongs to each caller, so a
+      // write can treat a malformed success body as unconfirmed.
+      const envelope = isJsonObject(result) ? result["error"] : undefined;
 
-      if (object(object(result)["error"])["code"] === "rate_limit_exceeded")
+      if (isJsonObject(envelope) && envelope["code"] === "rate_limit_exceeded")
         throw new SocialError({
           code: "rate_limited",
           operation: "tiktok",
@@ -569,7 +592,8 @@ export function tiktok(
         operation: "tiktok",
         message:
           "TikTok rejected the operation. Check creator eligibility, scope grants, and app audit status.",
-        upstreamCode: string(error["code"]),
+        // Keep only a machine code; a malformed code means the answer cannot be read.
+        ...definedFields({ upstreamCode: tiktokErrorCode(string(error["code"])) }),
         retryDisposition:
           error["code"] === "rate_limit_exceeded"
             ? { kind: "after-delay", delayMs: 60_000 }
@@ -580,6 +604,15 @@ export function tiktok(
   };
 
   const data = (value: JsonField): JsonObject => object(checked(value)["data"]);
+
+  /** Video, inbox and photo init answer `data.publish_id` as a non-empty string. */
+  const publishInit = (value: JsonField): JsonObject => {
+    const result = data(value);
+
+    tiktokPublishId(result);
+
+    return result;
+  };
 
   const rawConfig: RawRequestConfig<TikTokRawHost> = {
     hosts: { api: "https://open.tiktokapis.com" },
@@ -1308,8 +1341,9 @@ export function tiktok(
         let result: JsonObject;
 
         if (first.kind === "video")
-          result = data(
-            await request(
+          result = await acknowledged(
+            "posts.publish",
+            request(
               draft ? "/v2/post/publish/inbox/video/init/" : "/v2/post/publish/video/init/",
               context,
               {
@@ -1340,6 +1374,7 @@ export function tiktok(
                     },
               },
             ),
+            publishInit,
           );
         else {
           const photoText: JsonObject = {
@@ -1347,8 +1382,9 @@ export function tiktok(
             description: target.content.text ?? "",
           };
 
-          result = data(
-            await request("/v2/post/publish/content/init/", context, {
+          result = await acknowledged(
+            "posts.publish",
+            request("/v2/post/publish/content/init/", context, {
               // MEDIA_UPLOAD sends only the text; the creator finishes the post in TikTok.
               post_info: draft
                 ? photoText
@@ -1368,6 +1404,7 @@ export function tiktok(
               media_type: "PHOTO",
               is_aigc: config["aiGenerated"] === true,
             }),
+            publishInit,
           );
         }
 
@@ -1380,7 +1417,7 @@ export function tiktok(
             backend: target.account.backend,
             platform: "tiktok",
             accountId: target.account.accountId,
-            deliveryId: string(result["publish_id"]),
+            deliveryId: tiktokPublishId(result),
           },
         };
 
@@ -1741,10 +1778,13 @@ export function tiktok(
       },
       async cancelDataRequest({ account, requestId, context }) {
         authorize(account, context);
-        checked(
-          await request("/v2/user/data/cancel/", context, {
+        // Success is the bare `{"error":{"code":"ok"}}` envelope (Cancel Data Request reference).
+        await acknowledged(
+          "native",
+          request("/v2/user/data/cancel/", context, {
             request_id: portabilityRequestId(requestId),
           }),
+          checked,
         );
       },
       async downloadDataRequest({ account, requestId, context }) {
@@ -1916,7 +1956,21 @@ export function tiktok(
       async uploadDraft({ account, video, context }) {
         authorize(account, context);
 
-        return data(await request("/v2/post/publish/inbox/video/init/", context, video));
+        const sourceInfo = video["source_info"];
+        const fileUpload = isJsonObject(sourceInfo) && sourceInfo["source"] === "FILE_UPLOAD";
+
+        // The Upload reference answers with a string publish_id, plus upload_url for FILE_UPLOAD.
+        return acknowledged(
+          "native",
+          request("/v2/post/publish/inbox/video/init/", context, video),
+          (body) => {
+            const result = publishInit(body);
+
+            if (fileUpload) string(result["upload_url"]);
+
+            return result;
+          },
+        );
       },
       async listVideos({ account, cursor, maxCount, context }) {
         authorize(account, context);
@@ -1964,7 +2018,12 @@ export function tiktok(
             message: "A TikTok publish_id is required.",
           });
 
-        checked(await request("/v2/post/publish/cancel/", context, { publish_id: publishId }));
+        // Success is the `ok` envelope; stated rejections such as publish_not_cancellable stay definite.
+        await acknowledged(
+          "native",
+          request("/v2/post/publish/cancel/", context, { publish_id: publishId }),
+          checked,
+        );
       },
     },
   });

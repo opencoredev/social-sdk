@@ -53,6 +53,7 @@ import {
   postForMePlatform,
   providerPlatforms,
   publicFields,
+  samePlatform,
   type ManagedOptions,
 } from "./common.js";
 import { httpsUrl } from "../transport/upload.js";
@@ -604,6 +605,39 @@ function webhookFields(value: JsonValue): JsonObject {
   };
 }
 
+/**
+ * A `WebhookDto` answer: a non-empty `id` (the addressed one on updates), and the `url` and
+ * `event_types` the write set. Anything else leaves the webhook change unconfirmed.
+ */
+function confirmedWebhook(
+  reply: JsonValue,
+  expected: {
+    readonly id?: string;
+    readonly url?: string;
+    readonly eventTypes?: readonly string[];
+  },
+): JsonObject {
+  const result = object(reply);
+  const id = result["id"];
+  const events = result["event_types"];
+
+  if (
+    !isString(id) ||
+    id.trim() === "" ||
+    (expected.id !== undefined && id !== expected.id) ||
+    !isString(result["url"]) ||
+    (expected.url !== undefined && result["url"] !== expected.url) ||
+    !isJsonArray(events) ||
+    !events.every(isString) ||
+    (expected.eventTypes !== undefined &&
+      (events.length !== new Set(expected.eventTypes).size ||
+        !expected.eventTypes.every((event) => events.includes(event))))
+  )
+    unconfirmed("webhooks.write");
+
+  return result;
+}
+
 const invalid = (operation: string, message: string): never => {
   throw new SocialError({ code: "invalid_input", operation, message });
 };
@@ -625,6 +659,41 @@ export function postForMe(options: ManagedOptions) {
   );
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
+
+  /**
+   * The shared lifecycle helpers read their write answers with `object()`, outside an
+   * uncertain-write boundary. A cancel (`PUT /v1/social-posts/{id}`) or delete answers with an
+   * object (`SocialPostDto` or `DeleteEntityResponseDto`), so any other 2xx body leaves the write
+   * unconfirmed here, before it could read as a definite failure.
+   */
+  const lifecycleRequest: typeof request = async (...args) => {
+    const [, , body, , method = body === undefined ? "GET" : "POST"] = args;
+    const answer = await request(...args);
+
+    if (method !== "GET" && !isJsonObject(answer)) unconfirmed("posts.lifecycle");
+
+    return answer;
+  };
+
+  /** An account answer to a write on `expected`: its ID and platform must be the addressed ones. */
+  const changedAccount = (
+    reply: JsonValue,
+    expected: ConnectedAccountRef,
+    backend: string,
+  ): JsonObject => {
+    const result = object(reply);
+
+    if (
+      result["id"] !== expected.accountId ||
+      !samePlatform(postForMePlatform(result["platform"]), expected.platform)
+    )
+      unconfirmed("accounts.write");
+
+    // The record must still read as an account; `account` drops the tokens it carries.
+    account(result, backend);
+
+    return result;
+  };
 
   const account = (value: JsonValue, backend: string): AccountRecord => {
     const row = object(value);
@@ -793,7 +862,7 @@ export function postForMe(options: ManagedOptions) {
       },
     },
     posts: {
-      ...managedLifecycle("post-for-me", request, now),
+      ...managedLifecycle("post-for-me", lifecycleRequest, now),
       async list(
         account: ConnectedAccountRef,
         input: { readonly cursor?: string; readonly limit?: number },
@@ -1127,8 +1196,10 @@ export function postForMe(options: ManagedOptions) {
       async createConnection(input: PostForMeConnectionOptions, context: AdapterOperationContext) {
         platform(input.platform, options);
 
-        const result = object(
-          await request("/v1/social-accounts/auth-url", context, {
+        // `SocialAccountProviderAuthUrlDto`: an auth `url` for the requested `platform`.
+        return acknowledged(
+          "accounts.connect",
+          request("/v1/social-accounts/auth-url", context, {
             platform: input.platform,
             external_id: input.externalId,
             permissions: input.permissions,
@@ -1138,9 +1209,14 @@ export function postForMe(options: ManagedOptions) {
               platform_data: input.platformData && platformData(input.platformData),
             }),
           }),
-        );
+          (reply) => {
+            const result = object(reply);
 
-        return { url: string(result["url"]), platform: string(result["platform"]) };
+            if (result["platform"] !== input.platform) unconfirmed("accounts.connect");
+
+            return { url: httpsUrl(string(result["url"])).href, platform: input.platform };
+          },
+        );
       },
       /** Remove an account's tokens and mark it disconnected; the record and history stay. */
       async disconnectAccount(
@@ -1157,10 +1233,9 @@ export function postForMe(options: ManagedOptions) {
             {},
           ),
           (reply) => {
-            const result = object(reply);
+            const result = changedAccount(reply, input.account, context.backendInstance);
 
-            if (result["id"] !== input.account.accountId || result["status"] !== "disconnected")
-              unconfirmed("accounts.write");
+            if (result["status"] !== "disconnected") unconfirmed("accounts.write");
 
             return account(result, context.backendInstance);
           },
@@ -1201,9 +1276,10 @@ export function postForMe(options: ManagedOptions) {
             "PATCH",
           ),
           (reply) => {
-            const result = object(reply);
+            const result = changedAccount(reply, input.account, context.backendInstance);
 
-            if (result["id"] !== input.account.accountId) unconfirmed("accounts.write");
+            // `SocialAccountDto` echoes the stored `external_id`.
+            if (result["external_id"] !== input.externalId) unconfirmed("accounts.write");
 
             return account(result, context.backendInstance);
           },
@@ -1508,7 +1584,10 @@ export function postForMe(options: ManagedOptions) {
             event_types: [...input.eventTypes],
           }),
           (reply) => {
-            const result = object(reply);
+            const result = confirmedWebhook(reply, {
+              url: httpsUrl(input.url).href,
+              eventTypes: input.eventTypes,
+            });
 
             return { ...webhookFields(result), secret: string(result["secret"]) };
           },
@@ -1533,9 +1612,13 @@ export function postForMe(options: ManagedOptions) {
             "PATCH",
           ),
           (reply) => {
-            const result = object(reply);
-
-            if (result["id"] !== input.webhookId) unconfirmed("webhooks.write");
+            const result = confirmedWebhook(reply, {
+              id: input.webhookId,
+              ...definedFields({
+                url: input.url === undefined ? undefined : httpsUrl(input.url).href,
+                eventTypes: input.eventTypes,
+              }),
+            });
 
             return webhookFields(result);
           },

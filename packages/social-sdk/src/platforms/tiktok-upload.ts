@@ -296,6 +296,24 @@ export async function transferTikTokVideo(input: {
 
       void response.body?.cancel().catch(() => undefined);
 
+      // The Media Transfer Guide answers 206 Partial Content for each chunk before the last and
+      // 201 Created once all parts are uploaded. Any other success status confirms nothing.
+      if (response.ok && response.status !== (final ? 201 : 206)) {
+        if (final)
+          return {
+            kind: "uncertain",
+            message:
+              "TikTok did not confirm the final upload chunk. Check the publish status before retrying.",
+          };
+
+        return {
+          kind: "failed",
+          code: "media_error",
+          message: `TikTok did not confirm upload chunk ${index + 1} of ${plan.totalChunkCount}. No further bytes were sent.`,
+          upstreamStatus: response.status,
+        };
+      }
+
       if (!response.ok) {
         if (final && response.status >= 500)
           return {
