@@ -606,6 +606,8 @@ export interface YouTubeNative {
   /** Download a report's CSV from its `downloadUrl` on youtubereporting.googleapis.com. */
   readonly downloadReport: (input: {
     readonly downloadUrl: string;
+    /** Largest report to buffer, in bytes. Defaults to 1 GiB; larger reports fail before buffering more. */
+    readonly maxBytes?: number;
     readonly context: AdapterOperationContext;
   }) => Promise<Blob>;
   /** comments.list with `id`: up to 50 comments or replies by ID. */
@@ -1054,6 +1056,9 @@ function uploadExtras(config: JsonObject): UploadExtrasResult {
   };
 }
 
+/** Default cap on bytes buffered by a native download. */
+const DEFAULT_DOWNLOAD_MAX_BYTES = 1024 ** 3;
+
 export function youtube(
   options: YouTubeOptions,
 ): import("../core/adapter.js").SocialAdapter<YouTubeNative> {
@@ -1408,6 +1413,7 @@ export function youtube(
     context: AdapterOperationContext,
     operation: string,
     failure: string,
+    maxBytes = DEFAULT_DOWNLOAD_MAX_BYTES,
   ): Promise<Blob> => {
     const controller = new AbortController();
     const abort = () => controller.abort(context.signal?.reason);
@@ -1463,12 +1469,27 @@ export function youtube(
 
       const reader = response.body.getReader();
       const chunks: Uint8Array<ArrayBuffer>[] = [];
+      let received = 0;
 
       try {
         for (;;) {
           const chunk = await abortable(reader.read(), controller.signal);
 
           if (chunk.done) break;
+          received += chunk.value.byteLength;
+
+          // Bound memory: stop reading once the download passes the caller's cap.
+          if (received > maxBytes) {
+            void reader.cancel().catch(() => undefined);
+
+            throw new SocialError({
+              code: "upstream_failure",
+              operation,
+              message: `The download is larger than maxBytes (${maxBytes}).`,
+              retryDisposition: { kind: "never" },
+            });
+          }
+
           chunks.push(new Uint8Array(chunk.value));
         }
 
@@ -4668,7 +4689,7 @@ export function youtube(
           }),
         );
       },
-      async downloadReport({ downloadUrl, context }) {
+      async downloadReport({ downloadUrl, maxBytes = DEFAULT_DOWNLOAD_MAX_BYTES, context }) {
         nativeAuthorize(context);
 
         const operation = "reporting.media.download";
@@ -4687,7 +4708,10 @@ export function youtube(
             "downloadUrl must be a https://youtubereporting.googleapis.com/v1/media/ URL from a report.",
           );
 
-        return downloadBlob(url, context, operation, "Report download did not complete.");
+        if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
+          throw invalidInput(operation, "maxBytes must be a positive whole number of bytes.");
+
+        return downloadBlob(url, context, operation, "Report download did not complete.", maxBytes);
       },
       async liveStreams({ action, ids, streamId, body, pageToken, maxResults, context }) {
         nativeAuthorize(context);

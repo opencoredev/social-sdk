@@ -1,3 +1,4 @@
+import { SocialError } from "../src/core/errors.js";
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { connectedAccountRef } from "../src/index.js";
@@ -414,4 +415,25 @@ it("edits a comment with message.$set and the organization actor", async () => {
   assert.deepEqual(calls[0]?.body, {
     patch: { message: { $set: { text: "Updated comment message", attributes: [] } } },
   });
+});
+
+it("a comment create answered with a non-object body is an uncertain outcome", async () => {
+  for (const answer of ["null", "[]"]) {
+    const { calls, native: api } = native(
+      memberUrn,
+      () => new Response(answer, { status: 201, headers: { "content-type": "application/json" } }),
+    );
+
+    await assert.rejects(
+      api.createComment({
+        account: member,
+        postId: "urn:li:share:1",
+        text: "Thanks",
+        context: nativeContext,
+      }),
+      (error: SocialError) =>
+        error.code === "ambiguous_outcome" && error.retryDisposition?.kind === "reconcile-first",
+    );
+    assert.equal(calls.length, 1);
+  }
 });

@@ -1751,6 +1751,7 @@ export function tiktok(
         // Errors arrive as the usual JSON envelope; the archive itself is not JSON.
         if (contentType.includes("json") || !response.ok || !response.body) {
           if (response.status === 429) {
+            void response.body?.cancel().catch(() => undefined);
             context.signal?.removeEventListener("abort", abort);
 
             throw new SocialError({

@@ -1163,6 +1163,21 @@ export interface LinkedInVideoWaitOptions {
   readonly maxChecks?: number;
 }
 
+/** Decodes LinkedIn's answer to a sent write; an answer that does not decode leaves the write uncertain. */
+function confirmedWrite<T>(operation: string, message: string, decode: () => T): T {
+  try {
+    return decode();
+  } catch (error) {
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: `${message} Reconcile before retrying.`,
+      retryDisposition: { kind: "reconcile-first" },
+      cause: error,
+    });
+  }
+}
+
 export function linkedin(
   options: LinkedInOptions,
 ): import("../core/adapter.js").SocialAdapter<LinkedInNative> {
@@ -6312,40 +6327,42 @@ export function linkedin(
          * configured author and cannot change later.
          * https://learn.microsoft.com/en-us/linkedin/marketing/event-management/events?view=li-lms-2026-10
          */
-        const result = object(
-          await request(
-            "/rest/events",
-            context,
-            {
-              name: multiLocale(name, key),
-              type: eventTypeWire(type, key),
-              organizer: account.accountId,
-              startsAt,
-              ...definedFields({
-                description: description === undefined ? undefined : richText(description, key),
-                vanityName,
-                backgroundImage,
-                discoveryMode,
-                leadGenFormSpec:
-                  leadGenForm === undefined
-                    ? undefined
-                    : "privacyPolicyUrl" in leadGenForm
-                      ? { privacyPolicyUrl: leadGenForm.privacyPolicyUrl }
-                      : { leadGenForm: leadGenForm.leadGenForm },
-              }),
-            },
-            ["x-restli-id"],
-            "POST",
-            { "X-RestLi-Method": "CREATE" },
-          ),
+        const created = await request(
+          "/rest/events",
+          context,
+          {
+            name: multiLocale(name, key),
+            type: eventTypeWire(type, key),
+            organizer: account.accountId,
+            startsAt,
+            ...definedFields({
+              description: description === undefined ? undefined : richText(description, key),
+              vanityName,
+              backgroundImage,
+              discoveryMode,
+              leadGenFormSpec:
+                leadGenForm === undefined
+                  ? undefined
+                  : "privacyPolicyUrl" in leadGenForm
+                    ? { privacyPolicyUrl: leadGenForm.privacyPolicyUrl }
+                    : { leadGenForm: leadGenForm.leadGenForm },
+            }),
+          },
+          ["x-restli-id"],
+          "POST",
+          { "X-RestLi-Method": "CREATE" },
         );
 
-        const header = optionalString(optionalObject(result["headers"])?.["x-restli-id"]);
+        // LinkedIn received the create; an answer without a readable event ID leaves it uncertain.
+        return confirmedWrite("events.write", "LinkedIn did not confirm the event.", () => {
+          const result = object(created);
+          const header = optionalString(optionalObject(result["headers"])?.["x-restli-id"]);
 
-        const fromHeader =
-          header === undefined ? undefined : longId(header.replace(/^urn:li:event:/, ""));
+          const fromHeader =
+            header === undefined ? undefined : longId(header.replace(/^urn:li:event:/, ""));
 
-        return decodeEvent(optionalObject(result["body"]) ?? {}, fromHeader);
+          return decodeEvent(optionalObject(result["body"]) ?? {}, fromHeader);
+        });
       },
       async getEvent({ account, event, context }) {
         authorize(account, context);
@@ -6774,14 +6791,18 @@ export function linkedin(
           }),
         };
 
-        const response = object(
-          await request(
-            parentCommentId === undefined
-              ? `/rest/socialActions/${encodeURIComponent(postId)}/comments`
-              : `/rest/socialActions/${restliEncode(parentCommentId)}/comments`,
-            context,
-            body,
-          ),
+        const answer = await request(
+          parentCommentId === undefined
+            ? `/rest/socialActions/${encodeURIComponent(postId)}/comments`
+            : `/rest/socialActions/${restliEncode(parentCommentId)}/comments`,
+          context,
+          body,
+        );
+
+        const response = confirmedWrite(
+          "comments.write",
+          "LinkedIn did not return a readable comment.",
+          () => object(answer),
         );
 
         const commentUrn = optionalString(response["commentUrn"]);

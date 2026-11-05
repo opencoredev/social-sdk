@@ -33,3 +33,4 @@ LinkedIn, TikTok and YouTube: native features.
 - LinkedIn `native.updateEvent` sends type sub-field changes as a nested Rest.li patch, so changing only `endsAt`, `url`, `address` or `venueDetails` keeps the event's other type fields; a type change with no sub-fields is rejected as `invalid_input`.
 - LinkedIn nested comment routes (`native.listCommentReplies`, `native.createComment` with `parentCommentId`, and `comments.reply`) encode the composite comment URN's parentheses as Rest.li 2.0 requires, and a captions file at the 20 MiB cap no longer fails after the video parts upload.
 - TikTok `native.downloadDataRequest` rejects promptly on abort or timeout even when an injected `fetch` ignores the signal, errors the archive stream with `cancelled` if the operation aborts mid-read, and detaches its abort listener once the archive ends or is cancelled.
+- YouTube `downloadReport` takes `maxBytes` (default 1 GiB) and stops a larger report instead of buffering it.

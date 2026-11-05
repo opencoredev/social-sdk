@@ -198,3 +198,40 @@ it("TikTok errors an archive stream with cancelled when the operation aborts mid
   assert.equal(sourceCancelled, true);
   assert.equal(getEventListeners(cancellation.signal, "abort").length, 0);
 });
+
+it("TikTok cancels the body of a rate-limited portability download", async () => {
+  let cancelled = false;
+
+  const adapter = tiktok({
+    auth: { accessToken: "review-fixture", openId: "review-creator" },
+    verifiedMediaOrigins: [],
+    fetch: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"error":'));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 429, headers: { "content-type": "application/json" } },
+      ),
+  });
+
+  assert.ok(adapter.native);
+
+  await assert.rejects(
+    adapter.native.downloadDataRequest({
+      account,
+      requestId: "123451234512345",
+      context: {
+        backendInstance: "default",
+        correlationId: "review-rate-limited-body",
+        retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+      },
+    }),
+    (error: SocialError) => error.code === "rate_limited",
+  );
+  assert.equal(cancelled, true);
+});

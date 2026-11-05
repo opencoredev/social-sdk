@@ -428,3 +428,22 @@ it("updates only the supplied event type sub-fields with a nested Rest.li patch"
   });
   assert.equal(calls.length, 3);
 });
+
+it("an event create answered without a readable event is an uncertain outcome", async () => {
+  for (const answer of ['{"name":{"localized":{"en_US":"Launch"}}}', "null"]) {
+    const { calls, native: api } = native(() => json(answer, 201));
+
+    await assert.rejects(
+      api.createEvent({
+        account: organization,
+        name: "Launch",
+        type: { kind: "external", endsAt: 9091536065000, url: "https://example.com/launch" },
+        startsAt: 9091536064111,
+        context: nativeContext,
+      }),
+      (error: SocialError) =>
+        error.code === "ambiguous_outcome" && error.retryDisposition?.kind === "reconcile-first",
+    );
+    assert.equal(calls.length, 1);
+  }
+});

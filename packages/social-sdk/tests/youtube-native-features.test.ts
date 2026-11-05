@@ -1226,3 +1226,26 @@ it("drives the youtubereporting API: report types, jobs, reports and a bounded C
   );
   assert.equal(calls.length, 8);
 });
+
+it("stops a report download that passes maxBytes", async () => {
+  const { native } = nativeFor(
+    () => new Response("date,views\n20261101,5\n", { headers: { "content-type": "text/csv" } }),
+  );
+
+  await assert.rejects(
+    native.downloadReport({
+      downloadUrl: "https://youtubereporting.googleapis.com/v1/media/CHANNEL/r1?alt=media",
+      maxBytes: 4,
+      context: context(),
+    }),
+    { code: "upstream_failure" },
+  );
+  await assert.rejects(
+    native.downloadReport({
+      downloadUrl: "https://youtubereporting.googleapis.com/v1/media/CHANNEL/r1?alt=media",
+      maxBytes: 0,
+      context: context(),
+    }),
+    { code: "invalid_input" },
+  );
+});
