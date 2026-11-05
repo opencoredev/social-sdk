@@ -33,7 +33,46 @@ function delivery(context: OutcomeContext, deliveryId: string): DeliveryRef {
   };
 }
 
-/** Never infer destination success from the aggregate HTTP/parent status. */
+/**
+ * A provider status kept as a machine token: absent is `unknown`; a lowercase token passes; any
+ * other value (prose, a URL, a wrong type) is `unrecognized`, so no provider text reaches an outcome.
+ */
+function statusToken(value: JsonField): string {
+  if (value === undefined || value === null) return "unknown";
+
+  return isString(value) && /^[a-z_]{1,32}$/.test(value) ? value : "unrecognized";
+}
+
+/** A published post's public link: an absolute HTTPS URL without credentials, else dropped. */
+function publicPostUrl(value: JsonField): string | undefined {
+  if (!isString(value) || !URL.canParse(value)) return undefined;
+  const url = new URL(value);
+
+  return url.protocol === "https:" && !url.username && !url.password ? url.href : undefined;
+}
+
+/**
+ * `platforms[].errorCategory` values Zernio documents (openapi.yaml 1.501.1, read 2026-11-05:
+ * https://zernio.com/openapi.yaml). Anything else is reported as `upstream_failure`.
+ */
+const zernioErrorCategories: readonly string[] = [
+  "auth_expired",
+  "user_content",
+  "user_abuse",
+  "account_issue",
+  "platform_rejected",
+  "platform_error",
+  "platform_rate_limit",
+  "quota_exhausted",
+  "system_error",
+  "unknown",
+];
+
+/**
+ * Never infer destination success from the aggregate HTTP/parent status. Provider strings are
+ * checked: a failed destination keeps only a documented error category as its code, the backend
+ * state only a status token, and the link only an HTTPS URL.
+ */
 export function zernioOutcome(value: JsonValue, context: OutcomeContext): DeliveryOutcome {
   const response = object(value);
   const post = object(response["post"] ?? response["existingPost"] ?? response);
@@ -67,7 +106,7 @@ export function zernioOutcome(value: JsonValue, context: OutcomeContext): Delive
   const entry = matches[0];
 
   if (!entry) throw new Error("Missing matched outcome");
-  const status = optionalString(entry["status"]) ?? "unknown";
+  const status = statusToken(entry["status"]);
   const stateBase = { ...base, backendState: status };
 
   switch (status) {
@@ -82,7 +121,7 @@ export function zernioOutcome(value: JsonValue, context: OutcomeContext): Delive
           diagnostic:
             "Provider reports publication without a native identifier; reconcile to resolve the native post.",
         };
-      const url = optionalString(entry["platformPostUrl"]);
+      const url = publicPostUrl(entry["platformPostUrl"]);
 
       const published: DeliveryOutcome = {
         ...stateBase,
@@ -101,11 +140,16 @@ export function zernioOutcome(value: JsonValue, context: OutcomeContext): Delive
       return url ? { ...published, url } : published;
     }
 
-    case "failed":
+    case "failed": {
+      const category = entry["errorCategory"];
+
       return {
         ...stateBase,
         state: "failed",
-        code: optionalString(entry["errorCategory"]) ?? "upstream_failure",
+        code:
+          isString(category) && zernioErrorCategories.includes(category)
+            ? category
+            : "upstream_failure",
         message:
           "Zernio reports that this destination failed. Inspect account permissions and sanitized provider diagnostics.",
         retryDisposition:
@@ -113,6 +157,8 @@ export function zernioOutcome(value: JsonValue, context: OutcomeContext): Delive
             ? { kind: "after-reconnect" }
             : { kind: "never" },
       };
+    }
+
     case "cancelled":
       return { ...stateBase, state: "cancelled" };
     case "processing":
@@ -150,7 +196,7 @@ export function postForMeOutcome(
 ): DeliveryOutcome {
   const parent = object(parentValue);
   const postId = string(parent["id"]);
-  const backendState = optionalString(parent["status"]) ?? "unknown";
+  const backendState = statusToken(parent["status"]);
   const base = { ...context, delivery: delivery(context, postId), backendState };
 
   if (resultsValue !== undefined) {
@@ -185,7 +231,7 @@ export function postForMeOutcome(
         const postId = optionalString(data["id"]);
 
         if (postId) {
-          const url = optionalString(data["url"]);
+          const url = publicPostUrl(data["url"]);
 
           const published: DeliveryOutcome = {
             ...base,

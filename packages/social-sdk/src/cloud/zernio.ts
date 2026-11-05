@@ -1395,61 +1395,6 @@ const unconfirmed = (operation: string): never => {
   });
 };
 
-/**
- * `platforms[].errorCategory` values Zernio documents (openapi.yaml 1.501.1, read 2026-11-05:
- * https://zernio.com/openapi.yaml). Anything else is reported as `upstream_failure`.
- */
-const zernioErrorCategories: readonly string[] = [
-  "auth_expired",
-  "user_content",
-  "user_abuse",
-  "account_issue",
-  "platform_rejected",
-  "platform_error",
-  "platform_rate_limit",
-  "quota_exhausted",
-  "system_error",
-  "unknown",
-];
-
-/**
- * `zernioOutcome` with its provider strings checked: a failed destination keeps only a
- * documented error category as its code, and the backend state only a lowercase status token,
- * so no provider text reaches the outcome.
- */
-function zernioDeliveryOutcome(
-  value: JsonValue,
-  context: Parameters<typeof zernioOutcome>[1],
-): DeliveryOutcome {
-  const outcome = zernioOutcome(value, context);
-
-  const backendState =
-    outcome.backendState === undefined || /^[a-z_]{1,32}$/.test(outcome.backendState)
-      ? outcome.backendState
-      : "unrecognized";
-
-  const checked = { ...outcome, ...definedFields({ backendState }) };
-
-  return checked.state === "failed" && !zernioErrorCategories.includes(checked.code)
-    ? { ...checked, code: "upstream_failure" }
-    : checked;
-}
-
-/**
- * Wrap the client for the shared post lifecycle (cancel, unpublish, delete record). A dispatched
- * write whose 2xx answer is not a JSON object cannot be confirmed, so it is `ambiguous_outcome`
- * instead of an undecodable-response error.
- */
-function lifecycleRequest(request: ReturnType<typeof managedHttp>): ReturnType<typeof managedHttp> {
-  return async (...args) => {
-    const [, , body, , method] = args;
-    const answer = await request(...args);
-    const write = (method ?? (body === undefined ? "GET" : "POST")) !== "GET";
-
-    return write && !isJsonObject(answer) ? unconfirmed("posts.lifecycle") : answer;
-  };
-}
-
 /** The HTTP client, account decoder and post builder that `zernio` and `zernioNative` share. */
 /**
  * One client per options object, so `zernio(options)` and `zernioNative(options)` share the
@@ -1747,7 +1692,7 @@ function createZernioClient(options: ManagedOptions) {
       });
 
       return await acknowledged("posts.publish", sent, (response) =>
-        zernioDeliveryOutcome(response, {
+        zernioOutcome(response, {
           account: target.account,
           targetIndex: target.targetIndex,
           observedAt: now(),
@@ -1801,7 +1746,7 @@ export const zernioInternals = {
   inboxFields,
   invalid,
   unconfirmed,
-  deliveryOutcome: zernioDeliveryOutcome,
+  deliveryOutcome: zernioOutcome,
   editablePlatforms: zernioEditablePlatforms,
   hidePlatforms: zernioHidePlatforms,
   commentDeletePlatforms: zernioCommentDeletePlatforms,
@@ -2017,7 +1962,7 @@ export function zernio(options: ManagedOptions) {
       },
     },
     posts: {
-      ...managedLifecycle("zernio", lifecycleRequest(request), now),
+      ...managedLifecycle("zernio", request, now),
       async list(
         account: ConnectedAccountRef,
         input: { readonly cursor?: string; readonly limit?: number },
@@ -2128,7 +2073,7 @@ export function zernio(options: ManagedOptions) {
         accountMatches(ref, context);
         const response = await request(`/v1/posts/${encodeURIComponent(ref.deliveryId)}`, context);
 
-        return zernioDeliveryOutcome(response, {
+        return zernioOutcome(response, {
           account: {
             kind: "connected-account",
             version: 1,

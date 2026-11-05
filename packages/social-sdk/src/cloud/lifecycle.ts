@@ -4,6 +4,7 @@ import type {
   AdapterOperationContext,
   BackendPostRef,
   JsonObject,
+  JsonValue,
   PlatformPostRef,
   ScheduleCancellation,
   ScheduledJobRef,
@@ -11,6 +12,7 @@ import type {
 import { array, isString, object, string } from "../transport/validation.js";
 import {
   accountMatches,
+  acknowledged,
   postForMePlatform,
   samePlatform,
   zernioPlatform,
@@ -51,6 +53,16 @@ export const zernioRemovablePlatforms: readonly string[] = [
   "telegram",
   "google-business",
 ];
+
+/**
+ * Decode the answer to a dispatched lifecycle write. An HTTP error status keeps its definite
+ * classification; once a 2xx arrived, a body that is not the documented object (null, an array,
+ * missing or wrong-type fields) is `ambiguous_outcome` with `reconcile-first`.
+ */
+const confirmWrite = (sent: Promise<JsonValue>, confirmed: (answer: JsonObject) => boolean) =>
+  acknowledged("posts.lifecycle", sent, (body) => {
+    if (!confirmed(object(body))) unconfirmed();
+  });
 
 /** Mutations affect whole provider records. Reject records shared by destinations. */
 export function managedLifecycle(
@@ -99,14 +111,11 @@ export function managedLifecycle(
   }
 
   async function deleteRecord(id: string, context: AdapterOperationContext): Promise<void> {
-    const response = object(await request(path(id), context, undefined, {}, "DELETE"));
-
-    if (
+    await confirmWrite(request(path(id), context, undefined, {}, "DELETE"), (response) =>
       provider === "post-for-me"
-        ? response["success"] !== true
-        : response["message"] !== "Post deleted successfully"
-    )
-      unconfirmed();
+        ? response["success"] === true
+        : response["message"] === "Post deleted successfully",
+    );
   }
 
   async function removeFromPlatform(
@@ -122,13 +131,10 @@ export function managedLifecycle(
     if (entry["status"] !== "published" || entry["platformPostId"] !== ref.postId)
       reject("The backend record does not identify this published native post.");
 
-    const result = object(
-      await request(`${path(id)}/unpublish`, context, {
-        platform: zernioPlatform(ref.platform),
-      }),
+    await confirmWrite(
+      request(`${path(id)}/unpublish`, context, { platform: zernioPlatform(ref.platform) }),
+      (result) => result["success"] === true,
     );
-
-    if (result["success"] !== true) unconfirmed();
   }
 
   return {
@@ -175,9 +181,10 @@ export function managedLifecycle(
         ...Object.fromEntries(copied),
       };
 
-      const result = object(await request(path(ref.jobId), context, body, {}, "PUT"));
-
-      if (result["id"] !== ref.jobId || result["status"] !== "draft") unconfirmed();
+      await confirmWrite(
+        request(path(ref.jobId), context, body, {}, "PUT"),
+        (result) => result["id"] === ref.jobId && result["status"] === "draft",
+      );
 
       return { state: "cancelled", backendRecord: "retained" };
     },

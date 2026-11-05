@@ -660,21 +660,6 @@ export function postForMe(options: ManagedOptions) {
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
-  /**
-   * The shared lifecycle helpers read their write answers with `object()`, outside an
-   * uncertain-write boundary. A cancel (`PUT /v1/social-posts/{id}`) or delete answers with an
-   * object (`SocialPostDto` or `DeleteEntityResponseDto`), so any other 2xx body leaves the write
-   * unconfirmed here, before it could read as a definite failure.
-   */
-  const lifecycleRequest: typeof request = async (...args) => {
-    const [, , body, , method = body === undefined ? "GET" : "POST"] = args;
-    const answer = await request(...args);
-
-    if (method !== "GET" && !isJsonObject(answer)) unconfirmed("posts.lifecycle");
-
-    return answer;
-  };
-
   /** An account answer to a write on `expected`: its ID and platform must be the addressed ones. */
   const changedAccount = (
     reply: JsonValue,
@@ -862,7 +847,7 @@ export function postForMe(options: ManagedOptions) {
       },
     },
     posts: {
-      ...managedLifecycle("post-for-me", lifecycleRequest, now),
+      ...managedLifecycle("post-for-me", request, now),
       async list(
         account: ConnectedAccountRef,
         input: { readonly cursor?: string; readonly limit?: number },

@@ -338,7 +338,7 @@
         "feature:buffer\\.publish\\.draft\\b"
       ],
       "docs": [
-        "`draft` or `needs_approval` \u2192 `accepted`",
+        "`draft` or `needs_approval` → `accepted`",
         "`saveToDraft`|`needsApproval`"
       ]
     }
@@ -430,7 +430,37 @@
     "id": "buffer.edit.edit_post",
     "provider": "buffer",
     "area": "edit",
-    "title": "editPost: change text, assets, metadata, dueAt, mode on an existing post",
+    "title": "editPost: change text, a custom dueAt (mode customScheduled), saveToDraft and tagIds on an unsent post",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\beditPost\\(input: \\$input\\)",
+        "mode: edit\\.at === undefined \\? undefined : \"customScheduled\""
+      ],
+      "test": [
+        "Buffer edits an unsent post with editPost"
+      ],
+      "docs": [
+        "native\\.editPost\\(ref, edit, context\\)",
+        "Change the `text`, the custom time `at`, `saveToDraft`, or `tagIds`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.edit.edit_post_assets_metadata",
+    "provider": "buffer",
+    "area": "edit",
+    "title": "editPost assets, metadata, ideaId, schedulingType, other share modes and source (not supported: rejected before the request, raw-request route documented)",
     "access": "public",
     "scope": "core",
     "source": {
@@ -439,18 +469,18 @@
       "apiVersion": "GraphQL (no version)"
     },
     "sdk": "missing",
-    "docs": "missing",
-    "gap": "Implement posts.update for unsent Buffer posts via editPost",
-    "effort": "M",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
     "probe": {
       "src": [
-        "\\beditPost\\b"
+        "Use a raw editPost request for assets or metadata"
       ],
       "test": [
-        "\\beditPost\\b"
+        "Buffer editPost rejects asset and metadata edits instead of dropping them"
       ],
       "docs": [
-        "\\beditPost\\b|posts\\.update"
+        "Editing a post's media or network settings: Buffer's `editPost` also takes `assets`"
       ]
     }
   },
