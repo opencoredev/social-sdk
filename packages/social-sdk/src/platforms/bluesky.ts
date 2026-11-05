@@ -3626,9 +3626,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     const abort = () => controller.abort(context.signal?.reason);
     context.signal?.addEventListener("abort", abort, { once: true });
 
+    // The shorter of the adapter timeout and the remaining budget, as the shared transport does.
     const timer = setTimeout(
       () => controller.abort(new Error("HTTP deadline exceeded")),
-      Math.max(1, remainingBudget(context)),
+      Math.max(1, Math.min(options.timeoutMs ?? 30_000, remainingBudget(context))),
     );
 
     try {
@@ -3656,6 +3657,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       );
     } catch (error) {
       if (error instanceof SocialError) throw error;
+
+      if (controller.signal.aborted)
+        throw new SocialError({
+          code: context.signal?.aborted ? "cancelled" : "timeout",
+          operation,
+          message: context.signal?.aborted
+            ? "The request was cancelled."
+            : "The request exceeded its time limit.",
+          retryDisposition: { kind: "never" },
+          cause: error,
+        });
 
       throw operationError(operation, error, false);
     } finally {

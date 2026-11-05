@@ -67,12 +67,16 @@ export function recorder(route: (call: Call) => Response | Promise<Response>) {
   return { calls, fetch };
 }
 
-export function harness(route: (call: Call) => Response | Promise<Response>) {
+export function harness(
+  route: (call: Call) => Response | Promise<Response>,
+  options: { readonly timeoutMs?: number } = {},
+) {
   const { calls, fetch } = recorder(route);
 
   const adapter = bluesky({
     auth: { service: "https://pds.example", did, accessJwt: "fixture" },
     fetch,
+    ...options,
   });
 
   assert.ok(adapter.native);

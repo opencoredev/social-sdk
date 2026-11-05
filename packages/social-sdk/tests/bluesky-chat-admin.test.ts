@@ -68,6 +68,35 @@ describe("Bluesky chat account data", () => {
     assert.equal(calls.length, 0);
   });
 
+  it("stops an export at the adapter timeout and reports it as a timeout", async () => {
+    const { native } = harness(() => new Promise<Response>(() => {}), { timeoutMs: 20 });
+
+    await assert.rejects(native.exportChatAccountData({ account }), { code: "timeout" });
+  });
+
+  it("reports an export cancelled after it starts as cancelled", async () => {
+    const controller = new AbortController();
+
+    const { native } = harness(() => {
+      controller.abort();
+
+      return new Promise<Response>(() => {});
+    });
+
+    await assert.rejects(
+      native.exportChatAccountData({
+        account,
+        context: {
+          backendInstance: "default",
+          correlationId: "cancelled-export",
+          retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+          signal: controller.signal,
+        },
+      }),
+      { code: "cancelled" },
+    );
+  });
+
   it("maps a rejected export to a SocialError", async () => {
     const { native } = harness(() => json({ error: "AuthRequired" }, 401));
 
