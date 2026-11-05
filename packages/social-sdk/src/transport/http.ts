@@ -26,8 +26,12 @@ export interface HttpErrorData {
     | "quotaExceeded"
     | "usage-capped"
     | "media-duration-exceeded"
-    | "oauth-token-invalid";
+    | "oauth-token-invalid"
+    | "record-not-found"
+    | "x-dm-refused";
   readonly existingPostId?: string;
+  /** X Direct Message refusal problem type, such as `dm-recipient-not-accepting`. */
+  readonly dmRefusal?: string;
 }
 
 export interface HttpRequest {

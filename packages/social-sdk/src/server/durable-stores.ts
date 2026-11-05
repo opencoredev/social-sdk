@@ -794,8 +794,14 @@ function parseDeliveryOutcome(value: JsonValue): DeliveryOutcome | undefined {
   const mediaId = value["mediaId"];
 
   switch (value["state"]) {
-    case "accepted":
-      return { ...base, state: "accepted" };
+    case "accepted": {
+      const postIds = value["postIds"];
+
+      if (postIds === undefined) return { ...base, state: "accepted" };
+
+      return isStringArray(postIds) ? { ...base, state: "accepted", postIds } : undefined;
+    }
+
     case "processing":
       return { ...base, state: "processing" };
     case "cancelled":
@@ -838,6 +844,13 @@ function parseDeliveryOutcome(value: JsonValue): DeliveryOutcome | undefined {
         return undefined;
       const native = post["native"];
 
+      const issues =
+        value["issues"] === undefined
+          ? undefined
+          : parseList(value["issues"], parsePreparationIssue);
+
+      if (value["issues"] !== undefined && issues === undefined) return undefined;
+
       return {
         ...base,
         state: "published",
@@ -850,7 +863,7 @@ function parseDeliveryOutcome(value: JsonValue): DeliveryOutcome | undefined {
           postId: post["postId"],
           ...definedFields({ native: isObjectValue(native) ? native : undefined }),
         },
-        ...definedFields({ url: value["url"] }),
+        ...definedFields({ url: value["url"], issues }),
       };
     }
 

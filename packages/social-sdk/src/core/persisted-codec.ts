@@ -409,6 +409,13 @@ export function decodeOutcome(value: JsonField, path: string): DeliveryOutcome {
     case "scheduled":
       return { ...base, state, job: decodeJobRef(o["job"], `${path}.job`) };
     case "accepted":
+      return {
+        ...base,
+        state,
+        ...definedFields({
+          postIds: optional(o["postIds"], `${path}.postIds`, (ids, at) => list(ids, at, str)),
+        }),
+      };
     case "processing":
       return { ...base, state };
     case "published":
@@ -416,7 +423,12 @@ export function decodeOutcome(value: JsonField, path: string): DeliveryOutcome {
         ...base,
         state,
         post: decodePostRef(o["post"], `${path}.post`),
-        ...definedFields({ url: optStr(o["url"], `${path}.url`) }),
+        ...definedFields({
+          url: optStr(o["url"], `${path}.url`),
+          issues: optional(o["issues"], `${path}.issues`, (issues, at) =>
+            list(issues, at, decodeIssue),
+          ),
+        }),
       };
     case "failed":
       return {

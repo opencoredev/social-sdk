@@ -571,7 +571,7 @@ it("decodes Threads deliveries by field", async () => {
     }),
   });
 
-  assert.equal(publish.type, "unknown");
+  assert.equal(publish.type, "post.published");
   assert.deepEqual(publish.accountIds, []);
 
   // Threads has no Meta object/entry wrapper; its container is `values`.
@@ -737,6 +737,42 @@ it("decodes TikTok events with the publish ID and creation time", async () => {
 
   assert.equal(revoked.type, "account.updated");
   assert.equal(revoked.backendRecordId, undefined);
+  assert.deepEqual(revoked.data["content"], { reason: 1 });
+
+  const noLongerPublic = await decodePlatformWebhook({
+    platform: "tiktok",
+    backend: "direct",
+    body: json({
+      client_key: "k",
+      event: "post.publish.no_longer_publicaly_available",
+      create_time: 1,
+      user_openid: "open-id-1",
+      content: JSON.stringify({
+        publish_id: "v_pub_fixture_2",
+        post_id: "7290000000000000001",
+        publish_type: "DIRECT_PUBLISH",
+      }),
+    }),
+  });
+
+  assert.equal(noLongerPublic.type, "post.removed");
+  assert.equal(noLongerPublic.originalType, "post.publish.no_longer_publicaly_available");
+  assert.equal(noLongerPublic.backendRecordId, "v_pub_fixture_2");
+
+  const inboxDelivered = await decodePlatformWebhook({
+    platform: "tiktok",
+    backend: "direct",
+    body: json({
+      client_key: "k",
+      event: "post.publish.inbox_delivered",
+      create_time: 1,
+      user_openid: "open-id-1",
+      content: JSON.stringify({ publish_id: "v_inbox_1", publish_type: "INBOX_SHARE" }),
+    }),
+  });
+
+  assert.equal(inboxDelivered.type, "publication.updated");
+  assert.equal(inboxDelivered.backendRecordId, "v_inbox_1");
 
   await rejects(
     decodePlatformWebhook({

@@ -20,6 +20,10 @@ export interface UploadOptions {
   timeoutMs?: number;
   fetch?: typeof globalThis.fetch;
   onProgress?: (bytes: number) => void;
+  /** Defaults to PUT. Some providers take multipart uploads by POST. */
+  method?: "PUT" | "POST";
+  /** Extra provider-required headers; Content-Type and Content-Length stay derived from the source. */
+  headers?: Readonly<Record<string, string>>;
 }
 
 export function httpsUrl(value: string): URL {
@@ -91,7 +95,15 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
 
   const { source } = options;
 
-  if (!/^(image|video|application)\/[a-z0-9.+-]+$/i.test(source.mimeType))
+  // Media types, WebVTT captions (PostFast YouTube captions), and a multipart POST body
+  // (RFC 2046 boundary characters) for provider form uploads are allowed.
+  if (
+    !/^((image|video|application)\/[a-z0-9.+-]+|text\/vtt)$/i.test(source.mimeType) &&
+    !(
+      options.method === "POST" &&
+      /^multipart\/form-data; ?boundary=[a-z0-9'()+_,./:=?-]{1,70}$/i.test(source.mimeType)
+    )
+  )
     throw new HttpError(
       "An explicit supported media MIME type is required.",
       "invalid-input",
@@ -208,12 +220,15 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
     const requestBody = source.body ?? openCountingStream();
 
     if (source.body !== undefined) bytes = source.body.size;
-    const headers = new Headers({ "Content-Type": source.mimeType });
+    // Header names are case-insensitive: set the source-owned ones after the extras so they win.
+    const headers = new Headers(options.headers);
+    headers.set("Content-Type", source.mimeType);
+    headers.delete("Content-Length");
 
     if (source.size !== undefined) headers.set("Content-Length", String(source.size));
 
     const init: RequestInit & Partial<{ duplex: "half" }> = {
-      method: "PUT",
+      method: options.method ?? "PUT",
       headers,
       body: requestBody,
       signal: controller.signal,

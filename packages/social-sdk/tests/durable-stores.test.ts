@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { after, describe, it } from "node:test";
 import { SocialError } from "../src/core/errors.js";
+import { decodeOutcome } from "../src/core/persisted-codec.js";
 import type { DeliveryOutcome } from "../src/core/types.js";
 import {
   ConnectionManager,
@@ -13,6 +14,7 @@ import {
 } from "../src/server/connections.js";
 import type { StoredCredential } from "../src/server/credentials.js";
 import type { DurableDriver } from "../src/server/durable-driver.js";
+import { parseJson } from "../src/transport/json.js";
 import {
   DurableConnectionStore,
   DurableIdempotencyStore,
@@ -914,5 +916,49 @@ describe("Redis driver with a scripted runner", () => {
 
     clock.time += 60 * 60 * 1000;
     assert.deepEqual(await connections.getGrant(grants[0]?.grantId ?? ""), grants[0]);
+  });
+});
+
+describe("accepted outcomes with several post IDs", () => {
+  const accepted: DeliveryOutcome = {
+    state: "accepted",
+    targetIndex: 0,
+    observedAt: "2026-11-04T00:00:00.000Z",
+    account: {
+      kind: "connected-account",
+      version: 1,
+      backend: "default",
+      platform: "tiktok",
+      accountId: "creator1",
+    },
+    postIds: ["7290000000000000001", "7290000000000000002"],
+  };
+
+  it("keeps postIds through the durable idempotency store", async () => {
+    const stores = openSqlite(sqliteFile());
+    await stores.driver.createSchema();
+
+    const input = { scope: "tenant-1", key: "inbox-1", fingerprint: "f1", targetKeys: ["a"] };
+    const claimed = await stores.idempotency.claim(input);
+    assert.equal(claimed.kind, "new");
+
+    if (claimed.kind !== "new") return;
+    await stores.idempotency.saveOutcome({
+      claimId: claimed.claimId,
+      targetKey: "a",
+      outcome: accepted,
+    });
+
+    const replay = await stores.idempotency.claim(input);
+    assert.equal(replay.kind, "existing");
+
+    if (replay.kind === "existing") assert.deepEqual(replay.outcomes["a"], accepted);
+  });
+
+  it("keeps postIds through the persisted outcome codec", () => {
+    assert.deepEqual(decodeOutcome(parseJson(JSON.stringify(accepted)), "outcome"), accepted);
+    assert.throws(() =>
+      decodeOutcome(parseJson(JSON.stringify({ ...accepted, postIds: [1] })), "outcome"),
+    );
   });
 });

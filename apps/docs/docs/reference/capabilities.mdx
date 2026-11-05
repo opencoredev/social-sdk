@@ -947,8 +947,9 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | chat.read | native.listConversations, native.listMessages |
 | chat.write | native.sendMessage |
 | polls.create | native.createPoll |
-| bookmarks.read | native.bookmarks |
-| bookmarks.write | native.bookmark, native.removeBookmark |
+| bookmarks.read | native.bookmarks\|native.getBookmarks |
+| bookmarks.write | native.bookmark\|native.createBookmark, native.removeBookmark\|native.deleteBookmark |
+| labels.read | native.queryLabels, native.getLabelerServices |
 | follows.write | native.follow, native.unfollow |
 | media.video | native.uploadVideo |
 | media.gif | native.uploadGif |
@@ -966,11 +967,15 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | lists.pinned.read | native.pinnedLists |
 | lists.pinned.write | native.pinList, native.unpinList |
 | messages.conversation.write | native.sendConversationMessage |
-| messages.group.write | native.createGroupConversation |
-| moderation.report | native.createModerationReport |
+| messages.group.write | native.createGroupConversation\|native.createGroupChat |
+| moderation.report | native.createModerationReport\|native.reportAbuse |
 | comments.moderate | native.hideReply\|native.moderateComment\|native.commentsModeration |
 | comments.delete | native.deleteComment |
-| comments.replies.read | native.listCommentReplies |
+| comments.replies.read | native.listCommentReplies\|native.commentReplies |
+| comments.create | native.commentThreads\|native.createComment |
+| videos.read | native.videos, native.batchGetStats |
+| channels.read | native.channels |
+| reference.read | native.videoCategories, native.i18n |
 | videos.update | native.updateVideo |
 | videos.delete | native.deleteVideo |
 | videos.rate | native.rateVideo, native.getRating |
@@ -979,7 +984,7 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | analytics.followers.read | native.getOrganizationFollowerStatistics, native.getOrganizationFollowerCount |
 | analytics.page.read | native.getOrganizationPageStatistics |
 | analytics.shares.read | native.getOrganizationShareStatistics |
-| posts.draft | native.uploadDraft |
+| posts.draft | native.uploadDraft\|native.createDraft |
 | posts.status.poll | native.publishStatus |
 | reels.publish | native.publishReel |
 | stories.publish | native.publishStory |
@@ -993,8 +998,16 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | posts.schedule | posts.publishTarget |
 | posts.update | native.updateVideo\|native.updatePost |
 | analytics.youtube.read | native.analytics |
+| analytics.groups | native.analyticsGroups, native.analyticsGroupItems |
+| analytics.reporting.bulk | native.reportTypes, native.reportingJobs, native.reports, native.downloadReport |
 | live.broadcasts | native.liveBroadcasts |
+| live.streams | native.liveStreams |
+| channel.banner.write | native.uploadChannelBanner |
+| channel.watermark.write | native.watermarks |
+| playlists.images.write | native.playlistImages |
+| live.superChat.read | native.superChatEvents |
 | live.chat.messages | native.liveChatMessages |
+| live.chat.stream | native.liveChatStream |
 | live.chat.moderators | native.liveChatModerators |
 | live.chat.bans | native.liveChatBans |
 | channel.sections.read | native.channelSections |
@@ -1007,5 +1020,80 @@ Capability IDs describe routes, not necessarily method names. Native routes requ
 | reshares.write | native.reshare |
 | analytics.organization.read | native.organizationAnalytics |
 | articles.create | posts.publishTarget |
+| replies.own.read | native.listOwnReplies |
+| posts.ghost.read | native.listGhostPosts |
+| profiles.posts.read | native.profilePosts |
+| locations.search | native.locationSearch, native.getLocation |
+| analytics.demographics.read | native.followerDemographics |
+| tokens.debug | native.debugToken |
+| posts.embed | native.oembed |
+| posts.read.batch | native.getPosts, native.getPost |
+| social-metadata.read | native.getSocialMetadata |
+| reactions.read | native.listReactions |
+| reactions.delete | native.deleteReaction |
+| comments.state.write | native.setCommentsState |
+| comments.edit | native.editComment |
+| analytics.member.posts.read | native.getMemberPostAnalytics, native.getMemberVideoAnalytics |
+| analytics.member.followers.read | native.getMemberFollowerCount |
+| analytics.brand.read | native.getBrandPageStatistics |
+| analytics.shares.posts.read | native.getOrganizationPostStatistics |
+| organizations.read | native.lookupOrganizations, native.findOrganizationByVanityName, native.listOrganizationBrands |
+| organizations.roles.read | native.listOrganizationRoles |
+| social.batch.read | native.getSocialMetadataBatch, native.getSocialActionsBatch, native.getComments |
+| reactions.get | native.getReaction, native.getReactions |
+| media.read.batch | native.mediaStatuses |
+| mentions.resolve | native.resolveMemberVanityUrl |
+| analytics.video.read | native.getOrganizationVideoAnalytics |
+| events.write | native.createEvent, native.updateEvent, native.uploadEventBackgroundImage, native.createEventPost |
+| events.read | native.getEvent, native.listEvents |
+| organizations.authorizations.read | native.getOrganizationAuthorization, native.getOrganizationAuthorizations, native.findOrganizationAuthorizations |
+| webhooks.subscriptions.write | native.subscribeOrganizationNotifications, native.unsubscribeOrganizationNotifications |
+| webhooks.subscriptions.read | native.listOrganizationNotificationSubscriptions |
+| posts.lookup | native.getPosts |
+| posts.quotes.read | native.quotePosts |
+| reposts.read | native.repostedBy, native.reposts, native.repostsOfMe |
+| users.lookup | native.getUsers, native.getUsersByUsernames |
+| users.search | native.searchUsers |
+| users.affiliates.read | native.affiliates |
+| search.counts | native.countRecentPosts, native.countAllPosts |
+| bookmarks.folders | native.bookmarkFolders, native.createBookmarkFolder, native.bookmarksByFolder |
+| spaces.read | native.getSpace, native.searchSpaces, native.spacePosts, native.spaceBuyers |
+| communities.read | native.getCommunity, native.searchCommunities |
+| trends.read | native.trends, native.personalizedTrends |
+| usage.read | native.postUsage, native.creditBalance |
+| media.lookup | native.getMedia |
+| media.dm.upload | native.uploadDmMedia |
+| media.subtitles | native.uploadSubtitles, native.attachSubtitles, native.deleteSubtitles |
+| analytics.private.read | native.privatePostMetrics |
+| analytics.posts.read | native.postAnalytics |
+| analytics.media.read | native.mediaAnalytics |
+| messages.event.read | native.getDirectMessage |
+| messages.delete | native.deleteDirectMessage |
+| messages.media.read | native.downloadDmMedia |
+| messages.block | native.blockDms, native.unblockDms |
+| bookmarks.bulk | native.bookmarkPosts |
+| media.metadata | native.setMediaMetadata |
+| streams.activity | native.activityStream |
+| streams.volume | native.volumeStream |
+| streams.compliance | native.complianceStream |
+| compliance.jobs | native.createComplianceJob, native.complianceJobs, native.getComplianceJob, native.uploadComplianceIds, native.downloadComplianceResults, native.cancelComplianceJob |
+| notes.community | native.createCommunityNote, native.evaluateCommunityNote, native.deleteCommunityNote, native.communityNotesWritten, native.postsEligibleForNotes |
+| news.read | native.searchNews, native.getNews |
+| chat.groups | native.initializeChatGroup, native.createChatGroup, native.getChatConversation, native.updateChatGroup, native.deleteChatConversation, native.addChatMembers, native.removeChatMembers, native.setChatAdmins, native.chatAdminRequests, native.requestChatAdmin, native.resolveChatAdminRequest, native.updateChatAdminSettings, native.enableChatInvite, native.disableChatInvite, native.getChatInvite, native.requestToJoinChat, native.rejectChatJoinRequests |
+| chat.inbox | native.setChatArchived, native.setChatMuted, native.markChatRead, native.sendChatTyping, native.setChatMessageTtl, native.setChatScreenCapture, native.chatPinnedMessages, native.deleteChatMessages, native.chatMessageRequests, native.getChatMessageRequest, native.acceptChatMessageRequest, native.chatSettings |
+| chat.keys | native.addChatConversationKeys, native.chatPublicKeys, native.registerChatPublicKey |
+| chat.media | native.uploadChatMedia, native.downloadChatMedia |
+| live.x.broadcasts.user | native.userBroadcasts, native.getUserBroadcast, native.createUserBroadcast, native.setUserBroadcastState, native.deleteUserBroadcast, native.userStreamSources, native.getUserStreamSource, native.createUserStreamSource, native.renameUserStreamSource, native.deleteUserStreamSource, native.ingestRegion, native.setBroadcastChatMute, native.getScheduledBroadcast, native.updateScheduledBroadcast |
+| calls.manage | native.createCall, native.getCall, native.joinCall, native.leaveCall, native.scheduledCalls, native.scheduleCall, native.getScheduledCall, native.updateScheduledCall, native.cancelScheduledCall, native.rsvpScheduledCall |
+| bots.manage | native.bots, native.createBot, native.updateBot, native.deleteBot, native.rotateBotToken, native.revokeBotToken |
+| developer.account | native.developerAccount, native.ensureDeveloperAccount |
+| streams.rules.counts | native.streamRuleCounts |
+| streams.webhooks | native.streamWebhooks, native.linkStreamWebhook, native.unlinkStreamWebhook |
+| streams.connections | native.streamConnections, native.terminateStreamConnections |
+| webhooks.manage | native.listWebhooks, native.createWebhook, native.validateWebhook, native.deleteWebhook, native.replayWebhook |
+| articles.publish | native.createArticleDraft, native.publishArticle |
+| chat.encrypted | native.chatConversations, native.chatEvents, native.sendChatMessage |
+| live.x.broadcasts | native.broadcasts, native.scheduleBroadcast, native.goLive, native.endBroadcast, native.streamSources, native.createStreamSource, native.broadcastChat, native.sendBroadcastChat, native.setChatModerator, native.setChatMute |
+| activity.subscriptions | native.createActivitySubscription, native.listActivitySubscriptions, native.updateActivitySubscription, native.deleteActivitySubscriptions |
 
 Generate this page with `bun scripts/generate-capabilities.ts`. CI uses `--check` to detect drift. The complete manifests, including API revisions, runtimes and notes, are returned by `social-sdk capabilities --adapter NAME --json`.

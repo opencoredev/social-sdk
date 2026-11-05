@@ -3,8 +3,10 @@ import { describe, it } from "node:test";
 import {
   exchangeLongLivedOAuthToken,
   instagramOAuth,
+  introspectLinkedInOAuthToken,
   linkedinOAuth,
   refreshOAuthToken,
+  revokeTikTokOAuthToken,
   tiktokOAuth,
   xOAuth,
   youtubeOAuth,
@@ -210,6 +212,34 @@ describe("direct OAuth providers", () => {
     });
 
     assert.equal(accounts[0]?.ref.accountId, "professional");
+  });
+
+  it("discovers Instagram accounts on Graph v27.0 unless instagramApiVersion overrides it", async () => {
+    const seen: URL[] = [];
+
+    const fetch = async (url: string | URL | Request) => {
+      seen.push(new URL(String(url)));
+
+      return String(url).includes("oauth/access_token")
+        ? response({ access_token: "at", user_id: "user-1" })
+        : response({ id: "id-1", user_id: "user-1", username: "Ada" });
+    };
+
+    const complete = {
+      callbackUrl: `${attempt.redirectUri}?code=c&state=state`,
+      attempt: { ...attempt, platforms: ["instagram"] },
+    };
+
+    await instagramOAuth({ clientId: "client", fetch }).complete(complete);
+    await instagramOAuth({ clientId: "client", instagramApiVersion: "v26.0", fetch }).complete(
+      complete,
+    );
+
+    const discovery = seen.flatMap((url) =>
+      url.hostname === "graph.instagram.com" ? [url.pathname] : [],
+    );
+
+    assert.deepEqual(discovery, ["/v27.0/me", "/v26.0/me"]);
   });
 
   it("uses the versioned LinkedIn organization ACL endpoint and accepts CONTENT_ADMINISTRATOR", async () => {
@@ -752,4 +782,155 @@ describe("OAuth response cancellation", () => {
       assert.equal(stream?.locked, false);
     });
   }
+});
+
+describe("TikTok Login Kit options and revocation", () => {
+  const start = (options: Parameters<typeof tiktokOAuth>[0]) =>
+    tiktokOAuth(options).start({
+      platforms: ["tiktok"],
+      capabilities: [],
+      redirectUri: attempt.redirectUri,
+      state: attempt.state,
+      codeChallenge: "challenge",
+    });
+
+  it("sends disable_auto_auth=1 only when disableAutoAuth is true", async () => {
+    const forced = new URL(
+      (await start({ clientId: "client", disableAutoAuth: true })).authorizationUrl,
+    );
+
+    assert.equal(forced.searchParams.get("disable_auto_auth"), "1");
+
+    for (const options of [
+      { clientId: "client", disableAutoAuth: false },
+      { clientId: "client" },
+    ]) {
+      const url = new URL((await start(options)).authorizationUrl);
+
+      assert.equal(url.searchParams.has("disable_auto_auth"), false);
+    }
+
+    // Other providers have no such parameter, so the option is refused rather than ignored.
+    assert.throws(() => xOAuth({ clientId: "client", disableAutoAuth: true }));
+  });
+
+  it("posts client_key, client_secret and token to /v2/oauth/revoke/", async () => {
+    const calls: { url: string; init: RequestInit | undefined }[] = [];
+
+    const result = await revokeTikTokOAuthToken(
+      {
+        clientId: "client",
+        clientSecret: "secret",
+        fetch: async (url, init) => {
+          calls.push({ url: String(url), init });
+
+          return new Response(null, { status: 200 });
+        },
+      },
+      { accessToken: "act.token" },
+    );
+
+    assert.equal(result, "revoked");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, "https://open.tiktokapis.com/v2/oauth/revoke/");
+    assert.equal(calls[0]?.init?.method, "POST");
+    assert.equal(
+      new Headers(calls[0]?.init?.headers).get("content-type"),
+      "application/x-www-form-urlencoded",
+    );
+    assert.deepEqual(Object.fromEntries(new URLSearchParams(String(calls[0]?.init?.body))), {
+      client_key: "client",
+      client_secret: "secret",
+      token: "act.token",
+    });
+  });
+
+  it("treats {} as success and a TikTok error body as a failed /v2/oauth/revoke/ call", async () => {
+    const revoke = (body: JsonValue) =>
+      revokeTikTokOAuthToken(
+        { clientId: "client", clientSecret: "secret", fetch: async () => response(body) },
+        { accessToken: "act.token" },
+      );
+
+    assert.equal(await revoke({}), "revoked");
+    await assert.rejects(
+      revoke({ error: "invalid_request", error_description: "malformed", log_id: "log" }),
+      (error: Error & { upstreamCode?: string }) => error.upstreamCode === "invalid_request",
+    );
+    await assert.rejects(
+      revokeTikTokOAuthToken({ clientId: "client" }, { accessToken: "act.token" }),
+      (error: Error & { code?: string }) => error.code === "invalid_input",
+    );
+  });
+
+  it("posts client_id, client_secret and token to LinkedIn /oauth/v2/introspectToken", async () => {
+    const calls: { url: string; init: RequestInit | undefined }[] = [];
+
+    const result = await introspectLinkedInOAuthToken(
+      {
+        clientId: "client",
+        clientSecret: "secret",
+        fetch: async (url, init) => {
+          calls.push({ url: String(url), init });
+
+          return response({
+            active: true,
+            client_id: "client",
+            authorized_at: 1493055596,
+            created_at: 1493055596,
+            status: "active",
+            expires_at: 1497497620,
+            scope: "openid,profile,w_member_social",
+            auth_type: "3L",
+          });
+        },
+      },
+      { accessToken: "li.token" },
+    );
+
+    assert.equal(calls[0]?.url, "https://www.linkedin.com/oauth/v2/introspectToken");
+    assert.equal(calls[0]?.init?.method, "POST");
+    assert.equal(
+      new Headers(calls[0]?.init?.headers).get("content-type"),
+      "application/x-www-form-urlencoded",
+    );
+    assert.deepEqual(Object.fromEntries(new URLSearchParams(String(calls[0]?.init?.body))), {
+      client_id: "client",
+      client_secret: "secret",
+      token: "li.token",
+    });
+    assert.deepEqual(result, {
+      active: true,
+      status: "active",
+      scopes: ["openid", "profile", "w_member_social"],
+      clientId: "client",
+      authType: "3L",
+      createdAt: "2017-04-24T17:39:56.000Z",
+      authorizedAt: "2017-04-24T17:39:56.000Z",
+      expiresAt: "2017-06-15T03:33:40.000Z",
+    });
+
+    const inactive = await introspectLinkedInOAuthToken(
+      {
+        clientId: "client",
+        clientSecret: "secret",
+        fetch: async () => response({ active: false, status: "revoked" }),
+      },
+      { accessToken: "li.token" },
+    );
+
+    assert.deepEqual(inactive, { active: false, status: "revoked" });
+
+    await assert.rejects(
+      introspectLinkedInOAuthToken(
+        { clientId: "client", clientSecret: "secret", fetch: async () => response({}) },
+        { accessToken: "li.token" },
+      ),
+      (error: Error & { code?: string }) => error.code === "upstream_failure",
+    );
+    await assert.rejects(
+      introspectLinkedInOAuthToken({ clientId: "client" }, { accessToken: "li.token" }),
+      (error: Error & { code?: string }) => error.code === "invalid_input",
+    );
+  });
 });

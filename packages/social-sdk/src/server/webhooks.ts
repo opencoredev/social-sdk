@@ -123,7 +123,26 @@ export interface SocialEvent {
     | "backend-record.deleted"
     | "account.updated"
     | "message.received"
+    /** Zernio: a sent message changed state (`message.sent`, `delivered`, `read`, `failed`, `edited`, `deleted`). */
+    | "message.updated"
+    | "reaction.received"
+    /** Zernio: a Facebook or Google Business review arrived or changed (`review.new`, `updated`, `deleted`, `restored`). */
+    | "review.updated"
     | "comment.received"
+    | "mention.received"
+    | "post.published"
+    | "comment.updated"
+    | "comment.removed"
+    | "reaction.received"
+    | "post.reshared"
+    | "message.postback"
+    | "message.reaction"
+    | "message.read"
+    | "message.referral"
+    | "message.edited"
+    | "insights.updated"
+    /** Zernio: a conversation started or its handover control changed (`conversation.started`, `conversation.control_changed`). */
+    | "conversation.updated"
     | "unknown";
   readonly identity: "provider-event-id" | "body-digest";
   readonly originalType: string;
@@ -135,7 +154,7 @@ export interface SocialEvent {
 }
 
 const sensitive =
-  /^(access.?token|refresh.?token|authorization|cookie|secret|signature|code|password|signed.?url|upload.?url)$/i;
+  /^(access.?token|refresh.?token|authorization(_code)?|cookie|secret|signature|code|password|signed.?url|upload.?url)$/i;
 
 /** Objects and arrays: the values a truthy `typeof value === "object"` check admits. */
 function isStructured(value: JsonField): value is JsonObject | readonly JsonValue[] {
@@ -222,7 +241,7 @@ export async function decodeWebhook(input: {
   let type: SocialEvent["type"] = "unknown";
 
   if (
-    /^(post\.(scheduled|platform\.published|platform\.failed|tiktok\.url_resolved|published|partial|failed)|social\.post\.(created|updated|result\.created))$/.test(
+    /^(post\.(scheduled|platform\.published|platform\.failed|tiktok\.url_resolved|published|partial|failed|cancelled|recycled|external\.created|external\.updated)|social\.post\.(created|updated|result\.created))$/.test(
       originalType,
     )
   )
@@ -233,8 +252,36 @@ export async function decodeWebhook(input: {
     /^(account\.(connected|disconnected)|social\.account\.(created|updated))$/.test(originalType)
   )
     type = "account.updated";
+  else if (
+    input.provider === "zernio" &&
+    (originalType === "account.permissions_changed" || originalType === "account.rate_limited")
+  )
+    type = "account.updated";
+  else if (
+    input.provider === "zernio" &&
+    (originalType === "conversation.started" || originalType === "conversation.control_changed")
+  )
+    type = "conversation.updated";
+  else if (input.provider === "zernio" && originalType === "referral.received")
+    type = "message.referral";
+  else if (input.provider === "zernio" && originalType === "message.played")
+    type = "message.updated";
+  else if (input.provider === "zernio" && originalType === "analytics.synced")
+    type = "insights.updated";
   else if (originalType === "message.received") type = "message.received";
   else if (originalType === "comment.received") type = "comment.received";
+  else if (
+    input.provider === "zernio" &&
+    /^message\.(sent|delivered|read|failed|edited|deleted)$/.test(originalType)
+  )
+    type = "message.updated";
+  else if (input.provider === "zernio" && originalType === "reaction.received")
+    type = "reaction.received";
+  else if (
+    input.provider === "zernio" &&
+    /^review\.(new|updated|deleted|restored)$/.test(originalType)
+  )
+    type = "review.updated";
   const dataValue = input.provider === "zernio" ? payload : object(payload["data"]);
   const cleaned = cleanObject(dataValue);
   // IDs only locate application mappings; they never grant tenant ownership.
@@ -873,10 +920,57 @@ function malformed(platform: DirectWebhookPlatform): never {
   });
 }
 
+/**
+ * Instagram webhook fields and messaging payloads (Graph v26.0, checked 2026-11-04):
+ * https://developers.facebook.com/documentation/instagram-platform/webhooks/fields
+ * https://developers.facebook.com/documentation/instagram-platform/webhooks/examples
+ * Facebook Login sends `mentions` and `story_insights` as separate fields; Instagram Login
+ * includes @mentions in `comments`.
+ */
 function instagramFieldType(field: string): SocialEvent["type"] {
-  return field === "comments" || field === "live_comments" ? "comment.received" : "unknown";
+  if (field === "comments" || field === "live_comments") return "comment.received";
+
+  const mention = field === "mentions" ? "mention.received" : undefined;
+  const insights = field === "story_insights" ? "insights.updated" : undefined;
+
+  return mention ?? insights ?? "unknown";
 }
 
+/**
+ * Variants of the `messages` field, told apart by flags on `message`. A deleted message is a
+ * state change; self-test, echo, and Meta Business Agent handoff notices (`admin_text`,
+ * `handoff_reason`, possibly without `mid` or `text`) are not customer messages. Story replies
+ * carry `reply_to.story` (with `link_sticker_url` when the Story had a link sticker).
+ */
+function instagramMessageItem(message: JsonObject): DecodedItem {
+  if (message["is_deleted"] === true)
+    return { originalType: "message_deleted", type: "message.updated" };
+
+  if (message["is_self"] === true) return { originalType: "message_self", type: "unknown" };
+
+  if (message["is_echo"] === true) return { originalType: "message_echoes", type: "unknown" };
+
+  if (message["admin_text"] !== undefined || message["handoff_reason"] !== undefined)
+    return { originalType: "message_handoff", type: "unknown" };
+
+  if (message["is_unsupported"] === true)
+    return { originalType: "message_unsupported", type: "message.received" };
+
+  const replyTo = message["reply_to"];
+
+  if (isJsonObject(replyTo) && isJsonObject(replyTo["story"]))
+    return { originalType: "story_reply", type: "message.received" };
+
+  return { originalType: "messages", type: "message.received" };
+}
+
+/**
+ * Messenger Platform fields for Instagram: `messaging_policy_enforcement` (`policy_enforcement`
+ * with `action` warning, block, or unblock) and `response_feedback` (a person's rating of a
+ * business message). Sources (checked 2026-11-04):
+ * https://developers.facebook.com/docs/messenger-platform/reference/webhook-events/messaging_policy_enforcement
+ * https://developers.facebook.com/docs/messenger-platform/reference/webhook-events/response_feedback
+ */
 function decodeInstagram(payload: JsonObject): DecodedDelivery {
   const entries = array(payload["entry"]);
 
@@ -914,19 +1008,21 @@ function decodeInstagram(payload: JsonObject): DecodedDelivery {
         const messaging = object(item);
         const message = messaging["message"];
 
-        if (message !== undefined) {
-          const echo = object(message)["is_echo"] === true;
-
-          items.push({
-            originalType: echo ? "message_echoes" : "messages",
-            type: echo ? "unknown" : "message.received",
-          });
-        } else if (messaging["reaction"] !== undefined)
-          items.push({ originalType: "message_reactions", type: "unknown" });
+        if (message !== undefined) items.push(instagramMessageItem(object(message)));
+        else if (messaging["policy_enforcement"] !== undefined)
+          items.push({ originalType: "messaging_policy_enforcement", type: "account.updated" });
+        else if (messaging["response_feedback"] !== undefined)
+          items.push({ originalType: "response_feedback", type: "message.reaction" });
+        else if (messaging["reaction"] !== undefined)
+          items.push({ originalType: "message_reactions", type: "message.reaction" });
         else if (messaging["read"] !== undefined)
-          items.push({ originalType: "messaging_seen", type: "unknown" });
+          items.push({ originalType: "messaging_seen", type: "message.read" });
         else if (messaging["postback"] !== undefined)
-          items.push({ originalType: "messaging_postbacks", type: "unknown" });
+          items.push({ originalType: "messaging_postbacks", type: "message.postback" });
+        else if (messaging["referral"] !== undefined)
+          items.push({ originalType: "messaging_referral", type: "message.referral" });
+        else if (messaging["message_edit"] !== undefined)
+          items.push({ originalType: "message_edit", type: "message.edited" });
         else items.push({ originalType: "messaging", type: "unknown" });
       }
   }
@@ -948,11 +1044,100 @@ function facebookFeedType(value: JsonField): SocialEvent["type"] {
 
   if (
     verb === "remove" &&
-    (item === "status" || item === "post" || item === "photo" || item === "video")
+    (item === "status" ||
+      item === "post" ||
+      item === "photo" ||
+      item === "video" ||
+      item === "share")
   )
     return "post.removed";
 
   return "unknown";
+}
+
+/** Page fields whose `value` names the change with `item` and `verb`. */
+const facebookItemFields = new Set(["feed", "mention", "ratings"]);
+
+/** `verb` values from the Page webhook reference. */
+const facebookVerbs = new Set([
+  "add",
+  "block",
+  "edit",
+  "edited",
+  "delete",
+  "follow",
+  "hide",
+  "mute",
+  "remove",
+  "unblock",
+  "unhide",
+  "update",
+]);
+
+/**
+ * `originalType` is `field.item.verb` for feed, mention, and ratings changes, such as
+ * `feed.reaction.add`, `feed.status.edited`, or `mention.comment.add`, so callers can route
+ * changes the normalized types do not cover. Proposed Page changes are account updates.
+ */
+function facebookChange(field: string, value: JsonField): DecodedItem {
+  if (field === "page_change_proposal" || field === "page_upcoming_change")
+    return { originalType: field, type: "account.updated" };
+
+  const type = field === "feed" ? facebookFeedType(value) : "unknown";
+
+  if (!facebookItemFields.has(field) || !isJsonObject(value)) return { originalType: field, type };
+
+  const item = value["item"];
+  const verb = value["verb"];
+
+  if (
+    !isString(item) ||
+    !/^[a-z][a-z_ -]{0,31}$/.test(item) ||
+    !isString(verb) ||
+    !facebookVerbs.has(verb)
+  )
+    return { originalType: field, type };
+
+  return { originalType: `${field}.${item.replaceAll(" ", "_")}.${verb}`, type };
+}
+
+/** Handover protocol events, all sent through the `messaging_handovers` webhook field. */
+const facebookHandoverKeys = [
+  "pass_thread_control",
+  "take_thread_control",
+  "request_thread_control",
+  "app_roles",
+];
+
+/**
+ * Messenger deliveries other than messages, keyed by the webhook field that sends them.
+ * Source, checked 2026-11-04: https://developers.facebook.com/docs/messenger-platform/webhooks
+ */
+function facebookMessagingField(messaging: JsonObject): string {
+  if (messaging["delivery"] !== undefined) return "message_deliveries";
+
+  if (messaging["message_edit"] !== undefined) return "message_edits";
+
+  if (facebookHandoverKeys.some((key) => messaging[key] !== undefined))
+    return "messaging_handovers";
+
+  if (messaging["policy_enforcement"] !== undefined) return "messaging_policy_enforcement";
+
+  if (messaging["account_linking"] !== undefined) return "messaging_account_linking";
+
+  if (messaging["response_feedback"] !== undefined) return "response_feedback";
+
+  if (messaging["read"] !== undefined) return "message_reads";
+
+  if (messaging["reaction"] !== undefined) return "message_reactions";
+
+  if (messaging["postback"] !== undefined) return "messaging_postbacks";
+
+  if (messaging["referral"] !== undefined) return "messaging_referrals";
+
+  if (messaging["optin"] !== undefined) return "messaging_optins";
+
+  return "messaging";
 }
 
 function decodeFacebook(payload: JsonObject): DecodedDelivery {
@@ -973,25 +1158,35 @@ function decodeFacebook(payload: JsonObject): DecodedDelivery {
         const changed = object(change);
         const field = string(changed["field"]);
 
-        items.push({
-          originalType: field,
-          type: field === "feed" ? facebookFeedType(changed["value"]) : "unknown",
-        });
+        items.push(facebookChange(field, changed["value"]));
       }
 
     if (entry["messaging"] !== undefined)
       for (const item of array(entry["messaging"])) {
-        const message = object(item)["message"];
+        const messaging = object(item);
+        const message = messaging["message"];
         const echo = isJsonObject(message) && message["is_echo"] === true;
 
         items.push(
           message === undefined
-            ? { originalType: "messaging", type: "unknown" }
+            ? { originalType: facebookMessagingField(messaging), type: "unknown" }
             : {
                 originalType: echo ? "message_echoes" : "messages",
                 type: echo ? "unknown" : "message.received",
               },
         );
+      }
+
+    // Under the handover protocol, apps that do not own the thread get its events on the
+    // `standby` channel. They are for context only, so none decodes as a received message.
+    if (entry["standby"] !== undefined)
+      for (const item of array(entry["standby"])) {
+        const messaging = object(item);
+
+        const field =
+          messaging["message"] === undefined ? facebookMessagingField(messaging) : "messages";
+
+        items.push({ originalType: `standby.${field}`, type: "unknown" });
       }
   }
 
@@ -1018,8 +1213,14 @@ function decodeThreads(payload: JsonObject): DecodedDelivery {
           ? optionalString(payload["target_id"])
           : undefined;
 
-  const type: SocialEvent["type"] =
-    field === "replies" ? "comment.received" : field === "delete" ? "post.removed" : "unknown";
+  // `publish` covers posts and replies the user published, from any app. Its payload has no
+  // owner ID, so a publish event stays quarantined until the application routes it.
+  // Source, accessed 2026-11-04: https://developers.facebook.com/documentation/threads/webhooks
+  const reply = field === "replies" ? "comment.received" : undefined;
+  const removal = field === "delete" ? "post.removed" : undefined;
+  const mention = field === "mentions" ? "mention.received" : undefined;
+  const published = field === "publish" ? "post.published" : undefined;
+  const type: SocialEvent["type"] = reply ?? removal ?? mention ?? published ?? "unknown";
 
   return {
     items: [{ originalType: field, type }],
@@ -1036,6 +1237,23 @@ function xEventType(key: string): SocialEvent["type"] {
   return "unknown";
 }
 
+/**
+ * X Activity API types with a normalized meaning. `post.reply.create` is a direct reply to the
+ * filtered user's Post. Mentions, quotes, likes, follows, and the rest stay `unknown` with their
+ * `originalType`.
+ */
+function xActivityEventType(eventType: string): SocialEvent["type"] {
+  if (eventType === "post.reply.create") return "comment.received";
+
+  if (eventType === "dm.received") return "message.received";
+
+  if (eventType === "post.delete") return "post.removed";
+
+  if (eventType === "oauth.revoke") return "account.updated";
+
+  return "unknown";
+}
+
 function decodeX(payload: JsonObject): DecodedDelivery {
   const items: DecodedItem[] = [];
   const accountIds: string[] = [];
@@ -1047,12 +1265,28 @@ function decodeX(payload: JsonObject): DecodedDelivery {
     if (key.endsWith("_events") && isJsonArray(value))
       items.push({ originalType: key, type: xEventType(key) });
 
-  // X Activity API wraps each event in `data` with an `event_type`. It is a documented
-  // container, but its event types are not mapped, so it decodes as `unknown`.
+  // X Activity API wraps each event in `data` with `event_type`, `filter`, and `payload`
+  // (https://docs.x.com/x-api/activity/event-payloads, checked 2026-11-04). The filtered user
+  // is the account; `oauth.revoke` names it in the payload instead.
   const activity = payload["data"];
   const activityType = isJsonObject(activity) ? optionalString(activity["event_type"]) : undefined;
 
-  if (activityType) items.push({ originalType: activityType, type: "unknown" });
+  if (isJsonObject(activity) && activityType) {
+    items.push({ originalType: activityType, type: xActivityEventType(activityType) });
+
+    const filterUser = isJsonObject(activity["filter"])
+      ? optionalString(activity["filter"]["user_id"])
+      : undefined;
+
+    const payloadUser =
+      activityType === "oauth.revoke" && isJsonObject(activity["payload"])
+        ? optionalString(activity["payload"]["user_id"])
+        : undefined;
+
+    const owner = filterUser ?? payloadUser;
+
+    if (owner) accountIds.push(owner);
+  }
 
   if (payload["user_event"] !== undefined) {
     const userEvent = object(payload["user_event"]);
@@ -1172,6 +1406,26 @@ function decodeYouTube(text: string): DecodedDelivery {
   return { items, accountIds, data: { videos, deleted } };
 }
 
+/*
+ * OrganizationSocialActionNotification actions (li-lms-2026-10, accessed 2026-11-04):
+ * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications?view=li-lms-2026-10
+ */
+const linkedInActionTypes = {
+  COMMENT: "comment.received",
+  COMMENT_EDIT: "comment.updated",
+  COMMENT_DELETE: "comment.removed",
+  LIKE: "reaction.received",
+  SHARE: "post.reshared",
+  SHARE_MENTION: "mention.received",
+} satisfies Readonly<Record<string, SocialEvent["type"]>>;
+
+/** Own entries only, so an action such as "constructor" cannot reach Object.prototype. */
+function linkedInEventType(action: string): SocialEvent["type"] {
+  for (const [name, type] of Object.entries(linkedInActionTypes)) if (name === action) return type;
+
+  return "unknown";
+}
+
 function decodeLinkedIn(payload: JsonObject): DecodedDelivery {
   const kind = string(payload["type"]);
   const items: DecodedItem[] = [];
@@ -1190,13 +1444,9 @@ function decodeLinkedIn(payload: JsonObject): DecodedDelivery {
       if (isFiniteNumber(modified) && Number.isSafeInteger(modified) && modified > 0)
         lastModifiedAt = Math.max(lastModifiedAt ?? 0, modified);
 
-      // Only a member comment is clearly an inbound comment. ADMIN_COMMENT is the
-      // page's own comment, and edits, deletions, likes, shares, and mentions have no
-      // normalized type, so they stay `unknown` with the action as originalType.
-      items.push({
-        originalType: action,
-        type: action === "COMMENT" ? "comment.received" : "unknown",
-      });
+      // ADMIN_COMMENT is the page's own comment, so it stays `unknown` with the action
+      // as originalType, as do actions LinkedIn adds later.
+      items.push({ originalType: action, type: linkedInEventType(action) });
     }
 
   if (items.length === 0) items.push({ originalType: kind, type: "unknown" });
@@ -1211,6 +1461,9 @@ function decodeLinkedIn(payload: JsonObject): DecodedDelivery {
 
 function tiktokEventType(event: string): SocialEvent["type"] {
   if (event === "authorization.removed") return "account.updated";
+
+  // TikTok's spelling. The post stopped being public: deleted, made private, or moderated.
+  if (event === "post.publish.no_longer_publicaly_available") return "post.removed";
 
   if (
     event.startsWith("post.publish.") ||
