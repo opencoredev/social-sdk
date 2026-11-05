@@ -1,0 +1,2827 @@
+[
+  {
+    "id": "zernio.account.list",
+    "provider": "zernio",
+    "area": "account",
+    "title": "List connected accounts (paged, with platform, status, followersCount)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v1/accounts",
+        "followersCount"
+      ],
+      "test": [
+        "/v1/accounts",
+        "followersCount"
+      ],
+      "docs": [
+        "accounts\\.list"
+      ]
+    }
+  },
+  {
+    "id": "zernio.account.connect.hosted",
+    "provider": "zernio",
+    "area": "auth",
+    "title": "Hosted OAuth connect URL per platform and profile (GET /v1/connect/{platform})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "/v1/connect/",
+        "\\bauthUrl\\b"
+      ],
+      "test": [
+        "/v1/connect/",
+        "\\bauthUrl\\b"
+      ],
+      "docs": [
+        "createConnection|/v1/connect"
+      ]
+    }
+  },
+  {
+    "id": "zernio.account.connect.headless",
+    "provider": "zernio",
+    "area": "auth",
+    "title": "Headless connect steps: select Facebook Page, LinkedIn org, Pinterest board, GBP location; Bluesky app-password and Telegram connect",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/connect/select-facebook-page.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native helpers for page/org/board/location selection and Bluesky credential connect (connect/connect-bluesky-credentials) so white-label flows work without Zernio's hosted picker",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "select-page|/bluesky/credentials|connect-bluesky-credentials"
+      ],
+      "test": [
+        "select-page|/bluesky/credentials|connect-bluesky-credentials"
+      ],
+      "docs": [
+        "select-page|selectPage|[Aa]pp[- ]password"
+      ]
+    }
+  },
+  {
+    "id": "zernio.account.profiles",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Profiles CRUD (create, update, delete, move account to profile)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/profiles/create-profile.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add create/update/delete profile and move-account helpers for per-tenant profile provisioning",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/profiles",
+        "/v1/profiles/"
+      ],
+      "test": [
+        "/v1/profiles",
+        "/v1/profiles/"
+      ],
+      "docs": [
+        "listProfiles|profileId",
+        "(create|update|delete)[^\\n]{0,20}profile"
+      ]
+    }
+  },
+  {
+    "id": "zernio.account.health_disconnect",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Account health check and disconnect account",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/accounts/get-account-health.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Expose GET /v1/accounts/{id}/health (token/permission status) and PUT disconnect (accounts/delete-account)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/health\\b"
+      ],
+      "test": [
+        "/health\\b"
+      ],
+      "docs": [
+        "/health\\b|[Dd]isconnect"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.basic",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Create post with content, mediaItems and platforms; publishNow",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/create-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "mediaItems",
+        "publishNow"
+      ],
+      "test": [
+        "mediaItems",
+        "publishNow"
+      ],
+      "docs": [
+        "posts\\.publish|publish\\("
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.idempotency",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Idempotency-Key header on create (24h replay) and 409 duplicate with existing post id",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/create-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "Idempotency-Key",
+        "existingPostId"
+      ],
+      "test": [
+        "Idempotency-Key",
+        "existingPostId"
+      ],
+      "docs": [
+        "Idempotency-Key"
+      ]
+    }
+  },
+  {
+    "id": "zernio.scheduling.scheduledFor",
+    "provider": "zernio",
+    "area": "scheduling",
+    "title": "Schedule with scheduledFor and IANA timezone",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/create-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "scheduledFor"
+      ],
+      "test": [
+        "scheduledFor"
+      ],
+      "docs": [
+        "[Ss]chedule"
+      ]
+    }
+  },
+  {
+    "id": "zernio.scheduling.queue",
+    "provider": "zernio",
+    "area": "scheduling",
+    "title": "Queue slots: create/list/update queues and post into next slot via queuedFromProfile/queueId",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/queue/create-queue-slot.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add queue publishing (queuedFromProfile/queueId) and queue slot management as native helpers",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "queuedFromProfile|\\bqueueId\\b"
+      ],
+      "test": [
+        "queuedFromProfile|\\bqueueId\\b"
+      ],
+      "docs": [
+        "queuedFromProfile|queueId|[Qq]ueue slot"
+      ]
+    }
+  },
+  {
+    "id": "zernio.scheduling.drafts_approval",
+    "provider": "zernio",
+    "area": "scheduling",
+    "title": "Drafts (isDraft) and approval workflow (requiresApproval + POST /v1/posts/{id}/review)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/review-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Support draft and pending-approval submission and map pending_approval to an accepted outcome",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bisDraft\\b",
+        "requiresApproval"
+      ],
+      "test": [
+        "\\bisDraft\\b",
+        "requiresApproval"
+      ],
+      "docs": [
+        "requiresApproval|pending_approval|[Aa]pproval"
+      ]
+    }
+  },
+  {
+    "id": "zernio.edit.scheduled",
+    "provider": "zernio",
+    "area": "edit",
+    "title": "Update a draft/scheduled/failed post (PUT /v1/posts/{id}), reschedule",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/update-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add reschedule/update of a scheduled Zernio post",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "posts\\.update"
+      ],
+      "test": [
+        "posts\\.update"
+      ],
+      "docs": [
+        "posts\\.update|[Rr]eschedule"
+      ]
+    }
+  },
+  {
+    "id": "zernio.edit.published",
+    "provider": "zernio",
+    "area": "edit",
+    "title": "Edit published post text (X Premium <1h, Facebook, LinkedIn, YouTube, Reddit, Discord, Telegram, Pinterest, GBP)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/edit-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map posts.edit to POST /v1/posts/{id}/edit with platform/accountId; X returns a new post id",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/edit\\b"
+      ],
+      "test": [
+        "/edit\\b"
+      ],
+      "docs": [
+        "/edit\\b|[Ee]dit (a )?published"
+      ]
+    }
+  },
+  {
+    "id": "zernio.edit.youtube_metadata",
+    "provider": "zernio",
+    "area": "edit",
+    "title": "Update YouTube video metadata without re-upload (update-metadata)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/update-post-metadata.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose YouTube metadata update via Zernio",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "update-metadata"
+      ],
+      "test": [
+        "update-metadata"
+      ],
+      "docs": [
+        "update-metadata|metadata update"
+      ]
+    }
+  },
+  {
+    "id": "zernio.delete.unpublish",
+    "provider": "zernio",
+    "area": "delete",
+    "title": "Unpublish (delete from platform); unsupported only on Instagram, TikTok, Snapchat",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/unpublish-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Declare removeFromPlatform for Pinterest, Reddit, Discord, Telegram, Google Business too (Zernio excludes only IG/TikTok/Snapchat)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "posts\\.removeFromPlatform"
+      ],
+      "test": [
+        "feature:zernio\\.delete\\.unpublish\\b"
+      ],
+      "docs": [
+        "removeFromPlatform",
+        "Pinterest[^\\n]*(unpublish|removeFromPlatform)|(unpublish|removeFromPlatform)[^\\n]*Pinterest"
+      ]
+    }
+  },
+  {
+    "id": "zernio.delete.record",
+    "provider": "zernio",
+    "area": "delete",
+    "title": "Delete post record in any status except published; cancel scheduled",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/delete-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Optionally allow deleting failed/partial/cancelled records, not just drafts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "posts\\.deleteBackendRecord",
+        "\\\"failed\\\"[^\\n]*\\\"cancelled\\\"|\\\"cancelled\\\"[^\\n]*\\\"failed\\\""
+      ],
+      "test": [
+        "posts\\.deleteBackendRecord",
+        "\\\"failed\\\"[^\\n]*\\\"cancelled\\\"|\\\"cancelled\\\"[^\\n]*\\\"failed\\\""
+      ],
+      "docs": [
+        "deleteBackendRecord"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.retry",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Retry a failed post (POST /v1/posts/{id}/retry)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/retry-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a native retry helper for failed deliveries",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/retry\\b"
+      ],
+      "test": [
+        "/retry\\b"
+      ],
+      "docs": [
+        "/retry\\b|[Rr]etry a failed"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.validate",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Dry-run post validation (POST /v1/tools/validate/post) and TikTok dryRun",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/validate/validate-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optionally call Zernio's validator from prepare or a native helper",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "validate/post"
+      ],
+      "test": [
+        "validate/post"
+      ],
+      "docs": [
+        "validate/post|[Vv]alidator"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.first_comment",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "firstComment on Instagram, Facebook, YouTube, LinkedIn, Threads",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/instagram/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a normalized firstComment option mapped to platformSpecificData.firstComment",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "firstComment"
+      ],
+      "test": [
+        "firstComment"
+      ],
+      "docs": [
+        "firstComment|[Ff]irst comment"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.x.reply",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "X reply to a post (replyToTweetId) and X threads (threadItems)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/twitter/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Native threadItems not used; threads are built as separate replies",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "replyToTweetId",
+        "threadItems"
+      ],
+      "test": [
+        "replyToTweetId"
+      ],
+      "docs": [
+        "replyToTweetId"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.x.quote",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "X quote post (quoteTweetId)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/twitter/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add quote option for X targets",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "quoteTweetId"
+      ],
+      "test": [
+        "quoteTweetId"
+      ],
+      "docs": [
+        "quoteTweetId|[Qq]uote post"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.x.poll",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "X poll (2-4 options, 5-10080 minutes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/twitter/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add X poll option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpoll\\b"
+      ],
+      "test": [
+        "\\bpoll\\b"
+      ],
+      "docs": [
+        "\\b[Pp]olls?\\b"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.x.reply_settings",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "X replySettings: following, mentionedUsers, subscribers, verified; not combinable with replyToTweetId",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/twitter/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Add subscribers/verified, and reject replySettings together with a replyTo (Zernio forbids the combination; the adapter sends both)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "replySettings",
+        "\\\"subscribers\\\""
+      ],
+      "test": [
+        "replySettings",
+        "\\\"subscribers\\\""
+      ],
+      "docs": [
+        "replySettings"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.x.labels",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "X paidPartnership, madeWithAi, sensitiveMedia, geoRestriction, Articles",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/twitter/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add X disclosure/sensitive/geo options; Articles (platformSpecificData.article) optional",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "paidPartnership",
+        "sensitiveMedia",
+        "geoRestriction"
+      ],
+      "test": [
+        "paidPartnership",
+        "sensitiveMedia",
+        "geoRestriction"
+      ],
+      "docs": [
+        "paidPartnership|madeWithAi|sensitiveMedia|geoRestriction"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.instagram.content_type",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Instagram contentType (story, reels) and shareToFeed",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/instagram/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add Instagram Story/Reel selection",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "shareToFeed",
+        "\\\"reels\\\""
+      ],
+      "test": [
+        "shareToFeed",
+        "\\\"reels\\\""
+      ],
+      "docs": [
+        "shareToFeed",
+        "\\b[Rr]eels?\\b"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.instagram.collaborators_tags",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Instagram collaborators (up to 3), userTags with x/y and mediaIndex, locationId",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/instagram/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map collaborators, userTags and locationId",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcollaborators\\b",
+        "userTags"
+      ],
+      "test": [
+        "\\bcollaborators\\b",
+        "userTags"
+      ],
+      "docs": [
+        "collaborators|userTags"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.instagram.reel_options",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Instagram Reels: trialParams.graduationStrategy, thumbOffset, instagramThumbnail/reelCover, audioName, audioConfiguration, muteAudio",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/instagram/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map trial reels, cover/thumbnail and audio options",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "trialParams",
+        "thumbOffset",
+        "audioName"
+      ],
+      "test": [
+        "trialParams",
+        "thumbOffset",
+        "audioName"
+      ],
+      "docs": [
+        "trialParams|thumbOffset|audioName|[Tt]rial [Rr]eel"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.instagram.disclosure",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Instagram isAiGenerated, isPaidPartnership, brandedContentSponsors, commentsEnabled",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/instagram/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map Instagram disclosure and comments toggles",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "isAiGenerated",
+        "isPaidPartnership",
+        "commentsEnabled"
+      ],
+      "test": [
+        "isAiGenerated",
+        "isPaidPartnership",
+        "commentsEnabled"
+      ],
+      "docs": [
+        "isPaidPartnership|brandedContentSponsors|commentsEnabled"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.facebook.formats",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Facebook contentType story/reel, Reel collaborators, link carousel (carouselCards), text background preset, geoRestriction, Publishing Tools draft",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/facebook/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map the existing reel option plus story, collaborators and carouselCards",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "carouselCards"
+      ],
+      "test": [
+        "carouselCards"
+      ],
+      "docs": [
+        "carouselCards|link carousel"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.youtube.basic",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "YouTube title, visibility, madeForKids",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/youtube/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "visibility",
+        "madeForKids"
+      ],
+      "test": [
+        "visibility",
+        "madeForKids"
+      ],
+      "docs": [
+        "madeForKids",
+        "visibility"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.youtube.extra",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "YouTube categoryId, tags, playlistId, containsSyntheticMedia, custom thumbnail, firstComment (pinned)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/youtube/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Allow the existing categoryId option for Zernio and add tags, playlistId, synthetic-media flag and thumbnail",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "playlistId",
+        "containsSyntheticMedia",
+        "\\btags\\b"
+      ],
+      "test": [
+        "playlistId",
+        "containsSyntheticMedia",
+        "\\btags\\b"
+      ],
+      "docs": [
+        "playlistId|containsSyntheticMedia"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.tiktok",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "TikTok privacyLevel, allowComment/Duet/Stitch, brand disclosure, videoMadeWithAi, draft (Creator Inbox), photoCoverIndex, photo title/description, autoAddMusic",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/create-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "privacyLevel",
+        "photoCoverIndex",
+        "autoAddMusic",
+        "videoMadeWithAi"
+      ],
+      "test": [
+        "privacyLevel",
+        "photoCoverIndex",
+        "autoAddMusic",
+        "videoMadeWithAi"
+      ],
+      "docs": [
+        "autoAddMusic"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.tiktok.extra",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "TikTok commercialContentType, video cover (videoCoverTimestampMs/videoCoverImageUrl), musicSoundInfo, locationId, isAdsOnly",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/create-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add TikTok video cover and commercial music/location options",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "commercialContentType",
+        "videoCoverTimestampMs|videoCoverImageUrl",
+        "musicSoundInfo"
+      ],
+      "test": [
+        "commercialContentType",
+        "videoCoverTimestampMs|videoCoverImageUrl",
+        "musicSoundInfo"
+      ],
+      "docs": [
+        "commercialContentType|videoCoverTimestampMs|videoCoverImageUrl|musicSoundInfo"
+      ]
+    }
+  },
+  {
+    "id": "zernio.account.tiktok_creator_info",
+    "provider": "zernio",
+    "area": "account",
+    "title": "TikTok creator info (privacy levels, posting limits) for the required pre-post UX",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/accounts/get-tiktok-creator-info.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getTikTokCreatorInfo so apps can render TikTok's required privacy picker",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "creator-info|creatorInfo"
+      ],
+      "test": [
+        "creator-info|creatorInfo"
+      ],
+      "docs": [
+        "creator-info|creatorInfo|[Cc]reator info"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.linkedin",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "LinkedIn documents (documentTitle), polls, reshareUrl, disableLinkPreview, organizationUrn, geoRestriction, audience targeting",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/linkedin/fields.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept PDF documents and add LinkedIn poll/reshare options for Zernio",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "documentTitle",
+        "reshareUrl",
+        "disableLinkPreview"
+      ],
+      "test": [
+        "documentTitle",
+        "reshareUrl",
+        "disableLinkPreview"
+      ],
+      "docs": [
+        "documentTitle|reshareUrl|disableLinkPreview"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.threads",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Threads topic_tag and thread sequences (threadItems)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/threads/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add topic tag and map publishSequence to threadItems for Threads",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\btopic_tag\\b",
+        "threadItems"
+      ],
+      "test": [
+        "\\btopic_tag\\b",
+        "threadItems"
+      ],
+      "docs": [
+        "topic_tag|topicTag"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.bluesky",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Bluesky langs (1-3 BCP-47), threadItems, image altText",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/platforms/bluesky/posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Map the existing languages option to langs and threads to threadItems",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blangs\\b",
+        "threadItems"
+      ],
+      "test": [
+        "\\blangs\\b",
+        "threadItems"
+      ],
+      "docs": [
+        "\\blangs\\b"
+      ]
+    }
+  },
+  {
+    "id": "zernio.publish.other_platforms",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Pinterest, Reddit, Discord, Google Business, Snapchat, Telegram platform data",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/create-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "subreddit",
+        "channelId",
+        "boardId",
+        "flairId"
+      ],
+      "test": [
+        "subreddit",
+        "channelId",
+        "boardId"
+      ],
+      "docs": [
+        "subreddit",
+        "channelId",
+        "boardId"
+      ]
+    }
+  },
+  {
+    "id": "zernio.media.presign",
+    "provider": "zernio",
+    "area": "media",
+    "title": "Presigned upload up to 5 GB (POST /v1/media/presign)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/media/get-media-presigned-url.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "presign"
+      ],
+      "test": [
+        "presign"
+      ],
+      "docs": [
+        "[Pp]resign|upload"
+      ]
+    }
+  },
+  {
+    "id": "zernio.read.external_posts",
+    "provider": "zernio",
+    "area": "read",
+    "title": "List posts (incl. external synced) and live platform posts per account",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/accounts/get-account-posts.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Live GET /v1/accounts/{id}/posts (25 most recent platform posts) not used",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "source=external|\"external\"",
+        "/v1/accounts/\\$\\{[^}]*\\}/posts"
+      ],
+      "test": [
+        "source=external|\"external\"",
+        "/v1/accounts/\\$\\{[^}]*\\}/posts"
+      ],
+      "docs": [
+        "source=external"
+      ]
+    }
+  },
+  {
+    "id": "zernio.analytics.post",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "Post analytics (impressions, reach, likes, comments, shares, saves, clicks, views)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v1/analytics",
+        "\\bimpressions\\b"
+      ],
+      "test": [
+        "/v1/analytics",
+        "\\bimpressions\\b"
+      ],
+      "docs": [
+        "\\bimpressions\\b"
+      ]
+    }
+  },
+  {
+    "id": "zernio.analytics.followers",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "Follower stats history and growth (GET /v1/accounts/follower-stats)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/analytics/get-follower-stats.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "History/growth series not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "followersCount",
+        "follower-stats"
+      ],
+      "test": [
+        "followersCount",
+        "follower-stats"
+      ],
+      "docs": [
+        "getAccountMetrics"
+      ]
+    }
+  },
+  {
+    "id": "zernio.analytics.account_insights",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "Platform account insights and demographics (Instagram, Facebook Page, TikTok, YouTube, LinkedIn org, GBP)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/analytics/get-instagram-account-insights.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map account-level reach/views/engagement into getAccountMetrics",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "account-insights|demographics"
+      ],
+      "test": [
+        "account-insights|demographics"
+      ],
+      "docs": [
+        "account-insights|demographics|[Aa]ccount insights"
+      ]
+    }
+  },
+  {
+    "id": "zernio.analytics.video",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "YouTube daily views, watch time and retention",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/analytics/get-youtube-daily-views.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose watch-time metrics for YouTube posts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "daily-views|watchTime|watch_time"
+      ],
+      "test": [
+        "daily-views|watchTime|watch_time"
+      ],
+      "docs": [
+        "daily-views|watch time|watchTime"
+      ]
+    }
+  },
+  {
+    "id": "zernio.analytics.best_time",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "Best time to post, daily metrics, content decay, posting frequency",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/analytics/get-best-time-to-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native helpers; low priority",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "best-time",
+        "content-decay"
+      ],
+      "test": [
+        "best-time",
+        "content-decay"
+      ],
+      "docs": [
+        "best-time|[Bb]est time|content-decay"
+      ]
+    }
+  },
+  {
+    "id": "zernio.comments.list_reply",
+    "provider": "zernio",
+    "area": "comments",
+    "title": "List post comments and reply (Idempotency-Key supported)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/comments/reply-to-inbox-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Reddit and TikTok (Business) comments not declared; reply sends no Idempotency-Key; replies-to-a-comment (commentId on GET) not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/inbox/comments"
+      ],
+      "test": [
+        "feature:zernio\\.comments\\.list_reply\\b"
+      ],
+      "docs": [
+        "Reply to comments"
+      ]
+    }
+  },
+  {
+    "id": "zernio.moderation.hide",
+    "provider": "zernio",
+    "area": "moderation",
+    "title": "Hide/unhide comments (Facebook, Instagram, Threads, X, TikTok Business)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/comments/unhide-inbox-comment.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map comments.hide/unhide to /v1/inbox/comments/{postId}/{commentId}/hide",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/hide\\b"
+      ],
+      "test": [
+        "/hide\\b"
+      ],
+      "docs": [
+        "/hide\\b|\\b[Hh]ide comments?\\b|\\b[Uu]nhide\\b"
+      ]
+    }
+  },
+  {
+    "id": "zernio.moderation.delete",
+    "provider": "zernio",
+    "area": "moderation",
+    "title": "Delete comment (Facebook, Instagram, Threads, LinkedIn, Reddit, Bluesky, X, YouTube, TikTok Business)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/comments/delete-inbox-comment.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map comments.delete",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "comments\\.delete"
+      ],
+      "test": [
+        "comments\\.delete"
+      ],
+      "docs": [
+        "comments\\.delete|[Dd]elete (a )?comments?"
+      ]
+    }
+  },
+  {
+    "id": "zernio.comments.private_reply",
+    "provider": "zernio",
+    "area": "messaging",
+    "title": "Private DM reply to a comment (Instagram, Facebook; once, within 7 days)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/comments/send-private-reply-to-comment.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add private reply",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "private-reply|privateReply"
+      ],
+      "test": [
+        "private-reply|privateReply"
+      ],
+      "docs": [
+        "private-reply|[Pp]rivate (DM )?repl"
+      ]
+    }
+  },
+  {
+    "id": "zernio.engagement.like_pin",
+    "provider": "zernio",
+    "area": "engagement",
+    "title": "Like/unlike post and comment, pin/unpin comment, pin post",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/comments/like-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map engagement operations where Zernio supports them",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/like\\b",
+        "/pin\\b"
+      ],
+      "test": [
+        "/like\\b",
+        "/pin\\b"
+      ],
+      "docs": [
+        "/like\\b|\\b[Uu]nlike\\b|[Pp]in (a )?comment"
+      ]
+    }
+  },
+  {
+    "id": "zernio.engagement.x",
+    "provider": "zernio",
+    "area": "engagement",
+    "title": "X retweet/undo, bookmark/remove, follow/unfollow, look up tweet",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/twitter-engagement/retweet-post.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map X engagement through /v1/twitter/*",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/v1/twitter/"
+      ],
+      "test": [
+        "/v1/twitter/"
+      ],
+      "docs": [
+        "/v1/twitter/|[Rr]etweet|[Bb]ookmark"
+      ]
+    }
+  },
+  {
+    "id": "zernio.search.x",
+    "provider": "zernio",
+    "area": "search",
+    "title": "Search recent X posts (last 7 days)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/twitter-engagement/search-tweets.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add search through Zernio",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/twitter/search"
+      ],
+      "test": [
+        "/v1/twitter/search"
+      ],
+      "docs": [
+        "/v1/twitter/search|[Ss]earch recent"
+      ]
+    }
+  },
+  {
+    "id": "zernio.messaging.core",
+    "provider": "zernio",
+    "area": "messaging",
+    "title": "List conversations, list messages, send text message",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/messages/list-inbox-conversations.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Reddit and Telegram DMs not declared (WhatsApp/SMS are out of scope)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/inbox/conversations"
+      ],
+      "test": [
+        "feature:zernio\\.messaging\\.core\\b"
+      ],
+      "docs": [
+        "Read and send messages"
+      ]
+    }
+  },
+  {
+    "id": "zernio.messaging.extended",
+    "provider": "zernio",
+    "area": "messaging",
+    "title": "Start conversation, attachments, quick replies/buttons, mark read, reactions, typing, edit/delete message",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/messages/send-inbox-message.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add create conversation, attachments and mark-read at minimum",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "mark-read|markRead|/read\\b",
+        "\\battachments\\b"
+      ],
+      "test": [
+        "mark-read|markRead|/read\\b",
+        "\\battachments\\b"
+      ],
+      "docs": [
+        "[Mm]ark(ed)? (as )?read|[Aa]ttachments|[Ss]tart a conversation"
+      ]
+    }
+  },
+  {
+    "id": "zernio.messaging.mentions_reviews",
+    "provider": "zernio",
+    "area": "comments",
+    "title": "Mentions inbox (LinkedIn org, Instagram) and reviews (Facebook, GBP) with reply",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/reviews/list-inbox-reviews.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not normalized; low priority native helpers",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/reviews\\b",
+        "/v1/inbox/mentions"
+      ],
+      "test": [
+        "/reviews\\b",
+        "/v1/inbox/mentions"
+      ],
+      "docs": [
+        "\\b[Rr]eviews\\b"
+      ]
+    }
+  },
+  {
+    "id": "zernio.webhooks.verify_decode",
+    "provider": "zernio",
+    "area": "webhooks",
+    "title": "HMAC-SHA256 X-Zernio-Signature verification; post, account, message and comment events",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/webhooks.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "post.cancelled, post.recycled, post.external.created/updated, message.sent/delivered/read/failed, reaction.received, review.* decode as unknown",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "X-Zernio-Signature",
+        "post\\.cancelled|post\\.recycled|message\\.delivered|reaction\\.received"
+      ],
+      "test": [
+        "X-Zernio-Signature"
+      ],
+      "docs": [
+        "X-Zernio-Signature"
+      ]
+    }
+  },
+  {
+    "id": "zernio.webhooks.manage",
+    "provider": "zernio",
+    "area": "webhooks",
+    "title": "Webhook CRUD, test delivery, delivery logs, redeliver",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/webhooks/create-webhook-settings.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add native webhook create/test helpers",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/webhooks"
+      ],
+      "test": [
+        "/v1/webhooks"
+      ],
+      "docs": [
+        "[Ww]ebhook settings",
+        "/v1/webhooks|[Tt]est (delivery|webhook)|[Rr]edeliver"
+      ]
+    }
+  },
+  {
+    "id": "zernio.ads.campaigns",
+    "provider": "zernio",
+    "area": "ads",
+    "title": "Ads: campaigns, ad sets, creatives, boost post, audiences, insights",
+    "access": "paid-tier",
+    "scope": "ads",
+    "source": {
+      "url": "https://docs.zernio.com/ad-campaigns/create-ad-campaign.mdx",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of core scope",
+    "effort": "L",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "zernio.publish.custom_per_platform",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Per-destination text and media overrides (platforms[].customContent, customMedia)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "One post cannot carry different captions or media per platform; callers must split into separate calls",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bcustomContent\\b",
+        "\\bcustomMedia\\b"
+      ],
+      "test": [
+        "\\bcustomContent\\b"
+      ],
+      "docs": [
+        "customContent"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.media.item_options",
+    "provider": "zernio",
+    "area": "media",
+    "title": "Media item options: video thumbnail for Facebook, YouTube and LinkedIn (mediaItems[].thumbnail) and SRT/WebVTT subtitles (mediaItems[].subtitles)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Video cover image and closed-caption files are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bsubtitles\\b"
+      ],
+      "test": [
+        "feature:zernio\\.media\\.item_options\\b"
+      ],
+      "docs": [
+        "subtitles"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.scheduling.recycling",
+    "provider": "zernio",
+    "area": "scheduling",
+    "title": "Evergreen recycling: repost on a gap (recycling.gap, gapFreq, startDate, expireCount, expireDate, contentVariations)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Recycling settings on create/update are not exposed",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\brecycling\\b",
+        "\\bgapFreq\\b"
+      ],
+      "test": [
+        "\\bgapFreq\\b"
+      ],
+      "docs": [
+        "recycling"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.x.media_options",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "X long video upload (longVideo, amplify_video) and photo user tags (mediaTaggedUsers, up to 10)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Neither X media option is mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blongVideo\\b",
+        "\\bmediaTaggedUsers\\b"
+      ],
+      "test": [
+        "\\bmediaTaggedUsers\\b"
+      ],
+      "docs": [
+        "mediaTaggedUsers"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.facebook.page_target",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Facebook multi-Page posting: platformSpecificData.pageId with GET/PUT /v1/accounts/{id}/facebook-page to list and set the default Page",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Posts always go to the default Page; Page list/selection not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpageId\\b",
+        "facebook-page\\b"
+      ],
+      "test": [
+        "facebook-page\\b"
+      ],
+      "docs": [
+        "facebook-page|pageId"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.pinterest.extra",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Pinterest board section (boardSectionId) and video cover key frame (coverImageKeyFrameTime)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only boardId, title and link are mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bboardSectionId\\b",
+        "\\bcoverImageKeyFrameTime\\b"
+      ],
+      "test": [
+        "\\bboardSectionId\\b"
+      ],
+      "docs": [
+        "boardSectionId"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.youtube.notify_subscribers",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "YouTube notifySubscribers=false to upload without notifying subscribers",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Option not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bnotifySubscribers\\b"
+      ],
+      "test": [
+        "\\bnotifySubscribers\\b"
+      ],
+      "docs": [
+        "notifySubscribers"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.gbp.post_types",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Google Business posts: topicType STANDARD/EVENT/OFFER with event schedule, offer (couponCode, redeemOnlineUrl, termsConditions), callToAction and languageCode",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only locationId is mapped; event, offer and CTA posts cannot be created",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\btopicType\\b",
+        "\\bcouponCode\\b",
+        "\\bcallToAction\\b"
+      ],
+      "test": [
+        "\\btopicType\\b"
+      ],
+      "docs": [
+        "topicType"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.telegram.options",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Telegram parseMode, disableWebPagePreview, disableNotification, protectContent",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Telegram targets take no options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bparseMode\\b",
+        "\\bdisableNotification\\b",
+        "\\bprotectContent\\b"
+      ],
+      "test": [
+        "\\bprotectContent\\b"
+      ],
+      "docs": [
+        "parseMode|protectContent"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.reddit.extra",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Reddit flairText, spoiler, sendreplies, forceSelf, nativeVideo, videogif, videoPosterUrl",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only subreddit, title, flairId and nsfw are mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bflairText\\b",
+        "\\bsendreplies\\b",
+        "\\bvideogif\\b"
+      ],
+      "test": [
+        "\\bsendreplies\\b"
+      ],
+      "docs": [
+        "spoiler|sendreplies"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.discord.extra",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Discord embeds, native poll, announcement crosspost, forum posts (forumThreadName, forumAppliedTags), threadFromMessage, tts, per-post webhookUsername/webhookAvatarUrl",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only channelId is mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bembeds\\b",
+        "\\bforumThreadName\\b",
+        "\\bthreadFromMessage\\b"
+      ],
+      "test": [
+        "\\bforumThreadName\\b"
+      ],
+      "docs": [
+        "forumThreadName|embeds"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.destination_lookups",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Destination lookups and defaults: Pinterest boards (list/create/default), YouTube playlists (list/create/default), GBP locations, Reddit subreddits, rules and flairs, Discord channels",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Callers cannot list the boardId/playlistId/subreddit/flairId/channelId values the publish options need",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "pinterest-boards",
+        "youtube-playlists",
+        "reddit-flairs",
+        "discord-channels"
+      ],
+      "test": [
+        "pinterest-boards"
+      ],
+      "docs": [
+        "pinterest-boards|youtube-playlists"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.media_lookups",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Tag and sound lookups: TikTok location search (tiktok/locations), TikTok commercial music (tiktok/commercial-music), Instagram audio search and metadata (instagram/audio)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No way to find locationId, musicSoundId or Instagram audio ids",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "tiktok/locations",
+        "commercial-music",
+        "instagram/audio"
+      ],
+      "test": [
+        "commercial-music"
+      ],
+      "docs": [
+        "commercial-music|tiktok/locations"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.instagram_publishing_limit",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Instagram content publishing limit (GET /v1/accounts/{id}/instagram/publishing-limit)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Remaining 24-hour publish quota is not readable",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "publishing-limit"
+      ],
+      "test": [
+        "publishing-limit"
+      ],
+      "docs": [
+        "publishing-limit|publishing limit"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.read.instagram_extras",
+    "provider": "zernio",
+    "area": "read",
+    "title": "Instagram reads: active stories, live media, posts the account is tagged in, mention media and mention comments, media collaborators, business discovery, follow status of a user",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "None of these Instagram read endpoints are wrapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "instagram/stories",
+        "business-discovery",
+        "instagram/tags",
+        "follow-status"
+      ],
+      "test": [
+        "business-discovery"
+      ],
+      "docs": [
+        "business-discovery|business discovery"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.read.facebook_visitor_tagged",
+    "provider": "zernio",
+    "area": "read",
+    "title": "Facebook visitor posts and tagged posts of a Page (facebook-visitor-posts, facebook-tagged-posts)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "facebook-visitor-posts",
+        "facebook-tagged-posts"
+      ],
+      "test": [
+        "facebook-visitor-posts"
+      ],
+      "docs": [
+        "visitor posts|facebook-visitor-posts"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.read.youtube_captions",
+    "provider": "zernio",
+    "area": "read",
+    "title": "YouTube video transcript (GET /v1/accounts/{id}/youtube-captions)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "youtube-captions"
+      ],
+      "test": [
+        "youtube-captions"
+      ],
+      "docs": [
+        "youtube-captions|transcript"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.read.sync_external",
+    "provider": "zernio",
+    "area": "read",
+    "title": "On-demand external post sync (POST /v1/posts/sync-external) instead of waiting ~90 minutes for the background sync",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "sync-external"
+      ],
+      "test": [
+        "sync-external"
+      ],
+      "docs": [
+        "sync-external"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.bulk_upload",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Bulk create posts from CSV (POST /v1/posts/bulk-upload)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "bulk-upload"
+      ],
+      "test": [
+        "bulk-upload"
+      ],
+      "docs": [
+        "bulk-upload|CSV"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.publish.validate_extras",
+    "provider": "zernio",
+    "area": "publish",
+    "title": "Validators: character count per platform (validate/post-length), media URL check (validate/media), subreddit existence (validate/subreddit)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only validate/post is wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "validate/post-length",
+        "validate/media",
+        "validate/subreddit"
+      ],
+      "test": [
+        "validate/post-length"
+      ],
+      "docs": [
+        "post-length"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.analytics.timeline_delta",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "Post analytics timeline (post-timeline) and cross-account changed-snapshot cursor feed (analytics/delta); analytics dashboard bundle",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Per-post time series and incremental analytics sync are not exposed",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "post-timeline",
+        "analytics/delta"
+      ],
+      "test": [
+        "post-timeline"
+      ],
+      "docs": [
+        "post-timeline|analytics/delta"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.analytics.platform_extras",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "Platform analytics extras: Instagram follower history and online followers, Instagram story insights, Facebook post earnings, Facebook/LinkedIn post reactions, LinkedIn post and aggregate stats per account, GBP search keywords",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "None of these endpoints are wrapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "follower-history",
+        "online-followers",
+        "post-earnings",
+        "search-keywords",
+        "linkedin-post-analytics"
+      ],
+      "test": [
+        "online-followers"
+      ],
+      "docs": [
+        "online-followers|follower-history"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.analytics.inbox",
+    "provider": "zernio",
+    "area": "analytics",
+    "title": "Inbox analytics: volume, day x hour heatmap, source breakdown, response time, top accounts, conversation analytics",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "analytics/inbox"
+      ],
+      "test": [
+        "analytics/inbox"
+      ],
+      "docs": [
+        "analytics/inbox|response time"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.comments.edit_moderation",
+    "provider": "zernio",
+    "area": "comments",
+    "title": "Edit own comment (PATCH /v1/inbox/comments/{postId}/{commentId}) and YouTube moderation status (published, rejected, heldForReview)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Comment edit and YouTube held-for-review moderation not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bheldForReview\\b",
+        "/moderation\\b"
+      ],
+      "test": [
+        "heldForReview"
+      ],
+      "docs": [
+        "heldForReview|moderation status"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.messaging.conversation_management",
+    "provider": "zernio",
+    "area": "messaging",
+    "title": "Conversation management: search conversations, update status (archive), delete conversation, accept message request, thread-control handover, Page conversation labels (list/create/delete, add/remove on a conversation)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "conversations/search",
+        "thread-control",
+        "inbox/labels"
+      ],
+      "test": [
+        "thread-control"
+      ],
+      "docs": [
+        "thread-control"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.messaging.bot_settings",
+    "provider": "zernio",
+    "area": "messaging",
+    "title": "Messenger persistent menu, Get Started button, greeting, Facebook and Instagram ice breakers, Telegram bot commands (GET/PUT/DELETE per account)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "messenger-menu",
+        "ice-breakers",
+        "telegram-commands"
+      ],
+      "test": [
+        "ice-breakers"
+      ],
+      "docs": [
+        "ice-breakers|ice breakers"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.engagement.reddit",
+    "provider": "zernio",
+    "area": "engagement",
+    "title": "Reddit vote on a post or comment (reddit-vote) and Reddit search, subreddit feed and post comments (/v1/reddit/search, feed, comments)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "reddit-vote",
+        "/v1/reddit/search"
+      ],
+      "test": [
+        "reddit-vote"
+      ],
+      "docs": [
+        "reddit-vote|Reddit search"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.webhooks.events_extra",
+    "provider": "zernio",
+    "area": "webhooks",
+    "title": "Webhook events account.permissions_changed, account.rate_limited, conversation.started, conversation.control_changed, referral.received, message.played, analytics.synced, webhook.test",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "These events decode as unknown",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "account\\.permissions_changed",
+        "conversation\\.started",
+        "referral\\.received"
+      ],
+      "test": [
+        "account\\.permissions_changed"
+      ],
+      "docs": [
+        "account\\.permissions_changed"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.groups",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Account groups CRUD (GET/POST /v1/account-groups, PUT/DELETE /v1/account-groups/{id})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "account-groups"
+      ],
+      "test": [
+        "account-groups"
+      ],
+      "docs": [
+        "account-groups|account groups"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.platform_settings",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Per-account settings: Bluesky and Discord settings (bluesky-settings, discord-settings), Facebook Page public info (facebook-page-info), switch LinkedIn personal/organization (linkedin-organization), re-subscribe a Facebook Page to webhooks (webhook-subscription)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "bluesky-settings",
+        "facebook-page-info",
+        "webhook-subscription"
+      ],
+      "test": [
+        "facebook-page-info"
+      ],
+      "docs": [
+        "facebook-page-info|webhook-subscription"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.oauth_apps",
+    "provider": "zernio",
+    "area": "auth",
+    "title": "Bring-your-own OAuth app credentials for white-label connect (/v1/connect/oauth-apps CRUD and key test) and the connect welcome screen",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "oauth-apps",
+        "welcome-screen"
+      ],
+      "test": [
+        "oauth-apps"
+      ],
+      "docs": [
+        "oauth-apps|OAuth app"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.connect.discord",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Connect a Discord channel headlessly (POST /v1/connect/discord)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Discord accounts can only be connected in Zernio's dashboard",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/connect/discord"
+      ],
+      "test": [
+        "/v1/connect/discord"
+      ],
+      "docs": [
+        "/v1/connect/discord|connect a Discord"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.gbp.reviews_read",
+    "provider": "zernio",
+    "area": "read",
+    "title": "Google Business reviews read: list, get one, batch get (gmb-reviews)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only review reply goes through /v1/inbox/reviews; GBP review reads are not wrapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "gmb-reviews"
+      ],
+      "test": [
+        "gmb-reviews"
+      ],
+      "docs": [
+        "gmb-reviews"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.gbp.listing_management",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Google Business listing management: location details, attributes and attribute metadata, services, food menus, place action links, photos (gmb-media), verifications",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "gmb-location-details",
+        "gmb-attributes",
+        "gmb-place-actions",
+        "gmb-verifications"
+      ],
+      "test": [
+        "gmb-location-details"
+      ],
+      "docs": [
+        "gmb-location-details|gmb-attributes"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.discord.guild",
+    "provider": "zernio",
+    "area": "other",
+    "title": "Discord guild operations: DMs (/v1/discord/dms), roles and member roles, member list/search, pins, public threads, message crosspost, scheduled events",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not wrapped",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/v1/discord/dms",
+        "/v1/discord/guilds",
+        "/v1/discord/channels"
+      ],
+      "test": [
+        "/v1/discord/guilds"
+      ],
+      "docs": [
+        "/v1/discord/guilds|scheduled events"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.usage",
+    "provider": "zernio",
+    "area": "account",
+    "title": "Plan and usage snapshot (GET /v1/usage-stats, /v1/usage) and activity logs (GET /v1/logs)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Plan limits, usage and logs are not readable through the SDK",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "usage-stats",
+        "/v1/logs"
+      ],
+      "test": [
+        "usage-stats"
+      ],
+      "docs": [
+        "usage-stats|activity logs"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.account.connect.options",
+    "provider": "zernio",
+    "area": "auth",
+    "title": "Hosted connect options: reconnect an existing account (reconnectAccountId, forceReauth, expectedPlatformUserId/expectedUsername), requested scopes, loginHint, white-label branding (brandName, primaryColor, logoUrl, welcome, language), oauthAppId",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://zernio.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "1.490.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only platform, profile and redirect URL are sent; reconnecting an expired account starts a new flow not bound to the old account",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\breconnectAccountId\\b",
+        "\\bforceReauth\\b",
+        "\\bbrandName\\b"
+      ],
+      "test": [
+        "reconnectAccountId"
+      ],
+      "docs": [
+        "reconnectAccountId"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "zernio.read.posts_filters",
+    "provider": "zernio",
+    "area": "read",
+    "title": "Post list filters: dateFrom, dateTo, sortBy, createdBy, includeHidden",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.zernio.com/posts/list-posts",
+      "checked": "2026-11-05",
+      "apiVersion": "1.52.2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "posts.list cannot filter by date window",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdateFrom\\b",
+        "\\bsortBy\\b"
+      ],
+      "test": [
+        "dateFrom"
+      ],
+      "docs": [
+        "dateFrom"
+      ]
+    },
+    "round": 2,
+    "note": "Relocked 2026-11-05: Zernio's list-posts reference no longer lists updatedSince and answers 400 for unlisted query parameters; incremental sync uses analyticsDelta."
+  }
+]

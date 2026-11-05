@@ -1,0 +1,3614 @@
+[
+  {
+    "id": "bluesky.publish.text",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Text post (app.bsky.feed.post via com.atproto.repo.createRecord, 300 graphemes / 3,000 bytes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/feed/post.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"app\\.bsky\\.feed\\.post\"",
+        "com\\.atproto\\.repo\\.createRecord"
+      ],
+      "test": [
+        "\"app\\.bsky\\.feed\\.post\"",
+        "com\\.atproto\\.repo\\.createRecord"
+      ],
+      "docs": [
+        "app\\.bsky\\.feed\\.post",
+        "300 graphemes"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.facets.link",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Rich-text link facets (app.bsky.richtext.facet#link, UTF-8 byte offsets)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.richtext\\.facet#link"
+      ],
+      "test": [
+        "app\\.bsky\\.richtext\\.facet#link"
+      ],
+      "docs": [
+        "(link|URL) facets"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.facets.mention",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Mention facets (richtext.facet#mention with DID)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "No automatic @handle resolution; caller must supply DID and byte offsets (documented). Optional helper using resolveHandle would help.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.richtext\\.facet#mention"
+      ],
+      "test": [
+        "app\\.bsky\\.richtext\\.facet#mention"
+      ],
+      "docs": [
+        "options\\.mentions"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.facets.tag",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Hashtag facets (richtext.facet#tag, tag up to 640 chars)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Generate #tag facets from text (or accept explicit tag spans) like link facets; options parser currently rejects unknown options.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.richtext\\.facet#tag"
+      ],
+      "test": [
+        "app\\.bsky\\.richtext\\.facet#tag"
+      ],
+      "docs": [
+        "facet#tag|[Hh]ashtag"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.tags",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Post-level additional hashtags (record.tags, max 8, 64 graphemes each)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/feed/post.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add options.tags mapped to the record tags field with lexicon bounds.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btags\\b",
+        "options\\??\\.(tags|hashtags)\\b"
+      ],
+      "test": [
+        "feature:bluesky\\.publish\\.tags"
+      ],
+      "docs": [
+        "options\\.(tags|hashtags)"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.labels.self",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Self-labels / content warnings on a post (record.labels selfLabels: porn, sexual, nudity, graphic-media; max 10)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/feed/post.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add options.contentLabels -> com.atproto.label.defs#selfLabels on post records (and video/image posts).",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "com\\.atproto\\.label\\.defs#selfLabels"
+      ],
+      "test": [
+        "com\\.atproto\\.label\\.defs#selfLabels"
+      ],
+      "docs": [
+        "selfLabels|[Ss]elf-labels?|content warnings?"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.langs",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Post languages (record.langs, max 3 BCP 47 tags)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\blangs\\b"
+      ],
+      "test": [
+        "\\blangs\\b"
+      ],
+      "docs": [
+        "options\\.languages",
+        "\\blangs\\b"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.images",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Images embed (app.bsky.embed.images, up to 4, 2,000,000 bytes each, alt text, aspectRatio)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/embed/images.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\$type: \"app\\.bsky\\.embed\\.images\""
+      ],
+      "test": [
+        "\\$type: \"app\\.bsky\\.embed\\.images\""
+      ],
+      "docs": [
+        "2,000,000 bytes"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.gallery",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Gallery embed (app.bsky.embed.gallery: 5-10 images soft limit, 20 hard, alt + aspectRatio required)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/embed/gallery.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "wrong",
+    "gap": "Map 5-10 images to app.bsky.embed.gallery (aspectRatio required); docs state a 4-image post cap, which is now only the embed.images limit.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.embed\\.gallery"
+      ],
+      "test": [
+        "app\\.bsky\\.embed\\.gallery"
+      ],
+      "docs": [
+        "app\\.bsky\\.embed\\.gallery"
+      ],
+      "forbid": [
+        "at most four images per post"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.video",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Video embed (app.bsky.embed.video, MP4 up to 300 MB, alt, aspectRatio) via video service",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/video/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\$type: \"app\\.bsky\\.embed\\.video\""
+      ],
+      "test": [
+        "\\$type: \"app\\.bsky\\.embed\\.video\""
+      ],
+      "docs": [
+        "300,000,000 bytes",
+        "MP4"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.video.captions",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Video captions (embed.video.captions: up to 20 WebVTT blobs, 20 KB each, per language)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/embed/video.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept caption tracks (lang + text/vtt) on video media, upload as blobs, attach to embed.video.captions.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bcaptions\\b",
+        "text/vtt"
+      ],
+      "test": [
+        "feature:bluesky\\.publish\\.video\\.captions"
+      ],
+      "docs": [
+        "[Cc]aptions|WebVTT"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.video.presentation",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Video presentation hint (embed.video.presentation: default | gif)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/embed/video.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add an option to mark a video as a GIF-style presentation.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpresentation\\b"
+      ],
+      "test": [
+        "\\bpresentation\\b"
+      ],
+      "docs": [
+        "\\bpresentation\\b"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.external",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "External link card embed (app.bsky.embed.external: uri, title, description, thumb blob up to 1 MB)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Map content.link to embed.external with caller-supplied title/description and optional thumb blob upload (no hidden fetch).",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\$type: \"app\\.bsky\\.embed\\.external\""
+      ],
+      "test": [
+        "\\$type: \"app\\.bsky\\.embed\\.external\""
+      ],
+      "docs": [
+        "content\\.link",
+        "app\\.bsky\\.embed\\.external"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.quote",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Quote post (app.bsky.embed.record strongRef)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "quotePost takes text only: no langs/mention facets/labels, and normalized posts.publish has no quote target. Add an example to docs.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.embed\\.record\\b"
+      ],
+      "test": [
+        "feature:bluesky\\.publish\\.quote\\b"
+      ],
+      "docs": [
+        "quotePost",
+        "app\\.bsky\\.embed\\.record\\b"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.recordWithMedia",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Quote post with media (app.bsky.embed.recordWithMedia: quote + images, video or external)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/embed/recordWithMedia.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Allow quotePost/publish to combine a quoted record with images, video or a link card.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\$type: \"app\\.bsky\\.embed\\.recordWithMedia\""
+      ],
+      "test": [
+        "feature:bluesky\\.publish\\.recordWithMedia"
+      ],
+      "docs": [
+        "recordWithMedia"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.reply",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Reply (record.reply root + parent strongRefs)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "reply: \\{",
+        "\\bparent\\b"
+      ],
+      "test": [
+        "reply: \\{",
+        "\\bparent\\b"
+      ],
+      "docs": [
+        "[Rr]eplies preserve"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.thread",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Self-thread (chain of posts, optionally atomic via com.atproto.repo.applyWrites)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "No thread helper: callers must chain replyTo manually and reconcile partial failures; consider applyWrites for atomic threads.",
+    "effort": "M",
+    "probe": {
+      "test": [
+        "feature:bluesky\\.publish\\.thread\\b"
+      ],
+      "docs": [
+        "[Ss]elf-thread|thread of posts|reply chain"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.threadgate.rules",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Reply controls at publish (app.bsky.feed.threadgate allow: mention, follower, following, list; empty = nobody; max 5 rules)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/thread-gates/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add options.replyControls -> threadgate record with same rkey (allow rules) and a native setThreadgate for existing posts.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.threadgate#(mentionRule|followerRule|followingRule|listRule)"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.threadgate#(mentionRule|followerRule|followingRule|listRule)"
+      ],
+      "docs": [
+        "threadgate#(mentionRule|followerRule|followingRule|listRule)|[Rr]eply controls"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.postgate.disableEmbedding",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Disable quoting of a post (app.bsky.feed.postgate embeddingRules disableRule)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add options.disableQuotes -> postgate record with same rkey.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.postgate",
+        "app\\.bsky\\.feed\\.postgate#disableRule"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.postgate",
+        "app\\.bsky\\.feed\\.postgate#disableRule"
+      ],
+      "docs": [
+        "postgate"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.postgate.detach",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Detach own post from someone's quote (postgate detachedEmbeddingUris, max 50)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native detachQuote that updates the postgate with swapRecord.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdetachedEmbeddingUris\\b"
+      ],
+      "test": [
+        "\\bdetachedEmbeddingUris\\b"
+      ],
+      "docs": [
+        "detachedEmbeddingUris"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.applyWrites",
+    "provider": "bluesky",
+    "area": "other",
+    "title": "Batched atomic record writes (com.atproto.repo.applyWrites)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/rate-limits/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native batch write; needed for atomic post+threadgate+postgate or threads.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "com\\.atproto\\.repo\\.applyWrites"
+      ],
+      "test": [
+        "com\\.atproto\\.repo\\.applyWrites"
+      ],
+      "docs": [
+        "applyWrites"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.publish.drafts",
+    "provider": "bluesky",
+    "area": "scheduling",
+    "title": "Server-side drafts (app.bsky.draft.createDraft/getDrafts/updateDraft/deleteDraft; private stash)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native drafts CRUD; Bluesky has no scheduled publishing, drafts are the closest native primitive.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.draft\\."
+      ],
+      "test": [
+        "app\\.bsky\\.draft\\."
+      ],
+      "docs": [
+        "app\\.bsky\\.draft|[Dd]rafts?\\b"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.scheduling.none",
+    "provider": "bluesky",
+    "area": "scheduling",
+    "title": "Scheduled publishing (none in AT Protocol; createdAt is client-declared and does not delay)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "Not on platforms/bluesky.mdx (no 'schedul' match); only reference/capabilities.mdx lists posts.schedule unsupported-by-platform",
+    "probe": {
+      "src": [
+        "target\\.schedule"
+      ],
+      "test": [
+        "posts\\.schedule"
+      ],
+      "docs": [
+        "[Ss]chedul"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.delete.post",
+    "provider": "bluesky",
+    "area": "delete",
+    "title": "Delete own post (com.atproto.repo.deleteRecord)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "com\\.atproto\\.repo\\.deleteRecord"
+      ],
+      "test": [
+        "com\\.atproto\\.repo\\.deleteRecord"
+      ],
+      "docs": [
+        "com\\.atproto\\.repo\\.deleteRecord"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.edit.post",
+    "provider": "bluesky",
+    "area": "edit",
+    "title": "Edit post (no edit feature; posts treated as immutable)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "operation: \"posts\\.update\""
+      ],
+      "test": [
+        "posts\\.update"
+      ],
+      "docs": [
+        "cannot be edited",
+        "posts\\.update"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.getPosts",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Hydrate posts by URI (app.bsky.feed.getPosts, up to 25 URIs)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add batch getPosts (up to 25 URIs) and document getPost.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.getPosts",
+        "append\\(\\s*\"uris\"|\\[\\s*\"uris\"\\s*,"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.getPosts"
+      ],
+      "docs": [
+        "\\bgetPosts?\\b",
+        "getPosts\\b"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.getPostThread",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Post thread (app.bsky.feed.getPostThread with depth, parentHeight)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Expose depth and parentHeight; comments.list returns only direct replies.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetPostThread\\b",
+        "\\bparentHeight\\b"
+      ],
+      "test": [
+        "\\bgetPostThread\\b",
+        "\\bparentHeight\\b"
+      ],
+      "docs": [
+        "getPostThread",
+        "parentHeight"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.timeline",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Home timeline (app.bsky.feed.getTimeline)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.getTimeline"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.getTimeline"
+      ],
+      "docs": [
+        "getTimeline"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.feedGenerator",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Custom feed generator posts (app.bsky.feed.getFeed)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.getFeed\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.getFeed\\b"
+      ],
+      "docs": [
+        "\\bgetFeed\\b"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.authorFeed",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Author feed (app.bsky.feed.getAuthorFeed: filter, includePins)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Add includePins parameter.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.getAuthorFeed",
+        "\\bincludePins\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.getAuthorFeed",
+        "\\bincludePins\\b"
+      ],
+      "docs": [
+        "getAuthorFeed"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.listFeed",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "List feed (app.bsky.feed.getListFeed)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native.getListFeed.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetListFeed\\b"
+      ],
+      "test": [
+        "\\bgetListFeed\\b"
+      ],
+      "docs": [
+        "getListFeed"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.quotes",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Quotes of a post (app.bsky.feed.getQuotes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native.getQuotes.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetQuotes\\b"
+      ],
+      "test": [
+        "\\bgetQuotes\\b"
+      ],
+      "docs": [
+        "getQuotes"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.repostedBy",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Who reposted a post (app.bsky.feed.getRepostedBy)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native.getRepostedBy.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetRepostedBy\\b"
+      ],
+      "test": [
+        "\\bgetRepostedBy\\b"
+      ],
+      "docs": [
+        "getRepostedBy"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.feedDiscovery",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Feed generator discovery (getSuggestedFeeds, getActorFeeds, getFeedGenerator(s))",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add getActorFeeds/getFeedGenerator(s); document listFeeds on the platform page.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetSuggestedFeeds\\b",
+        "\\bgetActorFeeds\\b"
+      ],
+      "test": [
+        "\\bgetSuggestedFeeds\\b",
+        "\\bgetActorFeeds\\b"
+      ],
+      "docs": [
+        "listFeeds",
+        "getActorFeeds"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.search.posts",
+    "provider": "bluesky",
+    "area": "search",
+    "title": "Search posts (app.bsky.feed.searchPosts: sort, since, until, mentions, author, lang, domain, url, tags)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.searchPosts"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.searchPosts"
+      ],
+      "docs": [
+        "searchPosts"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.search.actors",
+    "provider": "bluesky",
+    "area": "search",
+    "title": "Search actors and typeahead (app.bsky.actor.searchActors / searchActorsTypeahead)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bsearchActors\\b",
+        "\\bsearchActorsTypeahead\\b"
+      ],
+      "test": [
+        "\\bsearchActors\\b",
+        "\\bsearchActorsTypeahead\\b"
+      ],
+      "docs": [
+        "searchActors\\b",
+        "searchActorsTypeahead"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.profile",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Profile view (app.bsky.actor.getProfile)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.actor\\.getProfile\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.actor\\.getProfile\\b"
+      ],
+      "docs": [
+        "getProfile"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.profiles.batch",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Batch profiles (app.bsky.actor.getProfiles, up to 25 actors)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native.getProfiles.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetProfiles\\b"
+      ],
+      "test": [
+        "\\bgetProfiles\\b"
+      ],
+      "docs": [
+        "getProfiles"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.read.suggestions",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Suggested follows (app.bsky.actor.getSuggestions, graph.getSuggestedFollowsByActor)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native suggestions reads.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetSuggestions\\b"
+      ],
+      "test": [
+        "\\bgetSuggestions\\b"
+      ],
+      "docs": [
+        "getSuggestions|[Ss]uggested follows"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.engagement.like",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Like / unlike (app.bsky.feed.like record)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.like\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.like\\b"
+      ],
+      "docs": [
+        "likePost",
+        "app\\.bsky\\.feed\\.like"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.engagement.likes.read",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Read likes (app.bsky.feed.getLikes, getActorLikes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bgetLikes\\b",
+        "\\bgetActorLikes\\b"
+      ],
+      "test": [
+        "\\bgetLikes\\b",
+        "\\bgetActorLikes\\b"
+      ],
+      "docs": [
+        "getLikes",
+        "getActorLikes"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.engagement.repost",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Repost and undo repost (app.bsky.feed.repost record create/delete)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add native.unrepost(repostUri) with ownership check; document repost with an example.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.feed\\.repost\\b",
+        "app\\.bsky\\.feed\\.repost/"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.repost\\b"
+      ],
+      "docs": [
+        "app\\.bsky\\.feed\\.repost|repostPost",
+        "[Uu]n-?repost"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.engagement.bookmarks",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Private bookmarks (app.bsky.bookmark.createBookmark / deleteBookmark / getBookmarks)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native bookmark create/delete/list.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.bookmark\\."
+      ],
+      "test": [
+        "app\\.bsky\\.bookmark\\."
+      ],
+      "docs": [
+        "[Bb]ookmark"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.analytics.postCounts",
+    "provider": "bluesky",
+    "area": "analytics",
+    "title": "Post engagement counts from postView (likeCount, repostCount, replyCount, quoteCount, bookmarkCount)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add bookmarkCount (now in postView) as a bookmarks metric. Bluesky has no impressions/reach API.",
+    "effort": "S",
+    "statusCorrection": "platforms/bluesky.mdx never mentions post metrics; coverage is only reads/reports.mdx Bluesky tab",
+    "probe": {
+      "src": [
+        "\\blikeCount\\b",
+        "\\bbookmarkCount\\b"
+      ],
+      "test": [
+        "\\blikeCount\\b",
+        "\\bbookmarkCount\\b"
+      ],
+      "docs": [
+        "[Mm]etrics|likeCount"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.follow",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Follow / unfollow (app.bsky.graph.follow record)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.graph\\.follow\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.follow\\b"
+      ],
+      "docs": [
+        "social\\.graph\\.follow"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.relationships.read",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Followers / follows (app.bsky.graph.getFollowers, getFollows)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bgetFollowers\\b",
+        "\\bgetFollows\\b"
+      ],
+      "test": [
+        "\\bgetFollowers\\b",
+        "\\bgetFollows\\b"
+      ],
+      "docs": [
+        "getFollowers",
+        "getFollows"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.relationships.batch",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Relationship status and known followers (app.bsky.graph.getRelationships, getKnownFollowers)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getRelationships / getKnownFollowers.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetRelationships\\b",
+        "\\bgetKnownFollowers\\b"
+      ],
+      "test": [
+        "\\bgetRelationships\\b",
+        "\\bgetKnownFollowers\\b"
+      ],
+      "docs": [
+        "getRelationships|getKnownFollowers"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.moderation.block",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Block / unblock and list blocks (app.bsky.graph.block record, getBlocks)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.graph\\.block\\b",
+        "\\bgetBlocks\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.block\\b",
+        "\\bgetBlocks\\b"
+      ],
+      "docs": [
+        "getBlocks"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.moderation.mute",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Mute / unmute actor and list mutes (app.bsky.graph.muteActor, unmuteActor, getMutes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bmuteActor\\b",
+        "\\bunmuteActor\\b",
+        "\\bgetMutes\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.unmuteActor\\b"
+      ],
+      "docs": [
+        "muteActor",
+        "getMutes"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.moderation.muteThread",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Mute / unmute thread notifications (app.bsky.graph.muteThread, unmuteThread)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native muteThread/unmuteThread.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmuteThread\\b"
+      ],
+      "test": [
+        "\\bmuteThread\\b"
+      ],
+      "docs": [
+        "muteThread"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.lists",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Lists CRUD and members (app.bsky.graph.list curatelist/modlist, listitem; getList, getLists)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.graph\\.list\\b",
+        "\\bgetLists\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.list\\b",
+        "\\bgetLists\\b"
+      ],
+      "docs": [
+        "listitem",
+        "getLists"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.lists.moderation",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Mute / block whole lists (muteActorList, unmuteActorList, listblock record)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bmuteActorList\\b",
+        "\\bunmuteActorList\\b",
+        "app\\.bsky\\.graph\\.listblock"
+      ],
+      "test": [
+        "\\bmuteActorList\\b",
+        "\\bunmuteActorList\\b",
+        "app\\.bsky\\.graph\\.listblock"
+      ],
+      "docs": [
+        "muteActorList",
+        "app\\.bsky\\.graph\\.listblock"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.lists.membership",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "List subscriptions and membership (getListBlocks, getListMutes, getListsWithMembership)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native reads for list blocks, list mutes and lists-with-membership.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetListBlocks\\b",
+        "\\bgetListMutes\\b",
+        "\\bgetListsWithMembership\\b"
+      ],
+      "test": [
+        "\\bgetListBlocks\\b",
+        "\\bgetListMutes\\b",
+        "\\bgetListsWithMembership\\b"
+      ],
+      "docs": [
+        "getListBlocks|getListMutes|getListsWithMembership"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.starterPacks",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Starter packs (app.bsky.graph.starterpack record with referencelist; getStarterPack(s), getActorStarterPacks, searchStarterPacks)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add starter pack create/read/search and referencelist purpose.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.graph\\.starterpack"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.starterpack"
+      ],
+      "docs": [
+        "[Ss]tarter ?packs?"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.graph.verification",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Verification records (app.bsky.graph.verification; only valid when issued by a trusted verifier)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/graph/verification.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Low priority: read verification state from profile views; issuing is only meaningful for trusted verifiers.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.graph\\.verification|\\bverifiedStatus\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.verification|\\bverifiedStatus\\b"
+      ],
+      "docs": [
+        "app\\.bsky\\.graph\\.verification|verifiedStatus"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.comments.list",
+    "provider": "bluesky",
+    "area": "comments",
+    "title": "List replies to a post (getPostThread replies)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Only direct replies, one page (documented).",
+    "effort": null,
+    "statusCorrection": "platforms/bluesky.mdx has no comments.list; only comments/index.mdx Bluesky tab",
+    "probe": {
+      "src": [
+        "native\\.getPostThread\\(",
+        "\\[\"replies\"\\]"
+      ],
+      "test": [
+        "\\bgetPostThread\\b"
+      ],
+      "docs": [
+        "comments\\.list"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.comments.reply",
+    "provider": "bluesky",
+    "area": "comments",
+    "title": "Reply to a comment",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/posts/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "platforms/bluesky.mdx has no comments.reply; only comments/index.mdx Bluesky tab",
+    "probe": {
+      "src": [
+        "bluesky\\.comments\\.reply"
+      ],
+      "test": [
+        "comments\\.reply"
+      ],
+      "docs": [
+        "comments\\.reply"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.moderation.hideReply",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Hide / unhide replies in own thread (threadgate hiddenReplies, max 300)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/thread-gates/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "No behavioural test for Bluesky hideReply (create gate, update with swapRecord, foreign-thread rejection); not mentioned on the platform page.",
+    "effort": "S",
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "\\bhiddenReplies\\b"
+      ],
+      "test": [
+        "\\bhiddenReplies\\b"
+      ],
+      "docs": [
+        "hideReply|hiddenReplies"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.moderation.report",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Report content or accounts (com.atproto.moderation.createReport)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "com\\.atproto\\.moderation\\.createReport"
+      ],
+      "test": [
+        "\\bcreateReport\\b"
+      ],
+      "docs": [
+        "createReport"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.moderation.labelers",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Labeler services and labels (app.bsky.labeler.getServices, com.atproto.label.queryLabels)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native reads for labeler service views and labels on subjects.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.labeler\\.getServices",
+        "\\bqueryLabels\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.labeler\\.getServices",
+        "\\bqueryLabels\\b"
+      ],
+      "docs": [
+        "app\\.bsky\\.labeler|queryLabels"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.notifications.list",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "List notifications (app.bsky.notification.listNotifications: reasons filter, priority, seenAt)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Expose reasons filter and priority.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blistNotifications\\b",
+        "\\breasons\\b"
+      ],
+      "test": [
+        "\\blistNotifications\\b",
+        "\\breasons\\b"
+      ],
+      "docs": [
+        "notifications\\.list"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.notifications.seen",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Mark notifications seen (app.bsky.notification.updateSeen)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.notification\\.updateSeen"
+      ],
+      "test": [
+        "app\\\\?\\.bsky\\\\?\\.notification\\\\?\\.updateSeen"
+      ],
+      "docs": [
+        "markSeen"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.notifications.unreadCount",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Unread notification count (app.bsky.notification.getUnreadCount)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native.getUnreadNotificationCount.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetUnreadCount\\b"
+      ],
+      "test": [
+        "\\bgetUnreadCount\\b"
+      ],
+      "docs": [
+        "getUnreadCount|[Uu]nread count"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.notifications.preferences",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Notification preferences (getPreferences, putPreferencesV2)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native get/put notification preferences.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.notification\\.(getPreferences|putPreferencesV2)"
+      ],
+      "test": [
+        "app\\.bsky\\.notification\\.(getPreferences|putPreferencesV2)"
+      ],
+      "docs": [
+        "putPreferencesV2|[Nn]otification preferences"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.notifications.activitySubscriptions",
+    "provider": "bluesky",
+    "area": "webhooks",
+    "title": "Activity subscriptions: notify on an account's new posts/replies (listActivitySubscriptions, putActivitySubscription)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native activity subscription list/put; useful pull-based alternative to webhooks.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blistActivitySubscriptions\\b",
+        "\\bputActivitySubscription\\b"
+      ],
+      "test": [
+        "\\blistActivitySubscriptions\\b",
+        "\\bputActivitySubscription\\b"
+      ],
+      "docs": [
+        "ActivitySubscription|[Aa]ctivity subscriptions?"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.listConvos",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "List conversations (chat.bsky.convo.listConvos)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "chat\\.bsky\\.convo\\.listConvos"
+      ],
+      "test": [
+        "chat\\.bsky\\.convo\\.listConvos"
+      ],
+      "docs": [
+        "listConversations"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.getMessages",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Read messages (chat.bsky.convo.getMessages)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "chat\\.bsky\\.convo\\.getMessages"
+      ],
+      "test": [
+        "chat\\.bsky\\.convo\\.getMessages"
+      ],
+      "docs": [
+        "listMessages"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.send",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Send message (chat.bsky.convo.sendMessage: text up to 10,000, facets, record embed)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add facets (links/mentions) and embed.record (share a post) to sendMessage; no chat-specific test found.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "chat\\.bsky\\.convo\\.sendMessage"
+      ],
+      "test": [
+        "feature:bluesky\\.messaging\\.send\\b"
+      ],
+      "docs": [
+        "sendMessage",
+        "sendMessage[^\\n]*(facets|embed)"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.startConvo",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Start or get a 1:1 conversation with a user (chat.bsky.convo.getConvoForMembers, getConvoAvailability)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getConvoForMembers so apps can DM someone without an existing convoId; without it sendMessage only works on existing conversations.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgetConvoForMembers\\b"
+      ],
+      "test": [
+        "\\bgetConvoForMembers\\b"
+      ],
+      "docs": [
+        "getConvoForMembers"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.requests",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Message requests (listConvoRequests, acceptConvo)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listConvoRequests/acceptConvo.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blistConvoRequests\\b",
+        "\\bacceptConvo\\b"
+      ],
+      "test": [
+        "\\blistConvoRequests\\b",
+        "\\bacceptConvo\\b"
+      ],
+      "docs": [
+        "listConvoRequests|[Mm]essage requests"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.batch",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Batch send (chat.bsky.convo.sendMessageBatch)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native batch send.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bsendMessageBatch\\b"
+      ],
+      "test": [
+        "\\bsendMessageBatch\\b"
+      ],
+      "docs": [
+        "sendMessageBatch"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.reactions",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Message reactions (chat.bsky.convo.addReaction / removeReaction)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native add/remove reaction.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "chat\\.bsky\\.convo\\.addReaction",
+        "chat\\.bsky\\.convo\\.removeReaction"
+      ],
+      "test": [
+        "chat\\.bsky\\.convo\\.addReaction",
+        "chat\\.bsky\\.convo\\.removeReaction"
+      ],
+      "docs": [
+        "addReaction"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.manage",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Conversation management (getConvo, updateRead, updateAllRead, muteConvo, unmuteConvo, leaveConvo, deleteMessageForSelf)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add read-state, mute, leave and delete-for-self helpers.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "chat\\.bsky\\.convo\\.(updateRead|updateAllRead)\\b",
+        "chat\\.bsky\\.convo\\.(muteConvo|leaveConvo)\\b",
+        "\\bdeleteMessageForSelf\\b"
+      ],
+      "test": [
+        "chat\\.bsky\\.convo\\.(updateRead|updateAllRead)\\b",
+        "chat\\.bsky\\.convo\\.(muteConvo|leaveConvo)\\b",
+        "\\bdeleteMessageForSelf\\b"
+      ],
+      "docs": [
+        "leaveConvo|muteConvo|updateAllRead"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.log",
+    "provider": "bluesky",
+    "area": "webhooks",
+    "title": "Chat event log for incremental sync (chat.bsky.convo.getLog)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getLog so apps can poll new DMs since a cursor.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "chat\\.bsky\\.convo\\.getLog\\b"
+      ],
+      "test": [
+        "chat\\.bsky\\.convo\\.getLog\\b"
+      ],
+      "docs": [
+        "\\bgetLog\\b"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.messaging.groups",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Group chats (chat.bsky.group.createGroup, addMembers, removeMembers, join links/requests)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-dms.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Track; endpoints are marked unstable/under active development.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "chat\\.bsky\\.group\\."
+      ],
+      "test": [
+        "chat\\.bsky\\.group\\."
+      ],
+      "docs": [
+        "chat\\.bsky\\.group|[Gg]roup chats?"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.webhooks.firehose",
+    "provider": "bluesky",
+    "area": "webhooks",
+    "title": "Real-time events via relay firehose (com.atproto.sync.subscribeRepos) or Jetstream; no signed webhooks",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/consuming-the-firehose/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "No firehose/Jetstream consumer; docs explain the trade-off. Optional helper for Jetstream filtered by collection.",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "com\\.atproto\\.sync\\.subscribeRepos|\\bwantedCollections\\b"
+      ],
+      "test": [
+        "com\\.atproto\\.sync\\.subscribeRepos|\\bwantedCollections\\b"
+      ],
+      "docs": [
+        "subscribeRepos",
+        "Jetstream",
+        "no signed webhooks"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.account.profile.update",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Update profile record (app.bsky.actor.profile: displayName, description, pronouns, website, avatar, banner, pinnedPost, labels)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/actor/profile.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "No swapRecord/CAS and no field-level merge helper; avatar/banner need a blob ref the SDK cannot upload outside publish.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.actor\\.profile"
+      ],
+      "test": [
+        "feature:bluesky\\.account\\.profile\\.update\\b"
+      ],
+      "docs": [
+        "updateProfile",
+        "app\\.bsky\\.actor\\.profile"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.account.profile.pinnedPost",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Pin a post to profile (profile.pinnedPost strongRef)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/actor/profile.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Add a pin/unpin helper that merges profile.pinnedPost with CAS.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpinnedPost\\b"
+      ],
+      "test": [
+        "\\bpinnedPost\\b"
+      ],
+      "docs": [
+        "pinnedPost|[Pp]in a post"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.media.uploadBlob",
+    "provider": "bluesky",
+    "area": "media",
+    "title": "Standalone blob upload (com.atproto.repo.uploadBlob) for avatars, banners, link-card thumbs",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Expose native.uploadBlob so profile images and external thumbs can be set.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "com\\.atproto\\.repo\\.uploadBlob"
+      ],
+      "test": [
+        "feature:bluesky\\.media\\.uploadBlob\\b"
+      ],
+      "docs": [
+        "uploadBlob"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.account.status.live",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Live status (app.bsky.actor.status record: live, external embed, durationMinutes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/bsky/blob/main/lexicons/app/bsky/actor/status.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native set/clear live status.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.actor\\.status\\b",
+        "\\bdurationMinutes\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.actor\\.status\\b"
+      ],
+      "docs": [
+        "app\\.bsky\\.actor\\.status|[Ll]ive status"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.account.preferences",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Account preferences (app.bsky.actor.getPreferences / putPreferences: saved feeds, muted words, content label prefs)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://endpoints.bsky.app/openapi.bluesky-app.json",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native get/put preferences (muted words, saved/pinned feeds).",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "app\\.bsky\\.actor\\.(getPreferences|putPreferences)\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.actor\\.(getPreferences|putPreferences)\\b"
+      ],
+      "docs": [
+        "actor\\.(get|put)Preferences|[Mm]uted words"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.media.video.upload",
+    "provider": "bluesky",
+    "area": "media",
+    "title": "Video upload service (app.bsky.video.uploadVideo with service auth, getJobStatus, getUploadLimits; verified email and daily limits)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/about-bluesky-content/video/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "app\\.bsky\\.video\\.uploadVideo",
+        "app\\.bsky\\.video\\.getJobStatus",
+        "app\\.bsky\\.video\\.getUploadLimits"
+      ],
+      "test": [
+        "app\\.bsky\\.video\\.uploadVideo",
+        "app\\.bsky\\.video\\.getJobStatus",
+        "app\\.bsky\\.video\\.getUploadLimits"
+      ],
+      "docs": [
+        "getVideoUploadLimits",
+        "getVideoJobStatus"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.auth.oauth",
+    "provider": "bluesky",
+    "area": "auth",
+    "title": "AT Protocol OAuth (PAR, PKCE S256, DPoP-bound tokens, iss check, public and confidential private_key_jwt clients, refresh, revocation)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://atproto.com/specs/oauth",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "DPoP-Nonce",
+        "pushed_authorization_request_endpoint",
+        "\\bS256\\b"
+      ],
+      "test": [
+        "DPoP-Nonce",
+        "pushed_authorization_request_endpoint"
+      ],
+      "docs": [
+        "DPoP",
+        "AT Protocol OAuth"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.auth.permissions",
+    "provider": "bluesky",
+    "area": "auth",
+    "title": "Granular OAuth permissions (repo:, blob:, rpc:, include: permission sets; transition:generic, transition:chat.bsky, transition:email)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://atproto.com/specs/permission",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "transition:generic"
+      ],
+      "test": [
+        "transition:generic"
+      ],
+      "docs": [
+        "transition:generic",
+        "transition:chat\\.bsky",
+        "include:"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.auth.appPassword",
+    "provider": "bluesky",
+    "area": "auth",
+    "title": "App-password sessions (com.atproto.server.createSession / refreshSession; createSession 30 per 5 min, 300 per day)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://bsky.network/docs/rate-limits/",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Accessors must mint and refresh access JWTs themselves; consider a session helper that refreshes instead of re-logging in.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "com\\.atproto\\.server\\.refreshSession"
+      ],
+      "test": [
+        "com\\.atproto\\.server\\.refreshSession"
+      ],
+      "docs": [
+        "app password"
+      ]
+    }
+  },
+  {
+    "id": "bluesky.media.video.multipartUpload",
+    "provider": "bluesky",
+    "area": "media",
+    "title": "Resumable multipart video upload (app.bsky.video.startUpload, uploadPart, finishUpload, abortUpload, getUploadStatus)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/video/startUpload.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only single-request uploadVideo exists; add a resumable part-by-part upload (exact Content-Length per part, idempotent retries, completedJobId on dedup) for large videos.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "startUpload|[Mm]ultipart video"
+      ],
+      "src": [
+        "app\\.bsky\\.video\\.startUpload",
+        "app\\.bsky\\.video\\.uploadPart"
+      ],
+      "test": [
+        "app\\.bsky\\.video\\.startUpload"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.search.postsV2",
+    "provider": "bluesky",
+    "area": "search",
+    "title": "Structured post search (app.bsky.feed.searchPostsV2: authors, domains, urls, hashtags, languages and their exclude* lists, hasMedia, hasVideo, replyParentUri, threadRootUri, repliesOnly, excludeReplies, following, allTime)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/feed/searchPostsV2.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "SDK only calls searchPosts (v1); add a searchPostsV2 read with the include/exclude filter lists and media/reply filters.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "searchPostsV2"
+      ],
+      "src": [
+        "app\\.bsky\\.feed\\.searchPostsV2"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.searchPostsV2"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.notifications.grouped",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Grouped notifications (app.bsky.notification.getGroupedNotifications, marked unstable)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/notification/getGroupedNotifications.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No read for pre-grouped notifications (like/repost/follow groups, via-repost groups); lexicon says unstable, so ship behind a beta note.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "getGroupedNotifications"
+      ],
+      "src": [
+        "app\\.bsky\\.notification\\.getGroupedNotifications"
+      ],
+      "test": [
+        "app\\.bsky\\.notification\\.getGroupedNotifications"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.notificationDeclaration",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Activity-subscription declaration (app.bsky.notification.declaration allowSubscriptions: followers | mutuals | none)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/notification/declaration.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Cannot set who may subscribe to the account's new posts; add get/put of the declaration record (rkey self).",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "allowSubscriptions"
+      ],
+      "src": [
+        "app\\.bsky\\.notification\\.declaration"
+      ],
+      "test": [
+        "app\\.bsky\\.notification\\.declaration"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.messaging.chatDeclaration",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Chat privacy settings (chat.bsky.actor.declaration allowIncoming, allowGroupInvites: all | following | none; chat.bsky.actor.getStatus)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/chat/bsky/actor/declaration.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Apps cannot read or change who may DM the account or add it to groups, nor read chat-disabled status.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "allowIncoming"
+      ],
+      "src": [
+        "chat\\.bsky\\.actor\\.declaration",
+        "chat\\.bsky\\.actor\\.getStatus"
+      ],
+      "test": [
+        "chat\\.bsky\\.actor\\.declaration"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.messaging.accountData",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Chat account data export and deletion (chat.bsky.actor.exportAccountData, chat.bsky.actor.deleteAccount)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/chat/bsky/actor/exportAccountData.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No helper to export or delete the account's chat data.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "exportAccountData"
+      ],
+      "src": [
+        "chat\\.bsky\\.actor\\.exportAccountData"
+      ],
+      "test": [
+        "chat\\.bsky\\.actor\\.exportAccountData"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.messaging.notificationPreferences",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Chat notification preferences (chat.bsky.notification.getPreferences / putPreferences: chat, chatRequest)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/chat/bsky/notification/putPreferences.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Chat-service notification preferences (separate from app.bsky.notification) cannot be read or changed.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "chat\\.bsky\\.notification|chatRequest"
+      ],
+      "src": [
+        "chat\\.bsky\\.notification\\.putPreferences"
+      ],
+      "test": [
+        "chat\\.bsky\\.notification\\.putPreferences"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.messaging.unreadCounts",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Unread conversation counts (chat.bsky.convo.getUnreadCounts, includeGroupChats)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/chat/bsky/convo/getUnreadCounts.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No DM unread-count read; app notification unread count does not cover chat.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "getUnreadCounts"
+      ],
+      "src": [
+        "chat\\.bsky\\.convo\\.getUnreadCounts"
+      ],
+      "test": [
+        "chat\\.bsky\\.convo\\.getUnreadCounts"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.messaging.groups.admin",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Group chat administration (chat.bsky.convo.lockConvo / unlockConvo, getConvoMembers, listConvos lockStatus filter, chat.bsky.group.listMutualGroups)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/chat/bsky/convo/lockConvo.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Group owners cannot lock/unlock a group, page through members, filter convos by lock status or list mutual groups; endpoints are unstable.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "lockConvo",
+        "getConvoMembers"
+      ],
+      "src": [
+        "chat\\.bsky\\.convo\\.lockConvo",
+        "chat\\.bsky\\.convo\\.getConvoMembers"
+      ],
+      "test": [
+        "chat\\.bsky\\.convo\\.lockConvo"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.messaging.groups.joinLinks",
+    "provider": "bluesky",
+    "area": "messaging",
+    "title": "Group join links and join requests (chat.bsky.group.createJoinLink, editJoinLink, enableJoinLink, disableJoinLink, getJoinLinkPreviews, requestJoin, withdrawJoinRequest, listJoinRequests, approveJoinRequest, rejectJoinRequest, updateJoinRequestsRead; chat.bsky.embed.joinLink message embed)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/chat/bsky/group/createJoinLink.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Only createGroup/addMembers/removeMembers/editGroup exist; the existing messaging.groups row's probe passes on those alone, so join links and requests need their own row. Docs say only 'not wrapped yet'.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "createJoinLink"
+      ],
+      "src": [
+        "chat\\.bsky\\.group\\.createJoinLink",
+        "chat\\.bsky\\.group\\.approveJoinRequest"
+      ],
+      "test": [
+        "chat\\.bsky\\.group\\.createJoinLink"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.profile.links",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Profile links (app.bsky.actor.link records: url, title, icon, labels; profile.links strongRef order, max 10)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/actor/link.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Profile updates cannot create link records or set profile.links order.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "app\\.bsky\\.actor\\.link\\b|[Pp]rofile links"
+      ],
+      "src": [
+        "app\\.bsky\\.actor\\.link\\b"
+      ],
+      "test": [
+        "app\\.bsky\\.actor\\.link\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.contentVisibility",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Discovery opt-out (app.bsky.actor.contentVisibilityDeclaration hideFromAlgorithmicRecommendations)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/actor/contentVisibilityDeclaration.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No way to set the account's request to be hidden from algorithmic recommendations.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "hideFromAlgorithmicRecommendations"
+      ],
+      "src": [
+        "app\\.bsky\\.actor\\.contentVisibilityDeclaration"
+      ],
+      "test": [
+        "app\\.bsky\\.actor\\.contentVisibilityDeclaration"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.graph.referenceListOptOut",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Opt out of reference lists / starter packs (app.bsky.graph.referencelistoptout record)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/graph/referencelistoptout.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Cannot request removal from someone else's starter-pack reference list.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "referencelistoptout"
+      ],
+      "src": [
+        "app\\.bsky\\.graph\\.referencelistoptout"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.referencelistoptout"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.graph.starterPacks.membership",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Starter pack membership and v2 search (app.bsky.graph.getStarterPacksWithMembership, searchStarterPacksV2)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/graph/getStarterPacksWithMembership.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No read showing which of my starter packs include an actor; search uses v1 only.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "getStarterPacksWithMembership"
+      ],
+      "src": [
+        "app\\.bsky\\.graph\\.getStarterPacksWithMembership"
+      ],
+      "test": [
+        "app\\.bsky\\.graph\\.getStarterPacksWithMembership"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.publish.external.enhanced",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Enhanced external embeds (app.bsky.embed.getEmbedExternalView; embed.external associatedRefs for article, gallery and livestream cards)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/embed/getEmbedExternalView.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Link cards cannot resolve an Atmosphere record into an enhanced view or carry associatedRefs.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "getEmbedExternalView|associatedRefs"
+      ],
+      "src": [
+        "getEmbedExternalView",
+        "\\bassociatedRefs\\b"
+      ],
+      "test": [
+        "getEmbedExternalView"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.read.feedInteractions",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Feed feedback (app.bsky.feed.sendInteractions: requestMore, requestLess, interactionSeen, clickthrough* events with feedContext and reqId)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/feed/sendInteractions.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Apps reading custom feeds cannot send show-more/show-less or seen/clickthrough signals back to the feed generator.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "sendInteractions"
+      ],
+      "src": [
+        "app\\.bsky\\.feed\\.sendInteractions"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.sendInteractions"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.feeds.generatorDeclaration",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Publish a custom feed (app.bsky.feed.generator record: did, displayName, description, descriptionFacets, avatar, acceptsInteractions, contentMode; describeFeedGenerator; getFeedSkeleton served by the generator)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/feed/generator.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No create/update/delete of feed generator records and no server helper for describeFeedGenerator/getFeedSkeleton.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "describeFeedGenerator|[Pp]ublish(ing)? a (custom )?feed"
+      ],
+      "src": [
+        "\\$type: \\\"app\\.bsky\\.feed\\.generator\\\"",
+        "app\\.bsky\\.feed\\.describeFeedGenerator"
+      ],
+      "test": [
+        "app\\.bsky\\.feed\\.describeFeedGenerator"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.moderation.labelerService",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Labeler declaration (app.bsky.labeler.service record: policies, labelValueDefinitions, reasonTypes, subjectTypes, subjectCollections)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/labeler/service.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Labeler operators cannot declare or update their labeler service record.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "app\\.bsky\\.labeler\\.service|labelValueDefinitions"
+      ],
+      "src": [
+        "app\\.bsky\\.labeler\\.service"
+      ],
+      "test": [
+        "app\\.bsky\\.labeler\\.service"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.webhooks.labelStream",
+    "provider": "bluesky",
+    "area": "webhooks",
+    "title": "Label stream (com.atproto.label.subscribeLabels WebSocket, cursor replay)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/label/subscribeLabels.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Labels are only polled with queryLabels; no subscriber for a labeler's real-time label stream.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "subscribeLabels"
+      ],
+      "src": [
+        "com\\.atproto\\.label\\.subscribeLabels"
+      ],
+      "test": [
+        "com\\.atproto\\.label\\.subscribeLabels"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.engagement.via",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Like / repost via a repost (app.bsky.feed.like and app.bsky.feed.repost via strongRef)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/feed/like.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "likePost/repost cannot record the repost they came through, so the reposter gets no likeViaRepost/repostViaRepost notification.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "likeViaRepost|repostViaRepost|\\bvia\\b[^\\n]*strongRef"
+      ],
+      "src": [
+        "\\bvia:"
+      ],
+      "test": [
+        "feature:bluesky\\.engagement\\.via\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.graph.starterPackAttribution",
+    "provider": "bluesky",
+    "area": "engagement",
+    "title": "Starter pack attribution (app.bsky.graph.follow via strongRef; profile joinedViaStarterPack)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/graph/follow.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Follows made from a starter pack and profile joinedViaStarterPack cannot be set, so starter pack join counts do not credit the pack.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "joinedViaStarterPack"
+      ],
+      "src": [
+        "\\bjoinedViaStarterPack\\b"
+      ],
+      "test": [
+        "\\bjoinedViaStarterPack\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.graph.followSort",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Follower / follow list sort (app.bsky.graph.getFollowers and getFollows sort: latest | top)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons-overrides/app/bsky/graph/getFollowers.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "getFollowers/getFollows send only actor, limit and cursor; add the sort parameter.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "getFollowers[^\\n]*\\bsort\\b"
+      ],
+      "src": [
+        "async getFollowers\\(input\\)[\\s\\S]{0,400}\\bsort\\b"
+      ],
+      "test": [
+        "feature:bluesky\\.graph\\.followSort\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.moderation.muteScope",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Scoped mutes (app.bsky.graph.muteActor onlyReposts, onlyQuoteposts)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/graph/muteActor.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "muteActor always fully mutes; add the reposts-only / quote-posts-only scope flags.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "onlyReposts"
+      ],
+      "src": [
+        "\\bonlyReposts\\b",
+        "\\bonlyQuoteposts\\b"
+      ],
+      "test": [
+        "\\bonlyReposts\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.moderation.reportModTool",
+    "provider": "bluesky",
+    "area": "moderation",
+    "title": "Report source metadata (com.atproto.moderation.createReport modTool: name, meta)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/moderation/createReport.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "createReport cannot tag the reporting tool for moderator tracing.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "modTool"
+      ],
+      "src": [
+        "\\bmodTool\\b"
+      ],
+      "test": [
+        "\\bmodTool\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.auth.revoke",
+    "provider": "bluesky",
+    "area": "auth",
+    "title": "Sign out / revoke a connected account (OAuth token revocation at revocation_endpoint; com.atproto.server.deleteSession for app-password sessions)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/server/deleteSession.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Revocation only runs internally after a failed exchange; disconnect does not revoke OAuth tokens and app-password sessions are never deleted.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "com\\.atproto\\.server\\.deleteSession|[Ss]ign(ing)? out"
+      ],
+      "src": [
+        "com\\.atproto\\.server\\.deleteSession"
+      ],
+      "test": [
+        "com\\.atproto\\.server\\.deleteSession"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.auth.appPasswords.manage",
+    "provider": "bluesky",
+    "area": "auth",
+    "title": "App password management (com.atproto.server.createAppPassword with privileged, listAppPasswords, revokeAppPassword)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/server/createAppPassword.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No helper to create, list or revoke app passwords from a full-scope session.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "createAppPassword|revokeAppPassword"
+      ],
+      "src": [
+        "com\\.atproto\\.server\\.createAppPassword"
+      ],
+      "test": [
+        "com\\.atproto\\.server\\.createAppPassword"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.auth.createSession.allowTakendown",
+    "provider": "bluesky",
+    "area": "auth",
+    "title": "Takendown-account login (com.atproto.server.createSession allowTakendown)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/server/createSession.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "createSession never sends allowTakendown, so taken-down accounts cannot sign in to export their data.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "allowTakendown"
+      ],
+      "src": [
+        "\\ballowTakendown\\b"
+      ],
+      "test": [
+        "\\ballowTakendown\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.identity.resolve",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Identity resolution (com.atproto.identity.resolveHandle, resolveDid, resolveIdentity)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/identity/resolveIdentity.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Handle/DID resolution exists only inside the OAuth helper; expose a native resolve (handle to DID to DID document, verified both ways).",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "resolveIdentity|resolveHandle"
+      ],
+      "src": [
+        "com\\.atproto\\.identity\\.resolveIdentity"
+      ],
+      "test": [
+        "com\\.atproto\\.identity\\.resolveIdentity"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.handle.update",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Change handle (com.atproto.identity.updateHandle, refreshIdentity)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/identity/updateHandle.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No helper to change the account handle or refresh cached identity after a DNS/handle change.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "updateHandle"
+      ],
+      "src": [
+        "com\\.atproto\\.identity\\.updateHandle"
+      ],
+      "test": [
+        "com\\.atproto\\.identity\\.updateHandle"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.lifecycle",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Account lifecycle (com.atproto.server.deactivateAccount deleteAfter, activateAccount, requestAccountDelete, deleteAccount, requestEmailConfirmation, confirmEmail, requestEmailUpdate, updateEmail, requestPasswordReset, resetPassword)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/server/deactivateAccount.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only checkAccountStatus is read; no deactivate/reactivate/delete or email/password flows.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "deactivateAccount"
+      ],
+      "src": [
+        "com\\.atproto\\.server\\.deactivateAccount"
+      ],
+      "test": [
+        "com\\.atproto\\.server\\.deactivateAccount"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.migration",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Account creation and PDS migration (com.atproto.server.createAccount, describeServer, reserveSigningKey, getServiceAuth for migration; identity.getRecommendedDidCredentials, requestPlcOperationSignature, signPlcOperation, submitPlcOperation; repo.importRepo, listMissingBlobs)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/server/createAccount.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No signup or move-to-another-PDS flow; likely out of scope for a posting SDK but undocumented either way.",
+    "effort": "L",
+    "probe": {
+      "docs": [
+        "createAccount|[Aa]ccount migration"
+      ],
+      "src": [
+        "com\\.atproto\\.server\\.createAccount",
+        "com\\.atproto\\.repo\\.importRepo"
+      ],
+      "test": [
+        "com\\.atproto\\.server\\.createAccount"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.read.describeRepo",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Repository description (com.atproto.repo.describeRepo: handleIsCorrect, collections, didDoc)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/repo/describeRepo.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No read for which collections a repo holds or whether its handle verifies.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "describeRepo"
+      ],
+      "src": [
+        "com\\.atproto\\.repo\\.describeRepo"
+      ],
+      "test": [
+        "com\\.atproto\\.repo\\.describeRepo"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.read.postThreadV2",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Post thread v2 (app.bsky.unspecced.getPostThreadV2 above, below, branchingFactor, sort; getPostThreadOtherV2 for hidden/other replies)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/unspecced/getPostThreadV2.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Threads use getPostThread v1 only; v2 adds sorting, branching and a separate hidden-replies read (unspecced).",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "getPostThreadV2"
+      ],
+      "src": [
+        "app\\.bsky\\.unspecced\\.getPostThreadV2"
+      ],
+      "test": [
+        "app\\.bsky\\.unspecced\\.getPostThreadV2"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.read.trends",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Trending topics (app.bsky.unspecced.getTrendingTopics, getTrends)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/unspecced/getTrends.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No read for Bluesky trends or trending topics (unspecced).",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "getTrends|[Tt]rending topics"
+      ],
+      "src": [
+        "app\\.bsky\\.unspecced\\.getTrends\\b",
+        "app\\.bsky\\.unspecced\\.getTrendingTopics"
+      ],
+      "test": [
+        "app\\.bsky\\.unspecced\\.getTrends\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.read.discovery.unspecced",
+    "provider": "bluesky",
+    "area": "read",
+    "title": "Discovery suggestions (app.bsky.unspecced.getSuggestedUsers, getSuggestedUsersForExplore/Discover/SeeMore, getSuggestedOnboardingUsers, getSuggestedFeeds, getSuggestedStarterPacks, getOnboardingSuggestedStarterPacks, getPopularFeedGenerators, getTaggedSuggestions, getAtmosphereApps, getAtmosphereExploreTab)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/unspecced/getSuggestedUsers.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only actor.getSuggestions and graph.getSuggestedFollowsByActor are read; the unspecced category/explore suggestion reads are absent.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "getSuggestedUsers|getPopularFeedGenerators"
+      ],
+      "src": [
+        "app\\.bsky\\.unspecced\\.getSuggestedUsers",
+        "app\\.bsky\\.unspecced\\.getPopularFeedGenerators"
+      ],
+      "test": [
+        "app\\.bsky\\.unspecced\\.getSuggestedUsers"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.notifications.push",
+    "provider": "bluesky",
+    "area": "other",
+    "title": "Push registration (app.bsky.notification.registerPush / unregisterPush: serviceDid, token, platform ios|android|web, appId, ageRestricted)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/notification/registerPush.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Push delivery runs through a push service keyed to registered app ids; not usable by an arbitrary server app. Docs should say so.",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "registerPush|[Pp]ush notifications"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.contacts",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Contact import and matching (app.bsky.contact.startPhoneVerification, verifyPhone, importContacts, getMatches, dismissMatch, getSyncStatus, removeData, sendNotification)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/contact/importContacts.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No contact-matching flow; it needs phone verification and hashed address-book handling, so it is a privacy-sensitive opt-in feature.",
+    "effort": "L",
+    "probe": {
+      "docs": [
+        "importContacts|[Cc]ontact import"
+      ],
+      "src": [
+        "app\\.bsky\\.contact\\.importContacts"
+      ],
+      "test": [
+        "app\\.bsky\\.contact\\.importContacts"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.account.ageAssurance",
+    "provider": "bluesky",
+    "area": "account",
+    "title": "Age assurance (app.bsky.ageassurance.getConfig, getState, begin)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/ageassurance/getState.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Apps cannot read the account's age-assurance state (which gates some content by region) or start the flow.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "ageassurance|[Aa]ge assurance"
+      ],
+      "src": [
+        "app\\.bsky\\.ageassurance\\.getState"
+      ],
+      "test": [
+        "app\\.bsky\\.ageassurance\\.getState"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "bluesky.publish.drafts.media",
+    "provider": "bluesky",
+    "area": "publish",
+    "title": "Draft media embeds (app.bsky.draft.defs#draftPost embedImages, embedGallery, embedVideos with localRef, alt and captions)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/packages/api/lexicons/app/bsky/draft/defs.json",
+      "checked": "2026-11-04",
+      "apiVersion": "atproto lexicons @7fc8c87 (2026-11-04)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Drafts store text, link and quote only; images, galleries and videos (device-local refs) are dropped.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "embedImages|[Dd]rafts?[^\\n]*(images|video)"
+      ],
+      "src": [
+        "\\bembedImages\\b",
+        "\\bembedVideos\\b"
+      ],
+      "test": [
+        "\\bembedImages\\b"
+      ]
+    },
+    "round": 2
+  }
+]

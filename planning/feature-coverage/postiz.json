@@ -1,0 +1,2302 @@
+[
+  {
+    "id": "postiz.auth.api_key",
+    "provider": "postiz",
+    "area": "auth",
+    "title": "Workspace API key in Authorization header (Cloud and self-hosted base URLs)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/introduction.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bbaseUrl\\b",
+        "\"Authorization\""
+      ],
+      "test": [
+        "get\\(\"authorization\"\\), \"test\""
+      ],
+      "docs": [
+        "Settings, Developers",
+        "## Self-hosted Postiz"
+      ]
+    }
+  },
+  {
+    "id": "postiz.auth.oauth_app",
+    "provider": "postiz",
+    "area": "auth",
+    "title": "OAuth2 authorization-code flow for third-party apps (pos_ tokens)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/oauth.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/oauth/authorize",
+        "/oauth/token",
+        "\"pos_\""
+      ],
+      "test": [
+        "/oauth/authorize\\?client_id=",
+        "/oauth/token"
+      ],
+      "docs": [
+        "`pos_`",
+        "## Connect workspaces with OAuth"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.me",
+    "provider": "postiz",
+    "area": "account",
+    "title": "GET /me: workspace and approving user for the credential",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/integrations/me.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose GET /me (e.g. native.me) so apps can show which workspace/user a pos_ token belongs to; exchangePostizCode already returns organizationId",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/me\""
+      ],
+      "test": [
+        "/public/v1/me\\b"
+      ],
+      "docs": [
+        "GET /me\\b|\\bnative\\.me\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.is_connected",
+    "provider": "postiz",
+    "area": "account",
+    "title": "GET /is-connected: validate the API key",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional credential health check; could back a validateCredentials helper",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/is-connected\\b"
+      ],
+      "test": [
+        "/is-connected\\b"
+      ],
+      "docs": [
+        "/is-connected\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.list_integrations",
+    "provider": "postiz",
+    "area": "account",
+    "title": "GET /integrations: list connected channels with provider identifier, disabled flag, customer",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/integrations\""
+      ],
+      "test": [
+        "/public/v1/integrations"
+      ],
+      "docs": [
+        "accounts\\.list"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.groups_customers",
+    "provider": "postiz",
+    "area": "account",
+    "title": "GET /groups: list customers (groups) to filter integrations per client",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/integrations/groups.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map Postiz customers to an account filter or metadata; useful for agency tenant mapping",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/groups\""
+      ],
+      "test": [
+        "/public/v1/groups\\b"
+      ],
+      "docs": [
+        "/groups\\b|\\bcustomers?\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.connect_link",
+    "provider": "postiz",
+    "area": "account",
+    "title": "GET /social/:integration: OAuth connect URL for a new or refreshed channel",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Allow-list covers only x/threads/youtube/tiktok/instagram/linkedin/facebook; Postiz also issues links for other OAuth providers the adapter lists (pinterest, reddit, gmb, discord, twitch)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/social/\\$\\{",
+        "oauthProviders = \\[[^\\]]*\"pinterest\""
+      ],
+      "test": [
+        "/public/v1/social/linkedin-page"
+      ],
+      "docs": [
+        "native\\.createConnectLink",
+        "refreshAccountId"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.delete_channel",
+    "provider": "postiz",
+    "area": "account",
+    "title": "DELETE /integrations/:id: delete a channel and its scheduled posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/integrations/delete.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not exposed; destructive, could be a native.deleteChannel with explicit confirmation",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/integrations/\\$\\{"
+      ],
+      "test": [
+        "/public/v1/integrations/[A-Za-z0-9]"
+      ],
+      "docs": [
+        "DELETE /integrations|delete (a|the) channel"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.integration_settings",
+    "provider": "postiz",
+    "area": "account",
+    "title": "GET /integration-settings/:id: posting rules, max length, settings schema, available tools",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/integrations/settings.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Could drive preflight limits (max length) and discover provider tools instead of hard-coding",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/integration-settings/"
+      ],
+      "test": [
+        "/integration-settings/"
+      ],
+      "docs": [
+        "/integration-settings\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.account.trigger_tool",
+    "provider": "postiz",
+    "area": "other",
+    "title": "POST /integration-trigger/:id: run provider tools (Discord channel list, Reddit flairs, Instagram audio search, LinkedIn company mention lookup)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/integrations/trigger.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Users must find Discord channelId / Pinterest board / Reddit flair elsewhere; expose a native.trigger(methodName, data) passthrough",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/integration-trigger/"
+      ],
+      "test": [
+        "/integration-trigger/"
+      ],
+      "docs": [
+        "/integration-trigger\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.scheduling.find_slot",
+    "provider": "postiz",
+    "area": "scheduling",
+    "title": "GET /find-slot/:id: next free time slot for a channel",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/integrations/find-slot.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a native.findSlot or schedule: { slot: 'next' } option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/find-slot/"
+      ],
+      "test": [
+        "/find-slot/"
+      ],
+      "docs": [
+        "/find-slot\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.now",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "POST /posts type=now",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/posts\"",
+        "\"now\""
+      ],
+      "test": [
+        "body\\[\"type\"\\], \"now\""
+      ],
+      "docs": [
+        "## Publish now or schedule",
+        "Omit `schedule` to post now"
+      ]
+    }
+  },
+  {
+    "id": "postiz.scheduling.schedule",
+    "provider": "postiz",
+    "area": "scheduling",
+    "title": "POST /posts type=schedule with ISO date",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/posts\"",
+        "\"schedule\""
+      ],
+      "test": [
+        "type: \"schedule\""
+      ],
+      "docs": [
+        "`schedule\\.at`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.draft",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "POST /posts type=draft: create a draft without scheduling",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add a draft/saveToDraft publish option mapped to type=draft; docs already hint drafts can appear",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"draft\" : |type: \"draft\"|\"draft\"\\s*\\?|\\? \"draft\""
+      ],
+      "test": [
+        "type: \"draft\""
+      ],
+      "docs": [
+        "type.{0,4}draft|`draft` type"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.thread_parts",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Multi-part posts: extra `value` items publish as thread replies or self-comments, with per-part media and `delay`",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/general/composer/threads-and-comments.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map publishSequence/replyToPrevious (or a thread content field) to multiple value[] entries with delay for X, Threads, Bluesky, Mastodon, LinkedIn/Instagram first comment",
+    "effort": "M",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.thread_parts\\b"
+      ],
+      "docs": [
+        "\\bthread\\b|\\breplies\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.tags",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Post-level `tags` array (Postiz labels)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept backend tags and pass them through",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.tags\\b"
+      ],
+      "docs": [
+        "\\btags\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.short_link",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "`shortLink` flag to shorten URLs in content",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional pass-through; SDK default false is safe, docs should state it",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.short_link\\b"
+      ],
+      "docs": [
+        "\\bshortLink\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.media.alt_text",
+    "provider": "postiz",
+    "area": "media",
+    "title": "Per-image `alt` (Instagram, Bluesky, Mastodon, Slack, Tumblr)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\balt: item\\.altText"
+      ],
+      "test": [
+        "alt: \"Clip\""
+      ],
+      "docs": [
+        "`altText` is sent"
+      ]
+    }
+  },
+  {
+    "id": "postiz.media.thumbnail_timestamp",
+    "provider": "postiz",
+    "area": "media",
+    "title": "Per-video `thumbnailTimestamp` cover frame (Instagram, TikTok Direct Post)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a normalized cover offset (e.g. thumbOffsetMs) to thumbnailTimestamp for Instagram/TikTok",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bthumbnailTimestamp\\b"
+      ],
+      "test": [
+        "\\bthumbnailTimestamp\\b"
+      ],
+      "docs": [
+        "\\bthumbnailTimestamp\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.media.upload_file",
+    "provider": "postiz",
+    "area": "media",
+    "title": "POST /upload multipart (JPEG, PNG, GIF, WebP, AVIF, BMP, TIFF, MP4)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/uploads/upload-file.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Adapter limits to JPEG/PNG/GIF/WebP/MP4 because post-create path checks; AVIF/BMP/TIFF intentionally rejected (documented)",
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/upload\""
+      ],
+      "test": [
+        "POST /public/v1/upload\\\""
+      ],
+      "docs": [
+        "A `Blob` or stream is uploaded as a file"
+      ]
+    }
+  },
+  {
+    "id": "postiz.media.upload_from_url",
+    "provider": "postiz",
+    "area": "media",
+    "title": "POST /upload-from-url",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/uploads/upload-from-url.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/upload-from-url\""
+      ],
+      "test": [
+        "/upload-from-url"
+      ],
+      "docs": [
+        "An HTTPS URL is imported by Postiz"
+      ]
+    }
+  },
+  {
+    "id": "postiz.media.adjust",
+    "provider": "postiz",
+    "area": "media",
+    "title": "Upload `adjust=true` resizes/transcodes to platform limits, polled via GET /media/:id/status",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/uploads/media-status.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add an adjust option plus status polling before publish; would remove many platform media rejections",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\badjust\\b"
+      ],
+      "test": [
+        "\\badjust\\b"
+      ],
+      "docs": [
+        "\\badjust\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.media.list_library",
+    "provider": "postiz",
+    "area": "media",
+    "title": "GET /media: list the workspace media library",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/uploads/list-media.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional media library read",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/media\"|`/media\\b"
+      ],
+      "test": [
+        "/public/v1/media\\b"
+      ],
+      "docs": [
+        "media library|GET /media\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.read.list_posts",
+    "provider": "postiz",
+    "area": "read",
+    "title": "GET /posts: list posts in a date range",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/list.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Expose posts.list/posts.get backed by GET /posts with a date-window cursor",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"posts\\.list\""
+      ],
+      "test": [
+        "\"posts\\.list\""
+      ],
+      "docs": [
+        "posts\\.list"
+      ]
+    }
+  },
+  {
+    "id": "postiz.read.delivery_status",
+    "provider": "postiz",
+    "area": "read",
+    "title": "Post state QUEUE/PUBLISHED/ERROR/DRAFT via GET /posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/list.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"QUEUE\"",
+        "\"PUBLISHED\"",
+        "\"ERROR\""
+      ],
+      "test": [
+        "state: \"QUEUE\"",
+        "state: \"ERROR\""
+      ],
+      "docs": [
+        "## Poll for status",
+        "posts\\.getDelivery"
+      ]
+    }
+  },
+  {
+    "id": "postiz.edit.change_status",
+    "provider": "postiz",
+    "area": "edit",
+    "title": "PUT /posts/:id/status: move between draft and schedule",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/change-status.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Could back pause/resume of a scheduled post without deleting it",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/status\\b"
+      ],
+      "test": [
+        "/public/v1/posts/[^\\\"/]+/status"
+      ],
+      "docs": [
+        "/posts/:id/status|PUT .*/status\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.edit.update_settings",
+    "provider": "postiz",
+    "area": "edit",
+    "title": "PUT /posts/:id/settings: merge provider settings on an unpublished post",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/settings.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map posts.update for option-only edits on scheduled/draft posts",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/settings\\b"
+      ],
+      "test": [
+        "/public/v1/posts/[^\\\"/]+/settings"
+      ],
+      "docs": [
+        "/posts/:id/settings|PUT .*/settings\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.edit.missing_release",
+    "provider": "postiz",
+    "area": "edit",
+    "title": "GET /posts/:id/missing + PUT /posts/:id/release-id: resolve a published post whose platform ID is 'missing' (TikTok)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/missing-content.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Expose a native resolver so `unknown` TikTok outcomes can be fixed via API; docs currently send users to the dashboard",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/missing\\b",
+        "/release-id\\b"
+      ],
+      "test": [
+        "/release-id\\b"
+      ],
+      "docs": [
+        "/release-id\\b|/missing\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.delete.post",
+    "provider": "postiz",
+    "area": "delete",
+    "title": "DELETE /posts/:id and DELETE /posts/group/:group",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/posts/\\$\\{",
+        "\"DELETE\""
+      ],
+      "test": [
+        "pathname, \"/public/v1/posts/p1\""
+      ],
+      "docs": [
+        "Postiz deletes posts by group",
+        "posts\\.cancelScheduled"
+      ]
+    }
+  },
+  {
+    "id": "postiz.analytics.post",
+    "provider": "postiz",
+    "area": "analytics",
+    "title": "GET /analytics/post/:postId?date=N",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/analytics/post.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Fixed 30-day window; no period selection",
+    "effort": null,
+    "probe": {
+      "src": [
+        "/analytics/post/"
+      ],
+      "test": [
+        "/public/v1/analytics/post/"
+      ],
+      "docs": [
+        "analytics\\.getPostMetrics"
+      ]
+    }
+  },
+  {
+    "id": "postiz.analytics.platform",
+    "provider": "postiz",
+    "area": "analytics",
+    "title": "GET /analytics/:integration: channel metrics (followers, impressions, engagement)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/analytics/platform.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Implement analytics.getAccountMetrics for Postiz",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "`/analytics/\\$\\{"
+      ],
+      "test": [
+        "/public/v1/analytics/(?!post/)"
+      ],
+      "docs": [
+        "getAccountMetrics"
+      ]
+    }
+  },
+  {
+    "id": "postiz.webhooks.dashboard",
+    "provider": "postiz",
+    "area": "webhooks",
+    "title": "Dashboard webhooks fired when a post publishes (Standard plan+, no documented signature)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/general/automations/webhooks.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "test": [
+        "feature:postiz\\.webhooks\\.dashboard\\b"
+      ],
+      "docs": [
+        "[Ww]ebhook"
+      ]
+    }
+  },
+  {
+    "id": "postiz.other.notifications",
+    "provider": "postiz",
+    "area": "other",
+    "title": "GET /notifications: paginated workspace notifications (publish errors etc.)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/notifications/list.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Could surface Postiz error reasons that GET /posts lacks (docs say failed has no reason)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/notifications\""
+      ],
+      "test": [
+        "/public/v1/notifications\\b"
+      ],
+      "docs": [
+        "/notifications\\b|\\bnotifications\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.other.generate_video",
+    "provider": "postiz",
+    "area": "other",
+    "title": "POST /generate-video and /video/function: AI video generation",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of SDK scope; note as excluded",
+    "effort": null,
+    "probe": {
+      "src": [
+        "/generate-video\\b"
+      ],
+      "test": [
+        "/generate-video\\b"
+      ],
+      "docs": [
+        "/generate-video\\b|generate video"
+      ]
+    }
+  },
+  {
+    "id": "postiz.other.clipping",
+    "provider": "postiz",
+    "area": "other",
+    "title": "POST/GET /clipping: long YouTube video to short clips with draft posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/llms.txt",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of SDK scope; note as excluded",
+    "effort": null,
+    "probe": {
+      "src": [
+        "/clipping\\b"
+      ],
+      "test": [
+        "/clipping\\b"
+      ],
+      "docs": [
+        "/clipping\\b|\\bclipping\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.other.rate_limit",
+    "provider": "postiz",
+    "area": "other",
+    "title": "Create-post rate limit 100/h cloud, 90/h self-host default (API_LIMIT), multiple posts per request count once",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/introduction.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Docs say 'Each target is one create request'; Postiz allows batching many posts per request to save quota, adapter does not batch",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "error\\.status === 429",
+        "\"rate_limited\""
+      ],
+      "test": [
+        "Response\\.json\\(\\{\\}, \\{ status: 429 \\}\\), \"rate_limited\""
+      ],
+      "docs": [
+        "\\bAPI_LIMIT\\b",
+        "several posts in one request|batch"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.x.who_can_reply",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "X who_can_reply_post (everyone, following, mentionedUsers, subscribers, verified)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/x.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "subscribers and verified values rejected by the normalized allow-list",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bwho_can_reply_post\\b",
+        "\"subscribers\""
+      ],
+      "test": [
+        "\\bwho_can_reply_post\\b"
+      ],
+      "docs": [
+        "`who_can_reply_post`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.x.community",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "X `community` (post to an X Community)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/x.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a communityId/URL option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcommunity\\b"
+      ],
+      "test": [
+        "\\bcommunity\\b"
+      ],
+      "docs": [
+        "\\bcommunity\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.x.disclosures",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "X `made_with_ai` and `paid_partnership` flags",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/x.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map aiGenerated and paidPartnership options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmade_with_ai\\b",
+        "\\bpaid_partnership\\b"
+      ],
+      "test": [
+        "\\bpaid_partnership\\b"
+      ],
+      "docs": [
+        "\\bpaid_partnership\\b|paidPartnership"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.x.article",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "X long-form articles: post_type=article, article_title, article_status, article_cover",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/x.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add an article format for X via Postiz (HTML body, title, cover)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\barticle_title\\b"
+      ],
+      "test": [
+        "\\barticle_title\\b"
+      ],
+      "docs": [
+        "\\barticle_title\\b|X articles?"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.instagram.feed",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Instagram post_type=post (feed image, carousel, reel by video)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/instagram.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "post_type: \"post\""
+      ],
+      "test": [
+        "instagram\\.share_to_feed_unsupported"
+      ],
+      "docs": [
+        "Instagram targets post to the feed"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.instagram.story",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Instagram post_type=story",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/instagram.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a story format/option",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.instagram\\.story\\b"
+      ],
+      "docs": [
+        "post_type.{0,20}story|Instagram stor(y|ies)"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.instagram.trial_reel",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Instagram is_trial_reel + graduation_strategy (MANUAL, SS_PERFORMANCE)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/instagram.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map trialReel options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_trial_reel\\b",
+        "\\bgraduation_strategy\\b"
+      ],
+      "test": [
+        "\\bis_trial_reel\\b"
+      ],
+      "docs": [
+        "\\bis_trial_reel\\b|trial reel"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.instagram.collaborators",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Instagram collaborators (invite by username)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/instagram.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a collaborators option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcollaborators\\b"
+      ],
+      "test": [
+        "\\bcollaborators\\b"
+      ],
+      "docs": [
+        "\\bcollaborators\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.instagram.audio",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Instagram Reel audio (id, audio_volume, video_volume) via Instagram Audio API",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/instagram.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map reel audio; needs trigger tool for search",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\baudio_volume\\b"
+      ],
+      "test": [
+        "\\baudio_volume\\b"
+      ],
+      "docs": [
+        "\\baudio_volume\\b|Reel audio"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.facebook.link_url",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Facebook `url` link attachment",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/facebook.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map content.link to Facebook settings.url instead of rejecting",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.facebook\\.link_url\\b"
+      ],
+      "docs": [
+        "Facebook.{0,80}`url`|Facebook.{0,80}\\blink\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.facebook.story",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Facebook post_type=story (each attachment one story)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/facebook.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a story option",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.facebook\\.story\\b"
+      ],
+      "docs": [
+        "Facebook stor(y|ies)"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.facebook.text_background",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Facebook text_format_preset_id background for short text posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/facebook.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional pass-through",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btext_format_preset_id\\b"
+      ],
+      "test": [
+        "\\btext_format_preset_id\\b"
+      ],
+      "docs": [
+        "\\btext_format_preset_id\\b|text background"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.facebook.video_title",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Facebook video `title`",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/facebook.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map title for Facebook video posts",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.facebook\\.video_title\\b"
+      ],
+      "docs": [
+        "Facebook.{0,40}\\btitle\\b"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.youtube.core",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "YouTube title, type (public/unlisted/private), selfDeclaredMadeForKids",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/youtube.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bselfDeclaredMadeForKids\\b",
+        "type: string\\(config\\[\"visibility\"\\]\\)"
+      ],
+      "test": [
+        "\\bselfDeclaredMadeForKids\\b"
+      ],
+      "docs": [
+        "`selfDeclaredMadeForKids`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.youtube.thumbnail",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "YouTube custom `thumbnail` (uploaded media object)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/youtube.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Map MediaAttachment.thumbnail to YouTube settings.thumbnail after upload",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.youtube\\.thumbnail\\b"
+      ],
+      "docs": [
+        "YouTube.{0,80}`?thumbnail`?"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.youtube.tags",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "YouTube video `tags`",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/youtube.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a tags option",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.youtube\\.tags\\b"
+      ],
+      "docs": [
+        "YouTube.{0,40}`?tags`?"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.tiktok.direct_post",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "TikTok privacy_level, duet, stitch, comment, brand toggles, video_made_with_ai, DIRECT_POST/UPLOAD",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/tiktok.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bprivacy_level\\b",
+        "\\bbrand_content_toggle\\b",
+        "\\bcontent_posting_method\\b"
+      ],
+      "test": [
+        "content_posting_method: \"DIRECT_POST\"",
+        "\\bbrand_content_toggle\\b"
+      ],
+      "docs": [
+        "`privacy_level`",
+        "`content_posting_method`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.tiktok.auto_add_music",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "TikTok autoAddMusic for photo posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/tiktok.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Allow an autoAddMusic option for photo posts",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.tiktok\\.auto_add_music\\b"
+      ],
+      "docs": [
+        "`autoAddMusic: \\\"no\\\"`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.tiktok.title",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "TikTok `title` (max 90 chars); kept on UPLOAD and applied on DIRECT_POST",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/tiktok.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "partial",
+    "docs": "wrong",
+    "gap": "Docs contradict code (title is mapped on drafts) and the earlier sentence; also Postiz now documents title for direct posts, so the draft-only restriction is narrower than the API",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.tiktok\\.title\\b"
+      ],
+      "docs": [
+        "TikTok.{0,40}`title`"
+      ],
+      "forbid": [
+        "The SDK does not map that title and rejects it as an unmapped option"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.linkedin.carousel",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "LinkedIn post_as_images_carousel + carousel_name (images as swipeable document)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/linkedin.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a LinkedIn carousel option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpost_as_images_carousel\\b",
+        "\\bcarousel_name\\b"
+      ],
+      "test": [
+        "\\bpost_as_images_carousel\\b"
+      ],
+      "docs": [
+        "\\bpost_as_images_carousel\\b|LinkedIn carousel"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.linkedin.company_mention",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "LinkedIn company page mentions via trigger `mention` tool and span markup",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/linkedin.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add mention support (needs trigger passthrough)",
+    "effort": "M",
+    "probe": {
+      "test": [
+        "feature:postiz\\.publish\\.linkedin\\.company_mention\\b"
+      ],
+      "docs": [
+        "LinkedIn.{0,60}mention"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.pinterest",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Pinterest board, title, link, dominant_color",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/pinterest.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "dominant_color not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdominant_color\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.pinterest\\b"
+      ],
+      "docs": [
+        "`boardId`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.reddit",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Reddit subreddit[] with title, type self/link/image/video, url, flair",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/reddit.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Link posts (type=link + url), flair, and multiple subreddits not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_flair_required\\b",
+        "type: [^\\n]*\"link\""
+      ],
+      "test": [
+        "\\bis_flair_required: false"
+      ],
+      "docs": [
+        "Reddit needs `subreddit`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.gmb",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Google Business topicType STANDARD/EVENT/OFFER, call-to-action, event and offer fields",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/gmb.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map GBP post types and CTA (normalized options exist for zernio/postfast)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\btopicType\\b"
+      ],
+      "test": [
+        "\\btopicType\\b"
+      ],
+      "docs": [
+        "\\btopicType\\b|call-to-action"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.discord",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Discord channel",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/discord.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "channel: string\\(config\\[\"channelId\"\\]\\)"
+      ],
+      "test": [
+        "\\{ channel: \"999\" \\}"
+      ],
+      "docs": [
+        "Discord needs `channelId`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.publish.threads_bluesky_mastodon_telegram",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Threads, Bluesky, Mastodon, Telegram single posts (no settings)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/threads.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\[\"threads\", \"threads\"\\]",
+        "\\[\"bluesky\", \"bluesky\"\\]",
+        "\\[\"mastodon\", \"mastodon\"\\]",
+        "\\[\"telegram\", \"telegram\"\\]"
+      ],
+      "test": [
+        "\"mastodon\"",
+        "\"telegram\""
+      ],
+      "docs": [
+        "`mastodon`",
+        "`telegram`"
+      ]
+    }
+  },
+  {
+    "id": "postiz.edit.update_post",
+    "provider": "postiz",
+    "area": "edit",
+    "title": "Edit a scheduled post's content in place: POST /posts with the existing group and value[].id (type update), republish opt-in for published posts",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No helper re-submits POST /posts with group and value ids to edit text or media of an unpublished post; `republish` is never sent",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\brepublish\\b"
+      ],
+      "test": [
+        "feature:postiz\\.edit\\.update_post\\b"
+      ],
+      "docs": [
+        "\\brepublish\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.scheduling.repeat",
+    "provider": "postiz",
+    "area": "scheduling",
+    "title": "Repeating posts: POST /posts `inter` (repeat every N days, the composer's Repeat Post Every)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/create.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "The create body never sends `inter`, so a recurring post cannot be scheduled",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\binter\\b"
+      ],
+      "test": [
+        "\\binter\\b"
+      ],
+      "docs": [
+        "\\binter\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.read.list_posts_customer",
+    "provider": "postiz",
+    "area": "read",
+    "title": "GET /posts `customer` query: list one customer's posts",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/posts/list.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "posts.list sends only startDate/endDate; the `customer` filter is not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcustomer\\b"
+      ],
+      "test": [
+        "feature:postiz\\.read\\.list_posts_customer\\b"
+      ],
+      "docs": [
+        "`customer`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.twitch.announcement",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Twitch messageType (message, announcement) and announcementColor (primary, blue, green, orange, purple)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/twitch.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Twitch posts go out as plain chat messages; messageType and announcementColor are never set",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmessageType\\b",
+        "\\bannouncementColor\\b"
+      ],
+      "test": [
+        "\\bannouncementColor\\b"
+      ],
+      "docs": [
+        "\\bannouncementColor\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.slack",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Slack channel posts (settings.channel)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/slack.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Postiz Slack channels are read-only (unknownPlatforms include); no platform id or `channel` mapping",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"slack\""
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.slack\\b"
+      ],
+      "docs": [
+        "`slack`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.lemmy",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Lemmy community posts (subreddit[] with id, subreddit, title, url)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/lemmy.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Lemmy platform; Postiz Lemmy channels cannot be published to",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"lemmy\""
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.lemmy\\b"
+      ],
+      "docs": [
+        "`lemmy`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.warpcast",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Warpcast (Farcaster) casts with optional channel selection (subreddit[].value.id)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/warpcast.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Warpcast platform; casts and channel selection are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"warpcast\""
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.warpcast\\b"
+      ],
+      "docs": [
+        "`warpcast`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.nostr_vk_kick",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Settings-free Postiz channels: Nostr, VK, Kick",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/nostr.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Nostr, VK and Kick channels are listed read-only; text/media posts to them are not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"nostr\"",
+        "\"vk\"",
+        "\"kick\""
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.nostr_vk_kick\\b"
+      ],
+      "docs": [
+        "`nostr`",
+        "`vk`",
+        "`kick`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.medium",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Medium articles: title, subtitle, canonical, publication, tags",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/medium.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Medium platform; article fields are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"medium\"",
+        "\\bsubtitle\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.medium\\b"
+      ],
+      "docs": [
+        "`medium`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.devto",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Dev.to articles: title, main_image, canonical, organization, tags",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/devto.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Dev.to platform; article fields are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"devto\"",
+        "\\bmain_image\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.devto\\b"
+      ],
+      "docs": [
+        "`devto`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.hashnode",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Hashnode articles: title, subtitle, main_image, canonical, publication, tags",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/hashnode.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Hashnode platform; article fields are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"hashnode\"",
+        "\\bmain_image\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.hashnode\\b"
+      ],
+      "docs": [
+        "`hashnode`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.wordpress",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "WordPress posts/pages: title, main_image, type, status (publish, draft, pending, private), categories, tags",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/wordpress.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No WordPress platform; post fields are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"wordpress\"",
+        "\\bcategories\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.wordpress\\b"
+      ],
+      "docs": [
+        "`wordpress`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.listmonk",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Listmonk newsletter campaigns: subject, preview, list, template",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/listmonk.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Listmonk platform; newsletter fields are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"listmonk\"",
+        "\\bsubject\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.listmonk\\b"
+      ],
+      "docs": [
+        "`listmonk`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.dribbble",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Dribbble shots: title, team",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/dribbble.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Dribbble platform; shot fields are not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"dribbble\""
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.dribbble\\b"
+      ],
+      "docs": [
+        "`dribbble`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.tumblr",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Tumblr posts: title, link, sourceUrl, tags",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/tumblr.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Tumblr platform; post fields are not mapped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"tumblr\"",
+        "\\bsourceUrl\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.tumblr\\b"
+      ],
+      "docs": [
+        "`tumblr`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.mewe",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "MeWe posts: postType, group, timeline",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/mewe.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No MeWe platform; group/timeline targeting is not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"mewe\"",
+        "\\btimeline\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.mewe\\b"
+      ],
+      "docs": [
+        "`mewe`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.moltbook",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Moltbook posts to a submolt",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/moltbook.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Moltbook platform; `submolt` is not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"moltbook\"",
+        "\\bsubmolt\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.moltbook\\b"
+      ],
+      "docs": [
+        "`moltbook`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.skool",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Skool community posts: group, label (category), title",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/skool.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Skool platform; group/label/title are not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"skool\""
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.skool\\b"
+      ],
+      "docs": [
+        "`skool`"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postiz.publish.whop",
+    "provider": "postiz",
+    "area": "publish",
+    "title": "Whop forum posts: company, experience, title",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.postiz.com/public-api/providers/whop.md",
+      "checked": "2026-11-04",
+      "apiVersion": "public/v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Whop platform; company/experience/title are not mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"whop\"",
+        "\\bexperience\\b"
+      ],
+      "test": [
+        "feature:postiz\\.publish\\.whop\\b"
+      ],
+      "docs": [
+        "`whop`"
+      ]
+    },
+    "round": 2
+  }
+]

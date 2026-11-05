@@ -1,0 +1,1021 @@
+[
+  {
+    "id": "post-for-me.account.list",
+    "provider": "post-for-me",
+    "area": "account",
+    "title": "List and get social accounts (offset paging, status)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v1/social-accounts\\b"
+      ],
+      "test": [
+        "/v1/social-accounts\\b"
+      ],
+      "docs": [
+        "accounts\\.list"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.account.tiktok_business",
+    "provider": "post-for-me",
+    "area": "account",
+    "title": "tiktok_business platform accounts (publish config and metrics)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map tiktok_business to tiktok (as Postiz does) and send platform_configurations.tiktok_business",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "tiktok_business"
+      ],
+      "test": [
+        "tiktok_business"
+      ],
+      "docs": [
+        "tiktok_business|TikTok Business"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.account.connect",
+    "provider": "post-for-me",
+    "area": "auth",
+    "title": "Auth URL with permissions, external_id, redirect_url_override, platform_data, force_reauth",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "platform_data (LinkedIn org, Bluesky app password, IG/X connection modes) and force_reauth not supported",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/social-accounts/auth-url",
+        "platform_data",
+        "force_reauth"
+      ],
+      "test": [
+        "/v1/social-accounts/auth-url",
+        "platform_data",
+        "force_reauth"
+      ],
+      "docs": [
+        "redirect_url_override"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.account.byo_tokens",
+    "provider": "post-for-me",
+    "area": "account",
+    "title": "Create account from your own tokens; update external_id; disconnect; delete",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add disconnect and delete helpers; token import optional",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/disconnect\\b"
+      ],
+      "test": [
+        "/disconnect\\b"
+      ],
+      "docs": [
+        "/disconnect\\b|[Dd]isconnect"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.basic",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Create post: caption, media, social_accounts, external_id",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "caption",
+        "social_accounts"
+      ],
+      "test": [
+        "caption",
+        "social_accounts"
+      ],
+      "docs": [
+        "social_accounts"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.scheduling",
+    "provider": "post-for-me",
+    "area": "scheduling",
+    "title": "scheduled_at (UTC); null posts instantly",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "scheduled_at"
+      ],
+      "test": [
+        "scheduled_at"
+      ],
+      "docs": [
+        "[Ss]chedule"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.scheduling.draft",
+    "provider": "post-for-me",
+    "area": "scheduling",
+    "title": "isDraft posts (not processed)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Optional draft submission",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bisDraft\\b"
+      ],
+      "test": [
+        "\\bisDraft\\b"
+      ],
+      "docs": [
+        "\\bisDraft\\b"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.edit.update_post",
+    "provider": "post-for-me",
+    "area": "edit",
+    "title": "Update a post (PUT /v1/social-posts/{id}) before it publishes",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Expose reschedule/edit of a scheduled post",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/social-posts",
+        "posts\\.update"
+      ],
+      "test": [
+        "/v1/social-posts",
+        "posts\\.update"
+      ],
+      "docs": [
+        "[Ss]chedule",
+        "posts\\.update|[Rr]eschedule"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.delete.post",
+    "provider": "post-for-me",
+    "area": "delete",
+    "title": "Delete post record",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "posts\\.deleteBackendRecord"
+      ],
+      "test": [
+        "posts\\.deleteBackendRecord"
+      ],
+      "docs": [
+        "[Dd]elete"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.previews",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Post previews (POST /v1/social-post-previews)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native preview helper (useful for TikTok's preview-before-consent rule)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "social-post-previews"
+      ],
+      "test": [
+        "social-post-previews"
+      ],
+      "docs": [
+        "social-post-previews|[Pp]ost previews?"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.media.upload",
+    "provider": "post-for-me",
+    "area": "media",
+    "title": "Create upload URL; media deleted after publish or 24h unattached",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v1/media/create-upload-url"
+      ],
+      "test": [
+        "upload_url|create-upload-url"
+      ],
+      "docs": [
+        "[Uu]pload"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.media.alt_text",
+    "provider": "post-for-me",
+    "area": "media",
+    "title": "Media alt_text passed to platforms that support it",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "wrong",
+    "gap": "SocialPostMediaDto now has alt_text: send it instead of rejecting, and fix the docs and error message",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\balt_text\\b"
+      ],
+      "test": [
+        "\\balt_text\\b"
+      ],
+      "docs": [
+        "alt_text|altText"
+      ],
+      "forbid": [
+        "rejects `altText`, because Post for Me has no field for it"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.media.thumbnail",
+    "provider": "post-for-me",
+    "area": "media",
+    "title": "Video thumbnail_url / thumbnail_timestamp_ms per media item",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map MediaAttachment.thumbnail to thumbnail_url",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "thumbnail_url|thumbnail_timestamp_ms"
+      ],
+      "test": [
+        "thumbnail_url|thumbnail_timestamp_ms"
+      ],
+      "docs": [
+        "thumbnail"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.media.user_tags",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Media tags: Instagram/Facebook user tags and Instagram product tags with x/y",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map user tags",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:post-for-me\\.media\\.user_tags\\b"
+      ],
+      "docs": [
+        "userTags|[Uu]ser tags"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.x.reply_settings",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "X reply_settings: following, mentionedUsers, subscribers, verified",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "subscribers and verified not accepted",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "reply_settings",
+        "\\\"subscribers\\\""
+      ],
+      "test": [
+        "reply_settings",
+        "\\\"subscribers\\\""
+      ],
+      "docs": [
+        "replySettings|reply_settings"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.x.poll_quote_community",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "X poll, quote_tweet_id, community_id",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add X poll, quote and community post options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "quote_tweet_id",
+        "community_id",
+        "\\bpoll\\b"
+      ],
+      "test": [
+        "quote_tweet_id",
+        "community_id",
+        "\\bpoll\\b"
+      ],
+      "docs": [
+        "quote_tweet_id|community_id|\\b[Pp]oll\\b"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.instagram.placement",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Instagram placement (reels, stories, timeline) and share_to_feed",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add Story/Reel placement",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "share_to_feed",
+        "\\bplacement\\b"
+      ],
+      "test": [
+        "share_to_feed",
+        "\\bplacement\\b"
+      ],
+      "docs": [
+        "shareToFeed|share_to_feed",
+        "\\bplacement\\b|[Ss]tor(y|ies)\\b|\\b[Rr]eels?\\b"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.instagram.extra",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Instagram collaborators, location, trial_reel_type, audio_name, is_ai_generated",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map collaborators, location, trial reels, audio name and AI label",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "trial_reel_type",
+        "audio_name",
+        "\\bcollaborators\\b"
+      ],
+      "test": [
+        "trial_reel_type",
+        "audio_name",
+        "\\bcollaborators\\b"
+      ],
+      "docs": [
+        "trial_reel_type|audio_name|collaborators"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.facebook",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Facebook placement (reels, stories, timeline), location, Reel collaborators, set_caption_for_each_image",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map the existing reel option to placement and add stories/collaborators",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "set_caption_for_each_image",
+        "\\bplacement\\b"
+      ],
+      "test": [
+        "set_caption_for_each_image",
+        "\\bplacement\\b"
+      ],
+      "docs": [
+        "set_caption_for_each_image|\\bplacement\\b"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.youtube.basic",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "YouTube title, privacy_status, made_for_kids",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Docs page has no YouTube section",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "privacy_status",
+        "made_for_kids"
+      ],
+      "test": [
+        "privacy_status",
+        "made_for_kids"
+      ],
+      "docs": [
+        "YouTube[^\\n]*(privacy_status|made_for_kids|madeForKids)"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.youtube.extra",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "YouTube description, tags, category_id, default_language, localizations, embeddable, license, public_stats_viewable, publish_at, contains_synthetic_media, has_paid_product_placement, recording_date",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map categoryId, tags, description, synthetic-media and paid-placement disclosures at minimum",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "category_id",
+        "contains_synthetic_media",
+        "has_paid_product_placement"
+      ],
+      "test": [
+        "category_id",
+        "contains_synthetic_media",
+        "has_paid_product_placement"
+      ],
+      "docs": [
+        "category_id|contains_synthetic_media|has_paid_product_placement"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.tiktok.privacy",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "TikTok privacy_status: public, private, followers, friends",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Map FOLLOWER_OF_CREATOR to followers and MUTUAL_FOLLOW_FRIENDS to friends; fix stale error message",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "privacy_status",
+        "\\\"friends\\\""
+      ],
+      "test": [
+        "privacy_status",
+        "\\\"friends\\\""
+      ],
+      "docs": [
+        "FOLLOWER_OF_CREATOR|MUTUAL_FOLLOW_FRIENDS|\\\"friends\\\""
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.tiktok.controls",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "TikTok allow_comment/duet/stitch, disclose_your_brand, disclose_branded_content, is_ai_generated, is_draft",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "disclose_your_brand",
+        "is_ai_generated",
+        "allow_duet"
+      ],
+      "test": [
+        "disclose_your_brand",
+        "is_ai_generated",
+        "allow_duet"
+      ],
+      "docs": [
+        "brandedContent|ownBrand|aiGenerated"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.tiktok.title_music",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "TikTok title and auto_add_music for photo posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Allow the existing title/autoAddMusic TikTok options for Post for Me",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:post\\-for\\-me\\.publish\\.tiktok\\.title_music\\b"
+      ],
+      "docs": [
+        "autoAddMusic|auto_add_music"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.linkedin",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "LinkedIn PDF document posts with viewer title; reshare_post_id",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept PDF documents and map title; add reshare",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "reshare_post_id"
+      ],
+      "test": [
+        "reshare_post_id"
+      ],
+      "docs": [
+        "reshare_post_id|[Rr]eshare"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.threads.placement",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Threads placement option",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Low priority",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:post-for-me\\.publish\\.threads\\.placement\\b"
+      ],
+      "docs": [
+        "Threads[^\\n]*placement"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.pinterest",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Pinterest board_ids (multiple), title, link",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Only one board per pin",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "board_ids"
+      ],
+      "test": [
+        "feature:post\\-for\\-me\\.publish\\.pinterest\\b"
+      ],
+      "docs": [
+        "boardId"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.read.status",
+    "provider": "post-for-me",
+    "area": "read",
+    "title": "Get post by id and per-account post results",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v1/social-post-results"
+      ],
+      "test": [
+        "/v1/social-post-results"
+      ],
+      "docs": [
+        "getDelivery"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.read.feed",
+    "provider": "post-for-me",
+    "area": "read",
+    "title": "Social account feed (native posts) with cursor and platform_post_id filter",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v1/social-account-feeds",
+        "platform_post_id"
+      ],
+      "test": [
+        "/v1/social-account-feeds",
+        "platform_post_id"
+      ],
+      "docs": [
+        "posts\\.list|[Ff]eed"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.analytics.post",
+    "provider": "post-for-me",
+    "area": "analytics",
+    "title": "Feed metrics (expand=metrics) per platform DTO",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Instagram saved/watch time, Threads quotes/reposts, YouTube watch time/subscribers, X organic/non-public metrics, nested Pinterest 90d/lifetime and TikTok Business metrics are dropped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"metrics\"",
+        "\\bsaved\\b"
+      ],
+      "test": [
+        "\"metrics\"",
+        "\\bsaved\\b"
+      ],
+      "docs": [
+        "[Aa]nalytics"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.webhooks.verify_decode",
+    "provider": "post-for-me",
+    "area": "webhooks",
+    "title": "Post-For-Me-Webhook-Secret header; post and account events",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "Post-For-Me-Webhook-Secret"
+      ],
+      "test": [
+        "Post-For-Me-Webhook-Secret"
+      ],
+      "docs": [
+        "Post-For-Me-Webhook-Secret"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.webhooks.manage",
+    "provider": "post-for-me",
+    "area": "webhooks",
+    "title": "Webhook CRUD (create returns secret)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 1.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add a native createWebhook helper since there is no dashboard UI",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v1/webhooks"
+      ],
+      "test": [
+        "/v1/webhooks"
+      ],
+      "docs": [
+        "/v1/webhooks",
+        "webhooks\\.create|createWebhook"
+      ]
+    }
+  },
+  {
+    "id": "post-for-me.publish.per_target_overrides",
+    "provider": "post-for-me",
+    "area": "publish",
+    "title": "Per-platform and per-account caption and media overrides (platform_configurations.<platform>.caption/media, account_configurations[].configuration)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Every destination gets the same caption and media; overrides are only preserved on update, never set",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\baccount_configurations:"
+      ],
+      "test": [
+        "feature:post-for-me\\.publish\\.per_target_overrides\\b"
+      ],
+      "docs": [
+        "account_configurations"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "post-for-me.media.processing_order",
+    "provider": "post-for-me",
+    "area": "media",
+    "title": "Media item skip_processing (post as-is, for large files) and explicit index ordering",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Neither media item option is mapped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bskip_processing\\b"
+      ],
+      "test": [
+        "\\bskip_processing\\b"
+      ],
+      "docs": [
+        "skip_processing"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "post-for-me.read.feed_filters",
+    "provider": "post-for-me",
+    "area": "read",
+    "title": "Account feed filters by Post for Me post (social_post_id) and external_post_id",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://api.postforme.dev/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Feed can filter only by platform_post_id; finding the native post for an SDK delivery needs a scan",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bsocial_post_id\\b",
+        "\\bexternal_post_id\\b"
+      ],
+      "test": [
+        "external_post_id"
+      ],
+      "docs": [
+        "external_post_id"
+      ]
+    },
+    "round": 2
+  }
+]

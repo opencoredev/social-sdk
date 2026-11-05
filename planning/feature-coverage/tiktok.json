@@ -1,0 +1,1779 @@
+[
+  {
+    "id": "tiktok.publish.video.direct_post",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Direct Post a video (POST /v2/post/publish/video/init/, video.publish)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v2/post/publish/video/init/",
+        "video\\.publish"
+      ],
+      "test": [
+        "/v2/post/publish/video/init/",
+        "video\\.publish"
+      ],
+      "docs": [
+        "video\\.publish",
+        "Publish a video"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.pull_from_url",
+    "provider": "tiktok",
+    "area": "media",
+    "title": "Video source PULL_FROM_URL from a verified domain or URL prefix",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "PULL_FROM_URL",
+        "\\bvideo_url\\b"
+      ],
+      "test": [
+        "PULL_FROM_URL",
+        "\\bvideo_url\\b"
+      ],
+      "docs": [
+        "PULL_FROM_URL",
+        "verifiedMediaOrigins"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.file_upload",
+    "provider": "tiktok",
+    "area": "media",
+    "title": "Video source FILE_UPLOAD with chunked PUT to upload_url (5-64 MB chunks, final up to 128 MB, max 1000 chunks, 4 GB)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "FILE_UPLOAD",
+        "\\bupload_url\\b",
+        "\\bchunk_size\\b",
+        "\\btotal_chunk_count\\b"
+      ],
+      "test": [
+        "FILE_UPLOAD",
+        "\\bupload_url\\b",
+        "\\bchunk_size\\b",
+        "\\btotal_chunk_count\\b"
+      ],
+      "docs": [
+        "FILE_UPLOAD",
+        "uploadChunkBytes"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.title",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Video caption post_info.title (2200 UTF-16, hashtags and mentions parsed)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bpost_info\\b",
+        "\\btitle\\b"
+      ],
+      "test": [
+        "\\bpost_info\\b",
+        "\\btitle\\b"
+      ],
+      "docs": [
+        "\\bcaption\\b",
+        "\\bpost_info\\b"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.privacy_level",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.privacy_level from creator privacy_level_options (no default)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-sharing-guidelines",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bprivacy_level\\b",
+        "\\bprivacy_level_options\\b"
+      ],
+      "test": [
+        "\\bprivacy_level\\b",
+        "\\bprivacy_level_options\\b"
+      ],
+      "docs": [
+        "privacyLevels",
+        "no default privacy"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.disable_comment",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.disable_comment (video and photo Direct Post)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bdisable_comment\\b"
+      ],
+      "test": [
+        "\\bdisable_comment\\b"
+      ],
+      "docs": [
+        "disable_comment|disableComments"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.disable_duet",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.disable_duet (video only)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bdisable_duet\\b"
+      ],
+      "test": [
+        "\\bdisable_duet\\b"
+      ],
+      "docs": [
+        "disable_duet|disableDuet"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.disable_stitch",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.disable_stitch (video only)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bdisable_stitch\\b"
+      ],
+      "test": [
+        "\\bdisable_stitch\\b"
+      ],
+      "docs": [
+        "disable_stitch|disableStitch"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.video_cover_timestamp_ms",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.video_cover_timestamp_ms (choose the video cover frame)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a TikTokPublishOptions field (e.g. videoCoverTimestampMs, non-negative int, video Direct Post only), send it in post_info, document it next to photoCoverIndex",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bvideo_cover_timestamp_ms\\b"
+      ],
+      "test": [
+        "\\bvideo_cover_timestamp_ms\\b"
+      ],
+      "docs": [
+        "video_cover_timestamp_ms|videoCoverTimestampMs"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.brand_content_toggle",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.brand_content_toggle (paid partnership, cannot be SELF_ONLY)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bbrand_content_toggle\\b"
+      ],
+      "test": [
+        "\\bbrand_content_toggle\\b"
+      ],
+      "docs": [
+        "brand_content_toggle|brandedContent"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.brand_organic_toggle",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.brand_organic_toggle (promotes the creator's own business)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bbrand_organic_toggle\\b"
+      ],
+      "test": [
+        "\\bbrand_organic_toggle\\b"
+      ],
+      "docs": [
+        "brand_organic_toggle|ownBrand"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.commercial_disclosure_ux",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Commercial content disclosure UX: 'Promotional content' / 'Paid partnership' labels and Branded Content Policy declaration",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-sharing-guidelines",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Docs say to show disclosure prompts but not TikTok's required label text, the 'toggle on with nothing selected disables publish' rule, or the Branded Content Policy declaration; link the guideline section",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bbrand_content_toggle\\b",
+        "\\bbrand_organic_toggle\\b",
+        "SELF_ONLY"
+      ],
+      "test": [
+        "\\bbrand_content_toggle\\b",
+        "\\bbrand_organic_toggle\\b",
+        "SELF_ONLY"
+      ],
+      "docs": [
+        "commercial-content disclosure",
+        "Paid partnership",
+        "Branded Content Policy"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.is_aigc",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "post_info.is_aigc for video (AI-generated label)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bis_aigc\\b"
+      ],
+      "test": [
+        "\\bis_aigc\\b"
+      ],
+      "docs": [
+        "is_aigc|aiGenerated"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.photo.direct_post",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Photo post / carousel up to 35 images (POST /v2/post/publish/content/init/, media_type PHOTO, post_mode DIRECT_POST)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-photo-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v2/post/publish/content/init/",
+        "\\bphoto_images\\b",
+        "\"PHOTO\""
+      ],
+      "test": [
+        "/v2/post/publish/content/init/|content/init",
+        "\\bphoto_images\\b"
+      ],
+      "docs": [
+        "Publish a photo carousel"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.photo.title_description",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Photo post_info.title (90 UTF-16) and post_info.description (4000 UTF-16)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-photo-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bphoto_images\\b",
+        "\\bdescription:"
+      ],
+      "test": [
+        "\\bphoto_images\\b",
+        "\\bdescription\\b"
+      ],
+      "docs": [
+        "\\bdescription\\b",
+        "4,000|4000"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.photo.photo_cover_index",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Photo source_info.photo_cover_index (zero-based cover)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-photo-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bphoto_cover_index\\b"
+      ],
+      "test": [
+        "\\bphoto_cover_index\\b"
+      ],
+      "docs": [
+        "photo_cover_index|photoCoverIndex"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.photo.auto_add_music",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Photo post_info.auto_add_music (recommended music, Direct Post only)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-photo-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "TikTok's native photo Direct Post accepts auto_add_music; let the direct adapter pass autoAddMusic (photo + DIRECT_POST only) and stop calling it Zernio-only",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bauto_add_music\\b"
+      ],
+      "test": [
+        "feature:tiktok\\.publish\\.photo\\.auto_add_music\\b"
+      ],
+      "docs": [
+        "autoAddMusic|auto_add_music",
+        "(autoAddMusic|auto_add_music)[^\\n]{0,200}Direct Post|Direct Post[^\\n]{0,200}(autoAddMusic|auto_add_music)"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.photo.is_aigc",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Photo top-level is_aigc (AI-generated tag)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-photo-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bis_aigc\\b",
+        "\"PHOTO\""
+      ],
+      "test": [
+        "\\bis_aigc\\b",
+        "\\bphoto_images\\b"
+      ],
+      "docs": [
+        "is_aigc|aiGenerated"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.inbox_upload",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Upload video to creator inbox as draft (POST /v2/post/publish/inbox/video/init/, video.upload; source_info only)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-upload-video",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v2/post/publish/inbox/video/init/",
+        "video\\.upload"
+      ],
+      "test": [
+        "feature:tiktok\\.publish\\.video\\.inbox_upload\\b"
+      ],
+      "docs": [
+        "video\\.upload",
+        "creator's inbox"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.photo.media_upload",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Photo inbox draft (content/init post_mode MEDIA_UPLOAD, video.upload; needs TikTok app 31.8+)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-photo-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "TikTok marks disable_comment, auto_add_music and brand toggles as DIRECT_POST-only and privacy_level as required only for DIRECT_POST; omit them for MEDIA_UPLOAD. Docs should mention app_version_check_failed (creator app 31.8+)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "MEDIA_UPLOAD"
+      ],
+      "test": [
+        "feature:tiktok\\.publish\\.photo\\.media_upload\\b"
+      ],
+      "docs": [
+        "MEDIA_UPLOAD",
+        "app_version_check_failed|31\\.8"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.creator_info_query",
+    "provider": "tiktok",
+    "area": "read",
+    "title": "Query creator info (POST /v2/post/publish/creator_info/query/: avatar, username, nickname, privacy options, interaction flags, max duration)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-query-creator-info",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Return creator_avatar_url (expires after 2 hours) so the preview can show the account avatar; note the expiry",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v2/post/publish/creator_info/query/",
+        "\\bcreator_avatar_url\\b"
+      ],
+      "test": [
+        "/v2/post/publish/creator_info/query/",
+        "\\bcreator_avatar_url\\b"
+      ],
+      "docs": [
+        "creatorInfo",
+        "\\bnickname\\b"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.creator_cannot_post",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Creator-info posting blocks (spam_risk_too_many_posts, spam_risk_user_banned_from_posting, reached_active_user_cap returned with HTTP 200)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-query-creator-info",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Guidelines require stopping and telling the user to retry later when creator info says they cannot post; docs list codes but do not say the creator-info call itself returns them or name spam_risk_user_banned_from_posting",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v2/post/publish/creator_info/query/",
+        "upstreamCode"
+      ],
+      "test": [
+        "/v2/post/publish/creator_info/query/",
+        "upstreamCode"
+      ],
+      "docs": [
+        "spam_risk_too_many_posts",
+        "spam_risk_user_banned_from_posting"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.video.duration_check",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Check video length against max_video_post_duration_sec",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-sharing-guidelines",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bmax_video_post_duration_sec\\b"
+      ],
+      "test": [
+        "\\bmax_video_post_duration_sec\\b"
+      ],
+      "docs": [
+        "maxVideoDurationSeconds"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.media.requirements",
+    "provider": "tiktok",
+    "area": "media",
+    "title": "Media requirements: video MP4/WebM/MOV, H.264/H.265/VP8/VP9, 23-60 FPS, 360-4096 px, 10 min, 4 GB; photos WebP/JPEG, max 1080p, 20 MB",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Document codec, FPS, resolution, 10-minute and photo 20 MB/1080p limits (SDK cannot check most, so they map to fail_reason file_format/frame_rate/picture_size_check_failed); consider a byteSize check for photos when known",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "video/mp4",
+        "20\\s*\\*\\s*1024\\s*\\*\\s*1024|20_?971_?520|20_?000_?000"
+      ],
+      "test": [
+        "video/mp4",
+        "20\\s*\\*\\s*1024\\s*\\*\\s*1024|20_?971_?520|20_?000_?000"
+      ],
+      "docs": [
+        "\\b(FPS|fps|frame rate)\\b",
+        "1080"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.status_fetch",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Get post status (POST /v2/post/publish/status/fetch/: status, fail_reason, publicaly_available_post_id, uploaded_bytes, downloaded_bytes)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v2/post/publish/status/fetch/",
+        "\\bpublicaly_available_post_id\\b"
+      ],
+      "test": [
+        "\\bpublicaly_available_post_id\\b",
+        "PUBLISH_COMPLETE"
+      ],
+      "docs": [
+        "\\bpublish_id\\b",
+        "getDelivery"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.status.fail_reason",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "fail_reason enum (file_format/duration/frame_rate/picture_size checks, video/photo_pull_failed, publish_cancelled, auth_removed, spam_risk*, internal)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Docs do not say that fail_reason becomes the failure code or which reasons are reconcile-first vs never; add a short table",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfail_reason\\b",
+        "video_pull_failed"
+      ],
+      "test": [
+        "getDelivery",
+        "SEND_TO_USER_INBOX"
+      ],
+      "docs": [
+        "\\bfail_reason\\b"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.publish.status.multiple_posts_per_publish_id",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "One inbox publish_id can yield several public posts (publicaly_available_post_id is a list)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Normalized getDelivery drops the post IDs when an inbox draft produced several posts; consider returning them in diagnostic/backend data",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpublicaly_available_post_id\\b",
+        "state: \"accepted\",[^}]*\\b(diagnostic|postIds|posts)\\b"
+      ],
+      "test": [
+        "\\bpublicaly_available_post_id\\b"
+      ],
+      "docs": [
+        "without exactly one public post ID"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.read.user_info.basic",
+    "provider": "tiktok",
+    "area": "account",
+    "title": "User info basic fields (open_id, union_id, avatar_url, avatar_url_100, avatar_large_url, display_name; user.info.basic)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-v2-get-user-info",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "accounts.get/list omit avatar and union_id; add avatar to the account record and union_id for cross-app identity",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bopen_id\\b",
+        "\\bavatar_url\\b",
+        "\\bunion_id\\b"
+      ],
+      "test": [
+        "\\bopen_id\\b",
+        "\\bavatar_url\\b",
+        "\\bunion_id\\b"
+      ],
+      "docs": [
+        "user\\.info\\.basic",
+        "\\bavatar|\\bunion_id\\b"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.read.user_info.profile",
+    "provider": "tiktok",
+    "area": "account",
+    "title": "User info profile fields (bio_description, profile_deep_link, is_verified, username; user.info.profile)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-v2-get-user-info",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No read path or docs for user.info.profile; add optional profile fields to accounts.get (or a native userInfo) and list the scope in the docs",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "user\\.info\\.profile",
+        "\\b(bio_description|profile_deep_link)\\b"
+      ],
+      "test": [
+        "user\\.info\\.profile",
+        "\\b(bio_description|profile_deep_link)\\b"
+      ],
+      "docs": [
+        "user\\.info\\.profile"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.analytics.account_stats",
+    "provider": "tiktok",
+    "area": "analytics",
+    "title": "Account stats (follower_count, following_count, likes_count, video_count; user.info.stats)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-v2-get-user-info",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "user\\.info\\.stats",
+        "\\bfollower_count\\b",
+        "\\blikes_count\\b"
+      ],
+      "test": [
+        "\\bfollower_count\\b",
+        "\\blikes_count\\b"
+      ],
+      "docs": [
+        "user\\.info\\.stats",
+        "account (metrics|statistics)"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.read.video_list",
+    "provider": "tiktok",
+    "area": "read",
+    "title": "List creator's public videos (POST /v2/video/list/, ms cursor, max_count 20; video.list)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-v2-video-list",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v2/video/list/",
+        "\\bmax_count\\b"
+      ],
+      "test": [
+        "\\bmax_count\\b",
+        "\\bhas_more\\b"
+      ],
+      "docs": [
+        "posts\\.list",
+        "video\\.list"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.read.video_query",
+    "provider": "tiktok",
+    "area": "read",
+    "title": "Query owned videos by ID (POST /v2/video/query/, up to 20 video_ids; video.list)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-v2-video-object",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v2/video/query/",
+        "\\bvideo_ids\\b"
+      ],
+      "test": [
+        "/v2/video/query/",
+        "\\bvideo_ids\\b"
+      ],
+      "docs": [
+        "queryVideos",
+        "\\bvideo_ids\\b"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.read.video_object_fields",
+    "provider": "tiktok",
+    "area": "read",
+    "title": "Video object fields (16: id, create_time, cover_image_url, share_url, title, video_description, duration, height, width, embed_html, embed_link, like/comment/share/view counts, is_aigc)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-v2-video-object",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bembed_html\\b",
+        "\\bvideo_description\\b",
+        "\\bshare_url\\b",
+        "\\bcover_image_url\\b"
+      ],
+      "test": [
+        "\\bembed_html\\b",
+        "\\bvideo_description\\b",
+        "\\bshare_url\\b",
+        "\\bcover_image_url\\b"
+      ],
+      "docs": [
+        "\\bembed_html\\b",
+        "\\bcover_image_url\\b"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.analytics.post_metrics",
+    "provider": "tiktok",
+    "area": "analytics",
+    "title": "Per-video metrics (like_count, comment_count, share_count, view_count) via video query",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-v2-video-object",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bview_count\\b",
+        "\\bshare_count\\b",
+        "/v2/video/query/"
+      ],
+      "test": [
+        "\\bview_count\\b",
+        "\\bshare_count\\b"
+      ],
+      "docs": [
+        "getPostMetrics"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.read.oembed",
+    "provider": "tiktok",
+    "area": "read",
+    "title": "oEmbed (GET https://www.tiktok.com/oembed?url=..., no auth) for embedding any public video",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/embed-videos",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "TikTok says Embed Videos 'will be deprecated soon' and points to Embed Player; skip, and at most note that owned videos already return embed_html/embed_link",
+    "effort": null,
+    "probe": {
+      "docs": [
+        "oEmbed|oembed"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.auth.login_kit_web",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Login Kit web authorization (https://www.tiktok.com/v2/auth/authorize/, client_key, comma-separated scope, state)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/login-kit-web",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "tiktok\\.com/v2/auth/authorize/",
+        "\\bclient_key\\b"
+      ],
+      "test": [
+        "tiktokOAuth",
+        "comma-delimited TikTok scopes"
+      ],
+      "docs": [
+        "tiktokOAuth",
+        "comma-delimited"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.auth.disable_auto_auth",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Login Kit disable_auto_auth=1 (always show the consent page, e.g. to switch accounts)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/login-kit-web",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No way to pass disable_auto_auth; needed when a tenant connects a second TikTok account in the same browser session",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdisable_auto_auth\\b"
+      ],
+      "test": [
+        "\\bdisable_auto_auth\\b"
+      ],
+      "docs": [
+        "disable_auto_auth|disableAutoAuth"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.auth.token_exchange_refresh",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Token exchange and refresh (POST /v2/oauth/token/); access token 2 hours, refresh token 180 days, refresh token rotates",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/oauth-get-a-user-access-token",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "TikTok now documents 2-hour access tokens and 180-day refresh tokens (oauth-get-a-user-access-token and oauth-user-access-token-management); fix both pages and tell readers to use expires_in/refresh_expires_in instead of fixed numbers",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v2/oauth/token/",
+        "\\brefresh_token\\b"
+      ],
+      "test": [
+        "tiktokOAuth",
+        "\\bexpires_in\\b"
+      ],
+      "docs": [
+        "refreshOAuthToken\\(\"tiktok\""
+      ],
+      "forbid": [
+        "TikTok access tokens last 24 hours and refresh tokens last 365 days",
+        "Access tokens last 24 hours and refresh tokens 365 days"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.auth.revoke",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Revoke user access token (POST /v2/oauth/revoke/ with client_key, client_secret, token)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/oauth-revoke-a-user-access-token",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Ship a TikTok revocation hook (or document the exact endpoint and params) and link oauth-revoke-a-user-access-token",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v2/oauth/revoke/"
+      ],
+      "test": [
+        "/v2/oauth/revoke/"
+      ],
+      "docs": [
+        "/v2/oauth/revoke/|oauth-revoke-a-user-access-token"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.auth.scope.video_upload_list_stats",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Optional scopes video.upload, video.list, user.info.stats",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/tiktok-api-scopes",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "video\\.upload",
+        "video\\.list",
+        "user\\.info\\.stats"
+      ],
+      "test": [
+        "feature:tiktok\\.auth\\.scope\\.video_upload_list_stats\\b"
+      ],
+      "docs": [
+        "video\\.upload",
+        "video\\.list",
+        "user\\.info\\.stats"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.auth.client_access_token",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Client access token (client credentials) used by Research and Commercial Content APIs",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/research-api-get-started",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only useful if Research/Commercial Content APIs are ever added; no action now",
+    "effort": null,
+    "probe": {
+      "docs": [
+        "client access token|client_credentials"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.signature",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "TikTok-Signature t=<ts>,s=<hmac-sha256 of '<t>.<raw body>' with client_secret>",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/webhooks-verification",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "TikTok-Signature"
+      ],
+      "test": [
+        "TikTok-Signature"
+      ],
+      "docs": [
+        "TikTok-Signature",
+        "webhookSecret"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.delivery_semantics",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "Webhook delivery: respond 200 immediately, retries with backoff for 72 hours, at-least-once",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/webhooks-overview",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\buser_openid\\b",
+        "\\bcreate_time\\b"
+      ],
+      "test": [
+        "\\buser_openid\\b",
+        "\\bcreate_time\\b"
+      ],
+      "docs": [
+        "Process webhooks\\]\\(/events\\)"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.post_publish_failed",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "post.publish.failed (publish_id, reason, publish_type)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/docs/en/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "post\\.publish\\."
+      ],
+      "test": [
+        "post\\.publish\\."
+      ],
+      "docs": [
+        "post\\.publish\\.\\*",
+        "content\\.reason"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.post_publish_complete",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "post.publish.complete (publish_id, publish_type; may fire more than once per inbox publish_id)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/docs/en/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "post\\.publish\\."
+      ],
+      "test": [
+        "post\\.publish\\.complete"
+      ],
+      "docs": [
+        "post\\.publish\\.\\*",
+        "publication\\.updated"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.post_publish_inbox_delivered",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "post.publish.inbox_delivered (publish_type INBOX_SHARE)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/docs/en/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Name the five post.publish.* events and publish_type in the TikTok docs so readers know which one means 'draft reached inbox'",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "post\\.publish\\."
+      ],
+      "test": [
+        "post\\.publish\\."
+      ],
+      "docs": [
+        "post\\.publish\\.\\*",
+        "post\\.publish\\.inbox_delivered|INBOX_SHARE"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.post_publish_publicly_available",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "post.publish.publicly_available (publish_id, post_id, publish_type)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/docs/en/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "post\\.publish\\."
+      ],
+      "test": [
+        "post\\.publish\\."
+      ],
+      "docs": [
+        "post\\.publish\\.\\*",
+        "content\\.post_id"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.post_publish_no_longer_public",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "post.publish.no_longer_publicaly_available (post stopped being public; TikTok's spelling)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/docs/en/content-posting-api-reference-get-video-status",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Consider mapping to post.removed (or document that it arrives as publication.updated with this originalType); mention the misspelled event name",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpost\\.publish\\.no_longer_publicaly_available\\b"
+      ],
+      "test": [
+        "\\bpost\\.publish\\.no_longer_publicaly_available\\b"
+      ],
+      "docs": [
+        "no_longer_publicaly_available"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.authorization_removed",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "authorization.removed (reason 0-5: unknown, user disconnected, account deleted, age changed, banned, developer revoked)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/webhooks-events",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Document the reason codes in content.reason and that the app should mark the connection revoked",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "authorization\\.removed"
+      ],
+      "test": [
+        "authorization\\.removed"
+      ],
+      "docs": [
+        "authorization\\.removed",
+        "\\b(banned|account deleted|developer revoked)\\b"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.webhooks.video_kit_legacy",
+    "provider": "tiktok",
+    "area": "webhooks",
+    "title": "video.upload.failed and video.publish.completed (Video Kit, share_id)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/webhooks-events",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "video\\.upload\\.failed",
+        "video\\.publish\\.completed"
+      ],
+      "test": [
+        "TikTok-Signature"
+      ],
+      "docs": [
+        "\\bshare_id\\b",
+        "video\\.\\*"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.data_portability",
+    "provider": "tiktok",
+    "area": "other",
+    "title": "Data Portability API (add/check/cancel/download data request; portability.* scopes incl. direct messages; portability.download.ready webhook)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/data-portability-api-get-started",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of the SDK's posting/reads scope; if kept out, say so in the TikTok page so 'no DMs' is not read as an oversight",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "portability"
+      ],
+      "test": [
+        "portability"
+      ],
+      "docs": [
+        "Data Portability|portability"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.research.video_query",
+    "provider": "tiktok",
+    "area": "search",
+    "title": "Research API video query (POST /v2/research/video/query/ by keyword, region, username, hashtag, date)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/products/research-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Academic/non-profit only and non-commercial; leave out, optionally note in docs that public search exists only through the Research API",
+    "effort": "L",
+    "probe": {
+      "docs": [
+        "Research API",
+        "Research API[^\\n]{0,120}(search|keyword|hashtag)|(search|keyword|hashtag)[^\\n]{0,120}Research API"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.research.comments",
+    "provider": "tiktok",
+    "area": "comments",
+    "title": "Research API video comments and replies (POST /v2/research/video/comment/list/, research.data.basic)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/research-api-specs-query-video-comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "docs": [
+        "Research API",
+        "Comments and direct messages remain platform limits"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.research.user_graph",
+    "provider": "tiktok",
+    "area": "read",
+    "title": "Research API user info, followers, following, liked/pinned/reposted videos, playlists, TikTok Shop info/products/reviews",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/research-api-specs-query-video-comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Partner-only research data; no action",
+    "effort": null,
+    "probe": {
+      "docs": [
+        "Research API[^\\n]{0,120}(follower|following|user info)|(follower|following|user info)[^\\n]{0,120}Research API"
+      ]
+    }
+  },
+  {
+    "id": "tiktok.commercial_content_api",
+    "provider": "tiktok",
+    "area": "ads",
+    "title": "Commercial Content API (ad library: query ads, ad details, ad report, advertisers, commercial content; research.adlib.basic)",
+    "access": "partner-only",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/commercial-content-api-getting-started",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Research-client ad transparency data, not campaign management; no action",
+    "effort": null,
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "tiktok.publish.cancel",
+    "provider": "tiktok",
+    "area": "publish",
+    "title": "Cancel an in-progress PULL_FROM_URL download (POST /v2/post/publish/cancel/ with publish_id; best effort, Direct Post and inbox upload)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No operation calls /v2/post/publish/cancel/; docs list the resulting publish_cancelled fail_reason but give callers no way to cancel a slow URL pull",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/v2/post/publish/cancel/"
+      ],
+      "test": [
+        "/v2/post/publish/cancel/"
+      ],
+      "docs": [
+        "publish/cancel/"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "tiktok.auth.qr_code_login",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Login Kit QR code authorization (POST /v2/oauth/get_qrcode/ returns scan_qrcode_url and token; poll POST /v2/oauth/check_qrcode/ for new/scanned/confirmed/expired, then exchange the code; client_ticket integrity check)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/login-kit-qr-code-authorization",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only the redirect-based web flow exists; no helper creates a QR code, polls its status, or exchanges the confirmed code for TVs, kiosks or other no-redirect surfaces",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/v2/oauth/get_qrcode/",
+        "/v2/oauth/check_qrcode/"
+      ],
+      "test": [
+        "/v2/oauth/get_qrcode/",
+        "/v2/oauth/check_qrcode/"
+      ],
+      "docs": [
+        "get_qrcode|QR code"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "tiktok.auth.login_kit_desktop",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Login Kit for Desktop: PKCE required with a hex-encoded SHA-256 code_challenge (not base64url), code_verifier on token exchange, loopback redirect URIs (localhost/127.0.0.1 with port or wildcard port)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/login-kit-desktop",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "TikTok's OAuth config has pkce: false, and the shared PKCE path would send a base64url challenge; desktop/CLI apps cannot use the SDK's TikTok connection flow",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "[Dd]esktop"
+      ],
+      "test": [
+        "feature:tiktok\\.auth\\.login_kit_desktop\\b"
+      ],
+      "docs": [
+        "[Dd]esktop"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "tiktok.auth.refresh_token_expiry",
+    "provider": "tiktok",
+    "area": "auth",
+    "title": "Surface refresh_expires_in from /v2/oauth/token/ (authorization_code and refresh_token grants) as a refresh-token expiry",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/oauth-user-access-token-management",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "tokenSet keeps only expires_in, so the refresh token's lifetime is dropped even though the TikTok page tells readers to rely on refresh_expires_in; reconnect prompts cannot be scheduled",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\brefresh_expires_in\\b"
+      ],
+      "test": [
+        "\\brefresh_expires_in\\b"
+      ],
+      "docs": [
+        "refreshExpiresAt|refreshTokenExpiresAt"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "tiktok.read.embed_player",
+    "provider": "tiktok",
+    "area": "read",
+    "title": "Embed Player (https://www.tiktok.com/player/v1/{id}) options: controls, progress_bar, play_button, volume_control, fullscreen_button, timestamp, loop, autoplay, music_info, description, rel, native_context_menu, closed_caption; postMessage player control and events; creator-profile embed",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/embed-player",
+      "checked": "2026-11-04",
+      "apiVersion": "v1"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Docs name Embed Player as oEmbed's replacement but the SDK has no player URL builder or option types, and the page does not show how to customize embed_link",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmusic_info\\b",
+        "\\bnative_context_menu\\b"
+      ],
+      "test": [
+        "\\bmusic_info\\b"
+      ],
+      "docs": [
+        "\\bmusic_info\\b|player/v1"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "tiktok.research.batch_compliance",
+    "provider": "tiktok",
+    "area": "other",
+    "title": "Research Batch Compliance APIs (POST /v2/research/validation_task/create/, validation_task_status/get/, validation_task/download/; research.data.basic client token)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.tiktok.com/doc/batch-compliance-apis",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Research-only and partner-gated; the Not supported list covers Research API search and user data but not the compliance-check tasks",
+    "effort": null,
+    "probe": {
+      "docs": [
+        "[Bb]atch [Cc]ompliance|validation_task"
+      ]
+    },
+    "round": 2
+  }
+]

@@ -1,0 +1,3702 @@
+[
+  {
+    "id": "facebook.publish.text",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Page feed text post (POST /{page-id}/feed message)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\$\\{page\\}/feed`",
+        "\\bmessage: target\\.content\\.text"
+      ],
+      "test": [
+        "/feed\\b"
+      ],
+      "docs": [
+        "Publish a text or link post"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.link",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Link post with preview (link param)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\blink: target\\.content\\.link",
+        "\\$\\{page\\}/feed`"
+      ],
+      "test": [
+        "\\blink\\b",
+        "/feed\\b"
+      ],
+      "docs": [
+        "link preview"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.photo.single",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Single photo post (POST /{page-id}/photos url/source, caption)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/photos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\$\\{page\\}/photos`",
+        "\\bcaption\\b"
+      ],
+      "test": [
+        "/photos\\b"
+      ],
+      "docs": [
+        "/\\{page-id\\}/photos"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.photo.alt_text",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Photo alt_text_custom",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/photos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\balt_text_custom\\b"
+      ],
+      "test": [
+        "\\balt_text_custom\\b"
+      ],
+      "docs": [
+        "alt_text_custom|altText|alt text"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.photo.multi",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Multi-photo post (unpublished photos + attached_media on /feed)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/photos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Meta documents attached_media only implicitly (temporary/published=false photos); SDK caps at 10, which is its own limit, not a Meta-stated one",
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\battached_media\\b",
+        "\\bmedia_fbid\\b"
+      ],
+      "test": [
+        "\\battached_media\\b"
+      ],
+      "docs": [
+        "attached to one feed post"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.photo.tags_place",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Photo user tags (tags x/y/tag_uid) and place on photos",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/photos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add place and tags publish options for photo posts",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\btag_uid\\b",
+        "\\bplace\\b"
+      ],
+      "test": [
+        "\\btag_uid\\b",
+        "\\bplace\\b"
+      ],
+      "docs": [
+        "\\btag_uid\\b|photo tags|user tags"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.photo.no_story",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Photo no_story (upload without feed story) and backdated_time",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/photos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional: expose no_story/backdated_time as native options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bno_story\\b",
+        "\\bbackdated_time\\b"
+      ],
+      "test": [
+        "\\bno_story\\b",
+        "\\bbackdated_time\\b"
+      ],
+      "docs": [
+        "no_story|noStory"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.feed.place_tags",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Feed post place (Page ID) and tags (requires place)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add place/tags options on feed posts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bplace\\b",
+        "\\btags\\b"
+      ],
+      "test": [
+        "\\bplace\\b",
+        "\\btags\\b"
+      ],
+      "docs": [
+        "\\bplace\\b[^\\n]*\\btags\\b|\\bplace\\b"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.feed.targeting",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Audience targeting/feed_targeting (geo, age) on Page posts",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add targeting/feed_targeting native options (geo_locations, age_min)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bfeed_targeting\\b|\\btargeting\\b",
+        "\\bgeo_locations\\b"
+      ],
+      "test": [
+        "\\bfeed_targeting\\b|\\btargeting\\b",
+        "\\bgeo_locations\\b"
+      ],
+      "docs": [
+        "targeting"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.feed.call_to_action",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "call_to_action button on feed posts (type + value.link)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add call_to_action option for link posts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcall_to_action\\b"
+      ],
+      "test": [
+        "\\bcall_to_action\\b"
+      ],
+      "docs": [
+        "call_to_action|callToAction"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.feed.child_attachments",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Multi-link carousel post (child_attachments 2-5, up to 10 with multi_share_optimized)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add link carousel via child_attachments, or document that 'carousel' means multi-photo",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bchild_attachments\\b"
+      ],
+      "test": [
+        "\\bchild_attachments\\b"
+      ],
+      "docs": [
+        "child_attachments|childAttachments"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.feed.feeling_activity",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Feeling/activity (og_action_type_id, og_object_id, og_icon_id)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Low priority: expose og_* fields as native options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bog_action_type_id\\b"
+      ],
+      "test": [
+        "\\bog_action_type_id\\b"
+      ],
+      "docs": [
+        "og_action_type_id|[Ff]eeling"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.feed.backdated",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "backdated_time / backdated_time_granularity on posts",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Low priority native option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bbackdated_time\\b"
+      ],
+      "test": [
+        "\\bbackdated_time\\b"
+      ],
+      "docs": [
+        "backdated"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.file_url",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Page video from hosted URL (POST /{page-id}/videos file_url)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bfile_url\\b",
+        "\\$\\{page\\}/videos`"
+      ],
+      "test": [
+        "\\bfile_url\\b"
+      ],
+      "docs": [
+        "graph-video\\.facebook\\.com"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.source_upload",
+    "provider": "facebook",
+    "area": "media",
+    "title": "Page video local upload (source multipart, non-resumable)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "1 GiB cap is SDK-chosen; Meta's page/videos reference states no limit there",
+    "effort": null,
+    "probe": {
+      "src": [
+        "form\\.set\\(\\\"source\\\"",
+        "graph-video\\.facebook\\.com"
+      ],
+      "test": [
+        "graph-video\\.facebook\\.com",
+        "new Blob\\("
+      ],
+      "docs": [
+        "`Blob` up to 1 GiB"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.resumable",
+    "provider": "facebook",
+    "area": "media",
+    "title": "Chunked/resumable video upload (upload_phase start/transfer/finish, or /{app-id}/uploads session)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add chunked upload for large Blob/stream videos",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bstart_offset\\b|\\bfile_offset\\b|/uploads\\b"
+      ],
+      "test": [
+        "\\bstart_offset\\b|\\bfile_offset\\b|/uploads\\b"
+      ],
+      "docs": [
+        "[Rr]esumable|[Cc]hunked"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.title",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Video title",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a title option to Page videos and Reels (title)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btitle\\??:"
+      ],
+      "test": [
+        "feature:facebook.publish.video.title"
+      ],
+      "docs": [
+        "`title`|video title"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.thumbnail",
+    "provider": "facebook",
+    "area": "media",
+    "title": "Custom video thumbnail (thumb)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Implement MediaAttachment.thumbnail -> thumb for Page videos",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bthumb\\b"
+      ],
+      "test": [
+        "\\bthumb\\b"
+      ],
+      "docs": [
+        "custom thumbnails"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.secret_unlisted",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Unlisted/secret video, no_story, hide_from_newsfeed, embeddable, social_actions",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose visibility flags as native options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bhide_from_newsfeed\\b|\\bembeddable\\b"
+      ],
+      "test": [
+        "\\bhide_from_newsfeed\\b|\\bembeddable\\b"
+      ],
+      "docs": [
+        "[Uu]nlisted|secret video|embeddable|hide_from_newsfeed"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.content_tags",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Video content_tags / content_category / custom_labels",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Low priority native options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcontent_tags\\b|\\bcontent_category\\b|\\bcustom_labels\\b"
+      ],
+      "test": [
+        "\\bcontent_tags\\b|\\bcontent_category\\b|\\bcustom_labels\\b"
+      ],
+      "docs": [
+        "content_tags|content_category|custom_labels|contentTags"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.video.crosspost",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Crosspost an existing video to another Page (crossposted_video_id)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native crosspost option",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bcrossposted_video_id\\b"
+      ],
+      "test": [
+        "\\bcrossposted_video_id\\b"
+      ],
+      "docs": [
+        "[Cc]rosspost"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.hosted",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Reels via three-phase /{page-id}/video_reels with hosted file_url",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/video_reels`",
+        "\\bupload_phase\\b",
+        "rupload\\.facebook\\.com"
+      ],
+      "test": [
+        "rupload\\.facebook\\.com",
+        "\\bupload_phase\\b"
+      ],
+      "docs": [
+        "three-phase Reels API"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.local_upload",
+    "provider": "facebook",
+    "area": "media",
+    "title": "Reels local file upload to rupload.facebook.com (octet-stream, offset/file_size) and resume",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Support Blob upload for Reels with offset/file_size and resume via bytes_transfered",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bfile_size\\b"
+      ],
+      "test": [
+        "\\bfile_size\\b"
+      ],
+      "docs": [
+        "hosted 9:16"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.title_place",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Reels title and place (location Page ID)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add title and place to publishReel and the reel option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bplace\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.reels.title_place"
+      ],
+      "docs": [
+        "\\bplace\\b"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.ai_label",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "is_ai_generated disclosure on Reels and video Stories",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add is_ai_generated option (Reels, Stories)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_ai_generated\\b"
+      ],
+      "test": [
+        "\\bis_ai_generated\\b"
+      ],
+      "docs": [
+        "is_ai_generated|isAiGenerated|AI-generated"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.draft",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Reels video_state=DRAFT",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional draft state for Reels",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bDRAFT\\b"
+      ],
+      "test": [
+        "\\bDRAFT\\b"
+      ],
+      "docs": [
+        "\\bDRAFT\\b|[Dd]raft Reels?"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.collaborators",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Reels collaborators (POST /{video-id}/collaborators, Pages only, 10 invites/Page/24h)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native collaborator invite + status read",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/collaborators\\b"
+      ],
+      "test": [
+        "/collaborators\\b"
+      ],
+      "docs": [
+        "[Cc]ollaborator"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.rate_limit",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Reels 30 API-published posts per 24h per Page",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Document the 30/24h Reels limit (Meta asks apps to enforce it)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\b30\\b[^\\n]*\\b24 ?h(ours)?\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.reels.rate_limit"
+      ],
+      "docs": [
+        "\\b30\\b[^\\n]*Reels[^\\n]*24|Reels[^\\n]*\\b30\\b[^\\n]*24"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.reels.copyright_check",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Reels copyright_check_information read",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native read of copyright_check_information",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcopyright_check_information\\b"
+      ],
+      "test": [
+        "\\bcopyright_check_information\\b"
+      ],
+      "docs": [
+        "[Cc]opyright"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.stories.photo",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Photo Story (unpublished photo + POST /{page-id}/photo_stories)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/page-stories-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Page photo Stories publish",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/photo_stories\\b"
+      ],
+      "test": [
+        "/photo_stories\\b"
+      ],
+      "docs": [
+        "photo_stories|[Pp]hoto [Ss]tor(y|ies)"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.stories.video",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Video Story (three-phase /{page-id}/video_stories)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/page-stories-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Page video Stories publish (reuse Reels three-phase code)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/video_stories\\b"
+      ],
+      "test": [
+        "/video_stories\\b"
+      ],
+      "docs": [
+        "video_stories|[Vv]ideo [Ss]tor(y|ies)"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.stories",
+    "provider": "facebook",
+    "area": "read",
+    "title": "List Page Stories (GET /{page-id}/stories, since/until)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/page-stories-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native stories list",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/stories\\b"
+      ],
+      "test": [
+        "/stories\\b"
+      ],
+      "docs": [
+        "/stories\\b|[Ll]ist (Page )?[Ss]tories"
+      ]
+    }
+  },
+  {
+    "id": "facebook.publish.live",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Live video broadcasts on a Page (RTMPS, Live Video API, app review, 100+ followers)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/live-video-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of scope candidate; at least state Live is not supported",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/live_videos\\b"
+      ],
+      "test": [
+        "/live_videos\\b"
+      ],
+      "docs": [
+        "[Ll]ive [Vv]ideo|[Ll]ive broadcast"
+      ]
+    }
+  },
+  {
+    "id": "facebook.scheduling.feed",
+    "provider": "facebook",
+    "area": "scheduling",
+    "title": "Native scheduling of feed/photo posts (published=false + scheduled_publish_time)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Meta's page/feed reference says up to 75 days while the Pages posts guide says 30 days; SDK's 30-day cap is the conservative reading",
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bscheduled_publish_time\\b",
+        "\\bpublished\\b"
+      ],
+      "test": [
+        "\\bscheduled_publish_time\\b"
+      ],
+      "docs": [
+        "scheduled_publish_time"
+      ]
+    }
+  },
+  {
+    "id": "facebook.scheduling.video",
+    "provider": "facebook",
+    "area": "scheduling",
+    "title": "Scheduled Page videos (scheduled_publish_time, 10 min to 6 months)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "wrong",
+    "gap": "Page videos accept up to 6 months; lift the cap for videos or say the 30-day cap is the SDK's",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "(?:6|six) months|18[0-9] days"
+      ],
+      "test": [
+        "feature:facebook.scheduling.video"
+      ],
+      "docs": [
+        "(?:6|six) months"
+      ],
+      "forbid": [
+        "Meta accepts times between 10 minutes and 30 days after the request"
+      ]
+    }
+  },
+  {
+    "id": "facebook.scheduling.reels",
+    "provider": "facebook",
+    "area": "scheduling",
+    "title": "Scheduled Reels (video_state=SCHEDULED, >10 min and within 29 days)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/video-api/guides/reels-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "wrong",
+    "gap": "Reels must be within 29 days; tighten the Reels window and fix the docs",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\b29 days\\b"
+      ],
+      "test": [
+        "feature:facebook.scheduling.reels"
+      ],
+      "docs": [
+        "\\b29 days\\b"
+      ],
+      "forbid": [
+        "Text, photos, videos, and Reels can all be scheduled"
+      ]
+    }
+  },
+  {
+    "id": "facebook.scheduling.cancel",
+    "provider": "facebook",
+    "area": "scheduling",
+    "title": "Cancel a scheduled post/video (DELETE unpublished object)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\\"DELETE\\\"",
+        "\\bis_published\\b"
+      ],
+      "test": [
+        "cancelScheduled"
+      ],
+      "docs": [
+        "Schedule and cancel"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.scheduled_posts",
+    "provider": "facebook",
+    "area": "read",
+    "title": "List scheduled/unpublished posts (/feed returns unpublished, filter is_published)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a scheduled-posts list (or include unpublished via /feed)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/scheduled_posts\\b|\\bscheduled_posts\\b"
+      ],
+      "test": [
+        "feature:facebook.read.scheduled_posts"
+      ],
+      "docs": [
+        "scheduled posts|scheduled_posts|unpublished posts"
+      ]
+    }
+  },
+  {
+    "id": "facebook.edit.post",
+    "provider": "facebook",
+    "area": "edit",
+    "title": "Edit a Page post (POST /{page-post-id} message; only posts made by the same app)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Implement posts.update for message edits",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:facebook\\.edit\\.post\\b"
+      ],
+      "docs": [
+        "Editing published posts"
+      ]
+    }
+  },
+  {
+    "id": "facebook.edit.post.pin_hide",
+    "provider": "facebook",
+    "area": "edit",
+    "title": "Pin/unpin (is_pinned) and hide (is_hidden) a Page post",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native pinPost/hidePost",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_pinned\\b"
+      ],
+      "test": [
+        "\\bis_pinned\\b"
+      ],
+      "docs": [
+        "is_pinned|[Pp]in (a )?post"
+      ]
+    }
+  },
+  {
+    "id": "facebook.delete.post",
+    "provider": "facebook",
+    "area": "delete",
+    "title": "Delete a Page post (DELETE /{page-post-id})",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "Add Facebook to the publishing page's direct removeFromPlatform list",
+    "effort": "S",
+    "statusCorrection": "The Facebook page documents removal (platforms/facebook.mdx:150-154); the gap is publishing/index.mdx:318 listing direct removeFromPlatform adapters without Facebook, so it is probed as a forbid on that sentence",
+    "probe": {
+      "src": [
+        "\\\"DELETE\\\"",
+        "removeFromPlatform"
+      ],
+      "test": [
+        "removeFromPlatform"
+      ],
+      "docs": [
+        "Read and remove posts"
+      ],
+      "forbid": [
+        "implement `posts\\.removeFromPlatform` for X, Threads, Bluesky, LinkedIn, YouTube, and Instagram with Facebook Login"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.posts",
+    "provider": "facebook",
+    "area": "read",
+    "title": "List Page posts with cursors (/{page-id}/posts, limit max 100)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\}/posts`"
+      ],
+      "test": [
+        "/posts\\b"
+      ],
+      "docs": [
+        "/\\{page-id\\}/posts"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.post",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Read one post or video by ID",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "apps/docs/docs/reads/index.mdx:234 wrongly says there is no direct Facebook adapter; fix it and add a posts.get example",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bvideoFields\\b",
+        "\\bpostFields\\b"
+      ],
+      "test": [
+        "posts\\.get"
+      ],
+      "docs": [
+        "posts\\.get"
+      ],
+      "forbid": [
+        "There is no direct Facebook adapter"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.post.fields",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Rich post fields (attachments, full_picture, shares, from, place, message_tags, privacy)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Add attachments/full_picture/shares fields to post reads",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfull_picture\\b"
+      ],
+      "test": [
+        "\\bfull_picture\\b"
+      ],
+      "docs": [
+        "\\bfull_picture\\b"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.reels",
+    "provider": "facebook",
+    "area": "read",
+    "title": "List Page Reels (GET /{page-id}/video_reels; Reels are not returned by Page post endpoints)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Reels listing; document that posts.list omits Reels",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:facebook\\.read\\.reels\\b"
+      ],
+      "docs": [
+        "posts\\.list[^\\n]*Reels|Reels[^\\n]*posts\\.list|video_reels"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.feed_tagged_visitor",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Visitor posts and tagged posts (/feed, /tagged)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/feed",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native feed/tagged reads (mentions of the Page)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/tagged\\b"
+      ],
+      "test": [
+        "/tagged\\b"
+      ],
+      "docs": [
+        "/tagged\\b|[Tt]agged posts|[Vv]isitor posts"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.page_photos_videos",
+    "provider": "facebook",
+    "area": "read",
+    "title": "List Page photos (type=uploaded) and videos",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/photos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native media listing",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\\"uploaded\\\""
+      ],
+      "test": [
+        "feature:facebook.read.page_photos_videos"
+      ],
+      "docs": [
+        "type=uploaded|\\\"uploaded\\\"|[Ll]ist Page (photos|videos)"
+      ]
+    }
+  },
+  {
+    "id": "facebook.account.read",
+    "provider": "facebook",
+    "area": "account",
+    "title": "Read the configured Page (id, name, username)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Mention accounts.get fields in the platform page",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "id,name,username"
+      ],
+      "test": [
+        "id,name,username|accounts\\.get"
+      ],
+      "docs": [
+        "accounts\\.get"
+      ]
+    }
+  },
+  {
+    "id": "facebook.auth.discover_pages",
+    "provider": "facebook",
+    "area": "auth",
+    "title": "List managed Pages, tasks and Page tokens (GET /me/accounts)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/me/accounts",
+        "id,name,tasks,access_token"
+      ],
+      "test": [
+        "/me/accounts"
+      ],
+      "docs": [
+        "/me/accounts|discover"
+      ]
+    }
+  },
+  {
+    "id": "facebook.account.update_info",
+    "provider": "facebook",
+    "area": "account",
+    "title": "Update Page details (about, hours, website, etc.: POST /{page-id})",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native updatePage",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bwebsite\\b"
+      ],
+      "test": [
+        "\\bwebsite\\b"
+      ],
+      "docs": [
+        "Update Page (details|info)|\\bwebsite\\b"
+      ]
+    }
+  },
+  {
+    "id": "facebook.account.settings",
+    "provider": "facebook",
+    "area": "account",
+    "title": "Get/update Page settings (/{page-id}/settings)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native settings read/write",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/settings\\b"
+      ],
+      "test": [
+        "/settings\\b"
+      ],
+      "docs": [
+        "/settings\\b|Page settings"
+      ]
+    }
+  },
+  {
+    "id": "facebook.account.roles",
+    "provider": "facebook",
+    "area": "account",
+    "title": "List Page roles and tasks (/{page-id}/roles)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/roles\\b"
+      ],
+      "test": [
+        "/roles\\b"
+      ],
+      "docs": [
+        "\\{page-id\\}/roles|List Page roles"
+      ]
+    }
+  },
+  {
+    "id": "facebook.account.change_proposals",
+    "provider": "facebook",
+    "area": "account",
+    "title": "Accept/reject Meta proposed Page changes (page_change_proposal)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpage_change_proposal\\b"
+      ],
+      "test": [
+        "\\bpage_change_proposal\\b"
+      ],
+      "docs": [
+        "page_change_proposal|[Pp]roposed (Page )?changes"
+      ]
+    }
+  },
+  {
+    "id": "facebook.read.ratings",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Read Page ratings/reviews (/{page-id}/ratings)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native ratings read; decode ratings webhook",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/ratings\\b"
+      ],
+      "test": [
+        "/ratings\\b"
+      ],
+      "docs": [
+        "[Rr]atings|[Rr]eviews"
+      ]
+    }
+  },
+  {
+    "id": "facebook.search.pages",
+    "provider": "facebook",
+    "area": "search",
+    "title": "Pages Search API (/pages/search; Page Public Content Access)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native Pages search (useful for place IDs)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/pages/search\\b"
+      ],
+      "test": [
+        "/pages/search\\b"
+      ],
+      "docs": [
+        "Pages Search|/pages/search"
+      ]
+    }
+  },
+  {
+    "id": "facebook.comments.read",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "Read post comments (/{object-id}/comments, filter toplevel|stream, summary)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/v25.0/object/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "SDK omits from (name, PSID) though Meta returns it with a Page token; no filter=stream or summary option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btoplevel\\b|\\\"stream\\\""
+      ],
+      "test": [
+        "\\btoplevel\\b|\\\"stream\\\""
+      ],
+      "docs": [
+        "Read comments and reply"
+      ]
+    }
+  },
+  {
+    "id": "facebook.comments.replies.read",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "Read replies to a comment",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/v25.0/object/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "listCommentReplies",
+        "\\.commentId\\)\\}/comments`"
+      ],
+      "test": [
+        "listCommentReplies"
+      ],
+      "docs": [
+        "listCommentReplies"
+      ]
+    }
+  },
+  {
+    "id": "facebook.comments.write",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "Comment on a post / reply to a comment as the Page",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/v25.0/object/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\.postId\\)\\}/comments`",
+        "\\\"POST\\\""
+      ],
+      "test": [
+        "feature:facebook\\.comments\\.write\\b"
+      ],
+      "docs": [
+        "comments\\.reply"
+      ]
+    }
+  },
+  {
+    "id": "facebook.comments.write.attachments",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "Photo/GIF comments (attachment_id, attachment_url, attachment_share_url, source)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/v25.0/object/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept an image/GIF attachment on comment replies",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\battachment_url\\b|\\battachment_id\\b|\\battachment_share_url\\b"
+      ],
+      "test": [
+        "\\battachment_url\\b|\\battachment_id\\b|\\battachment_share_url\\b"
+      ],
+      "docs": [
+        "attachment_url|attachment_id|GIF"
+      ]
+    }
+  },
+  {
+    "id": "facebook.comments.mentions",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "@[PSID]/@[page-id] mentions in comment replies (Page Mentioning feature)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/comments-mentions",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Document @[id] syntax and its restrictions, or add a helper",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "@\\["
+      ],
+      "test": [
+        "feature:facebook.comments.mentions"
+      ],
+      "docs": [
+        "@\\["
+      ]
+    }
+  },
+  {
+    "id": "facebook.comments.edit",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "Edit a comment's message (POST /{comment-id} message)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/v25.0/comment",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native editComment",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "comments\\.update|\\beditComment\\b"
+      ],
+      "test": [
+        "feature:facebook.comments.edit"
+      ],
+      "docs": [
+        "[Ee]dit (a )?comment"
+      ]
+    }
+  },
+  {
+    "id": "facebook.moderation.hide_comment",
+    "provider": "facebook",
+    "area": "moderation",
+    "title": "Hide/unhide a comment (is_hidden)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/v25.0/comment",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bis_hidden\\b"
+      ],
+      "test": [
+        "\\bis_hidden\\b"
+      ],
+      "docs": [
+        "is_hidden"
+      ]
+    }
+  },
+  {
+    "id": "facebook.moderation.delete_comment",
+    "provider": "facebook",
+    "area": "moderation",
+    "title": "Delete a comment",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/v25.0/comment",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bdeleteComment\\b",
+        "\\\"DELETE\\\""
+      ],
+      "test": [
+        "deleteComment|comments\\.delete"
+      ],
+      "docs": [
+        "native\\.deleteComment"
+      ]
+    }
+  },
+  {
+    "id": "facebook.moderation.block_user",
+    "provider": "facebook",
+    "area": "moderation",
+    "title": "Block a person from the Page (POST /{page-id}/blocked)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native blockUser",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/blocked\\b"
+      ],
+      "test": [
+        "/blocked\\b"
+      ],
+      "docs": [
+        "[Bb]lock"
+      ]
+    }
+  },
+  {
+    "id": "facebook.engagement.reactions_read",
+    "provider": "facebook",
+    "area": "engagement",
+    "title": "Read reactions/likes on posts and comments (reactions, likes edges)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "No per-type breakdown or reactor list",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bLOVE\\b|\\}/reactions`"
+      ],
+      "test": [
+        "feature:facebook.engagement.reactions_read"
+      ],
+      "docs": [
+        "\\bLOVE\\b|reaction types?|by type"
+      ]
+    }
+  },
+  {
+    "id": "facebook.messaging.send",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Messenger Send API (POST /{page-id}/messages, RESPONSE/UPDATE/MESSAGE_TAG, 24h window)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/send-messages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Implement messages.send for Pages with messaging_type and tags",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "\\bmessaging_type\\b"
+      ],
+      "test": [
+        "\\bmessaging_type\\b"
+      ],
+      "docs": [
+        "Page messaging \\(Messenger Platform\\)"
+      ]
+    }
+  },
+  {
+    "id": "facebook.messaging.attachments",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Message attachments (image, audio, video, file, up to 30 images) and templates",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/send-messages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Part of Messenger implementation",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bmessaging_type\\b",
+        "\\bis_reusable\\b|\\battachment\\b"
+      ],
+      "test": [
+        "\\bmessaging_type\\b",
+        "\\bis_reusable\\b|\\battachment\\b"
+      ],
+      "docs": [
+        "[Mm]essage attachments|template"
+      ]
+    }
+  },
+  {
+    "id": "facebook.messaging.human_agent_tag",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "HUMAN_AGENT tag (7-day reply) and tag deprecations (3 tags error from 2026-04-27)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/send-messages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Part of Messenger implementation",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bHUMAN_AGENT\\b"
+      ],
+      "test": [
+        "\\bHUMAN_AGENT\\b"
+      ],
+      "docs": [
+        "HUMAN_AGENT"
+      ]
+    }
+  },
+  {
+    "id": "facebook.messaging.conversations_read",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Conversations API (list conversations, read last 20 messages)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/conversations",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Implement messages.listConversations/listMessages for Pages",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/conversations\\b"
+      ],
+      "test": [
+        "/conversations\\b"
+      ],
+      "docs": [
+        "Page messaging"
+      ]
+    }
+  },
+  {
+    "id": "facebook.messaging.private_replies",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Private replies to commenters (recipient comment_id/post_id, within 7 days, one per commenter)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/discovery/private-replies",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native privateReply(commentId)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcomment_id\\b"
+      ],
+      "test": [
+        "\\bcomment_id\\b"
+      ],
+      "docs": [
+        "[Pp]rivate repl"
+      ]
+    }
+  },
+  {
+    "id": "facebook.analytics.post_counts",
+    "provider": "facebook",
+    "area": "analytics",
+    "title": "Post reactions/comments/shares counts",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page-post",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "reactions\\.summary\\(total_count\\)",
+        "\\\"shares\\\""
+      ],
+      "test": [
+        "\\btotal_count\\b"
+      ],
+      "docs": [
+        "`reactions`, `comments`, and `shares`"
+      ]
+    }
+  },
+  {
+    "id": "facebook.analytics.post_insights",
+    "provider": "facebook",
+    "area": "analytics",
+    "title": "Post Insights (/{post-id}/insights: post_media_view, post_clicks, post_video_views, retention)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/insights",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add post-level Insights (views, clicks, video metrics)",
+    "effort": "M",
+    "probe": {
+      "test": [
+        "feature:facebook\\.analytics\\.post_insights\\b"
+      ],
+      "docs": [
+        "post_media_view|[Pp]ost Insights"
+      ]
+    }
+  },
+  {
+    "id": "facebook.analytics.page_insights",
+    "provider": "facebook",
+    "area": "analytics",
+    "title": "Page Insights (/{page-id}/insights, period day, since/until max 90 days)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/insights",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "No week/days_28/lifetime/total_over_range periods, date_preset, or breakdowns (is_from_ads, is_from_followers); breakdown values are dropped at :1015",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdays_28\\b|\\btotal_over_range\\b|\\bdate_preset\\b"
+      ],
+      "test": [
+        "feature:facebook.analytics.page_insights"
+      ],
+      "docs": [
+        "Page Insights"
+      ]
+    }
+  },
+  {
+    "id": "facebook.analytics.page_insights.deprecations",
+    "provider": "facebook",
+    "area": "analytics",
+    "title": "Page Insights metric deprecations (many retired 2026-06-15; *_unique deprecated above v25)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/insights",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Name page_media_view/page_follows as current replacements and link the deprecation notice",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "Meta retires metrics"
+      ],
+      "test": [
+        "page_follows"
+      ],
+      "docs": [
+        "page_media_view"
+      ]
+    }
+  },
+  {
+    "id": "facebook.analytics.page_counts",
+    "provider": "facebook",
+    "area": "analytics",
+    "title": "Page followers_count and fan_count",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bfollowers_count\\b",
+        "\\bfan_count\\b"
+      ],
+      "test": [
+        "\\bfollowers_count\\b",
+        "\\bfan_count\\b"
+      ],
+      "docs": [
+        "fan_count"
+      ]
+    }
+  },
+  {
+    "id": "facebook.webhooks.verify",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "X-Hub-Signature-256 verification and GET handshake",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/webhooks/reference/page",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "Add Facebook to the events page's direct-webhook list and handshake table",
+    "effort": "S",
+    "statusCorrection": "The Facebook page documents verification and the GET handshake (platforms/facebook.mdx:185); the gap is events/index.mdx:137 listing direct-webhook platforms without Facebook, so it is probed as a forbid on that sentence",
+    "probe": {
+      "src": [
+        "verifyMetaWebhook",
+        "X-Hub-Signature-256|x-hub-signature-256"
+      ],
+      "test": [
+        "verifyMetaWebhook|answerMetaWebhookChallenge",
+        "hub\\.challenge"
+      ],
+      "docs": [
+        "X-Hub-Signature-256",
+        "answerMetaWebhookChallenge"
+      ],
+      "forbid": [
+        "Instagram, Threads, X, YouTube, TikTok, and LinkedIn deliver their own webhooks when you use a direct adapter"
+      ]
+    }
+  },
+  {
+    "id": "facebook.webhooks.feed",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "feed field events (comment add, post remove, reactions, shares, edits, hides)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/webhooks/reference/page",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Map reaction, share, edited, hide and status/photo/video add verbs (e.g. post.created)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bedited\\b",
+        "\\\"share\\\""
+      ],
+      "test": [
+        "feature:facebook.webhooks.feed"
+      ],
+      "docs": [
+        "\\bedited\\b|\\breaction\\b"
+      ]
+    }
+  },
+  {
+    "id": "facebook.webhooks.messages",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "messages / message_echoes / reactions / postbacks / reads / deliveries",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/webhooks/reference/page",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Tell users to subscribe to the messages field too; decode postbacks/reads",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmessage_reads\\b|\\bmessage_deliveries\\b"
+      ],
+      "test": [
+        "feature:facebook.webhooks.messages"
+      ],
+      "docs": [
+        "`messages` field"
+      ]
+    }
+  },
+  {
+    "id": "facebook.webhooks.other_fields",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "mention, ratings, live_videos, videos, group_feed and Page profile field changes",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/webhooks/reference/page",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Map mention and ratings at least; list unmapped fields",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\\"ratings\\\"",
+        "\\\"mention\\\""
+      ],
+      "test": [
+        "feature:facebook.webhooks.other_fields"
+      ],
+      "docs": [
+        "\\bmention\\b|\\bratings\\b|live_videos|group_feed"
+      ]
+    }
+  },
+  {
+    "id": "facebook.webhooks.subscribe",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "Subscribe app to a Page (POST /{page-id}/subscribed_apps, pages_manage_metadata)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a native subscribeApp helper and document pages_manage_metadata",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/subscribed_apps\\b"
+      ],
+      "test": [
+        "/subscribed_apps\\b"
+      ],
+      "docs": [
+        "subscribed_apps|pages_manage_metadata"
+      ]
+    }
+  },
+  {
+    "id": "facebook.other.api_version",
+    "provider": "facebook",
+    "area": "other",
+    "title": "Graph API v25.0 pin (v26.0 current since 2026-07-29; v25.0 available until 2028-07-29)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "None now; plan the v26.0 bump",
+    "effort": null,
+    "probe": {
+      "src": [
+        "v2[0-9]\\.0"
+      ],
+      "test": [
+        "v2[0-9]\\.0"
+      ],
+      "docs": [
+        "v2[0-9]\\.0"
+      ]
+    }
+  },
+  {
+    "id": "facebook.auth.reconnect",
+    "provider": "facebook",
+    "area": "auth",
+    "title": "Expired/revoked token handling (error 190)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/pages-api/manage-pages",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "metaOAuthReconnect"
+      ],
+      "test": [
+        "code: 190"
+      ],
+      "docs": [
+        "code 190"
+      ]
+    }
+  },
+  {
+    "id": "facebook.ads.campaigns",
+    "provider": "facebook",
+    "area": "ads",
+    "title": "Marketing API campaigns, ad sets, ads, creatives",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.facebook.com/docs/marketing-api/overview",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of scope for the SDK unless requested",
+    "effort": null,
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "facebook.ads.leadgen",
+    "provider": "facebook",
+    "area": "ads",
+    "title": "Lead ads form submissions (leadgen webhook field)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/webhooks/reference/page",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of scope unless requested",
+    "effort": null,
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "facebook.ads.unpublished_ad_video",
+    "provider": "facebook",
+    "area": "ads",
+    "title": "Unpublished ad videos on a Page (ADVERTISE task, pages_manage_ads)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of scope",
+    "effort": null,
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "facebook.messaging.sender_actions",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Messenger sender actions: typing_on, typing_off, mark_seen, react/unreact to a message",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/send-messages/sender-actions/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "sendMessage builds only text/attachment bodies; no sender_action requests (typing indicators, mark seen, message reactions).",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bsender_action\\b",
+        "\\btyping_on\\b",
+        "\\bunreact\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.sender_actions\\b"
+      ],
+      "docs": [
+        "sender_action"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.quick_replies",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Messenger quick replies (text, user_phone_number, user_email) on outgoing messages",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/send-messages/quick-replies/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No quick_replies on Send API messages, and quick-reply payloads are not surfaced from incoming messages.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bquick_replies\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.quick_replies\\b"
+      ],
+      "docs": [
+        "quick_replies"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.send_options",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Send API reply_to (quote a message mid), notification_type (REGULAR/SILENT_PUSH/NO_PUSH) and metadata",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/messages/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "sendMessage cannot reply to a specific message, choose push behavior, or attach echo metadata.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\breply_to\\b",
+        "\\bnotification_type\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.send_options\\b"
+      ],
+      "docs": [
+        "reply_to",
+        "notification_type"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.personas",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Messenger personas: create/list/delete (POST/GET /{page-id}/personas, DELETE /{persona-id}) and persona_id on sends",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/send-messages/personas/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No persona management and no persona_id on messages or sender actions.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/personas\\b",
+        "\\bpersona_id\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.personas\\b"
+      ],
+      "docs": [
+        "[Pp]ersonas?\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.profile",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Messenger Profile API: get_started, greeting, ice_breakers, persistent_menu, whitelisted_domains, commands (GET/POST/DELETE /{page-id}/messenger_profile)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/messenger_profile/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No way to read or set the Page's Messenger profile (Get Started button, greeting, ice breakers, persistent menu, whitelisted domains).",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/messenger_profile\\b",
+        "\\bpersistent_menu\\b",
+        "\\bice_breakers\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.profile\\b"
+      ],
+      "docs": [
+        "messenger_profile|[Pp]ersistent menu"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.handover",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Handover protocol / conversation routing: pass_thread_control, request_thread_control, release_thread_control, take_thread_control, GET thread_owner",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/pass_thread_control/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No thread-control calls, so an app cannot share a Page inbox with Page Inbox or another app; take_thread_control is limited to select developers.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/pass_thread_control\\b",
+        "/request_thread_control\\b",
+        "/release_thread_control\\b",
+        "/thread_owner\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.handover\\b"
+      ],
+      "docs": [
+        "thread_control|[Hh]andover"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.attachment_upload",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Attachment Upload API: POST /{page-id}/message_attachments to save a reusable attachment and get attachment_id",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/message_attachments/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Reusable attachments only come from is_reusable on a send; the standalone upload endpoint (URL or file) is not wrapped.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/message_attachments\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.attachment_upload\\b"
+      ],
+      "docs": [
+        "message_attachments"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.custom_labels",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Custom labels on PSIDs: create/list/delete labels (/{page-id}/custom_labels), POST/DELETE /{label-id}/label, GET /{psid}/custom_labels",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/identity/custom-labels/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No conversation/person labeling (the only custom_labels use is the video upload field).",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/custom_labels\\b",
+        "/label\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.custom_labels\\b"
+      ],
+      "docs": [
+        "/custom_labels|/label\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.user_profile",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "User Profile API: GET /{psid}?fields=first_name,last_name,profile_pic,locale,timezone,gender",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/identity/user-profile/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Senders keep only id and name; no PSID profile lookup for first/last name and profile picture.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfirst_name\\b",
+        "\\bprofile_pic\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.user_profile\\b"
+      ],
+      "docs": [
+        "first_name|[Uu]ser [Pp]rofile API"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.conversations.filters",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Conversations API filters: user_id (find the thread with one PSID) and folder (inbox, other, page_done, spam)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/conversations/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "listConversations always lists platform=messenger with no user_id lookup or folder filter.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfolder\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.conversations.filters\\b"
+      ],
+      "docs": [
+        "\\bfolder\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.message_detail",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Message node fields: attachments (image_data, video_data, file_url), sticker, shares, reactions, tags, story (GET /{message-id})",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/message/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Messages read back as id, message and created_time only; attachments, stickers, shares, story replies and reactions are dropped.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bimage_data\\b",
+        "\\bsticker\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.message_detail\\b"
+      ],
+      "docs": [
+        "image_data|\\bsticker\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.utility_templates",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Utility message templates: create/list /{page-id}/message_templates (category UTILITY) and send approved templates outside the 24h window",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/message_templates/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No template management or template sends; needs page_utility_messaging.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/message_templates\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.utility_templates\\b"
+      ],
+      "docs": [
+        "message_templates|[Uu]tility message"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.marketing_messages",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Messenger marketing messages / recurring notifications (notification_messages_token); deprecated 2026-02-10",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/marketing-messages/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Docs page does not say marketing messages are deprecated and unavailable to new integrations.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "[Mm]arketing messages|notification_messages_token"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.messaging.calling",
+    "provider": "facebook",
+    "area": "messaging",
+    "title": "Messenger Calling API: messenger_call_settings, call permission requests, calls webhooks (limited countries)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/calling/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No voice/video calling settings, permission requests, or call event handling.",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/messenger_call_settings\\b"
+      ],
+      "test": [
+        "feature:facebook.messaging.calling\\b"
+      ],
+      "docs": [
+        "[Cc]alling API|messenger_call_settings"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.webhooks.standby_handover",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "Messenger standby channel (entry[].standby) and messaging_handovers events",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/webhooks/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "decodeFacebook reads only entry[].messaging, so standby deliveries and pass/take-thread events are dropped or unknown.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bstandby\\b",
+        "\\bmessaging_handovers\\b"
+      ],
+      "test": [
+        "feature:facebook.webhooks.standby_handover\\b"
+      ],
+      "docs": [
+        "standby|messaging_handovers"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.webhooks.messaging_events",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "Messenger webhook fields message_edits, messaging_policy_enforcement, messaging_account_linking, response_feedback",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/messenger-platform/webhooks/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Page message_edit, policy-enforcement, account-linking and feedback deliveries collapse to originalType messaging/unknown.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmessage_edits\\b",
+        "\\bmessaging_policy_enforcement\\b",
+        "\\bmessaging_account_linking\\b"
+      ],
+      "test": [
+        "feature:facebook.webhooks.messaging_events\\b"
+      ],
+      "docs": [
+        "message_edits|messaging_policy_enforcement"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.moderation.unblock",
+    "provider": "facebook",
+    "area": "moderation",
+    "title": "List blocked people and unblock (GET/DELETE /{page-id}/blocked, asid/psid/uid/user)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/blocked/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "blockUser only POSTs; there is no list of blocked profiles and no unblock.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "pagePath\\(\"/blocked\"\\)[^;]*\"DELETE\""
+      ],
+      "test": [
+        "feature:facebook.moderation.unblock\\b"
+      ],
+      "docs": [
+        "[Uu]nblock"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.webhooks.unsubscribe",
+    "provider": "facebook",
+    "area": "webhooks",
+    "title": "Unsubscribe the app from a Page (DELETE /{page-id}/subscribed_apps)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "subscribeApp and listSubscribedApps exist but the app cannot remove its Page subscription.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "pagePath\\(\"/subscribed_apps\"\\)[^;]*\"DELETE\""
+      ],
+      "test": [
+        "feature:facebook.webhooks.unsubscribe\\b"
+      ],
+      "docs": [
+        "[Uu]nsubscribe"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.engagement.like",
+    "provider": "facebook",
+    "area": "engagement",
+    "title": "Like or unlike a post or comment as the Page (POST/DELETE /{object-id}/likes)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/object/likes/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Reaction counts are readable but the Page cannot like a comment or post.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/likes\\b"
+      ],
+      "test": [
+        "feature:facebook.engagement.like\\b"
+      ],
+      "docs": [
+        "/likes\\b|[Ll]ike (a|the) (comment|post)"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.comments.read.order",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "Comment ordering: order=chronological|reverse_chronological on /{object-id}/comments",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/object/comments/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "listComments sends filter and summary only, so newest-first listing is unavailable.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\breverse_chronological\\b"
+      ],
+      "test": [
+        "feature:facebook.comments.read.order\\b"
+      ],
+      "docs": [
+        "reverse_chronological"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.comments.read.fields",
+    "provider": "facebook",
+    "area": "comments",
+    "title": "Comment fields: attachment, can_reply_privately, private_reply_conversation, is_hidden, message_tags, can_comment",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/comment/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Comments read back without attachment, hidden state or can_reply_privately, so callers cannot tell if a private reply is allowed.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcan_reply_privately\\b",
+        "\\bprivate_reply_conversation\\b"
+      ],
+      "test": [
+        "feature:facebook.comments.read.fields\\b"
+      ],
+      "docs": [
+        "can_reply_privately"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.read.sharedposts",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Read reshares of a post (GET /{post-id}/sharedposts)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/post/sharedposts/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only the shares count is read; the shared posts themselves are not listed.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/sharedposts\\b"
+      ],
+      "test": [
+        "feature:facebook.read.sharedposts\\b"
+      ],
+      "docs": [
+        "sharedposts"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.video.thumbnails",
+    "provider": "facebook",
+    "area": "media",
+    "title": "Video thumbnails after upload: GET/POST /{video-id}/thumbnails (source, is_preferred)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/video/thumbnails/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "A thumb can only be sent with the upload; existing videos cannot get or switch a preferred thumbnail.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/thumbnails\\b",
+        "\\bis_preferred\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.video.thumbnails\\b"
+      ],
+      "docs": [
+        "is_preferred|/thumbnails"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.video.captions",
+    "provider": "facebook",
+    "area": "media",
+    "title": "Video caption files: POST /{video-id}/captions (captions_file SRT, default_locale, locales_to_delete), GET captions",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/video/captions/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No SRT caption upload or caption locale management for Page videos.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcaptions_file\\b",
+        "\\bdefault_locale\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.video.captions\\b"
+      ],
+      "docs": [
+        "captions_file|SRT"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.video.multilingual",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Multilingual video titles/descriptions (multilingual_data, multilingual_status)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Video upload cannot carry per-language titles and descriptions.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmultilingual_data\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.video.multilingual\\b"
+      ],
+      "docs": [
+        "multilingual_data|[Mm]ultilingual"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.video.replace",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Replace a published video's file (replace_video_id, swap_mode)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No way to swap the media of an existing Page video while keeping engagement.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\breplace_video_id\\b",
+        "\\bswap_mode\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.video.replace\\b"
+      ],
+      "docs": [
+        "replace_video_id"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.video.expiration",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Video expiration (expiration {time, type}) on Page videos",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Uploads cannot set a time after which the video is hidden or deleted.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bexpiration\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.video.expiration\\b"
+      ],
+      "docs": [
+        "\\bexpiration\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.branded_content",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Branded content tags on posts, photos and videos (sponsor_id, sponsor_relationship)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/videos/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No paid-partnership/branded-content tagging on Page publishes.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bsponsor_id\\b",
+        "\\bsponsor_relationship\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.branded_content\\b"
+      ],
+      "docs": [
+        "sponsor_id|[Bb]randed content"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.spherical",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "360 media: allow_spherical_photo/spherical_metadata on photos and spherical, initial_heading, initial_pitch, fov on videos",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/photos/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "360 photos and videos upload as flat media; no spherical parameters are sent.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bspherical_metadata\\b",
+        "\\binitial_heading\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.spherical\\b"
+      ],
+      "docs": [
+        "spherical|360"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.photo.album",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Album photos: upload to an album (POST /{album-id}/photos) and read an album (GET /{album-id}, /{album-id}/photos)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/photo/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Photos always go to the Page's default timeline album; albums cannot be targeted or read.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\balbum"
+      ],
+      "test": [
+        "feature:facebook.publish.photo.album\\b"
+      ],
+      "docs": [
+        "[Aa]lbum"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.live.scheduled",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Scheduled live broadcasts: status SCHEDULED_UNPUBLISHED/SCHEDULED_LIVE/SCHEDULED_CANCELED with planned_start_time",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/live_videos/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "createLiveVideo accepts only UNPUBLISHED or LIVE_NOW; no planned broadcast or cancel.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bSCHEDULED_UNPUBLISHED\\b",
+        "\\bplanned_start_time\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.live.scheduled\\b"
+      ],
+      "docs": [
+        "SCHEDULED_UNPUBLISHED|planned_start_time"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.read.live",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Read live videos: list /{page-id}/live_videos and GET /{live-video-id} status, ingest_streams, errors; delete a broadcast",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/live-video-api/guides/streaming",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "After createLiveVideo there is no status, ingest stream or error read and no list of Page broadcasts.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bingest_streams\\b"
+      ],
+      "test": [
+        "feature:facebook.read.live\\b"
+      ],
+      "docs": [
+        "ingest_streams"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.live.options",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Live broadcast options: enable_backup_ingest, stop_on_delete_stream, privacy, content_tags, targeting, crossposting_actions, is_spherical",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/live_videos/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "createLiveVideo sends only status, title and description.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\benable_backup_ingest\\b",
+        "\\bstop_on_delete_stream\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.live.options\\b"
+      ],
+      "docs": [
+        "enable_backup_ingest"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.publish.live.polls",
+    "provider": "facebook",
+    "area": "publish",
+    "title": "Live video polls: POST /{live-video-id}/polls (question, options) and POST /{video-poll-id} action to show/close voting",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/video-poll/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No live poll create, show or close.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/polls\\b"
+      ],
+      "test": [
+        "feature:facebook.publish.live.polls\\b"
+      ],
+      "docs": [
+        "[Pp]olls?\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.analytics.video_insights",
+    "provider": "facebook",
+    "area": "analytics",
+    "title": "Video and Reels insights: GET /{video-id}/video_insights (total_video_views, post_video_avg_time_watched, blue_reels_play_count, fb_reels_total_plays)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/video/video_insights/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Post Insights cover feed posts; per-video and Reels metrics from video_insights are not read.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/video_insights\\b",
+        "\\bblue_reels_play_count\\b"
+      ],
+      "test": [
+        "feature:facebook.analytics.video_insights\\b"
+      ],
+      "docs": [
+        "video_insights|blue_reels_play_count"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.account.picture_cover",
+    "provider": "facebook",
+    "area": "account",
+    "title": "Set the Page profile picture (POST /{page-id}/picture) and cover photo (POST /{page-id} cover, offset_x, offset_y)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/picture/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "updatePage covers about/description/website/phone/emails only; Page images cannot be changed.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/picture\"",
+        "\\boffset_y\\b"
+      ],
+      "test": [
+        "feature:facebook.account.picture_cover\\b"
+      ],
+      "docs": [
+        "[Pp]rofile (picture|photo)|[Cc]over photo"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.account.assigned_users",
+    "provider": "facebook",
+    "area": "account",
+    "title": "Page task assignment: GET/POST/DELETE /{page-id}/assigned_users (business users, tasks)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/assigned_users/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Roles can be listed but business-user task assignments cannot be read or changed; needs business_management.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/assigned_users\\b"
+      ],
+      "test": [
+        "feature:facebook.account.assigned_users\\b"
+      ],
+      "docs": [
+        "assigned_users"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.account.locations",
+    "provider": "facebook",
+    "area": "account",
+    "title": "Page locations (child location Pages): GET/POST/DELETE /{page-id}/locations",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No support for brands managing location Pages under a main Page.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/locations\\b"
+      ],
+      "test": [
+        "feature:facebook.account.locations\\b"
+      ],
+      "docs": [
+        "/locations\\b|[Ll]ocation Pages"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.read.video_lists",
+    "provider": "facebook",
+    "area": "read",
+    "title": "Video playlists: GET /{page-id}/video_lists",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/reference/page/video_lists/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Page video playlists are not listed.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/video_lists\\b"
+      ],
+      "test": [
+        "feature:facebook.read.video_lists\\b"
+      ],
+      "docs": [
+        "video_lists|[Pp]laylist"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.auth.oauth_login",
+    "provider": "facebook",
+    "area": "auth",
+    "title": "Facebook Login OAuth: build the /dialog/oauth URL with state and exchange the code at /oauth/access_token",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "discoverFacebookPages assumes the caller already has a user token; the SDK has no Facebook authorize URL or code exchange. The Page access token guide shows it as hand-written caller code only.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "dialog/oauth",
+        "oauth/access_token"
+      ],
+      "test": [
+        "feature:facebook.auth.oauth_login\\b"
+      ],
+      "docs": [
+        "dialog/oauth|oauth/access_token"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.auth.long_lived",
+    "provider": "facebook",
+    "area": "auth",
+    "title": "Long-lived tokens: exchange a short-lived user token (grant_type=fb_exchange_token) so /me/accounts returns non-expiring Page tokens",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-long-lived/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "The Page access token guide shows the fb_exchange_token flow as caller code; the SDK has no exchange helper.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfb_exchange_token\\b"
+      ],
+      "test": [
+        "feature:facebook.auth.long_lived\\b"
+      ],
+      "docs": [
+        "[Ll]ong-lived"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.auth.permissions_check",
+    "provider": "facebook",
+    "area": "auth",
+    "title": "Token and permission inspection: GET /debug_token and /me/permissions (granted/declined scopes, data_access_expires_at)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "No check of granted vs declined permissions or token expiry before use. The Page access token guide shows it as hand-written caller code only.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdebug_token\\b",
+        "/me/permissions"
+      ],
+      "test": [
+        "feature:facebook.auth.permissions_check\\b"
+      ],
+      "docs": [
+        "debug_token|/me/permissions"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.auth.appsecret_proof",
+    "provider": "facebook",
+    "area": "auth",
+    "title": "appsecret_proof on Graph calls (required when the app enables Require App Secret)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/securing-requests/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Requests never send appsecret_proof, so apps with Require App Secret on fail every call. The Page access token guide shows it as hand-written caller code only.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bappsecret_proof\\b"
+      ],
+      "test": [
+        "feature:facebook.auth.appsecret_proof\\b"
+      ],
+      "docs": [
+        "appsecret_proof"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "facebook.other.rate_limit_headers",
+    "provider": "facebook",
+    "area": "other",
+    "title": "Rate-limit usage headers: X-App-Usage, X-Page-Usage, X-Business-Use-Case-Usage (estimated_time_to_regain_access)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/graph-api/overview/rate-limiting/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Throttling surfaces only as rate_limited errors; usage headers and regain time are not read.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "[Xx]-[Bb]usiness-[Uu]se-[Cc]ase-[Uu]sage",
+        "[Xx]-[Aa]pp-[Uu]sage"
+      ],
+      "test": [
+        "feature:facebook.other.rate_limit_headers\\b"
+      ],
+      "docs": [
+        "X-Business-Use-Case-Usage|X-App-Usage"
+      ]
+    },
+    "round": 2
+  }
+]

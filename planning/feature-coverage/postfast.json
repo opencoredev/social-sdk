@@ -1,0 +1,939 @@
+[
+  {
+    "id": "postfast.account.list",
+    "provider": "postfast",
+    "area": "account",
+    "title": "List workspace accounts with connectionStatus and disabledReason",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "disabledReason not surfaced",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/social-media/my-social-accounts",
+        "connectionStatus"
+      ],
+      "test": [
+        "/social-media/my-social-accounts",
+        "connectionStatus"
+      ],
+      "docs": [
+        "accounts\\.list"
+      ]
+    }
+  },
+  {
+    "id": "postfast.analytics.followers",
+    "provider": "postfast",
+    "area": "analytics",
+    "title": "Daily followerCount on accounts and follower history (GET /social-media/:id/follower-history)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Implement getAccountMetrics from followerCount/followerCountUpdatedAt",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "followerCount|follower-history"
+      ],
+      "test": [
+        "followerCount|follower-history"
+      ],
+      "docs": [
+        "followerCount|follower-history|[Ff]ollower history"
+      ]
+    }
+  },
+  {
+    "id": "postfast.account.connect_link",
+    "provider": "postfast",
+    "area": "auth",
+    "title": "Hosted connect link (platforms, expiryDays, redirectUrl, externalId, sendEmail)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "sendEmail/email not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/social-media/connect-link",
+        "expiryDays"
+      ],
+      "test": [
+        "expiryDays"
+      ],
+      "docs": [
+        "expiryDays"
+      ]
+    }
+  },
+  {
+    "id": "postfast.account.lookups",
+    "provider": "postfast",
+    "area": "account",
+    "title": "Lookups: Pinterest boards, YouTube playlists, GBP locations, place search, TikTok sounds",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native lookups so callers can find the boardId/locationId the adapter already requires",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "pinterest-boards|/boards\\b",
+        "youtube-playlists|/playlists\\b"
+      ],
+      "test": [
+        "pinterest-boards|/boards\\b",
+        "youtube-playlists|/playlists\\b"
+      ],
+      "docs": [
+        "[Ll]ookups?|\\bboards\\b|\\bplaylists\\b"
+      ]
+    }
+  },
+  {
+    "id": "postfast.scheduling.create",
+    "provider": "postfast",
+    "area": "scheduling",
+    "title": "Create scheduled posts (scheduledAt, status SCHEDULED, up to 15 per request)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "scheduledAt",
+        "SCHEDULED"
+      ],
+      "test": [
+        "scheduledAt",
+        "SCHEDULED"
+      ],
+      "docs": [
+        "SCHEDULED"
+      ]
+    }
+  },
+  {
+    "id": "postfast.scheduling.draft_approval",
+    "provider": "postfast",
+    "area": "scheduling",
+    "title": "DRAFT status and approvalStatus PENDING_APPROVAL on create",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Allow submitting drafts or pending-approval posts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "approvalStatus",
+        "\\\"DRAFT\\\""
+      ],
+      "test": [
+        "approvalStatus",
+        "\\\"DRAFT\\\""
+      ],
+      "docs": [
+        "approvalStatus|PENDING_APPROVAL",
+        "\\bDRAFT\\b"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.first_comment",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "firstComment ~10s after publish (X, Instagram, Facebook, YouTube, Threads, TikTok)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add normalized firstComment option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "firstComment"
+      ],
+      "test": [
+        "firstComment"
+      ],
+      "docs": [
+        "firstComment|[Ff]irst comment"
+      ]
+    }
+  },
+  {
+    "id": "postfast.read.status",
+    "provider": "postfast",
+    "area": "read",
+    "title": "Get posts by ids with status and platformPostId",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "platformPostId"
+      ],
+      "test": [
+        "platformPostId"
+      ],
+      "docs": [
+        "Poll for status"
+      ]
+    }
+  },
+  {
+    "id": "postfast.read.list",
+    "provider": "postfast",
+    "area": "read",
+    "title": "List posts filtered by account, platform, status, date (includes 60-day import of native posts on FB/IG/Threads/TikTok)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Implement posts.list over GET /social-posts?socialMediaIds=",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\\"posts\\.list\\\""
+      ],
+      "test": [
+        "\\\"posts\\.list\\\""
+      ],
+      "docs": [
+        "posts\\.list"
+      ]
+    }
+  },
+  {
+    "id": "postfast.delete",
+    "provider": "postfast",
+    "area": "delete",
+    "title": "Delete post in any status (PostFast only) and bulk delete up to 100",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Bulk delete not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\\"DELETE\\\"",
+        "\\bbulk\\b"
+      ],
+      "test": [
+        "\\\"DELETE\\\"",
+        "\\bbulk\\b"
+      ],
+      "docs": [
+        "[Dd]elete"
+      ]
+    }
+  },
+  {
+    "id": "postfast.media.upload",
+    "provider": "postfast",
+    "area": "media",
+    "title": "Signed uploads: images 10 MB, videos 250 MB, documents 60 MB, captions 10 MB",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Document (PDF/DOC/PPT) and caption-file uploads unsupported",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/file/get-signed-upload-urls",
+        "text/vtt|application/x-subrip|\\.srt\\b"
+      ],
+      "test": [
+        "/file/get-signed-upload-urls",
+        "text/vtt|application/x-subrip|\\.srt\\b"
+      ],
+      "docs": [
+        "[Uu]pload"
+      ]
+    }
+  },
+  {
+    "id": "postfast.media.cover",
+    "provider": "postfast",
+    "area": "media",
+    "title": "Video cover frame (coverTimestamp) and cover image (coverImageKey) per media item",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map MediaAttachment.thumbnail to coverImageKey",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "coverTimestamp|coverImageKey"
+      ],
+      "test": [
+        "coverTimestamp|coverImageKey"
+      ],
+      "docs": [
+        "coverImageKey|coverTimestamp|[Cc]over image"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.youtube.basic",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "YouTube youtubeTitle, youtubePrivacy, youtubeMadeForKids, youtubeIsShort",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/youtube/shorts",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "Docs contradict the adapter: document the isShort option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "youtubeTitle",
+        "youtubePrivacy",
+        "youtubeMadeForKids",
+        "youtubeIsShort",
+        "isShort"
+      ],
+      "test": [
+        "youtubeTitle",
+        "youtubeIsShort",
+        "isShort"
+      ],
+      "docs": [
+        "youtubeIsShort"
+      ],
+      "forbid": [
+        "does not expose a Shorts selector"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.youtube.extra",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "YouTube youtubeTags, youtubePlaylistId, youtubeThumbnailKey, youtubeLanguage, youtubeCaptionKey, youtubeContainsSyntheticMedia",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map tags, playlist, thumbnail, language/captions and synthetic-media disclosure",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "youtubeTags",
+        "youtubePlaylistId",
+        "youtubeThumbnailKey",
+        "youtubeContainsSyntheticMedia"
+      ],
+      "test": [
+        "youtubeTags",
+        "youtubePlaylistId",
+        "youtubeThumbnailKey",
+        "youtubeContainsSyntheticMedia"
+      ],
+      "docs": [
+        "youtubeTags|youtubePlaylistId|youtubeThumbnailKey|youtubeContainsSyntheticMedia"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.tiktok",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "TikTok allow comments/duet/stitch, brand organic/content, AIGC, draft",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/tiktok/videos",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "tiktokAllowComments",
+        "tiktokIsAigc",
+        "tiktokIsDraft",
+        "tiktokBrandOrganic"
+      ],
+      "test": [
+        "tiktokAllowComments",
+        "tiktokIsAigc",
+        "tiktokIsDraft",
+        "tiktokBrandOrganic"
+      ],
+      "docs": [
+        "tiktokAllowComments",
+        "tiktokIsAigc",
+        "tiktokIsDraft"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.tiktok.privacy",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "tiktokPrivacy deprecated; videos use account default privacy",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/tiktok/privacy-settings",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "docs": [
+        "tiktokPrivacy"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.tiktok.extra",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "TikTok tiktokTitle, tiktokAutoAddMusic, tiktokMusicSoundId (trending sounds)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/tiktok/videos",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Allow the existing TikTok title/autoAddMusic options and add a sound id",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "tiktokTitle",
+        "tiktokAutoAddMusic",
+        "tiktokMusicSoundId"
+      ],
+      "test": [
+        "tiktokTitle",
+        "tiktokAutoAddMusic",
+        "tiktokMusicSoundId"
+      ],
+      "docs": [
+        "tiktokTitle|tiktokAutoAddMusic|tiktokMusicSoundId"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.instagram.type",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "instagramPublishType TIMELINE/STORY/REEL and instagramPostToGrid",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/instagram/reels",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add Story/Reel selection",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "instagramPostToGrid",
+        "instagramPublishType"
+      ],
+      "test": [
+        "instagramPostToGrid",
+        "instagramPublishType"
+      ],
+      "docs": [
+        "instagramPostToGrid",
+        "instagramPublishType"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.instagram.extra",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "instagramCollaborators, instagramLocationId, instagramIsAiGenerated, instagramTrialReelStrategy",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map collaborators, location, AI label and trial reels",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "instagramCollaborators",
+        "instagramLocationId",
+        "instagramIsAiGenerated",
+        "instagramTrialReelStrategy"
+      ],
+      "test": [
+        "instagramCollaborators",
+        "instagramLocationId",
+        "instagramIsAiGenerated",
+        "instagramTrialReelStrategy"
+      ],
+      "docs": [
+        "instagramCollaborators|instagramLocationId|instagramIsAiGenerated|instagramTrialReelStrategy"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.facebook",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "facebookContentType POST/REEL/STORY, facebookReelsCollaborators, facebookPlaceId, facebookTargetCountries, link carousels",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/facebook/reels",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map the existing reel option to facebookContentType and add story/geo/carousel",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "facebookContentType",
+        "facebookReelsCollaborators",
+        "facebookPlaceId"
+      ],
+      "test": [
+        "facebookContentType",
+        "facebookReelsCollaborators",
+        "facebookPlaceId"
+      ],
+      "docs": [
+        "facebookContentType|facebookReelsCollaborators|facebookPlaceId"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.x.retweet",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "X repost by URL (xRetweetUrl)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/x/posts",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add scheduled repost option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "xRetweetUrl"
+      ],
+      "test": [
+        "xRetweetUrl"
+      ],
+      "docs": [
+        "xRetweetUrl"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.threads.topic",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "Threads topic (threadsTopicTag)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Threads topic option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "threadsTopicTag"
+      ],
+      "test": [
+        "threadsTopicTag"
+      ],
+      "docs": [
+        "threadsTopicTag|[Tt]opic tag"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.linkedin.document",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "LinkedIn document posts (linkedinAttachmentKey, linkedinAttachmentTitle)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Upload document and send as linkedinAttachmentKey",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "linkedinAttachmentKey",
+        "linkedinAttachmentTitle"
+      ],
+      "test": [
+        "linkedinAttachmentKey",
+        "linkedinAttachmentTitle"
+      ],
+      "docs": [
+        "linkedinAttachmentKey|linkedinAttachmentTitle"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.bluesky.video",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "Bluesky video (1 MP4 up to 100 MB)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/api-guides/bluesky/posting",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "wrong",
+    "gap": "PostFast's guide (updated Oct 2026) documents Bluesky video: allow it and fix the docs",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "PostFast posts one MP4 video up to 100 MB to Bluesky"
+      ],
+      "test": [
+        "feature:postfast\\.publish\\.bluesky\\.video\\b"
+      ],
+      "docs": [
+        "Bluesky[^\\n]*\\bvideos?\\b[^\\n]*(supported|allowed|accepted)"
+      ],
+      "forbid": [
+        "Bluesky support for text and images only"
+      ],
+      "absent": [
+        "bluesky\\.video_unsupported"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.pinterest",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "Pinterest pinterestBoardId and pinterestLink",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "pinterestBoardId",
+        "pinterestLink"
+      ],
+      "test": [
+        "pinterestBoardId",
+        "pinterestLink"
+      ],
+      "docs": [
+        "boardId"
+      ]
+    }
+  },
+  {
+    "id": "postfast.publish.gbp",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "Google Business Profile gbpLocationId plus EVENT/OFFER topics and call-to-action",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add gbpTopicType, CTA, event and offer fields",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "gbpLocationId",
+        "gbpTopicType"
+      ],
+      "test": [
+        "gbpLocationId",
+        "gbpTopicType"
+      ],
+      "docs": [
+        "locationId",
+        "gbpTopicType|\\bEVENT\\b|\\bOFFER\\b"
+      ]
+    }
+  },
+  {
+    "id": "postfast.analytics.post",
+    "provider": "postfast",
+    "area": "analytics",
+    "title": "Post analytics with latestMetric, watch time, Instagram saveRate and reelsSkipRate, extras",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "reelsSkipRate and extras (TikTok full-watch rate, favorites) dropped",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "latestMetric",
+        "reelsSkipRate"
+      ],
+      "test": [
+        "latestMetric",
+        "reelsSkipRate"
+      ],
+      "docs": [
+        "[Aa]nalytics"
+      ]
+    }
+  },
+  {
+    "id": "postfast.comments.inbox",
+    "provider": "postfast",
+    "area": "comments",
+    "title": "Social Inbox: list comment conversations and items, reply (idempotencyKey), unread count (TikTok, Instagram, Facebook Pages, Threads)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Implement comments.list/reply over /social-inbox (conversation items to CommentRef)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/social-inbox"
+      ],
+      "test": [
+        "/social-inbox"
+      ],
+      "docs": [
+        "[Ss]ocial [Ii]nbox|/social-inbox"
+      ]
+    }
+  },
+  {
+    "id": "postfast.moderation.inbox",
+    "provider": "postfast",
+    "area": "moderation",
+    "title": "Hide/unhide/delete comment, Instagram private reply, conversation read/status/assign",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add moderation and private reply with the inbox work",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/social-inbox",
+        "/social-inbox/items/[^\\n]*/state\\b"
+      ],
+      "test": [
+        "/social-inbox",
+        "/state\\b"
+      ],
+      "docs": [
+        "\\b[Hh]ide\\b|[Pp]rivate repl"
+      ]
+    },
+    "statusCorrection": "PostFast hides, unhides and deletes comments with POST /social-inbox/items/:id/state (action HIDE|UNHIDE|DELETE); there is no /hide route (postfa.st/docs.md, checked 2026-11-04)."
+  },
+  {
+    "id": "postfast.publish.facebook.carousel_end_card",
+    "provider": "postfast",
+    "area": "publish",
+    "title": "Facebook link carousel end card (controls.facebookCarouselShowEndCard)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Link carousels are sent without the optional end card toggle",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfacebookCarouselShowEndCard\\b"
+      ],
+      "test": [
+        "facebookCarouselShowEndCard"
+      ],
+      "docs": [
+        "facebookCarouselShowEndCard|end card"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "postfast.comments.inbox_filters",
+    "provider": "postfast",
+    "area": "comments",
+    "title": "Social Inbox list filters: conversation statuses (OPEN/SNOOZED/CLOSED) and assignedToUserId, item order ASC/DESC",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://postfa.st/docs.md",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Inbox listing passes only account and unreadOnly",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bassignedToUserId\\b",
+        "\\bstatuses\\b"
+      ],
+      "test": [
+        "assignedToUserId"
+      ],
+      "docs": [
+        "assignedToUserId|SNOOZED"
+      ]
+    },
+    "round": 2
+  }
+]

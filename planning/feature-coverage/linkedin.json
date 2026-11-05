@@ -1,0 +1,2283 @@
+[
+  {
+    "id": "linkedin.publish.text",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Text-only post as member or organization (Posts API)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/rest/posts\\b",
+        "\\bcommentary\\b"
+      ],
+      "test": [
+        "api\\.linkedin\\.com/rest/posts",
+        "\\bcommentary\\b"
+      ],
+      "docs": [
+        "Publish a text post"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.image",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Single-image post (content.media with image URN)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/rest/images\\?action=initializeUpload",
+        "\\bmedia:\\s*\\{"
+      ],
+      "test": [
+        "rest/images",
+        "initializeUpload"
+      ],
+      "docs": [
+        "Upload an image, then publish it"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.image.alt_text",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Image alt text (up to 4,086 chars)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\baltText\\b",
+        "4,?086"
+      ],
+      "test": [
+        "\\baltText\\b",
+        "4086"
+      ],
+      "docs": [
+        "\\baltText\\b"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.multi_image",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "MultiImage post (2 to 20 images, organic only)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bmultiImage\\b"
+      ],
+      "test": [
+        "MultiImage|multiImage"
+      ],
+      "docs": [
+        "multi-image post"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.video",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Single-video post (MP4, 3s-30min, 75KB-500MB)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/rest/videos\\?action=initializeUpload",
+        "finalizeUpload"
+      ],
+      "test": [
+        "rest/videos",
+        "finalizeUpload"
+      ],
+      "docs": [
+        "Upload a video, then publish it"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.video.title",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Video media title",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "const title = video \\? item\\.caption"
+      ],
+      "test": [
+        "video caption as the optional media title"
+      ],
+      "docs": [
+        "becomes the video's `title`"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.media.video.thumbnail",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Custom video thumbnail upload (uploadThumbnail + thumbnailUploadUrl)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Add uploadThumbnail=true and PUT the image to thumbnailUploadUrl during video upload",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "thumbnailUploadUrl"
+      ],
+      "test": [
+        "thumbnailUploadUrl"
+      ],
+      "docs": [
+        "thumbnailUploadUrl|uploadThumbnail|[Vv]ideo thumbnail"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.media.video.captions",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Video captions file upload (SRT, uploadCaptions)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Add uploadCaptions and multipart SRT upload to captionsUploadUrl",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "captionsUploadUrl"
+      ],
+      "test": [
+        "captionsUploadUrl"
+      ],
+      "docs": [
+        "captionsUploadUrl|uploadCaptions|[Cc]aption"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.media.video.attribution",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Video media attribution (templateName, linkbackContext; 202602+)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional: pass templateName/linkbackContext on initializeUpload",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btemplateName\\b",
+        "\\blinkbackContext\\b"
+      ],
+      "test": [
+        "\\btemplateName\\b"
+      ],
+      "docs": [
+        "templateName|linkbackContext"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.document",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Document post (PDF/PPT/PPTX/DOC/DOCX, 100MB, 300 pages)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/rest/documents\\?action=initializeUpload"
+      ],
+      "test": [
+        "rest/documents\\?action=initializeUpload"
+      ],
+      "docs": [
+        "Upload a document, then publish it"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.article",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Article (link) post with source, title, description",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\barticle:\\s*\\{",
+        "\\bsource:"
+      ],
+      "test": [
+        "\\barticle:\\s*\\{"
+      ],
+      "docs": [
+        "Publish an article link"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.article.thumbnail",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Article thumbnail image URN (content.article.thumbnail)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Accept an uploaded image ref as link thumbnail and send content.article.thumbnail",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\barticle:\\s*\\{[^}]*\\bthumbnail\\b"
+      ],
+      "test": [
+        "\\barticle:\\s*\\{[^}]*\\bthumbnail\\b"
+      ],
+      "docs": [
+        "[Aa]rticle thumbnail|thumbnail"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.poll",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Poll post (question, 2-4 options, ONE_DAY..FOURTEEN_DAYS)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/poll-post-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "createPoll reuses text as both commentary and question, no local checks for 140-char question, 2-4 options, 30-char options; no docs example or signature",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpoll:\\s*\\{",
+        "\\b140\\b"
+      ],
+      "test": [
+        "\\bpoll\\b",
+        "\\b140\\b"
+      ],
+      "docs": [
+        "createPoll"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.reshare",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Reshare a post (reshareContext.parent)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "reshare sends empty commentary; LinkedIn accepts reshare commentary (quote-style). Add commentary option and a docs example",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "reshareContext"
+      ],
+      "test": [
+        "feature:linkedin\\.publish\\.reshare\\b"
+      ],
+      "docs": [
+        "reshareContext|\\.reshare\\("
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.mentions",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Mention members/organizations in commentary (@[Name](urn))",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add a mentions/annotations input that emits little-text @[Name](urn) instead of escaping",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "@\\["
+      ],
+      "test": [
+        "@\\[[^\\]]+\\]\\(urn:li:"
+      ],
+      "docs": [
+        "@\\[[^\\]]*\\]\\(urn"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.hashtags",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Hashtags in commentary (little text)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Allow intentional hashtags via little-text template rather than always escaping #",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\{hashtag\\|"
+      ],
+      "test": [
+        "\\{hashtag\\|"
+      ],
+      "docs": [
+        "\\{hashtag\\||[Hh]ashtag"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.targeting",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Targeted organic organization posts (distribution.targetEntities, 300+ audience)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose targetEntities facets (geo, seniority, industry, function) for organization posts",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\b(?:geoLocations|seniorities|industries|jobFunctions)\\b"
+      ],
+      "test": [
+        "\\b(?:geoLocations|seniorities|industries|jobFunctions)\\b"
+      ],
+      "docs": [
+        "targetEntities"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.disable_reshare",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "isReshareDisabledByAuthor option",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose isReshareDisabledByAuthor as a LinkedIn publish option",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:linkedin\\.publish\\.disable_reshare\\b"
+      ],
+      "docs": [
+        "isReshareDisabledByAuthor"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.visibility",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Visibility values beyond PUBLIC (e.g. CONNECTIONS for members)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Optional: expose visibility; verify allowed enum in post-api-schema first",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bCONNECTIONS\\b"
+      ],
+      "test": [
+        "\\bCONNECTIONS\\b"
+      ],
+      "docs": [
+        "public visibility only"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.publish.dark_post",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Dark posts (feedDistribution NONE + adContext) for sponsored content",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Ads-scope; out of core SDK unless ads support is added",
+    "effort": "M",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "linkedin.publish.carousel_sponsored",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Sponsored carousel posts (ads only, not organic)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Ads-scope only",
+    "effort": "L",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "linkedin.publish.celebration",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Celebration posts (create returns 400; read-only)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/celebration-post-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Not creatable via API; at most preserve content.celebration on reads",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "[Cc]elebration"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.edit.post",
+    "provider": "linkedin",
+    "area": "edit",
+    "title": "Update post commentary, contentCallToActionLabel, contentLandingPage, lifecycleState (PARTIAL_UPDATE)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "updatePost takes untyped JSON; add a typed commentary edit with little-text escaping and a docs example",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "X-RestLi-Method\": \"PARTIAL_UPDATE",
+        "\\$set:\\s*\\{[^}]*\\bcommentary\\b"
+      ],
+      "test": [
+        "PARTIAL_UPDATE"
+      ],
+      "docs": [
+        "updatePost\\("
+      ]
+    }
+  },
+  {
+    "id": "linkedin.delete.post",
+    "provider": "linkedin",
+    "area": "delete",
+    "title": "Delete post (idempotent 204)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Add a docs example for posts.removeFromPlatform/deletePost",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "async deletePost\\(",
+        "posts\\.removeFromPlatform"
+      ],
+      "test": [
+        "rest/posts/urn%3Ali%3Ashare",
+        "removes a platform post"
+      ],
+      "docs": [
+        "deletePost\\(|removeFromPlatform\\("
+      ]
+    }
+  },
+  {
+    "id": "linkedin.read.post",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Get post by URN (viewContext READER/AUTHOR)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Returns 7 fields only; content (media, article, poll results, reshareContext), publishedAt, distribution and viewContext=AUTHOR are dropped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bviewContext\\b"
+      ],
+      "test": [
+        "\\bviewContext\\b"
+      ],
+      "docs": [
+        "Post reads return only"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.read.posts.batch",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Batch get posts (BATCH_GET ids=List(...))",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add batch get for reconciliation; not allowed in Development tier",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "ids=List\\("
+      ],
+      "test": [
+        "ids=List\\("
+      ],
+      "docs": [
+        "BATCH_GET|[Bb]atch get"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.read.posts.by_author",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Find posts by author (member needs restricted r_member_social; org needs r_organization_social)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "sortBy CREATED and viewContext not exposed; docs page omits r_organization_social for organization feeds",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "[?&]q=author&author="
+      ],
+      "test": [
+        "searchParams\\.get\\(\"author\"\\)"
+      ],
+      "docs": [
+        "posts\\.list|q=author"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.read.poll_results",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Poll results (voteCount per option, uniqueVotersCount)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/poll-post-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Return content.poll in post reads",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "uniqueVotersCount"
+      ],
+      "test": [
+        "uniqueVotersCount"
+      ],
+      "docs": [
+        "uniqueVotersCount|[Pp]oll results"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.read.organization",
+    "provider": "linkedin",
+    "area": "account",
+    "title": "Retrieve administered organization (/rest/organizations/{id})",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/rest/organizations/\\$\\{"
+      ],
+      "test": [
+        "api\\.linkedin\\.com/rest/organizations/"
+      ],
+      "docs": [
+        "/rest/organizations/\\{id\\}"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.read.organization.lookup",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Non-admin organization lookup (organizationsLookup batch, q=vanityName)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native lookup by id/vanityName for mention targets and public fields",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "organizationsLookup|q=vanityName"
+      ],
+      "test": [
+        "organizationsLookup|q=vanityName"
+      ],
+      "docs": [
+        "organizationsLookup|q=vanityName"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.read.organization.brands",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Find administered brand/showcase pages by parent organization",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add q=parentOrganization finder to discover showcase pages",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "q=parentOrganization"
+      ],
+      "test": [
+        "q=parentOrganization"
+      ],
+      "docs": [
+        "parentOrganization|[Ss]howcase"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.account.member_profile",
+    "provider": "linkedin",
+    "area": "account",
+    "title": "Member identity via OpenID Connect userinfo",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/v2/userinfo"
+      ],
+      "test": [
+        "userinfo"
+      ],
+      "docs": [
+        "`userinfo`"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.account.administered_orgs",
+    "provider": "linkedin",
+    "area": "account",
+    "title": "List organizations a member administers (organizationAcls roleAssignee)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Only ADMINISTRATOR returned; CONTENT_ADMINISTRATOR and DIRECT_SPONSORED_CONTENT_POSTER can publish but are not discoverable",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "organizationAcls\\?q=roleAssignee"
+      ],
+      "test": [
+        "feature:linkedin\\.account\\.administered_orgs\\b"
+      ],
+      "docs": [
+        "`organizationAcls` roleAssignee finder"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.account.org_admins",
+    "provider": "linkedin",
+    "area": "account",
+    "title": "List an organization's role holders (organizationAcls q=organization)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native finder for org access audits",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "organizationAcls\\?q=organization\\b"
+      ],
+      "test": [
+        "organizationAcls\\?q=organization\\b"
+      ],
+      "docs": [
+        "organizationAcls[^\\n]*q=organization\\b"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.engagement.react",
+    "provider": "linkedin",
+    "area": "engagement",
+    "title": "Create reaction on post or comment (LIKE, PRAISE, EMPATHY, INTEREST, APPRECIATION, ENTERTAINMENT)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "reaction is an untyped string (MAYBE deprecated returns 400); add enum type and docs example",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/rest/reactions\\?actor=",
+        "\\bENTERTAINMENT\\b"
+      ],
+      "test": [
+        "rest/reactions\\?actor="
+      ],
+      "docs": [
+        "\\bENTERTAINMENT\\b|reactionType"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.engagement.reaction.delete",
+    "provider": "linkedin",
+    "area": "engagement",
+    "title": "Delete (undo) a reaction",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native deleteReaction DELETE /rest/reactions/(actor,entity)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/rest/reactions/\\("
+      ],
+      "test": [
+        "rest/reactions/\\("
+      ],
+      "docs": [
+        "rest/reactions/\\("
+      ]
+    }
+  },
+  {
+    "id": "linkedin.engagement.reactions.list",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "List reactions on a post/comment (q=entity, sort) and get/batch get",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listReactions; needs r_*_social_feed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/rest/reactions[^\\n]*q=entity"
+      ],
+      "test": [
+        "reactions[^\\n]*q=entity"
+      ],
+      "docs": [
+        "q=entity"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.engagement.social_metadata",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Social metadata summary (reactionSummaries by type, commentSummary, commentsState)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/social-metadata-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Switch or add /rest/socialMetadata to return per-type reaction counts and top-level vs total comments",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/rest/socialMetadata",
+        "reactionSummaries"
+      ],
+      "test": [
+        "reactionSummaries"
+      ],
+      "docs": [
+        "socialMetadata|reactionSummaries"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.list",
+    "provider": "linkedin",
+    "area": "comments",
+    "title": "Get comments on a post (socialActions/{urn}/comments)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Docs list r_member_social_feed without saying LinkedIn restricts it to select developers",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/rest/socialActions/\\$\\{[^}]*\\}/comments\\?start="
+      ],
+      "test": [
+        "socialActions"
+      ],
+      "docs": [
+        "r_member_social_feed",
+        "select developers"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.list.nested",
+    "provider": "linkedin",
+    "area": "comments",
+    "title": "Get comments on a comment (nested replies via commentUrn target)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add listing by parent commentUrn",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/rest/socialActions/\\$\\{[^}]*[cC]omment[^}]*\\}/comments\\?"
+      ],
+      "test": [
+        "feature:linkedin\\.comments\\.list\\.nested"
+      ],
+      "docs": [
+        "nested repl(?:y|ies)[^\\n]*(?:list|read)|replies to a comment"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.create_top_level",
+    "provider": "linkedin",
+    "area": "comments",
+    "title": "Create a top-level comment on a post",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add comment-on-post (normalized or native); currently only replies to existing comments",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/rest/socialActions/\\$\\{[^}]*[pP]ost[^}]*\\}/comments`"
+      ],
+      "test": [
+        "feature:linkedin\\.comments\\.create_top_level"
+      ],
+      "docs": [
+        "top-level comment|comment on a post"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.reply",
+    "provider": "linkedin",
+    "area": "comments",
+    "title": "Nested reply to a comment (parentComment)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Replies pre-read the post and parent comment, so member replies need r_member_social_feed, which LinkedIn restricts to select developers; docs do not say so",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bparentComment\\b"
+      ],
+      "test": [
+        "\\bparentComment\\b"
+      ],
+      "docs": [
+        "select developers"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.image",
+    "provider": "linkedin",
+    "area": "comments",
+    "title": "Comment with image (content[].entity.image)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Allow an uploaded image ref on comment create/reply",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bentity:\\s*\\{\\s*image\\b"
+      ],
+      "test": [
+        "\\bentity:\\s*\\{\\s*image\\b"
+      ],
+      "docs": [
+        "comments? with an image|image comments?\\b"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.mentions",
+    "provider": "linkedin",
+    "area": "comments",
+    "title": "Mentions in comments (message.attributes start/length/value)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept mention attributes on comment writes",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmessage:\\s*\\{[^}]*\\battributes\\b"
+      ],
+      "test": [
+        "\\bmessage:\\s*\\{[^}]*\\battributes\\b"
+      ],
+      "docs": [
+        "mentions? in comments|comment mentions|message\\.attributes"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.edit",
+    "provider": "linkedin",
+    "area": "comments",
+    "title": "Edit a comment (PARTIAL_UPDATE message.text/attributes)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native editComment",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmessage\\b[\"']?:\\s*\\{\\s*[\"']?\\$set"
+      ],
+      "test": [
+        "\\bmessage\\b[\"']?:\\s*\\{\\s*[\"']?\\$set"
+      ],
+      "docs": [
+        "[Ee]dit(?:ing)? a comment|editComment"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.comments.delete",
+    "provider": "linkedin",
+    "area": "moderation",
+    "title": "Delete a comment (actor for organizations)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/rest/socialActions/\\$\\{[^}]*\\}/comments/\\$\\{"
+      ],
+      "test": [
+        "deleteComment"
+      ],
+      "docs": [
+        "DELETE /rest/socialActions/\\{postUrn\\}/comments"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.moderation.comments_toggle",
+    "provider": "linkedin",
+    "area": "moderation",
+    "title": "Enable/disable comments on a post (socialMetadata commentsState OPEN/CLOSED; closing deletes existing comments)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/social-metadata-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native setCommentsState via Social Metadata; comments docs say only that hiding is unsupported and never mention this close-comments control",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcommentsState\\b"
+      ],
+      "test": [
+        "\\bcommentsState\\b"
+      ],
+      "docs": [
+        "commentsState|[Cc]lose comments|[Dd]isable comments"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.org.share_stats",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Organization share statistics, lifetime and time-bound (DAY/MONTH)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "organizationalEntityShareStatistics"
+      ],
+      "test": [
+        "organizationalEntityShareStatistics"
+      ],
+      "docs": [
+        "organizationalEntityShareStatistics"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.org.share_stats.per_post",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Per-post organization statistics (shares=List(...), ugcPosts=List(...)): impressions, unique impressions, clicks, engagement",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add per-post org stats so getPostMetrics can return impressions/clicks/engagement for Page posts",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "(?:ugcPosts|shares)=List\\("
+      ],
+      "test": [
+        "(?:ugcPosts|shares)=List\\("
+      ],
+      "docs": [
+        "(?:ugcPosts|shares)=List"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.org.followers",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Organization follower statistics (lifetime demographics, time-bound gains DAY/WEEK/MONTH)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "organizationalEntityFollowerStatistics"
+      ],
+      "test": [
+        "organizationalEntityFollowerStatistics"
+      ],
+      "docs": [
+        "organizationalEntityFollowerStatistics"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.org.page_stats",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Organization page statistics (views, custom-button clicks; DAY/MONTH)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "organizationPageStatistics"
+      ],
+      "test": [
+        "organizationPageStatistics"
+      ],
+      "docs": [
+        "organizationPageStatistics"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.brand.page_stats",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Brand page statistics (brandPageStatistics)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional: brandPageStatistics for showcase pages",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "brandPageStatistics"
+      ],
+      "test": [
+        "brandPageStatistics"
+      ],
+      "docs": [
+        "brandPageStatistics"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.org.follower_count",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Organization total follower count (networkSizes COMPANY_FOLLOWED_BY_MEMBER)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "networkSizes",
+        "COMPANY_FOLLOWED_BY_MEMBER"
+      ],
+      "test": [
+        "networkSizes",
+        "COMPANY_FOLLOWED_BY_MEMBER"
+      ],
+      "docs": [
+        "networkSizes",
+        "COMPANY_FOLLOWED_BY_MEMBER"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.member.post_stats",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Member creator post analytics (memberCreatorPostAnalytics: impressions, reach, reactions, comments, reshares, saves, sends, link clicks, followers gained, profile views)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/members/post-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Implement r_member_postAnalytics entity and me finders; maps to getPostMetrics/getAccountMetrics for members",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "memberCreatorPostAnalytics"
+      ],
+      "test": [
+        "memberCreatorPostAnalytics"
+      ],
+      "docs": [
+        "member creator post"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.member.video_stats",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Member video analytics (memberCreatorVideoAnalytics: VIDEO_PLAY, VIDEO_VIEWER, VIDEO_WATCH_TIME)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/members/video-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Implement with r_member_postAnalytics",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "memberCreatorVideoAnalytics"
+      ],
+      "test": [
+        "memberCreatorVideoAnalytics"
+      ],
+      "docs": [
+        "and video analytics exist\\s+upstream"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.analytics.member.followers",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Member follower count, lifetime and daily (memberFollowersCount)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/members/follower-statistics?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Implement r_member_profileAnalytics memberFollowersCount for member getAccountMetrics",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "memberFollowersCount"
+      ],
+      "test": [
+        "memberFollowersCount"
+      ],
+      "docs": [
+        "memberFollowersCount|member follower"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.webhooks.verify",
+    "provider": "linkedin",
+    "area": "webhooks",
+    "title": "Verify X-LI-Signature (HMAC-SHA256 over 'hmacsha256='+raw body)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/api-guide/webhook-validation",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "[Xx]-[Ll][Ii]-[Ss]ignature",
+        "hmacsha256="
+      ],
+      "test": [
+        "X-LI-Signature",
+        "hmacsha256="
+      ],
+      "docs": [
+        "signature verification"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.webhooks.challenge",
+    "provider": "linkedin",
+    "area": "webhooks",
+    "title": "Answer GET validation challenge (3s, re-validated every 2h, blocked after 3 failures)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/api-guide/webhook-validation",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "challengeCode",
+        "challengeResponse"
+      ],
+      "test": [
+        "challengeCode",
+        "challengeResponse"
+      ],
+      "docs": [
+        "validate the webhook"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.webhooks.decode",
+    "provider": "linkedin",
+    "area": "webhooks",
+    "title": "Decode ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS payload (LIKE, COMMENT, SHARE, SHARE_MENTION, ADMIN_COMMENT, COMMENT_EDIT, COMMENT_DELETE)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Only COMMENT maps to a typed event; LIKE/SHARE/SHARE_MENTION/edits/deletes stay unknown",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS",
+        "(?:===\\s*|case\\s+)\"(?:LIKE|SHARE|SHARE_MENTION)\"|\\b(?:LIKE|SHARE_MENTION)\\s*:\\s*\"[a-z]+\\.[a-z_]+\""
+      ],
+      "test": [
+        "ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS"
+      ],
+      "docs": [
+        "[Ww]ebhook"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.webhooks.subscriptions",
+    "provider": "linkedin",
+    "area": "webhooks",
+    "title": "Manage eventSubscriptions (PUT/GET/DELETE, list by subscriber)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Add native subscribe/list/unsubscribe helpers",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/rest/eventSubscriptions"
+      ],
+      "test": [
+        "rest/eventSubscriptions"
+      ],
+      "docs": [
+        "eventSubscriptions"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.notifications.pull",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Pull organization notifications (organizationalEntityNotifications criteria, 60-day retention)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "timeRange.start/end and sourcePost filters not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "organizationalEntityNotifications\\?q=criteria",
+        "organizationalEntityNotifications[^\\n]*(?:timeRange|sourcePost=)"
+      ],
+      "test": [
+        "organizationalEntityNotifications"
+      ],
+      "docs": [
+        "organizationalEntityNotifications"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.media.image.upload",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Image upload (initializeUpload + PUT; JPG/PNG/GIF, <36,152,320 px, GIF<=250 frames)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/rest/images\\?action=initializeUpload",
+        "uploadUrl"
+      ],
+      "test": [
+        "rest/images",
+        "uploadUrl"
+      ],
+      "docs": [
+        "social\\.media\\.upload"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.media.status",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Get image/video/document status (single GET)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "imageStatus",
+        "videoStatus",
+        "documentStatus"
+      ],
+      "test": [
+        "videoStatus",
+        "documentStatus"
+      ],
+      "docs": [
+        "`imageStatus`, `videoStatus`, and `documentStatus`"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.media.library",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Media library metadata / find by associated ad account",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Ads-scope media library; skip unless ads support is added",
+    "effort": "S",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "linkedin.ads.boost",
+    "provider": "linkedin",
+    "area": "ads",
+    "title": "Boost member/Page posts (Boost Init/Hydrate/Post/Status/Analytics, 202610+)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/recent-changes",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Ads-scope; new in 202610 under Advertising API",
+    "effort": "L",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "linkedin.auth.dev_tier_limits",
+    "provider": "linkedin",
+    "area": "auth",
+    "title": "Community Management Development tier: 500 calls/app/day, 100/member/day, no BATCH_GET, no webhooks",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "w_organization_social"
+      ],
+      "test": [
+        "w_organization_social"
+      ],
+      "docs": [
+        "500 calls per app and 100 calls per member",
+        "webhooks are unavailable in Development"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.auth.scopes.member_analytics",
+    "provider": "linkedin",
+    "area": "auth",
+    "title": "Community Management scopes r_member_postAnalytics and r_member_profileAnalytics",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add to OAuth scope presets once member analytics ship",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "r_member_postAnalytics",
+        "r_member_profileAnalytics"
+      ],
+      "test": [
+        "r_member_postAnalytics"
+      ],
+      "docs": [
+        "r_member_postAnalytics|r_member_profileAnalytics"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.other.api_version",
+    "provider": "linkedin",
+    "area": "other",
+    "title": "Monthly LinkedIn-Version header; latest 202610, 202511 sunsets 2026-11-16",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Examples pin 202609 (still supported); consider 202610 and cite current sunset dates",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"LinkedIn-Version\""
+      ],
+      "test": [
+        "LinkedIn-Version"
+      ],
+      "docs": [
+        "LinkedIn-Version",
+        "\\b202610\\b"
+      ]
+    }
+  },
+  {
+    "id": "linkedin.events.manage",
+    "provider": "linkedin",
+    "area": "other",
+    "title": "Events API: create, update, delete, get, find by organizer (eventsByOrganizer: excludeCancelled, timeBasedFilter, entryCriteria, sortOrder); endsAt required from 202605",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/event-management/events?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No organic Page event management; needs rw_events/r_events",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/rest/events\\b",
+        "\\beventsByOrganizer\\b",
+        "\\bexcludeCancelled\\b",
+        "\\bendsAt\\b"
+      ],
+      "test": [
+        "/rest/events\\b"
+      ],
+      "docs": [
+        "/rest/events|Events API"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.events.background_image",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Event background image upload (assets registerUpload, then backgroundImage on the event)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/event-management/events?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Events get LinkedIn's default image only",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "assets\\?action=registerUpload",
+        "\\bbackgroundImage\\b"
+      ],
+      "test": [
+        "\\bbackgroundImage\\b"
+      ],
+      "docs": [
+        "backgroundImage|[Bb]ackground image"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.publish.event_post",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Event post via content.reference (ReferenceContent with urn:li:event)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "The documented way to share an event is a post with a reference URN; the SDK cannot send one",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "urn:li:event:"
+      ],
+      "test": [
+        "urn:li:event:"
+      ],
+      "docs": [
+        "urn:li:event|[Ee]vent posts?"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.analytics.org.video",
+    "provider": "linkedin",
+    "area": "analytics",
+    "title": "Organization video analytics (GET /rest/videoAnalytics?q=entity: VIDEO_VIEW, VIEWER, TIME_WATCHED, TIME_WATCHED_FOR_VIDEO_VIEWS; DAY/WEEK/ALL; timeRange)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/video-analytics-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Page video posts have no view or watch-time metrics",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/rest/videoAnalytics",
+        "\\bTIME_WATCHED_FOR_VIDEO_VIEWS\\b"
+      ],
+      "test": [
+        "/rest/videoAnalytics"
+      ],
+      "docs": [
+        "videoAnalytics"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.publish.mentions.people_typeahead",
+    "provider": "linkedin",
+    "area": "search",
+    "title": "People Typeahead for member mentions (GET /rest/peopleTypeahead?q=organizationFollowers&keywords=)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-atmention-search-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Restricted to select developers; document it so callers know where mention URNs come from",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "peopleTypeahead|People Typeahead"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.publish.mentions.vanity_url",
+    "provider": "linkedin",
+    "area": "search",
+    "title": "Resolve a member profile URL in an organization context (GET /rest/vanityUrl?q=vanityUrlAsOrganization)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-atmention-search-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Second half of the member-mention lookup flow",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "vanityUrlAsOrganization"
+      ],
+      "test": [
+        "vanityUrlAsOrganization"
+      ],
+      "docs": [
+        "vanityUrl"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.account.org_authorizations",
+    "provider": "linkedin",
+    "area": "account",
+    "title": "Organization Authorizations: get, batch get, bq=authorizationActionsAndImpersonator (can a member post, comment or read analytics for a Page)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-authorizations/organization-authorizations?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Permission is inferred from organizationAcls roles instead of asked directly",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/rest/organizationAuthorizations",
+        "\\bauthorizationActionsAndImpersonator\\b"
+      ],
+      "test": [
+        "organizationAuthorizations"
+      ],
+      "docs": [
+        "organizationAuthorizations"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.auth.token_introspection",
+    "provider": "linkedin",
+    "area": "auth",
+    "title": "Token introspection (POST https://www.linkedin.com/oauth/v2/introspectToken: status, expiry, scopes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/authentication/token-introspection",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Would back connection health checks",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/oauth/v2/introspectToken"
+      ],
+      "test": [
+        "introspectToken"
+      ],
+      "docs": [
+        "introspectToken|[Tt]oken introspection"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.account.profile_api",
+    "provider": "linkedin",
+    "area": "account",
+    "title": "Profile API: GET /v2/me (projection), GET /v2/people/(id:...), batch GET /v2/people?ids= (location moving to geoLocation per 202608)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/shared/integrations/people/profile-api",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "LinkedIn points here for commenter profile info; only OIDC userinfo exists",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/v2/me\\b",
+        "/v2/people"
+      ],
+      "test": [
+        "/v2/(?:me|people)\\b"
+      ],
+      "docs": [
+        "/v2/me\\b|/v2/people|Profile API"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.read.social_batch",
+    "provider": "linkedin",
+    "area": "read",
+    "title": "Batch social reads: socialActions?ids=List(...), socialMetadata?ids=List(...), socialActions/{urn}/comments?ids=List(...)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/social-metadata-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "One call per post or comment is costly against Development-tier limits",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "socialActions\\?ids=List",
+        "socialMetadata\\?ids=List",
+        "/comments\\?ids=List"
+      ],
+      "test": [
+        "(?:socialActions|socialMetadata)\\?ids=List"
+      ],
+      "docs": [
+        "socialActions\\?ids=List|socialMetadata\\?ids=List|/comments\\?ids=List"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.engagement.reactions.get",
+    "provider": "linkedin",
+    "area": "engagement",
+    "title": "Reaction get by (actor,entity) and BATCH_GET reactions?ids=List(...)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Inventory row reactions.list claims get/batch get but only finder, create and delete exist; cannot ask whether an account reacted",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "reactions\\?ids=List"
+      ],
+      "test": [
+        "reactions\\?ids=List",
+        "feature:linkedin\\.engagement\\.reactions\\.get\\b"
+      ],
+      "docs": [
+        "reactions\\?ids=List"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.media.batch_status",
+    "provider": "linkedin",
+    "area": "media",
+    "title": "Media BATCH_GET: images?ids=List(...), videos?ids=List(...), documents?ids=List(...)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Multi-image posts need up to 20 single status reads",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "images\\?ids=List",
+        "videos\\?ids=List",
+        "documents\\?ids=List"
+      ],
+      "test": [
+        "(?:images|videos|documents)\\?ids=List"
+      ],
+      "docs": [
+        "(?:images|videos|documents)\\?ids=List"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "linkedin.publish.targeting.interface_locales",
+    "provider": "linkedin",
+    "area": "publish",
+    "title": "Targeting facet interfaceLocales in distribution.targetEntities (schools is deprecated in favour of organizations, which the SDK accepts)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema?view=li-lms-2026-10",
+      "checked": "2026-11-04",
+      "apiVersion": "202610"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Decoder rejects interfaceLocales; schools needs no work beyond a docs note",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\binterfaceLocales\\b"
+      ],
+      "test": [
+        "\\binterfaceLocales\\b"
+      ],
+      "docs": [
+        "interfaceLocales"
+      ]
+    },
+    "round": 2
+  }
+]

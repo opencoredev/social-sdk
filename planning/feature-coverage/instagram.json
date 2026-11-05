@@ -1,0 +1,2901 @@
+[
+  {
+    "id": "instagram.publish.image",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Single image feed post (JPEG container + media_publish)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/media_publish\\b",
+        "\\bimage_url\\b"
+      ],
+      "test": [
+        "/media_publish\\b",
+        "\\bimage_url\\b"
+      ],
+      "docs": [
+        "`media_publish`",
+        "### Publish an image"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.reels",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Reels publishing (media_type=REELS, video_url)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"REELS\"",
+        "\\bvideo_url\\b"
+      ],
+      "test": [
+        "\"REELS\"",
+        "publishReel\\("
+      ],
+      "docs": [
+        "publishReel",
+        "Reels?"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.carousel",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Carousel posts with up to 20 image/video children",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "wrong",
+    "gap": "Meta now documents carousels of up to 20 items (children max 20); raise the 10-item cap, capability maxItems, and docs",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"CAROUSEL\"",
+        "maxItems: 20\\b"
+      ],
+      "test": [
+        "\"CAROUSEL\"",
+        "feature:instagram.publish.carousel"
+      ],
+      "docs": [
+        "\\b2 to 20\\b|\\bup to 20\\b"
+      ],
+      "forbid": [
+        "Supply 1 to 10 attachments; 2 to 10 form a carousel"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.stories",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Stories publishing (media_type=STORIES, image or video)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Stories not reachable through normalized posts.publish; native only",
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"STORIES\""
+      ],
+      "test": [
+        "publishStory\\("
+      ],
+      "docs": [
+        "publishStory"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.caption_limits",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Caption limits: 2,200 chars, 30 hashtags, 20 @tags",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Validate or document the 30-hashtag and 20-@tag caption limits",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\b2200\\b|2_200"
+      ],
+      "test": [
+        "feature:instagram\\.publish\\.caption_limits\\b"
+      ],
+      "docs": [
+        "2,200",
+        "\\b30 hashtags\\b",
+        "\\b20 @"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.alt_text",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Image alt_text (1,000 chars, single image and carousel images)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\balt_text\\b"
+      ],
+      "test": [
+        "instagram\\.alt_text"
+      ],
+      "docs": [
+        "`alt_text`",
+        "1,000 characters"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.reels.share_to_feed",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Reels share_to_feed",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Add shareToFeed to native publishReel input",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bshare_to_feed\\b"
+      ],
+      "test": [
+        "feature:instagram\\.publish\\.reels\\.share_to_feed\\b"
+      ],
+      "docs": [
+        "shareToFeed",
+        "share_to_feed"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.reels.cover_url",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Reels custom cover image (cover_url)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add coverUrl option for Reels (overrides thumb_offset)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcover_url\\b"
+      ],
+      "test": [
+        "\\bcover_url\\b"
+      ],
+      "docs": [
+        "cover_url|coverUrl"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.thumb_offset",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Video/Reels cover frame (thumb_offset ms)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add thumbOffsetMs option for Reels/video",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bthumb_offset\\b"
+      ],
+      "test": [
+        "\\bthumb_offset\\b"
+      ],
+      "docs": [
+        "thumb_offset|thumbOffset"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.reels.audio_name",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Reels audio_name (rename original audio once)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add audioName option for Reels",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\baudio_name\\b"
+      ],
+      "test": [
+        "\\baudio_name\\b"
+      ],
+      "docs": [
+        "audio_name|audioName"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.reels.trial_params",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Trial Reels (trial_params.graduation_strategy MANUAL | SS_PERFORMANCE)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add trial option with graduation strategy for Reels",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btrial_params\\b",
+        "\\bgraduation_strategy\\b"
+      ],
+      "test": [
+        "\\btrial_params\\b"
+      ],
+      "docs": [
+        "trial_params|trialParams"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.collaborators",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Collaborators (up to 3 usernames; feed image, Reels, carousel)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add collaborators option (max 3, not Stories) on image/Reel/carousel parent",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcollaborators\\b[^\\n]{0,20}[:=]"
+      ],
+      "test": [
+        "\\bcollaborators\\b"
+      ],
+      "docs": [
+        "`collaborators`"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.user_tags",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "User tags (username + x/y) on images, videos, Stories",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add userTags option with x/y for images and optional coordinates for Stories",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\buser_tags\\b"
+      ],
+      "test": [
+        "\\buser_tags\\b"
+      ],
+      "docs": [
+        "user_tags|userTags"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.location_id",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Location tag (location_id Page ID)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add locationId option on image/video/Reels (not carousel children)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blocation_id\\b"
+      ],
+      "test": [
+        "\\blocation_id\\b"
+      ],
+      "docs": [
+        "location_id|locationId"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.is_ai_generated",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "AI-generated content disclosure (is_ai_generated)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add isAiGenerated option (carousel parent only); document it",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_ai_generated\\b"
+      ],
+      "test": [
+        "\\bis_ai_generated\\b",
+        "feature:instagram.publish.is_ai_generated"
+      ],
+      "docs": [
+        "is_ai_generated|isAiGenerated"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.paid_partnership",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Paid partnership label (is_paid_partnership, branded_content_sponsor_ids max 2)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add Facebook Login-only paid-partnership options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_paid_partnership\\b",
+        "\\bbranded_content_sponsor_ids\\b"
+      ],
+      "test": [
+        "\\bis_paid_partnership\\b"
+      ],
+      "docs": [
+        "is_paid_partnership|isPaidPartnership"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.poll_attachment",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Caption poll add-on (poll_attachment, is_poll_duration_extended)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Facebook Login-only poll option (2-4 options, 1-25 chars, needs caption)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bpoll_attachment\\b"
+      ],
+      "test": [
+        "\\bpoll_attachment\\b"
+      ],
+      "docs": [
+        "poll_attachment|pollAttachment"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.comment_prompt",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Caption comment prompt add-on (is_comment_prompt_used)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Facebook Login-only comment-prompt flag",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_comment_prompt_used\\b"
+      ],
+      "test": [
+        "\\bis_comment_prompt_used\\b"
+      ],
+      "docs": [
+        "is_comment_prompt_used|commentPrompt"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.product_tags",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Shopping product tags on containers (product_tags)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/product-tagging.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Implement product_tags on image/video/Reels/carousel children (FB Login + Instagram Shop)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bproduct_tags\\b"
+      ],
+      "test": [
+        "\\bproduct_tags\\b"
+      ],
+      "docs": [
+        "product_tags|productTags"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.audio_api",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Licensed music / original sound on Reels (ig_audio search + audio_configuration)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/content-publishing/audio-api.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Facebook Login audio search and audio_configuration on Reels",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\baudio_configuration\\b",
+        "\\big_audio\\b"
+      ],
+      "test": [
+        "\\baudio_configuration\\b"
+      ],
+      "docs": [
+        "audio_configuration|audioConfiguration"
+      ]
+    }
+  },
+  {
+    "id": "instagram.media.resumable_upload",
+    "provider": "instagram",
+    "area": "media",
+    "title": "Resumable video upload via rupload.facebook.com (upload_type=resumable, local bytes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/content-publishing/resumable-uploads.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Implement FB Login resumable upload so local video bytes work without public hosting",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "rupload\\.facebook\\.com"
+      ],
+      "test": [
+        "rupload\\.facebook\\.com",
+        "feature:instagram.media.resumable_upload"
+      ],
+      "docs": [
+        "rupload\\.facebook\\.com|upload_type=resumable"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.container_status",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Container status polling (status_code IN_PROGRESS/FINISHED/ERROR/EXPIRED/PUBLISHED)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-container.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bstatus_code\\b"
+      ],
+      "test": [
+        "\\bstatus_code\\b"
+      ],
+      "docs": [
+        "getDelivery"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.copyright_check",
+    "provider": "instagram",
+    "area": "media",
+    "title": "Copyright pre-check on containers and media (copyright_check_status / copyright_check_information)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/copyright-detection.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose copyright check status on deliveries/post reads (FB Login)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcopyright_check_status\\b"
+      ],
+      "test": [
+        "\\bcopyright_check_status\\b"
+      ],
+      "docs": [
+        "copyright_check_status|copyrightCheck"
+      ]
+    }
+  },
+  {
+    "id": "instagram.publish.publishing_limit",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Content publishing limit (GET content_publishing_limit; 100 posts/24h)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/content_publishing_limit\\b"
+      ],
+      "test": [
+        "publishingLimit\\("
+      ],
+      "docs": [
+        "publishingLimit"
+      ]
+    }
+  },
+  {
+    "id": "instagram.scheduling.native",
+    "provider": "instagram",
+    "area": "scheduling",
+    "title": "Native scheduled publishing",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "no publish-time parameter"
+      ],
+      "test": [
+        "posts\\.schedule"
+      ],
+      "docs": [
+        "scheduling must create containers near publication time"
+      ]
+    }
+  },
+  {
+    "id": "instagram.delete.media",
+    "provider": "instagram",
+    "area": "delete",
+    "title": "Delete media (DELETE /{ig-media-id}; posts, Stories, Reels, whole carousels; FB Login only)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bdeletePost\\b",
+        "\"DELETE\""
+      ],
+      "test": [
+        "deletePost\\("
+      ],
+      "docs": [
+        "post deletion",
+        "Deletion is Facebook Login-only"
+      ]
+    }
+  },
+  {
+    "id": "instagram.edit.comment_enabled",
+    "provider": "instagram",
+    "area": "moderation",
+    "title": "Enable/disable comments on media (POST /{ig-media-id}?comment_enabled)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bcomment_enabled\\b"
+      ],
+      "test": [
+        "\\bcomment_enabled\\b"
+      ],
+      "docs": [
+        "comment_enabled"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.media_list",
+    "provider": "instagram",
+    "area": "read",
+    "title": "List account media (GET /{ig-user-id}/media, up to 10K most recent)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Return media_url, thumbnail_url, like_count, comments_count; document posts.list on the Instagram page",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/media\\b",
+        "\\bthumbnail_url\\b"
+      ],
+      "test": [
+        "\\bthumbnail_url\\b"
+      ],
+      "docs": [
+        "posts\\.list"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.media_node",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Read media node fields (like_count, comments_count, media_url, alt_text, shares_count, saved_count, reposts_count, is_ai_generated)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Request engagement counters and media URLs in posts.get",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bsaved_count\\b",
+        "\\bshares_count\\b"
+      ],
+      "test": [
+        "\\bsaved_count\\b"
+      ],
+      "docs": [
+        "saved_count|savedCount"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.carousel_children",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Carousel children edge (GET /{ig-media-id}/children)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listChildren",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/children\\b"
+      ],
+      "test": [
+        "/children\\b"
+      ],
+      "docs": [
+        "/children\\b|listChildren"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.stories",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Active Stories edge (GET /{ig-user-id}/stories)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/stories.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listStories (Stories are excluded from /media)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/stories\\b"
+      ],
+      "test": [
+        "/stories\\b"
+      ],
+      "docs": [
+        "/stories\\b|listStories"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.live_media",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Live broadcasts in progress (GET /{ig-user-id}/live_media)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/live_media.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listLiveMedia",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blive_media\\b"
+      ],
+      "test": [
+        "\\blive_media\\b"
+      ],
+      "docs": [
+        "live_media|listLiveMedia"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.own_profile",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Own professional profile (GET /me or /{ig-user-id} fields)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\\"/me\\\"",
+        "\\bfollowers_count\\b"
+      ],
+      "test": [
+        "normalizes the authorized Instagram profile"
+      ],
+      "docs": [
+        "### Read profiles"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.business_discovery",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Business Discovery of other professional accounts incl. media and view_count",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/business-discovery.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bbusiness_discovery\\b"
+      ],
+      "test": [
+        "\\bbusiness_discovery\\b"
+      ],
+      "docs": [
+        "business_discovery",
+        "businessDiscovery"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.collaborative_media",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Collaborative media list and search (collaborative_media, collaborative_media_search)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/collaboration.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Facebook Login native collaborative media reads",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcollaborative_media\\b"
+      ],
+      "test": [
+        "\\bcollaborative_media\\b"
+      ],
+      "docs": [
+        "collaborative_media"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.media_collaborators",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Media collaborators edge (GET /{ig-media-id}/collaborators)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Facebook Login native media collaborators read",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/collaborators\\b"
+      ],
+      "test": [
+        "/collaborators\\b"
+      ],
+      "docs": [
+        "/collaborators\\b"
+      ]
+    }
+  },
+  {
+    "id": "instagram.account.collaboration_invites",
+    "provider": "instagram",
+    "area": "account",
+    "title": "Collaboration invites: list and accept/decline (/{ig-user-id}/collaboration_invites)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/collaboration.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listCollaborationInvites and respondToCollaborationInvite (FB Login)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcollaboration_invites\\b"
+      ],
+      "test": [
+        "\\bcollaboration_invites\\b"
+      ],
+      "docs": [
+        "collaboration_invites"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.connected_threads_user",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Connected / Instagram-backed Threads user edges",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native read linking the Instagram account to its Threads user",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bconnected_threads_user\\b|\\binstagram_backed_threads_user\\b"
+      ],
+      "test": [
+        "\\bconnected_threads_user\\b|\\binstagram_backed_threads_user\\b"
+      ],
+      "docs": [
+        "connected_threads_user|instagram_backed_threads_user"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.oembed",
+    "provider": "instagram",
+    "area": "read",
+    "title": "oEmbed embed HTML for posts, Reels and profiles (GET /instagram_oembed)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/oembed.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional oEmbed helper (embed use only, 1,000 req/hour)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\binstagram_oembed\\b"
+      ],
+      "test": [
+        "\\binstagram_oembed\\b"
+      ],
+      "docs": [
+        "instagram_oembed|oEmbed"
+      ]
+    }
+  },
+  {
+    "id": "instagram.account.upcoming_events",
+    "provider": "instagram",
+    "area": "account",
+    "title": "Upcoming events create/read/update (/{ig-user-id}/upcoming_events)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/upcoming-events.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native upcoming events methods (instagram_manage_upcoming_events)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bupcoming_events\\b"
+      ],
+      "test": [
+        "\\bupcoming_events\\b"
+      ],
+      "docs": [
+        "upcoming_events"
+      ]
+    }
+  },
+  {
+    "id": "instagram.search.hashtag",
+    "provider": "instagram",
+    "area": "search",
+    "title": "Hashtag ID search (GET /ig_hashtag_search; 30 unique tags / 7 days)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/hashtag-search.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/ig_hashtag_search\\b"
+      ],
+      "test": [
+        "hashtagSearch\\("
+      ],
+      "docs": [
+        "/ig_hashtag_search\\b",
+        "hashtagSearch"
+      ]
+    }
+  },
+  {
+    "id": "instagram.search.hashtag_media",
+    "provider": "instagram",
+    "area": "search",
+    "title": "Hashtag top_media and recent_media",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/hashtag-search.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bhashtagMedia\\b",
+        "\\}_media\\b"
+      ],
+      "test": [
+        "hashtagMedia\\("
+      ],
+      "docs": [
+        "`top_media`",
+        "`recent_media`"
+      ]
+    }
+  },
+  {
+    "id": "instagram.search.recently_searched_hashtags",
+    "provider": "instagram",
+    "area": "search",
+    "title": "Recently searched hashtags (GET /{ig-user-id}/recently_searched_hashtags)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/hashtag-search.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native read so apps can track the 30-hashtag weekly budget",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\brecently_searched_hashtags\\b"
+      ],
+      "test": [
+        "\\brecently_searched_hashtags\\b"
+      ],
+      "docs": [
+        "recently_searched_hashtags"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.tags",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Tagged media / mentions (GET /{ig-user-id}/tags)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/mentions.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/tags`"
+      ],
+      "test": [
+        "/tags\\b"
+      ],
+      "docs": [
+        "GET /\\{ig-user-id\\}/tags"
+      ]
+    }
+  },
+  {
+    "id": "instagram.read.mentioned_media_comment",
+    "provider": "instagram",
+    "area": "read",
+    "title": "mentioned_media and mentioned_comment lookups",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/mentions.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bmentioned_media\\b",
+        "\\bmentioned_comment\\b"
+      ],
+      "test": [
+        "\\bmentioned_media\\b",
+        "\\bmentioned_comment\\b"
+      ],
+      "docs": [
+        "`mentioned_media`",
+        "`mentioned_comment`"
+      ]
+    }
+  },
+  {
+    "id": "instagram.comments.mention_reply",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "Reply to a caption or comment @mention (POST /{ig-user-id}/mentions)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/mentions.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add native replyToMention({mediaId, commentId?, message}) for both login flavors",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/mentions\\b"
+      ],
+      "test": [
+        "/mentions\\b",
+        "feature:instagram.comments.mention_reply"
+      ],
+      "docs": [
+        "/mentions\\b",
+        "\\bcomment_id\\b"
+      ]
+    }
+  },
+  {
+    "id": "instagram.comments.list",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "List top-level comments on media (max 50 per query)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-media/comments.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/comments`"
+      ],
+      "test": [
+        "/comments\\b"
+      ],
+      "docs": [
+        "comments\\.list"
+      ]
+    }
+  },
+  {
+    "id": "instagram.comments.replies_list",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "List replies to a comment (GET /{ig-comment-id}/replies)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/comment-moderation",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/replies`",
+        "listCommentReplies"
+      ],
+      "test": [
+        "listCommentReplies"
+      ],
+      "docs": [
+        "GET /\\{ig-comment-id\\}/replies"
+      ]
+    }
+  },
+  {
+    "id": "instagram.comments.reply",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "Reply to a comment (POST /{ig-comment-id}/replies)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/comment-moderation",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/replies`, context, \\{"
+      ],
+      "test": [
+        "feature:instagram\\.comments\\.reply\\b"
+      ],
+      "docs": [
+        "comments\\.reply"
+      ]
+    }
+  },
+  {
+    "id": "instagram.comments.create_on_media",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "Create a top-level comment on media (POST /{ig-media-id}/comments)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-media/comments.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add comment-on-media (normalized or native createComment)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/comments`,\\s*context,\\s*\\{"
+      ],
+      "test": [
+        "feature:instagram.comments.create_on_media"
+      ],
+      "docs": [
+        "POST /\\{ig-media-id\\}/comments"
+      ]
+    }
+  },
+  {
+    "id": "instagram.comments.ordered",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "Display-order comments incl. ad media (GET /{ig-media-id}/ordered_comments; FB Login)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/comment-moderation",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add Facebook Login native listOrderedComments",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bordered_comments\\b"
+      ],
+      "test": [
+        "\\bordered_comments\\b"
+      ],
+      "docs": [
+        "ordered_comments"
+      ]
+    }
+  },
+  {
+    "id": "instagram.comments.read_node",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "Read a single comment node (from, hidden, like_count, parent_id, media)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-comment.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Add native getComment and include hidden",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"hidden\""
+      ],
+      "test": [
+        "feature:instagram.comments.read_node"
+      ],
+      "docs": [
+        "getComment"
+      ]
+    }
+  },
+  {
+    "id": "instagram.moderation.hide_comment",
+    "provider": "instagram",
+    "area": "moderation",
+    "title": "Hide/unhide a comment (POST /{ig-comment-id}?hide=)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-comment.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bhide: String"
+      ],
+      "test": [
+        "hide: \"true\""
+      ],
+      "docs": [
+        "hide=true"
+      ]
+    }
+  },
+  {
+    "id": "instagram.moderation.delete_comment",
+    "provider": "instagram",
+    "area": "moderation",
+    "title": "Delete a comment (DELETE /{ig-comment-id})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-comment.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bdeleteComment\\b",
+        "\"DELETE\""
+      ],
+      "test": [
+        "deleteComment"
+      ],
+      "docs": [
+        "DELETE /\\{ig-comment-id\\}"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.conversations",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "List conversations and messages (Conversations API; last 20 messages detailed)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/conversations-api.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Docs omit the 20-most-recent-messages detail limit and 30-day Requests folder limit",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/conversations`"
+      ],
+      "test": [
+        "/conversations"
+      ],
+      "docs": [
+        "listConversations",
+        "listMessages"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.send_text",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Send text DM (POST /{ig-id}/messages, 1,000 bytes, 24h window)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/messages`"
+      ],
+      "test": [
+        "sendMessage\\("
+      ],
+      "docs": [
+        "sendMessage|messages\\.send"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.send_media",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Send attachments: up to 10 images, audio, video, PDF file; attachment_id upload",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add attachment sending (image list, audio/video/file, attachment_id)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\battachment_id\\b"
+      ],
+      "test": [
+        "\\battachment_id\\b"
+      ],
+      "docs": [
+        "attachment_id"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.like_heart_and_share",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Heart sticker (like_heart) and own-post share (MEDIA_SHARE)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add like_heart and MEDIA_SHARE message types",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blike_heart\\b",
+        "\\bMEDIA_SHARE\\b"
+      ],
+      "test": [
+        "\\blike_heart\\b"
+      ],
+      "docs": [
+        "like_heart|MEDIA_SHARE"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.reply_to",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Quote-reply to a specific message (reply_to.mid)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add replyToMessageId on send",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\breply_to\\b"
+      ],
+      "test": [
+        "\\breply_to\\b"
+      ],
+      "docs": [
+        "reply_to|replyToMessageId"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.reactions",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "React/unreact to a message (sender_action react/unreact)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native react/unreact",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bunreact\\b"
+      ],
+      "test": [
+        "\\bunreact\\b"
+      ],
+      "docs": [
+        "\\bunreact\\b"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.quick_replies",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Quick replies (up to 13 text options)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api/quick-replies.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add quickReplies on send",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bquick_replies\\b"
+      ],
+      "test": [
+        "\\bquick_replies\\b"
+      ],
+      "docs": [
+        "quick_replies|quickReplies"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.generic_template",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Generic template (up to 10 elements, 3 buttons each)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api/generic-template.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add generic template message",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\btemplate_type\\b",
+        "\"generic\""
+      ],
+      "test": [
+        "\\btemplate_type\\b"
+      ],
+      "docs": [
+        "[Gg]eneric template"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.button_template",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Button template (640-char text, 1-3 buttons)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api/button-template.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add button template message",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btemplate_type\\b",
+        "\"button\""
+      ],
+      "test": [
+        "\\btemplate_type\\b"
+      ],
+      "docs": [
+        "[Bb]utton template"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.sender_actions",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Sender actions typing_on/typing_off/mark_seen",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api/sender-actions.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native senderAction",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btyping_on\\b",
+        "\\bmark_seen\\b"
+      ],
+      "test": [
+        "\\btyping_on\\b"
+      ],
+      "docs": [
+        "typing_on|mark_seen"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.ice_breakers",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Ice breakers (messenger_profile, max 4 questions, per locale)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api/ice-breakers.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add get/set/delete ice breakers",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bice_breakers\\b"
+      ],
+      "test": [
+        "\\bice_breakers\\b"
+      ],
+      "docs": [
+        "ice_breakers|[Ii]ce breakers"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.persistent_menu",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Persistent menu (messenger_profile, web_url/postback)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api/persistent-menu.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add get/set/delete persistent menu",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpersistent_menu\\b"
+      ],
+      "test": [
+        "\\bpersistent_menu\\b"
+      ],
+      "docs": [
+        "persistent_menu|[Pp]ersistent menu"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.user_profile",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "User Profile API for IGSIDs (name, username, profile_pic, follower_count, follow flags)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api/user-profile.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getMessagingUserProfile",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_user_follow_business\\b"
+      ],
+      "test": [
+        "\\bis_user_follow_business\\b"
+      ],
+      "docs": [
+        "User Profile API|is_user_follow_business"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.private_replies",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Private replies to commenters (recipient.comment_id, within 7 days, one message)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/private-replies",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add native privateReply({commentId, text})",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "recipient[\\\"']?:\\s*\\{\\s*[\\\"']?comment_id"
+      ],
+      "test": [
+        "recipient[\\\"']?:\\s*\\{\\s*[\\\"']?comment_id"
+      ],
+      "docs": [
+        "recipient[\\s\\S]{0,40}comment_id|privateReply"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.human_agent_tag",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Human agent tag for 7-day response window",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add HUMAN_AGENT tag option on send",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bHUMAN_AGENT\\b"
+      ],
+      "test": [
+        "\\bHUMAN_AGENT\\b"
+      ],
+      "docs": [
+        "HUMAN_AGENT"
+      ]
+    }
+  },
+  {
+    "id": "instagram.messaging.handover",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Conversation routing / Handover Protocol (pass/take thread control)",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Document or add handover helpers",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bpass_thread_control\\b"
+      ],
+      "test": [
+        "\\bpass_thread_control\\b"
+      ],
+      "docs": [
+        "pass_thread_control|[Hh]andover"
+      ]
+    },
+    "statusCorrection": "Meta stopped supporting the Handover Protocol for Instagram on 2025-10-23 and moved businesses to Conversation Routing (Instagram Messaging changelog, https://developers.facebook.com/documentation/business-messaging/instagram-messaging/changelog, checked 2026-11-04)."
+  },
+  {
+    "id": "instagram.analytics.media_insights",
+    "provider": "instagram",
+    "area": "analytics",
+    "title": "Media insights metrics (views, reach, likes, comments, saved, shares, reposts, total_interactions, follows, profile_visits, profile_activity, Story replies/navigation/link_clicks, Reels avg watch time, total view time, skip rate, crossposted/facebook views)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/insights",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add views (impressions replacement), total_interactions, reposts, Reels watch-time metrics, Story navigation/replies, and breakdowns",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/insights`",
+        "\\btotal_interactions\\b"
+      ],
+      "test": [
+        "\\btotal_interactions\\b"
+      ],
+      "docs": [
+        "`saved`",
+        "total_interactions"
+      ]
+    }
+  },
+  {
+    "id": "instagram.analytics.account_insights",
+    "provider": "instagram",
+    "area": "analytics",
+    "title": "Account insights edge (GET /{ig-user-id}/insights: reach, views, accounts_engaged, total_interactions, follows_and_unfollows, profile_links_taps, likes, comments, saves, shares, reposts, replies; breakdowns)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Implement account insights with metric_type, period, since/until and breakdowns",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bmetric_type\\b",
+        "\\baccounts_engaged\\b"
+      ],
+      "test": [
+        "\\baccounts_engaged\\b"
+      ],
+      "docs": [
+        "accounts_engaged|metric_type"
+      ]
+    }
+  },
+  {
+    "id": "instagram.analytics.demographics",
+    "provider": "instagram",
+    "area": "analytics",
+    "title": "Audience demographics (follower_demographics, engaged_audience_demographics by age/city/country/gender)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/api-reference/instagram-user/insights",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add demographics read (lifetime, this_week/this_month timeframes)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfollower_demographics\\b"
+      ],
+      "test": [
+        "\\bfollower_demographics\\b",
+        "feature:instagram.analytics.demographics"
+      ],
+      "docs": [
+        "follower_demographics|engaged_audience_demographics"
+      ]
+    }
+  },
+  {
+    "id": "instagram.webhooks.signature",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "Webhook signature verification (X-Hub-Signature-256) and GET hub.challenge",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "X-Hub-Signature-256",
+        "hub\\.challenge"
+      ],
+      "test": [
+        "X-Hub-Signature-256",
+        "hub\\.challenge"
+      ],
+      "docs": [
+        "X-Hub-Signature-256",
+        "answerMetaWebhookChallenge"
+      ]
+    }
+  },
+  {
+    "id": "instagram.webhooks.comments",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "comments and live_comments webhook fields",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"live_comments\"",
+        "\"comments\""
+      ],
+      "test": [
+        "\"live_comments\""
+      ],
+      "docs": [
+        "`live_comments`",
+        "`comments`"
+      ]
+    }
+  },
+  {
+    "id": "instagram.webhooks.messages",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "messages webhook (Instagram Login)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "message\\.received"
+      ],
+      "test": [
+        "message\\.received"
+      ],
+      "docs": [
+        "`messages`"
+      ]
+    }
+  },
+  {
+    "id": "instagram.webhooks.mentions",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "mentions webhook field (Facebook Login)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Map mentions to a typed mention event",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"mentions\"[^\\n?]*\\?\\s*\"[a-z]+\\.[a-z_]+\""
+      ],
+      "test": [
+        "field: \"mentions\""
+      ],
+      "docs": [
+        "`mentions` subscription"
+      ]
+    }
+  },
+  {
+    "id": "instagram.webhooks.messaging_events",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "Messaging webhook fields: message_reactions, messaging_postbacks, messaging_optins, messaging_referral, messaging_seen, message_echoes, messaging_handover, standby, message_edit",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add typed events for postbacks, reactions, seen, referrals, edits; list the fields in docs",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\"messaging_postbacks\"[^\\n]*type: \"[a-z]+\\.[a-z_]+\""
+      ],
+      "test": [
+        "messaging_postbacks"
+      ],
+      "docs": [
+        "messaging_postbacks"
+      ]
+    }
+  },
+  {
+    "id": "instagram.webhooks.story_insights",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "story_insights webhook (Facebook Login)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Optional typed story insights event",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bstory_insights\\b"
+      ],
+      "test": [
+        "\\bstory_insights\\b"
+      ],
+      "docs": [
+        "`story_insights`"
+      ]
+    }
+  },
+  {
+    "id": "instagram.webhooks.subscribe",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "Enable account webhook subscription (subscribed_apps with subscribed_fields)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add native subscribeApp/unsubscribeApp helper",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/subscribed_apps\\b"
+      ],
+      "test": [
+        "/subscribed_apps\\b"
+      ],
+      "docs": [
+        "subscribed_fields"
+      ]
+    }
+  },
+  {
+    "id": "instagram.auth.instagram_login",
+    "provider": "instagram",
+    "area": "auth",
+    "title": "Business Login for Instagram OAuth (authorize, code exchange)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/reference/refresh_access_token.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "instagram\\.com/oauth/authorize",
+        "api\\.instagram\\.com/oauth/access_token"
+      ],
+      "test": [
+        "instagramOAuth\\("
+      ],
+      "docs": [
+        "Business Login",
+        "instagram_business_basic"
+      ]
+    }
+  },
+  {
+    "id": "instagram.auth.long_lived_refresh",
+    "provider": "instagram",
+    "area": "auth",
+    "title": "Long-lived token exchange (ig_exchange_token) and refresh (ig_refresh_token, 60 days)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/reference/refresh_access_token.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\big_exchange_token\\b",
+        "\\big_refresh_token\\b"
+      ],
+      "test": [
+        "\\[\"instagram\", \"threads\"\\]",
+        "exchangeLongLivedOAuthToken\\(",
+        "refreshOAuthToken\\("
+      ],
+      "docs": [
+        "long-lived tokens expire after 60 days"
+      ]
+    }
+  },
+  {
+    "id": "instagram.auth.facebook_login",
+    "provider": "instagram",
+    "area": "auth",
+    "title": "Facebook Login for Business / Unified Login (Page or system-user tokens on graph.facebook.com)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Document whether Unified Login system-user tokens work with the facebook-login flavor; consider an OAuth/Page discovery helper",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "graph\\.facebook\\.com",
+        "\\binstagram_business_account\\b"
+      ],
+      "test": [
+        "\\binstagram_business_account\\b"
+      ],
+      "docs": [
+        "facebook-login",
+        "[Ss]ystem.user"
+      ]
+    }
+  },
+  {
+    "id": "instagram.other.product_tagging",
+    "provider": "instagram",
+    "area": "other",
+    "title": "Product tagging management (available_catalogs, catalog_product_search, product_tags on published media, product_appeal, eligibility)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/product-tagging.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Implement catalog/product search and product_tags read/update",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "\\bcatalog_product_search\\b",
+        "\\bavailable_catalogs\\b"
+      ],
+      "test": [
+        "\\bcatalog_product_search\\b"
+      ],
+      "docs": [
+        "catalog_product_search|available_catalogs"
+      ]
+    }
+  },
+  {
+    "id": "instagram.other.api_version",
+    "provider": "instagram",
+    "area": "other",
+    "title": "Graph API version (Meta reference now lists v26.0 as latest)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Evaluate and test a v26.0 bump; docs and adapter pin v25.0",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bv2[0-9]\\.0\\b"
+      ],
+      "test": [
+        "\\bv2[0-9]\\.0\\b"
+      ],
+      "docs": [
+        "\\bv2[0-9]\\.0\\b"
+      ]
+    }
+  },
+  {
+    "id": "instagram.ads.boost",
+    "provider": "instagram",
+    "area": "ads",
+    "title": "Boost/ad fields on media (boost_ads_list, boost_eligibility_info; FB Login)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of core scope; list as ads-only",
+    "effort": "M",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "instagram.ads.creator_marketplace",
+    "provider": "instagram",
+    "area": "ads",
+    "title": "Creator Marketplace (creator discovery for partnership ads)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/creator-marketplace.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v25.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of core scope",
+    "effort": "L",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "instagram.ads.audio_replacement",
+    "provider": "instagram",
+    "area": "ads",
+    "title": "Ads audio replacement discovery (ig_audio product=ADS)",
+    "access": "beta",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/content-publishing/audio-api.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of core scope",
+    "effort": "M",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "instagram.engagement.likes",
+    "provider": "instagram",
+    "area": "engagement",
+    "title": "Like and unlike media and comments (POST/DELETE /{ig-user-id}/likes with media_id or comment_id)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/user-likes",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No like/unlike for feed posts, Reels, comments or replies; Facebook Login only, needs instagram_manage_engagement, 50 req/5 s burst lockout",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/likes\\b",
+        "\\binstagram_manage_engagement\\b"
+      ],
+      "test": [
+        "feature:instagram.engagement.likes\\b"
+      ],
+      "docs": [
+        "/likes\\b",
+        "instagram_manage_engagement"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.read.poll_results",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Caption poll results (GET /{ig-media-id}/poll_attachment: option vote shares, total_votes, expiration_timestamp)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-media/poll_attachment",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "SDK can attach a poll but cannot read its results; separate edge, no field expansion, Facebook Login only",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/poll_attachment\\b",
+        "\\btotal_votes\\b"
+      ],
+      "test": [
+        "/poll_attachment\\b"
+      ],
+      "docs": [
+        "total_votes|option_a_votes_percentage"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.comments.prompt_responses",
+    "provider": "instagram",
+    "area": "comments",
+    "title": "Comment prompt responses (GET /{ig-media-id}/prompt_response, cursor paged)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-media/prompt_response",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "SDK can attach a comment prompt but cannot list the answers; data null vs empty array semantics, username needs instagram_manage_comments",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bprompt_response\\b"
+      ],
+      "test": [
+        "\\bprompt_response\\b"
+      ],
+      "docs": [
+        "prompt_response"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.read.tags.time_filter",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Tagged-media time window (posted_after / posted_before on GET /{ig-user-id}/tags)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/tags",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "listTaggedMedia/listMentions cannot bound results by post time; callers must page the full edge",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bposted_after\\b",
+        "\\bposted_before\\b"
+      ],
+      "test": [
+        "\\bposted_after\\b"
+      ],
+      "docs": [
+        "posted_after"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.publish.result_warnings",
+    "provider": "instagram",
+    "area": "publish",
+    "title": "Partial-publish warnings on media_publish (config_issue CAPTION_NOT_ATTACHED / USER_TAGGING_FAILURE, caption_add_on_attachment_status POLL_/PROMPT_CREATION_FAILURE)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user/media_publish",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Publish result drops Meta's warning that the post went live without its caption, user tags, poll or prompt; delivery reported as clean success",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bconfig_issue\\b",
+        "\\bcaption_add_on_attachment_status\\b"
+      ],
+      "test": [
+        "\\bconfig_issue\\b"
+      ],
+      "docs": [
+        "config_issue",
+        "caption_add_on_attachment_status"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.read.media_node.video_fields",
+    "provider": "instagram",
+    "area": "read",
+    "title": "Media node video and aggregate fields (total_views_count, media_audio_type, is_shared_to_feed, is_comment_enabled)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/reference/instagram-media",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "posts.get/list never request cross-surface total views, MUSIC vs ORIGINAL_SOUND audio type, Reel feed sharing or comment state",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btotal_views_count\\b",
+        "\\bmedia_audio_type\\b",
+        "\\bis_shared_to_feed\\b",
+        "\\bis_comment_enabled\\b"
+      ],
+      "test": [
+        "\\bmedia_audio_type\\b"
+      ],
+      "docs": [
+        "total_views_count",
+        "media_audio_type"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.read.own_profile.status_fields",
+    "provider": "instagram",
+    "area": "account",
+    "title": "Profile status fields (has_profile_pic, is_published)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-user",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Own-profile read omits whether the account has a profile picture and is published (Page-backed accounts)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bhas_profile_pic\\b",
+        "\\bis_published\\b"
+      ],
+      "test": [
+        "feature:instagram.read.own_profile.status_fields\\b"
+      ],
+      "docs": [
+        "has_profile_pic"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.messaging.conversation_by_user",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Find the conversation with a specific person (GET /{ig-user-id}/conversations?user_id=<IGSID>)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/conversations-api",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "listConversations has no user_id filter, so finding one customer's thread means paging every conversation",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/conversations`[\\s\\S]{0,400}\\buser_id:"
+      ],
+      "test": [
+        "feature:instagram.messaging.conversation_by_user\\b"
+      ],
+      "docs": [
+        "user_id=<IGSID>|conversations\\?user_id|userId"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.auth.unified_login",
+    "provider": "instagram",
+    "area": "auth",
+    "title": "Instagram API with Unified Login onboarding: config_id login, client_business_id, GET /me/assigned_instagram_accounts, Page-less subscribed_apps on the IG account",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "No discovery of the IG accounts a business shared with a system-user token, and webhook subscription still demands a Page, which Unified Login does not have",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bassigned_instagram_accounts\\b",
+        "\\bclient_business_id\\b"
+      ],
+      "test": [
+        "\\bassigned_instagram_accounts\\b"
+      ],
+      "docs": [
+        "assigned_instagram_accounts",
+        "client_business_id"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.messaging.facebook_hosted_tokens",
+    "provider": "instagram",
+    "area": "messaging",
+    "title": "Messaging with Facebook-hosted tokens: Unified Login system-user token on graph.facebook.com/{ig-user-id}/messages, /conversations, /messenger_profile",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/migration-guide",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "All messaging helpers throw for the facebook-login flavor, though Meta now routes Unified Login messaging through graph.facebook.com/{ig-user-id} and ships new features only there",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "on graph\\.facebook\\.com, which needs a Unified Login"
+      ],
+      "test": [
+        "feature:instagram.messaging.facebook_hosted_tokens\\b"
+      ],
+      "docs": [
+        "graph\\.facebook\\.com/\\{ig-user-id\\}/messages"
+      ],
+      "absent": [
+        "Facebook Login messaging uses the Messenger Platform"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.webhooks.message_variants",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "messages webhook variants: is_deleted, is_self (self messaging), is_unsupported, story replies with reply_to.story.link_sticker_url, Meta Business Agent handoff (admin_text, handoff_reason)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/examples",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Deleted, self-test, unsupported-media and handoff notices all decode as plain message.received; handoff notices may lack mid/text",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_deleted\\b",
+        "\\bhandoff_reason\\b",
+        "\\bis_self\\b"
+      ],
+      "test": [
+        "\\bis_deleted\\b"
+      ],
+      "docs": [
+        "is_deleted",
+        "handoff_reason",
+        "link_sticker_url"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.webhooks.messenger_platform_fields",
+    "provider": "instagram",
+    "area": "webhooks",
+    "title": "Messenger Platform webhook fields for Instagram: messaging_policy_enforcement, response_feedback",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/webhooks/fields",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Policy-enforcement (blocked/unblocked messaging) and response-feedback notifications are not typed or listed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmessaging_policy_enforcement\\b",
+        "\\bresponse_feedback\\b"
+      ],
+      "test": [
+        "\\bmessaging_policy_enforcement\\b"
+      ],
+      "docs": [
+        "messaging_policy_enforcement"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "instagram.auth.business_login_options",
+    "provider": "instagram",
+    "area": "auth",
+    "title": "Business Login authorize options force_reauth and enable_fb_login",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login",
+      "checked": "2026-11-04",
+      "apiVersion": "v26.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "instagramOAuth cannot force a fresh Instagram credential prompt (connect a second account) or hide the Facebook Login button",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bforce_reauth\\b",
+        "\\benable_fb_login\\b"
+      ],
+      "test": [
+        "feature:instagram.auth.business_login_options\\b"
+      ],
+      "docs": [
+        "force_reauth",
+        "enable_fb_login"
+      ]
+    },
+    "round": 2
+  }
+]

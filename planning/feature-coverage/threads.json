@@ -1,0 +1,2118 @@
+[
+  {
+    "id": "threads.publish.text",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Text post (media_type=TEXT, 500 chars, emoji counted as UTF-8 bytes)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "media_type: \\\"TEXT\\\"|media_type=TEXT",
+        "text\\.too_long"
+      ],
+      "test": [
+        "media_type",
+        "text\\.too_long"
+      ],
+      "docs": [
+        "500 characters"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.image",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Single image post (image_url; JPEG/PNG, 8 MB, 320-1440 px)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/threads/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Adapter checks MIME only; size/width limits (8 MB, 320-1440 px, 10:1) not validated or documented",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bimage_url\\b"
+      ],
+      "test": [
+        "\\bimage_url\\b"
+      ],
+      "docs": [
+        "image/jpeg"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.video",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Single video post (video_url; MP4/MOV, 5 min, 1 GB, 23-60 FPS)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/threads/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Duration/size/FPS limits (5 min, 1 GB, 23-60 FPS, 1920 px) not documented",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bvideo_url\\b"
+      ],
+      "test": [
+        "\\bvideo_url\\b"
+      ],
+      "docs": [
+        "video/mp4"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.carousel",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Carousel (CAROUSEL parent, 2-20 is_carousel_item children, mixed image/video)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/threads/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bCAROUSEL\\b",
+        "\\bis_carousel_item\\b"
+      ],
+      "test": [
+        "\\bis_carousel_item\\b"
+      ],
+      "docs": [
+        "[Cc]arousel"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.containerStatus",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Container status read (id,status,error_message; IN_PROGRESS/FINISHED/PUBLISHED/ERROR/EXPIRED, 24h expiry)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "error_message is not surfaced in failed outcomes; 24-hour container expiry not documented",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "fields=id,status,error_message",
+        "\\bEXPIRED\\b"
+      ],
+      "test": [
+        "\\bEXPIRED\\b"
+      ],
+      "docs": [
+        "processing"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.autoPublishText",
+    "provider": "threads",
+    "area": "publish",
+    "title": "auto_publish_text (create-and-publish text in one call)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional single-call publish for TEXT containers; would remove the ambiguous two-step window for text",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bauto_publish_text\\b"
+      ],
+      "test": [
+        "\\bauto_publish_text\\b"
+      ],
+      "docs": [
+        "auto_publish_text|autoPublishText"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.altText",
+    "provider": "threads",
+    "area": "publish",
+    "title": "alt_text on image/video and carousel items (max 1,000 chars)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\balt_text\\b"
+      ],
+      "test": [
+        "\\balt_text\\b"
+      ],
+      "docs": [
+        "[Aa]lt text"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.linkAttachment",
+    "provider": "threads",
+    "area": "publish",
+    "title": "link_attachment URL on text posts (preview link)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/threads/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\blink_attachment\\b"
+      ],
+      "test": [
+        "\\blink_attachment\\b"
+      ],
+      "docs": [
+        "link_attachment|content\\.link"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.linkLimit",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Max 5 unique links per post (THREADS_API__LINK_LIMIT_EXCEEDED since 2025-12-22)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/threads/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add prepareTarget check counting unique URLs across text/link_attachment/text_attachment; document limit",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "LINK_LIMIT_EXCEEDED|unique (URLs|links)"
+      ],
+      "test": [
+        "LINK_LIMIT_EXCEEDED|feature:threads\\.publish\\.linkLimit"
+      ],
+      "docs": [
+        "LINK_LIMIT_EXCEEDED|5 unique links|five unique links"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.replyControl",
+    "provider": "threads",
+    "area": "publish",
+    "title": "reply_control: everyone, accounts_you_follow, mentioned_only",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bmentioned_only\\b",
+        "\\baccounts_you_follow\\b"
+      ],
+      "test": [
+        "\\bmentioned_only\\b"
+      ],
+      "docs": [
+        "replyControl",
+        "mentionedOnly"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.replyControl.extra",
+    "provider": "threads",
+    "area": "publish",
+    "title": "reply_control: parent_post_author_only, followers_only (added 2025-07-07)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Map parentPostAuthorOnly and followersOnly in replyControlParam and prepareTarget",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bparent_post_author_only\\b",
+        "\\bfollowers_only\\b"
+      ],
+      "test": [
+        "\\bparent_post_author_only\\b"
+      ],
+      "docs": [
+        "parent_post_author_only|parentPostAuthorOnly",
+        "followers_only|followersOnly"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.enableReplyApprovals",
+    "provider": "threads",
+    "area": "publish",
+    "title": "enable_reply_approvals (hold replies for approval, added 2026-02-13)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add option; pending-reply management already exists natively but cannot be turned on per post",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\benable_reply_approvals\\b"
+      ],
+      "test": [
+        "\\benable_reply_approvals\\b"
+      ],
+      "docs": [
+        "enable_reply_approvals|enableReplyApprovals"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.topicTag",
+    "provider": "threads",
+    "area": "publish",
+    "title": "topic_tag (1-50 chars, no '.' or '&')",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/threads/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add topicTag option with validation; read topic_tag on posts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btopic_tag\\b"
+      ],
+      "test": [
+        "\\btopic_tag\\b"
+      ],
+      "docs": [
+        "topic_tag|topicTag"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.poll",
+    "provider": "threads",
+    "area": "publish",
+    "title": "poll_attachment on text posts (option_a..option_d, 2-4 options, 1-25 chars each)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/polls.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add poll content mapping for text posts; validate option count/length",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bpoll_attachment\\b"
+      ],
+      "test": [
+        "\\bpoll_attachment\\b"
+      ],
+      "docs": [
+        "poll_attachment|pollAttachment|`poll`"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.quote",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Quote post (quote_post_id on container; example uses IMAGE)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/posts/quote-posts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "quotePost is text-only native call; no media quotes, no reply_control/topic, no processing/workflow; not exposed via normalized publish",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bquote_post_id\\b",
+        "quote_post_id[^\\n]*media_type|media_type=(IMAGE|VIDEO|CAROUSEL)[^\\n]*quote_post_id|quote_post_id: "
+      ],
+      "test": [
+        "\\bquote_post_id\\b"
+      ],
+      "docs": [
+        "quotePost"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.reply",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Reply via reply_to_id (any media type) through publish",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/retrieve-and-manage-replies/create-replies.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\breply_to_id\\b"
+      ],
+      "test": [
+        "Threads replies require a new ID"
+      ],
+      "docs": [
+        "[Rr]eply"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.gif",
+    "provider": "threads",
+    "area": "publish",
+    "title": "gif_attachment (GIPHY gif_id + provider; text posts only; Tenor sunset 2026-03-31)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/docs/threads/posts",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add GIF attachment content option (GIPHY only)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgif_attachment\\b"
+      ],
+      "test": [
+        "\\bgif_attachment\\b"
+      ],
+      "docs": [
+        "gif_attachment|GIPHY|gifAttachment"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.madeWithAi",
+    "provider": "threads",
+    "area": "publish",
+    "title": "is_made_with_ai AI-content disclosure label (parent container only)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add isMadeWithAi option set on parent, never on carousel items",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_made_with_ai\\b"
+      ],
+      "test": [
+        "\\bis_made_with_ai\\b"
+      ],
+      "docs": [
+        "is_made_with_ai|isMadeWithAi"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.spoilerMedia",
+    "provider": "threads",
+    "area": "publish",
+    "title": "is_spoiler_media (blur image/video/carousel media)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/spoilers.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add media spoiler flag",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_spoiler_media\\b"
+      ],
+      "test": [
+        "\\bis_spoiler_media\\b"
+      ],
+      "docs": [
+        "is_spoiler_media|spoiler"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.spoilerText",
+    "provider": "threads",
+    "area": "publish",
+    "title": "text_entities SPOILER ranges (max 10 per post)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/spoilers.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add text spoiler ranges with offset/length validation",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btext_entities\\b",
+        "\\bSPOILER\\b"
+      ],
+      "test": [
+        "\\btext_entities\\b"
+      ],
+      "docs": [
+        "text_entities|[Ss]poiler"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.textAttachment",
+    "provider": "threads",
+    "area": "publish",
+    "title": "text_attachment long-form (plaintext up to 10,000 chars, link_attachment_url, styling: bold/italic/highlight/underline/strikethrough)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/text-attachments.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add long-form text attachment for TEXT posts; not combinable with polls",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\btext_attachment\\b"
+      ],
+      "test": [
+        "\\btext_attachment\\b"
+      ],
+      "docs": [
+        "text_attachment|textAttachment"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.ghostPost",
+    "provider": "threads",
+    "area": "publish",
+    "title": "Ghost posts (is_ghost_post, text-only, auto-archived after 24h)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/ghost-posts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add isGhostPost option and ghost_posts read",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_ghost_post\\b"
+      ],
+      "test": [
+        "\\bis_ghost_post\\b"
+      ],
+      "docs": [
+        "is_ghost_post|[Gg]host post"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.locationTag",
+    "provider": "threads",
+    "area": "publish",
+    "title": "location_id tag on posts",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/location-tagging.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add locationId option; needs threads_location_tagging",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blocation_id\\b"
+      ],
+      "test": [
+        "\\blocation_id\\b"
+      ],
+      "docs": [
+        "location_id|locationId"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.geoGating",
+    "provider": "threads",
+    "area": "publish",
+    "title": "allowlisted_country_codes geo-gated posts (+ is_eligible_for_geo_gating check)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/posts/geo-gating.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add allowlistedCountryCodes option and eligibility read",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\ballowlisted_country_codes\\b"
+      ],
+      "test": [
+        "\\ballowlisted_country_codes\\b"
+      ],
+      "docs": [
+        "allowlisted_country_codes|allowlistedCountryCodes|geo-gat"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.crossShareIgStory",
+    "provider": "threads",
+    "area": "publish",
+    "title": "crossreshare_to_ig / crossreshare_to_ig_dark_mode (share to linked Instagram Story; crossreshare_to_ig_status)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/share-to-ig-stories.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add option and surface crossreshare_to_ig_status; needs threads_share_to_instagram",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcrossreshare_to_ig\\b"
+      ],
+      "test": [
+        "\\bcrossreshare_to_ig\\b"
+      ],
+      "docs": [
+        "crossreshare_to_ig|Instagram Story"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.limits.read",
+    "provider": "threads",
+    "area": "publish",
+    "title": "threads_publishing_limit: quota_usage/config (250 posts/24h)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Request reply_quota_usage/reply_config (1,000), delete_quota_usage/delete_config (100), location_search_quota_usage/config (500)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bquota_usage\\b",
+        "\\breply_quota_usage\\b",
+        "\\bdelete_quota_usage\\b"
+      ],
+      "test": [
+        "\\bquota_usage\\b"
+      ],
+      "docs": [
+        "threads_publishing_limit"
+      ]
+    }
+  },
+  {
+    "id": "threads.publish.schedule",
+    "provider": "threads",
+    "area": "scheduling",
+    "title": "Native scheduling",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "operation: \\\"posts\\.schedule\\\"",
+        "schedule\\.unsupported"
+      ],
+      "test": [
+        "posts\\.schedule",
+        "unsupported-by-platform"
+      ],
+      "docs": [
+        "[Nn]ative scheduling is `unsupported-by-platform`"
+      ]
+    }
+  },
+  {
+    "id": "threads.engagement.repost",
+    "provider": "threads",
+    "area": "engagement",
+    "title": "Repost (POST /{media-id}/repost)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/posts/reposts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "native.repost (threads.ts:961) returns the raw response without checking the new id, and no test in packages/social-sdk/tests calls Threads POST /{media-id}/repost",
+    "probe": {
+      "src": [
+        "/repost`"
+      ],
+      "test": [
+        "feature:threads\\.engagement\\.repost\\b"
+      ],
+      "docs": [
+        "repost\\(\\{"
+      ]
+    }
+  },
+  {
+    "id": "threads.delete.post",
+    "provider": "threads",
+    "area": "delete",
+    "title": "Delete own post (DELETE /{media-id}; 100/day; threads_delete)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/posts/delete-posts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "deletePost does not check success/deleted_id like deleteComment does",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "threads\\.posts\\.delete"
+      ],
+      "test": [
+        "\\[\\\"deletePost\\\", \\\"hideReply\\\", \\\"deleteComment\\\"\\]"
+      ],
+      "docs": [
+        "native\\.deletePost",
+        "threads_delete"
+      ]
+    }
+  },
+  {
+    "id": "threads.delete.reply",
+    "provider": "threads",
+    "area": "delete",
+    "title": "Delete own reply (DELETE /{media-id})",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/posts/delete-posts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "threads\\.comments\\.delete"
+      ],
+      "test": [
+        "\\[\\\"deletePost\\\", \\\"hideReply\\\", \\\"deleteComment\\\"\\]"
+      ],
+      "docs": [
+        "native\\.deleteComment"
+      ]
+    }
+  },
+  {
+    "id": "threads.edit.post",
+    "provider": "threads",
+    "area": "edit",
+    "title": "Edit published post",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/publishing.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "operation: \\\"posts\\.update\\\""
+      ],
+      "test": [
+        "posts\\.update"
+      ],
+      "docs": [
+        "post updates"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.userThreads",
+    "provider": "threads",
+    "area": "read",
+    "title": "List own posts GET /{user-id}/threads (since, until, limit<=100, before/after)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "since/until and before not exposed; fields limited to id,text,username,media_type,permalink,timestamp (no media_url, children, topic_tag, poll_attachment, quoted_post etc.)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "[?&]before=|[\\\"']before[\\\"']",
+        "\\bquoted_post\\b"
+      ],
+      "test": [
+        "feature:threads\\.read\\.userThreads"
+      ],
+      "docs": [
+        "posts\\.list|listPosts",
+        "\\bbefore\\b"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.media",
+    "provider": "threads",
+    "area": "read",
+    "title": "Single media read GET /{media-id} with full field set",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/retrieve-and-discover-posts/retrieve-posts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Requests only 5 fields; no timestamp, media_url, thumbnail_url, children, shortcode, alt_text, link_attachment_url, is_quote_post, quoted_post, reposted_post, gif_url, poll_attachment, topic_tag, text_entities, text_attachment, allowlisted_country_codes, location; no fields override",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bthumbnail_url\\b",
+        "\\bgif_url\\b"
+      ],
+      "test": [
+        "feature:threads\\.read\\.media"
+      ],
+      "docs": [
+        "native\\.getPost",
+        "media_url"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.pollResults",
+    "provider": "threads",
+    "area": "read",
+    "title": "Poll results (option_*_votes_percentage, total_votes, expiration_timestamp)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/polls.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Request poll_attachment subfields on post reads",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btotal_votes\\b"
+      ],
+      "test": [
+        "\\btotal_votes\\b"
+      ],
+      "docs": [
+        "total_votes|[Pp]oll results"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.userReplies",
+    "provider": "threads",
+    "area": "read",
+    "title": "Own replies GET /{user-id}/replies",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listOwnReplies with is_reply_owned_by_me, root_post, replied_to",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/replies\\?fields=[^\\n]*is_reply_owned_by_me|\\bis_reply_owned_by_me\\b"
+      ],
+      "test": [
+        "\\bis_reply_owned_by_me\\b"
+      ],
+      "docs": [
+        "is_reply_owned_by_me|own replies"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.ghostPosts",
+    "provider": "threads",
+    "area": "read",
+    "title": "Ghost posts GET /{user-id}/ghost_posts (ghost_post_status, ghost_post_expiration_timestamp)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/retrieve-and-discover-posts/retrieve-posts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add ghost_posts list",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bghost_posts\\b"
+      ],
+      "test": [
+        "\\bghost_posts\\b"
+      ],
+      "docs": [
+        "ghost_posts"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.profilePosts",
+    "provider": "threads",
+    "area": "read",
+    "title": "Public profile posts GET /profile_posts?username= (threads_profile_discovery)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/retrieve-and-discover-posts/retrieve-posts.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native profilePosts; standard access limited to @meta/@threads/@instagram/@facebook",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bprofile_posts\\b"
+      ],
+      "test": [
+        "\\bprofile_posts\\b"
+      ],
+      "docs": [
+        "profile_posts"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.profile",
+    "provider": "threads",
+    "area": "account",
+    "title": "Own profile GET /{user-id} (username, name, picture, biography, is_verified)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "threads_profile_picture_url,threads_biography,is_verified"
+      ],
+      "test": [
+        "threads_profile_picture_url"
+      ],
+      "docs": [
+        "threads_biography,is_verified"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.profileLookup",
+    "provider": "threads",
+    "area": "account",
+    "title": "Profile discovery GET /profile_lookup?username= (exact match, 100+ followers, 1,000/24h)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bprofile_lookup\\b"
+      ],
+      "test": [
+        "\\bprofile_lookup\\b"
+      ],
+      "docs": [
+        "/profile_lookup"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.recentlySearched",
+    "provider": "threads",
+    "area": "search",
+    "title": "recently_searched_keywords on /me",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/keyword-search.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add field to profile read",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\brecently_searched_keywords\\b"
+      ],
+      "test": [
+        "\\brecently_searched_keywords\\b"
+      ],
+      "docs": [
+        "recently_searched_keywords"
+      ]
+    }
+  },
+  {
+    "id": "threads.read.geoEligibility",
+    "provider": "threads",
+    "area": "account",
+    "title": "is_eligible_for_geo_gating on user node",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/posts/geo-gating.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Read before offering geo-gated posts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bis_eligible_for_geo_gating\\b"
+      ],
+      "test": [
+        "\\bis_eligible_for_geo_gating\\b"
+      ],
+      "docs": [
+        "is_eligible_for_geo_gating"
+      ]
+    }
+  },
+  {
+    "id": "threads.account.update",
+    "provider": "threads",
+    "area": "account",
+    "title": "Profile updates",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/user.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "operation: \\\"profile\\.update\\\""
+      ],
+      "test": [
+        "feature:threads\\.account\\.update\\b"
+      ],
+      "docs": [
+        "profile updates"
+      ]
+    }
+  },
+  {
+    "id": "threads.search.keyword",
+    "provider": "threads",
+    "area": "search",
+    "title": "Keyword search q with search_type TOP/RECENT",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/keyword-search.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bsearch_type\\b"
+      ],
+      "test": [
+        "\\bsearch_type\\b"
+      ],
+      "docs": [
+        "searchType: \\\"RECENT\\\""
+      ]
+    }
+  },
+  {
+    "id": "threads.search.tag",
+    "provider": "threads",
+    "area": "search",
+    "title": "Topic tag search (search_mode=TAG)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/keyword-search.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bsearch_mode\\b"
+      ],
+      "test": [
+        "\\bsearch_mode\\b"
+      ],
+      "docs": [
+        "tag mode|searchMode"
+      ]
+    }
+  },
+  {
+    "id": "threads.search.filters",
+    "provider": "threads",
+    "area": "search",
+    "title": "Search filters: media_type, since/until (floor 1688540400), limit<=100, author_username",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/keyword-search.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Normalized search.posts cannot pass searchType/mediaType/authorUsername (native only)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bauthor_username\\b"
+      ],
+      "test": [
+        "authorUsername"
+      ],
+      "docs": [
+        "author",
+        "since"
+      ]
+    }
+  },
+  {
+    "id": "threads.mentions.read",
+    "provider": "threads",
+    "area": "read",
+    "title": "Mentions GET /{user-id}/mentions (since/until, cursors)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/threads-mentions.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "since/until/limit not exposed; fields fixed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/mentions\\?[^\\n]*(since|until|limit)"
+      ],
+      "test": [
+        "feature:threads\\.mentions\\.read"
+      ],
+      "docs": [
+        "native\\.mentions"
+      ]
+    }
+  },
+  {
+    "id": "threads.comments.list",
+    "provider": "threads",
+    "area": "comments",
+    "title": "Top-level replies GET /{media-id}/replies (reverse, cursors)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/reply-management.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "reverse ordering not exposed; has_replies/reply_audience/is_verified/profile_picture_url not requested",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/replies\\?[^\\n]*\\breverse\\b|\\breverse\\b"
+      ],
+      "test": [
+        "\\breverse\\b"
+      ],
+      "docs": [
+        "social\\.comments\\.list"
+      ]
+    }
+  },
+  {
+    "id": "threads.comments.conversation",
+    "provider": "threads",
+    "area": "comments",
+    "title": "Full conversation GET /{media-id}/conversation (flattened nested replies)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/reply-management.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "reverse not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/conversation\\?fields"
+      ],
+      "test": [
+        "/conversation"
+      ],
+      "docs": [
+        "listConversation"
+      ]
+    }
+  },
+  {
+    "id": "threads.comments.reply",
+    "provider": "threads",
+    "area": "comments",
+    "title": "Reply to a post or reply",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/retrieve-and-manage-replies/create-replies.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "Meta requires threads_manage_replies for reply_to_id; fix docs and comments.write requiredScopes (threads.ts:776)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "reply_to_id="
+      ],
+      "test": [
+        "Threads replies require a new ID"
+      ],
+      "docs": [
+        "[Rr]eply creation"
+      ],
+      "forbid": [
+        "Reply creation uses publishing permissions, not the moderation grant"
+      ]
+    }
+  },
+  {
+    "id": "threads.comments.replyQuota",
+    "provider": "threads",
+    "area": "comments",
+    "title": "Reply quota 1,000 per 24h",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/troubleshooting.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Not in platform page; native publishingLimit omits reply_quota_usage",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\breply_quota_usage\\b"
+      ],
+      "test": [
+        "\\breply_quota_usage\\b"
+      ],
+      "docs": [
+        "reply_quota_usage|1,000 replies"
+      ]
+    }
+  },
+  {
+    "id": "threads.moderation.hide",
+    "provider": "threads",
+    "area": "moderation",
+    "title": "Hide/unhide top-level reply POST /{reply-id}/manage_reply",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/reply-management.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/manage_reply\\b"
+      ],
+      "test": [
+        "\\bmanage_reply\\b"
+      ],
+      "docs": [
+        "hideReply"
+      ]
+    }
+  },
+  {
+    "id": "threads.moderation.pendingList",
+    "provider": "threads",
+    "area": "moderation",
+    "title": "Pending replies GET /{media-id}/pending_replies (reply_approval_status)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/reply-management.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/pending_replies\\b"
+      ],
+      "test": [
+        "\\bpending_replies\\b"
+      ],
+      "docs": [
+        "listPendingReplies"
+      ]
+    }
+  },
+  {
+    "id": "threads.moderation.pendingManage",
+    "provider": "threads",
+    "area": "moderation",
+    "title": "Approve/ignore pending reply POST /{reply-id}/manage_pending_reply",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/reply-management.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/manage_pending_reply\\b"
+      ],
+      "test": [
+        "\\bmanage_pending_reply\\b"
+      ],
+      "docs": [
+        "managePendingReply"
+      ]
+    }
+  },
+  {
+    "id": "threads.messaging",
+    "provider": "threads",
+    "area": "messaging",
+    "title": "Direct messages",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/get-started/get-access-tokens-and-permissions.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "operation: \\\"messages\\.read\\\""
+      ],
+      "test": [
+        "feature:threads\\.messaging\\b"
+      ],
+      "docs": [
+        "messages, and notifications are declared `unsupported-by-platform`"
+      ]
+    }
+  },
+  {
+    "id": "threads.analytics.media",
+    "provider": "threads",
+    "area": "analytics",
+    "title": "Media insights views, likes, replies, reposts, quotes, shares (lifetime)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/insights.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "views,likes,replies,reposts,quotes,shares"
+      ],
+      "test": [
+        "views,likes,replies,reposts,quotes,shares"
+      ],
+      "docs": [
+        "views,likes,replies,reposts,quotes,shares"
+      ]
+    }
+  },
+  {
+    "id": "threads.analytics.user",
+    "provider": "threads",
+    "area": "analytics",
+    "title": "User insights views, likes, replies, reposts, quotes, clicks, followers_count with since/until (floor 1712991600)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/insights.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Add since/until range and full daily views series",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bfollowers_count\\b",
+        "threads_insights\\?[^\\n]*\\bsince="
+      ],
+      "test": [
+        "feature:threads\\.analytics\\.user"
+      ],
+      "docs": [
+        "followers_count"
+      ]
+    }
+  },
+  {
+    "id": "threads.analytics.demographics",
+    "provider": "threads",
+    "area": "analytics",
+    "title": "follower_demographics with breakdown country/city/age/gender (100+ followers)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/insights.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add native demographics read with breakdown",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfollower_demographics\\b"
+      ],
+      "test": [
+        "\\bfollower_demographics\\b"
+      ],
+      "docs": [
+        "follower_demographics|[Dd]emographics"
+      ]
+    }
+  },
+  {
+    "id": "threads.analytics.clicksPerLink",
+    "provider": "threads",
+    "area": "analytics",
+    "title": "clicks link_total_values per URL",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/insights.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Per-link breakdown discarded (summed); expose per-URL values",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blink_total_values\\b",
+        "link_url"
+      ],
+      "test": [
+        "\\blink_total_values\\b"
+      ],
+      "docs": [
+        "link_total_values"
+      ]
+    }
+  },
+  {
+    "id": "threads.webhooks.verify",
+    "provider": "threads",
+    "area": "webhooks",
+    "title": "Webhook signature + GET verify handshake",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/webhooks.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "X-Hub-Signature-256|x-hub-signature-256"
+      ],
+      "test": [
+        "X-Hub-Signature-256"
+      ],
+      "docs": [
+        "X-Hub-Signature-256",
+        "answerMetaWebhookChallenge"
+      ]
+    }
+  },
+  {
+    "id": "threads.webhooks.replies",
+    "provider": "threads",
+    "area": "webhooks",
+    "title": "replies topic (threads_read_replies)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/webhooks.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "field === \\\"replies\\\" \\? \\\"comment\\.received\\\""
+      ],
+      "test": [
+        "comment\\.received"
+      ],
+      "docs": [
+        "replies and deletions normalize"
+      ]
+    }
+  },
+  {
+    "id": "threads.webhooks.delete",
+    "provider": "threads",
+    "area": "webhooks",
+    "title": "delete topic (threads_delete)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/webhooks.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "field === \\\"delete\\\" \\? \\\"post\\.removed\\\""
+      ],
+      "test": [
+        "post\\.removed"
+      ],
+      "docs": [
+        "replies and deletions normalize"
+      ]
+    }
+  },
+  {
+    "id": "threads.webhooks.mentions",
+    "provider": "threads",
+    "area": "webhooks",
+    "title": "mentions topic (threads_manage_mentions)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/webhooks.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Map mentions to a mention event type",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "field === \\\"mentions\\\" \\? \\\"[a-z]+\\.[a-z.]+\\\""
+      ],
+      "test": [
+        "feature:threads\\.webhooks\\.mentions"
+      ],
+      "docs": [
+        "mention deliveries"
+      ]
+    }
+  },
+  {
+    "id": "threads.webhooks.publish",
+    "provider": "threads",
+    "area": "webhooks",
+    "title": "publish topic (posts and replies published by the user)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/webhooks.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Map publish to post.published and resolve owner for tenant routing",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "field === \\\"publish\\\""
+      ],
+      "test": [
+        "feature:threads\\.webhooks\\.publish"
+      ],
+      "docs": [
+        "publish and mention deliveries"
+      ]
+    }
+  },
+  {
+    "id": "threads.location.search",
+    "provider": "threads",
+    "area": "read",
+    "title": "Location search GET /location_search (q or lat/long; 500/24h) and GET /{location-id}",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/location-tagging.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native locationSearch and getLocation (threads_location_tagging)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blocation_search\\b"
+      ],
+      "test": [
+        "\\blocation_search\\b"
+      ],
+      "docs": [
+        "location_search|locationSearch"
+      ]
+    }
+  },
+  {
+    "id": "threads.auth.oauth",
+    "provider": "threads",
+    "area": "auth",
+    "title": "OAuth authorize + code exchange, long-lived exchange (th_exchange_token), refresh (th_refresh_token)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/get-started/get-access-tokens-and-permissions.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Adapter uses threads.net/graph.threads.net hosts; Meta docs now use threads.com/graph.threads.com (both still accepted per 2025-06-06 changelog)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "th_exchange_token",
+        "th_refresh_token"
+      ],
+      "test": [
+        "graph\\.threads\\.net/refresh_access_token",
+        "exchangeLongLivedOAuthToken"
+      ],
+      "docs": [
+        "threadsOAuth",
+        "exchangeLongLivedOAuthToken"
+      ]
+    }
+  },
+  {
+    "id": "threads.auth.scopes.optional",
+    "provider": "threads",
+    "area": "auth",
+    "title": "Optional scopes threads_location_tagging, threads_share_to_instagram",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/create-posts/location-tagging.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add to authorization table once features land",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bthreads_location_tagging\\b",
+        "\\bthreads_share_to_instagram\\b"
+      ],
+      "test": [
+        "\\bthreads_location_tagging\\b"
+      ],
+      "docs": [
+        "threads_location_tagging",
+        "threads_share_to_instagram"
+      ]
+    }
+  },
+  {
+    "id": "threads.auth.appToken",
+    "provider": "threads",
+    "area": "auth",
+    "title": "App access tokens and /debug_token (app token accepted since 2026-08-18)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/changelog.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional: token debug helper",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/debug_token\\b"
+      ],
+      "test": [
+        "/debug_token\\b"
+      ],
+      "docs": [
+        "debug_token"
+      ]
+    }
+  },
+  {
+    "id": "threads.other.oembed",
+    "provider": "threads",
+    "area": "other",
+    "title": "oEmbed GET /oembed (no token since 2026-03-03, maxwidth 320-658)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/oembed.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional helper for embedding posts/profiles",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/oembed\\b|\\boembed\\?"
+      ],
+      "test": [
+        "\\boembed\\b"
+      ],
+      "docs": [
+        "oEmbed|oembed"
+      ]
+    }
+  },
+  {
+    "id": "threads.ads.threadsAds",
+    "provider": "threads",
+    "area": "ads",
+    "title": "Threads ads (image/video/carousel, catalog, app ads, reply moderation for ads)",
+    "access": "public",
+    "scope": "ads",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/changelog.md",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of core scope; via Meta Marketing API",
+    "effort": "L",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "threads.read.profileLookupMetrics",
+    "provider": "threads",
+    "area": "read",
+    "title": "Public profile lookup metrics on GET /profile_lookup (follower_count, likes_count, quotes_count, reposts_count, views_count over the past 7 days)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/threads-profiles",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "profile_lookup requests only username,name,profile_picture_url,biography,is_verified; the five documented count fields are never requested or decoded, and the docs say counts are not requested.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "profile_lookup\\?[^`]*\\bfollower_count\\b",
+        "\\bviews_count\\b",
+        "\\blikes_count\\b"
+      ],
+      "test": [
+        "\\bviews_count\\b"
+      ],
+      "docs": [
+        "\\bfollower_count\\b",
+        "\\bviews_count\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "threads.comments.replyReadOptions",
+    "provider": "threads",
+    "area": "comments",
+    "title": "fields and before options on GET /{media-id}/conversation and GET /{media-id}/pending_replies (is_verified, profile_picture_url, media_url, root_post, replied_to, reply_audience, gif_url, topic_tag)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/reply-management",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "listConversation and listPendingReplies hard-code a 7-field list (no author verification, profile picture, media, root/parent IDs) and accept no fields override or before cursor, unlike listReplies.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "listConversation\\(\\{[^}]*\\bfields\\b",
+        "listConversation\\(\\{[^}]*\\bbefore\\b",
+        "listPendingReplies\\(\\{[^}]*\\bfields\\b",
+        "listPendingReplies\\(\\{[^}]*\\bbefore\\b"
+      ],
+      "test": [
+        "feature:threads.comments.replyReadOptions\\b"
+      ],
+      "docs": [
+        "listConversation`[^.\\n]*\\bfields\\b",
+        "listPendingReplies`[^.\\n]*\\bbefore\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "threads.search.resultFields",
+    "provider": "threads",
+    "area": "search",
+    "title": "fields option on GET /keyword_search (thumbnail_url, children, alt_text, link_attachment_url, has_replies, is_reply, root_post, replied_to, reply_audience, quoted_post, reposted_post, gif_url, poll_attachment, topic_tag)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/reference/media-retrieval",
+      "checked": "2026-11-04",
+      "apiVersion": "v1.0"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "native.search always requests id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post; ThreadsSearchInput has no fields override, so topic tags, polls, GIFs, reply context and quote/repost targets of results are unreachable.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "interface ThreadsSearchInput \\{[^}]*\\bfields\\b"
+      ],
+      "test": [
+        "feature:threads.search.resultFields\\b"
+      ],
+      "docs": [
+        "native\\.search\\(\\{[^}]*\\bfields\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "threads.other.webIntents",
+    "provider": "threads",
+    "area": "other",
+    "title": "Web intents: post intent https://www.threads.com/intent/post (text, url, tag, reply_control, reply_post_shortcode, quote_post_shortcode) and follow intent /intent/follow (username)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/threads-web-intents",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No URL builder for Threads post or follow intents (no token needed; tag and reply_control added 2026-01-22, reply/quote shortcodes 2026-03-19), and the docs page does not mention them.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "intent/post",
+        "intent/follow",
+        "\\breply_post_shortcode\\b",
+        "\\bquote_post_shortcode\\b"
+      ],
+      "test": [
+        "intent/post",
+        "intent/follow"
+      ],
+      "docs": [
+        "intent/post",
+        "intent/follow"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "threads.auth.metaCallbacks",
+    "provider": "threads",
+    "area": "auth",
+    "title": "Threads app Deauthorize callback URL and Data Deletion Requests URL (Meta signed_request under the Threads app secret)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.facebook.com/documentation/threads/get-started/create-an-app",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "missing",
+    "gap": "createMetaDeauthorizeHandler and createMetaDataDeletionHandler exist and are tested, but the Threads page never names them or says to use the Threads app secret (not the Facebook one) for the Threads use case's callback URLs.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "createMetaDeauthorizeHandler",
+        "createMetaDataDeletionHandler"
+      ],
+      "test": [
+        "createMetaDeauthorizeHandler",
+        "createMetaDataDeletionHandler"
+      ],
+      "docs": [
+        "createMetaDeauthorizeHandler",
+        "createMetaDataDeletionHandler"
+      ]
+    },
+    "round": 2
+  }
+]
