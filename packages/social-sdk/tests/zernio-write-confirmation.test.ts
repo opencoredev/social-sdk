@@ -346,6 +346,7 @@ const writes: readonly Write[] = [
       null,
       {},
       { about: "Bakery" },
+      { emails: [], hours: {} },
       { about: "Bakery", description: null, website: null, phone: null, emails: "x", hours: {} },
       { about: "Bakery", description: null, website: null, phone: null, emails: [], hours: [] },
     ],

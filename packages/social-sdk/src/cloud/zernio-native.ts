@@ -342,6 +342,9 @@ function typedAnswer(
       unconfirmed(operation);
   }
 
+  // A required key the answer omits leaves the write unconfirmed, typed or not.
+  for (const field of required) if (row[field] === undefined) unconfirmed(operation);
+
   return row;
 }
 
