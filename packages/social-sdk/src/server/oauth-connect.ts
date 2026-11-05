@@ -157,6 +157,7 @@ type RefusalCode =
   | "upstream_failure"
   | "activation_failed"
   | "revocation_failed"
+  | "revocation_uncertain"
   | "removal_failed"
   | "internal_error";
 
@@ -186,6 +187,11 @@ const refusals: Readonly<
   revocation_failed: {
     status: 502,
     message: "The provider token could not be revoked. Nothing was removed.",
+  },
+  revocation_uncertain: {
+    status: 502,
+    message:
+      "The provider may have revoked the token, but its response was lost. Nothing was removed; check the grant before retrying.",
   },
   removal_failed: {
     status: 500,
@@ -656,8 +662,12 @@ export function createOAuthConnectHandlers(
 
     try {
       revocation = await options.grants.revoke({ principal, grant });
-    } catch {
-      refuse("revocation_failed");
+    } catch (error) {
+      refuse(
+        error instanceof SocialError && error.code === "ambiguous_outcome"
+          ? "revocation_uncertain"
+          : "revocation_failed",
+      );
     }
 
     try {

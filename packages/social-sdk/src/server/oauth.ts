@@ -422,6 +422,8 @@ async function request(
   operation: string,
   options: OAuthProviderOptions,
   allowEmptyBody = false,
+  /** A provider-side mutation, such as revocation: a lost response after dispatch is uncertain. */
+  mutation = false,
 ): Promise<JsonObject> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -433,6 +435,7 @@ async function request(
   const onAbort = () => controller.abort();
   options.signal?.addEventListener("abort", onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let dispatched = false;
 
   try {
     // Race injected fetchers and response readers that ignore AbortSignal.
@@ -443,6 +446,8 @@ async function request(
         { once: true },
       );
     });
+
+    dispatched = true;
 
     const response = await Promise.race([
       fetchWithoutRedirects(fetcher, url, { ...init, signal: controller.signal }),
@@ -461,6 +466,17 @@ async function request(
     ]);
   } catch (error) {
     if (error instanceof SocialError) throw error;
+
+    // The provider may have applied the mutation before the response was lost.
+    if (mutation && dispatched)
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message:
+          "The OAuth provider response was lost after the request was sent; the change may have been applied. Check the grant before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+        cause: error,
+      });
 
     if (options.signal?.aborted) fail(operation, "OAuth provider request cancelled", "cancelled");
 
@@ -1072,6 +1088,8 @@ export const tiktokOAuth = (options: OAuthProviderOptions) => oauthProvider("tik
  * Revoke a TikTok user access token with `POST /v2/oauth/revoke/`, sending the app's client key
  * (`clientId`), client secret and the token as a form. TikTok answers success with an empty body.
  * Returns `"revoked"`, so it can back `OAuthConnectHandlersOptions.grants.revoke`.
+ * A response lost after the request is sent throws `ambiguous_outcome` with `reconcile-first`:
+ * the grant may already be revoked.
  * Source, accessed 2026-11-04: https://developers.tiktok.com/doc/oauth-revoke-a-user-access-token
  */
 export async function revokeTikTokOAuthToken(
@@ -1102,6 +1120,7 @@ export async function revokeTikTokOAuthToken(
     },
     operation,
     options,
+    true,
     true,
   );
 
@@ -1400,6 +1419,8 @@ export async function exchangeTikTokQrCode(
  * as a form. Revoking an access token also revokes its refresh token. Google answers 200 on
  * success and 400 with an error code otherwise. Returns `"revoked"`, so it can back
  * `OAuthConnectHandlersOptions.grants.revoke`.
+ * A response lost after the request is sent throws `ambiguous_outcome` with `reconcile-first`:
+ * the grant may already be revoked.
  * Source, accessed 2026-11-04: https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps
  */
 export async function revokeGoogleOAuthToken(
@@ -1425,6 +1446,7 @@ export async function revokeGoogleOAuthToken(
     operation,
     { clientId: "", ...options },
     true,
+    true,
   );
 
   return "revoked";
@@ -1434,7 +1456,10 @@ export async function revokeGoogleOAuthToken(
  * Revoke an X OAuth 2.0 access or refresh token with `POST https://api.x.com/2/oauth2/revoke`.
  * Confidential clients authenticate with HTTP Basic; public clients send `client_id` in the form.
  * Returns `"revoked"` unless X answers `revoked: false`, so it can back
- * `OAuthConnectHandlersOptions.grants.revoke`. Source, accessed 2026-11-04:
+ * `OAuthConnectHandlersOptions.grants.revoke`.
+ * A response lost after the request is sent throws `ambiguous_outcome` with `reconcile-first`:
+ * the grant may already be revoked.
+ * Source, accessed 2026-11-04:
  * https://docs.x.com/fundamentals/authentication/oauth-2-0/user-access-token
  */
 export async function revokeXOAuthToken(
@@ -1465,6 +1490,7 @@ export async function revokeXOAuthToken(
     { method: "POST", headers, body: form },
     operation,
     options,
+    true,
     true,
   );
 

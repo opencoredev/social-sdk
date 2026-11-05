@@ -220,7 +220,10 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
     const requestBody = source.body ?? openCountingStream();
 
     if (source.body !== undefined) bytes = source.body.size;
-    const headers = new Headers({ ...options.headers, "Content-Type": source.mimeType });
+    // Header names are case-insensitive: set the source-owned ones after the extras so they win.
+    const headers = new Headers(options.headers);
+    headers.set("Content-Type", source.mimeType);
+    headers.delete("Content-Length");
 
     if (source.size !== undefined) headers.set("Content-Length", String(source.size));
 
