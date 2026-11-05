@@ -1061,6 +1061,39 @@
     }
   },
   {
+    "id": "youtube.other.playlists.localizations",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Playlist localizations (playlists.insert/update localizations part with snippet.defaultLanguage; list part selection)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/playlists/insert",
+      "checked": "2026-11-05",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "playlists insert and update rejected the localizations part, and playlists list always requested snippet,status,contentDetails, so translated playlist titles and descriptions could not be written or read through the typed helper.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "checkPlaylistLocalizations",
+        "\\[\"snippet\", \"status\", \"localizations\"\\], \"playlists\"",
+        "playlistParts"
+      ],
+      "test": [
+        "feature:youtube\\.other\\.playlists\\.localizations"
+      ],
+      "docs": [
+        "### Localize playlist titles",
+        "snippet\\.defaultLanguage",
+        "replaces each part"
+      ]
+    },
+    "round": 2
+  },
+  {
     "id": "youtube.other.playlistItems",
     "provider": "youtube",
     "area": "other",

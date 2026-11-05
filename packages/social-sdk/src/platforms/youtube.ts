@@ -123,6 +123,12 @@ export interface YouTubeNative {
     readonly mine?: boolean;
     readonly pageToken?: string;
     readonly maxResults?: number;
+    /** For `list`: the parts to return. Defaults to snippet, status and contentDetails. */
+    readonly parts?: readonly YouTubePlaylistPart[];
+    /**
+     * For `insert` and `update`: a playlist resource. Writable parts are snippet, status and
+     * localizations; localizations need snippet.defaultLanguage in the same body.
+     */
     readonly body?: JsonObject;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
@@ -714,6 +720,54 @@ const channelParts = [
 ] as const;
 
 export type YouTubeChannelPart = (typeof channelParts)[number];
+
+const playlistParts = [
+  "contentDetails",
+  "id",
+  "localizations",
+  "player",
+  "snippet",
+  "status",
+] as const;
+
+export type YouTubePlaylistPart = (typeof playlistParts)[number];
+
+/**
+ * Check a playlist write's localizations: a non-empty map of BCP-47 tags to `{ title,
+ * description? }` strings, with snippet.defaultLanguage set in the same body.
+ * Source, accessed 2026-11-05: https://developers.google.com/youtube/v3/docs/playlists/insert
+ */
+function checkPlaylistLocalizations(body: JsonObject | undefined, operation: string): void {
+  const localizations = body?.["localizations"];
+
+  if (localizations === undefined) return;
+
+  const valid =
+    isJsonObject(localizations) &&
+    Object.keys(localizations).length > 0 &&
+    Object.entries(localizations).every(
+      ([language, entry]) =>
+        languageTag.test(language) &&
+        isJsonObject(entry) &&
+        Object.keys(entry).length > 0 &&
+        Object.entries(entry).every(
+          ([key, value]) => (key === "title" || key === "description") && isString(value),
+        ),
+    );
+
+  if (!valid)
+    throw invalidInput(
+      operation,
+      "localizations must map BCP-47 tags to { title?, description? } strings.",
+    );
+
+  const snippet = body?.["snippet"];
+
+  const defaultLanguage = isJsonObject(snippet) ? snippet["defaultLanguage"] : undefined;
+
+  if (!isString(defaultLanguage) || !languageTag.test(defaultLanguage))
+    throw invalidInput(operation, "Set snippet.defaultLanguage before writing localizations.");
+}
 
 function isOneOf<T extends string>(allowed: readonly T[], value: string): value is T {
   return allowed.some((candidate) => candidate === value);
@@ -1407,8 +1461,32 @@ export function youtube(
     throw uncertainWrite(operation);
   };
 
+  /** The non-empty string ID a created or replaced resource must carry to confirm the write. */
+  const writtenId = (resource: JsonObject, operation: string): string => {
+    const id = resource["id"];
+
+    if (isString(id) && id.trim() !== "") return id;
+
+    throw uncertainWrite(operation);
+  };
+
+  /**
+   * Decode a resource write's success response, which must be the resource with its ID, since
+   * the caller needs that ID to read or reconcile what was written.
+   */
+  const writtenResource = (value: JsonValue, operation: string): JsonObject => {
+    const resource = writtenObject(value, operation);
+
+    writtenId(resource, operation);
+
+    return resource;
+  };
+
   const binaryJson = async (...args: Parameters<typeof binarySend>): Promise<JsonObject> =>
     writtenObject(await binarySend(...args), args[0]);
+
+  const binaryResource = async (...args: Parameters<typeof binarySend>): Promise<JsonObject> =>
+    writtenResource(await binarySend(...args), args[0]);
 
   /**
    * Check an image upload against a method's documented MIME types and byte limit, then return
@@ -2775,16 +2853,17 @@ export function youtube(
             message: "YouTube comment does not belong to the supplied video.",
           });
 
-        const result = object(
+        const result = writtenObject(
           await request(
             "/youtube/v3/comments",
             context,
             { snippet: { parentId: ref.commentId, textOriginal: content.text } },
             { part: "snippet" },
           ),
+          "/youtube/v3/comments",
         );
 
-        return { ...ref, commentId: string(result["id"]) };
+        return { ...ref, commentId: writtenId(result, "/youtube/v3/comments") };
       },
     },
     native: {
@@ -2940,7 +3019,7 @@ export function youtube(
             });
 
           if (action === "update" && !caption)
-            return binaryJson(
+            return binaryResource(
               "/youtube/v3/captions",
               context,
               JSON.stringify(metadata),
@@ -2969,7 +3048,7 @@ export function youtube(
             `\r\n--${boundary}--\r\n`,
           ]);
 
-          return binaryJson(
+          return binaryResource(
             "/upload/youtube/v3/captions",
             context,
             encoded,
@@ -3015,10 +3094,14 @@ export function youtube(
         mine,
         pageToken,
         maxResults,
+        parts,
         body,
         context,
       }) {
         nativeAuthorize(context);
+
+        if (action === "insert" || action === "update")
+          checkPlaylistLocalizations(body, `playlists.${action}`);
 
         const method =
           action === "list"
@@ -3057,8 +3140,12 @@ export function youtube(
           {
             part:
               action === "list"
-                ? "snippet,status,contentDetails"
-                : writeParts(body, ["snippet", "status"], "playlists"),
+                ? partList(
+                    parts ?? ["snippet", "status", "contentDetails"],
+                    playlistParts,
+                    "playlists.list",
+                  )
+                : writeParts(body, ["snippet", "status", "localizations"], "playlists"),
             ...definedFields(
               action === "list"
                 ? {
@@ -3076,7 +3163,7 @@ export function youtube(
           method,
         );
 
-        return method === "GET" ? object(result) : writtenObject(result, "/youtube/v3/playlists");
+        return method === "GET" ? object(result) : writtenResource(result, "/youtube/v3/playlists");
       },
       async playlistItems({ action, playlistId, playlistItemId, body, pageToken, context }) {
         nativeAuthorize(context);
@@ -3146,7 +3233,7 @@ export function youtube(
 
         return method === "GET"
           ? object(result)
-          : writtenObject(result, "/youtube/v3/playlistItems");
+          : writtenResource(result, "/youtube/v3/playlistItems");
       },
       async updateVideo({ videoId, body, context }) {
         nativeAuthorize(context);
@@ -3567,7 +3654,7 @@ export function youtube(
 
         return method === "GET"
           ? object(result)
-          : writtenObject(result, "/youtube/v3/subscriptions");
+          : writtenResource(result, "/youtube/v3/subscriptions");
       },
       async search({
         q,
@@ -3866,7 +3953,7 @@ export function youtube(
           // liveBroadcasts.update deletes omitted mutable properties of each written part.
           const resource = writeResource(body, id, operation);
 
-          return writtenObject(
+          return writtenResource(
             await request(
               "/youtube/v3/liveBroadcasts",
               context,
@@ -3991,7 +4078,7 @@ export function youtube(
           );
         }
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/liveBroadcasts",
             context,
@@ -4102,7 +4189,7 @@ export function youtube(
             message: "liveChatId must match body.snippet.liveChatId.",
           });
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/liveChat/messages",
             context,
@@ -4218,7 +4305,7 @@ export function youtube(
             message: "liveChatId must match body.snippet.liveChatId.",
           });
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/liveChat/moderators",
             context,
@@ -4253,7 +4340,7 @@ export function youtube(
           });
         bodyLiveChatId(body, "live.chat.bans");
 
-        return writtenObject(
+        return writtenResource(
           await request("/youtube/v3/liveChat/bans", context, body, { part: "snippet" }, "POST"),
           "/youtube/v3/liveChat/bans",
         );
@@ -4356,7 +4443,7 @@ export function youtube(
           await assertChannelSection(id, context);
         }
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/channelSections",
             context,
@@ -4485,7 +4572,7 @@ export function youtube(
           mimeType,
         );
 
-        return binaryJson(
+        return binaryResource(
           "/upload/youtube/v3/playlistImages",
           input.context,
           upload.body,
@@ -4561,7 +4648,7 @@ export function youtube(
         if (input.action === "update") {
           if (!input.groupId.trim()) throw invalidInput(operation, "groupId is required.");
 
-          return writtenObject(
+          return writtenResource(
             await analyticsRequest(
               "/v2/groups",
               input.context,
@@ -4579,7 +4666,7 @@ export function youtube(
             "itemType must be youtube#channel, youtube#playlist, or youtube#video.",
           );
 
-        return writtenObject(
+        return writtenResource(
           await analyticsRequest(
             "/v2/groups",
             input.context,
@@ -4635,7 +4722,7 @@ export function youtube(
         // https://developers.google.com/youtube/analytics/reference/groupItems/insert#response
         return inserted === null
           ? { alreadyInGroup: true }
-          : writtenObject(inserted, "/v2/groupItems");
+          : writtenResource(inserted, "/v2/groupItems");
       },
       async reportTypes({ includeSystemManaged, pageSize, pageToken, context }) {
         nativeAuthorize(context);
@@ -4677,7 +4764,7 @@ export function youtube(
               "reportTypeId and a name of 1 to 100 characters are required.",
             );
 
-          return writtenObject(
+          return writtenResource(
             await reportingRequest(
               "/v1/jobs",
               input.context,
@@ -4812,7 +4899,7 @@ export function youtube(
             "Insert needs snippet.title (1 to 128 characters) and cdn.ingestionType, cdn.resolution and cdn.frameRate.",
           );
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/liveStreams",
             context,
@@ -5025,7 +5112,7 @@ export function youtube(
           if (!input.videoId.trim() || !input.text.trim())
             throw invalidInput(operation, "videoId and non-empty text are required.");
 
-          return writtenObject(
+          return writtenResource(
             await request(
               "/youtube/v3/commentThreads",
               input.context,

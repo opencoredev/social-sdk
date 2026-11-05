@@ -62,6 +62,10 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
 
       if (init?.method === "DELETE") return new Response(null, { status: 204 });
 
+      // A write answers with the written resource, which carries its ID.
+      if (init?.method === "POST" || init?.method === "PUT")
+        return Response.json({ id: "written1", snippet: { liveChatId: "chat1" } });
+
       if (url.pathname === "/youtube/v3/liveChat/messages")
         return Response.json({ items: [{ id: "message1", snippet: { liveChatId: "chat1" } }] });
 
@@ -711,7 +715,7 @@ it("live broadcast writes and reads include contentDetails", async () => {
         "snippet,status,contentDetails",
       );
 
-      return Response.json({});
+      return Response.json({ id: "broadcast1" });
     },
   });
 
@@ -797,7 +801,7 @@ it("subscription insert requires a channel and sends no list filters", async () 
         snippet: { resourceId: { kind: "youtube#channel", channelId: "target" } },
       });
 
-      return Response.json({});
+      return Response.json({ id: "subscription1" });
     },
   });
 

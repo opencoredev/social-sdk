@@ -4762,25 +4762,30 @@ export function linkedin(
             message: "Comment parent object does not match the supplied post.",
           });
 
-        const response = object(
-          await request(`/rest/socialActions/${restliEncode(ref.commentId)}/comments`, context, {
+        const answer = await request(
+          `/rest/socialActions/${restliEncode(ref.commentId)}/comments`,
+          context,
+          {
             actor: ref.accountId,
             message: { text: content.text },
             object: ref.postId,
             parentComment: ref.commentId,
-          }),
+          },
         );
 
-        const commentId = optionalString(response["commentUrn"]);
+        // The reply was sent, so a body without a usable comment URN leaves it uncertain.
+        const commentId = confirmedWrite(
+          "comments.write",
+          "LinkedIn accepted the comment without returning its composite URN.",
+          () => {
+            const urn = optionalString(object(answer)["commentUrn"]);
 
-        if (!commentId)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "comments.write",
-            message:
-              "LinkedIn accepted the comment without returning its composite URN. Reconcile before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
+            if (urn === undefined || !linkedInCommentUrn.test(urn))
+              throw new TypeError("The reply response has no valid commentUrn.");
+
+            return urn;
+          },
+        );
 
         return { ...ref, commentId };
       },
@@ -6839,13 +6844,18 @@ export function linkedin(
           body,
         );
 
-        const response = confirmedWrite(
+        const { commentUrn, id } = confirmedWrite(
           "comments.write",
           "LinkedIn did not return a readable comment.",
-          () => object(answer),
-        );
+          () => {
+            const decoded = object(answer);
 
-        const commentUrn = optionalString(response["commentUrn"]);
+            return {
+              commentUrn: optionalString(decoded["commentUrn"]),
+              id: optionalString(decoded["id"]),
+            };
+          },
+        );
 
         if (!commentUrn)
           throw new SocialError({
@@ -6856,7 +6866,7 @@ export function linkedin(
             retryDisposition: { kind: "reconcile-first" },
           });
 
-        return { commentUrn, ...definedFields({ id: optionalString(response["id"]) }) };
+        return { commentUrn, ...definedFields({ id }) };
       },
       async listOrganizationNotifications({ account, context, ...filters }) {
         organizationOnly(account, context, "notifications.read");

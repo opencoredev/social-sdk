@@ -525,6 +525,31 @@ await native.playlistItems({
 
 Moving an item requires a playlist with manual ordering and the **playlist-item ID** returned by `playlistItems.list`; a video ID identifies the video and a playlist ID identifies its container. A snippet-only move leaves `contentDetails.note` untouched. If you write `contentDetails`, resend any note or other writable fields you want to keep.
 
+### Localize playlist titles
+
+`native.playlists` writes the [`localizations`](https://developers.google.com/youtube/v3/docs/playlists/insert) part on insert and update: a map from a BCP-47 language tag to a translated `title` and `description`. Set `snippet.defaultLanguage` in the same body, naming the language of the playlist's own title and description; without it the adapter rejects the write with `invalid_input` before any request. An update replaces each part you send, so resend every language you want to keep in `localizations`, and the complete `snippet` (title, description and `defaultLanguage`) with it.
+
+```ts
+await native.playlists({
+  action: "insert",
+  body: {
+    snippet: { title: "Releases", description: "Release videos", defaultLanguage: "en" },
+    localizations: { fr: { title: "Versions", description: "Vidéos des versions" } },
+  },
+  context,
+});
+await native.playlists({
+  action: "list",
+  playlistId: "PL...",
+  parts: ["snippet", "localizations"],
+  context,
+});
+```
+
+Lists return snippet, status and contentDetails unless you pass `parts`, drawn from `contentDetails`, `id`, `localizations`, `player`, `snippet` and `status`. Request `localizations` to read the translations back.
+
+Every playlist, playlist item, subscription, channel section, live broadcast, live stream, live chat message, moderator and ban write, caption and playlist image upload, comment thread, Analytics group and group item, and Reporting job create must answer with the written resource and its non-empty `id`. A success response without one raises `ambiguous_outcome` with `reconcile-first`, because Google may have created the resource; list it before retrying. An Analytics group item that Google answers with `204 No Content` still returns `{ alreadyInGroup: true }`.
+
 ### Search and Analytics
 
 Normalized `social.search.posts(account, { query, startTime, endTime })` maps the ISO date bounds to `publishedAfter` and `publishedBefore`, with `type=video`. Only the `recent` scope is accepted and pages contain at most 50 items. Use `native.search` for `channelId`, `order`, or a different result type.
