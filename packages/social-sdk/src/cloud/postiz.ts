@@ -718,20 +718,34 @@ function postizPlan(target: PreparedPublishTarget, config: JsonObject) {
     }
 
     const reel = media.length === 1 && videos.length === 1 && !story;
-    const trial = flag("trialReel");
+    // The shared `trialReel: "manual" | "performance"` names the graduation strategy; the
+    // earlier Postiz form is `trialReel: true` with an optional `graduationStrategy`.
+    const trialValue = config["trialReel"];
+
+    const named =
+      trialValue === "manual"
+        ? "MANUAL"
+        : trialValue === "performance"
+          ? "SS_PERFORMANCE"
+          : undefined;
+
+    const trial = named !== undefined || trialValue === true;
     const graduation = config["graduationStrategy"];
 
-    if (trial === true && !reel)
+    if (trialValue !== undefined && named === undefined && !isBoolean(trialValue))
+      fail("instagram.trial_reel", 'trialReel is "manual" or "performance".');
+    else if (trial && !reel)
       fail("instagram.trial_reel", "A trial reel is a single video posted to the feed.");
-    else if (trial === true) settings["is_trial_reel"] = true;
+    else if (trial) settings["is_trial_reel"] = true;
 
-    if (
+    if (named !== undefined && graduation === undefined) settings["graduation_strategy"] = named;
+    else if (
       graduation !== undefined &&
-      (trial !== true || (graduation !== "MANUAL" && graduation !== "SS_PERFORMANCE"))
+      (trialValue !== true || (graduation !== "MANUAL" && graduation !== "SS_PERFORMANCE"))
     )
       fail(
         "instagram.graduation_strategy",
-        "graduationStrategy needs trialReel and MANUAL or SS_PERFORMANCE.",
+        'graduationStrategy (MANUAL or SS_PERFORMANCE) goes only with trialReel: true; "manual" and "performance" already set it.',
       );
     else if (graduation !== undefined) settings["graduation_strategy"] = graduation;
 

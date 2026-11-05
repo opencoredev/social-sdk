@@ -1,6 +1,12 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
-import { connectedAccountRef, createSocial, type Platform } from "../src/index.js";
+import {
+  connectedAccountRef,
+  createSocial,
+  type ConnectedAccountRef,
+  type Platform,
+  type PublishOptionsFor,
+} from "../src/index.js";
 import { buffer, bufferAuthorizationUrl } from "../src/cloud/buffer.js";
 import { SocialError } from "../src/core/errors.js";
 import type {
@@ -116,7 +122,7 @@ function fakeBuffer(answer: (operation: Operation) => JsonValue) {
 async function publish(
   platform: Platform,
   content: PublishContent,
-  options: JsonObject,
+  options: PublishOptionsFor<Platform>,
   schedule?: { readonly at: string },
   reply: (input: JsonObject) => JsonObject = () => post(platform),
 ) {
@@ -427,6 +433,53 @@ it("Buffer tags Instagram accounts on an image with userTags", async () => {
       },
     },
   ]);
+});
+
+it("Buffer sends the shared userTags username and mediaIndex as handle and image", async () => {
+  const account: ConnectedAccountRef<"instagram"> = connectedAccountRef({
+    backend: "default",
+    platform: "instagram",
+    accountId: channelId("instagram"),
+  });
+
+  const options: PublishOptionsFor<"instagram"> = {
+    shareToFeed: true,
+    userTags: [
+      { username: "@partner", x: 0.5, y: 0.25 },
+      { username: "friend", x: 0.1, y: 0.9, mediaIndex: 1 },
+    ],
+  };
+
+  const { input, issues } = await publish(
+    account.platform,
+    { text: "Team", media: [image("team", "The team"), image("crew", "The crew")] },
+    options,
+  );
+
+  assert.deepEqual(issues, []);
+  assert.deepEqual(input?.["assets"], [
+    {
+      image: {
+        url: "https://cdn.example.test/team.jpg",
+        metadata: { altText: "The team", userTags: [{ handle: "partner", x: 0.5, y: 0.25 }] },
+      },
+    },
+    {
+      image: {
+        url: "https://cdn.example.test/crew.jpg",
+        metadata: { altText: "The crew", userTags: [{ handle: "friend", x: 0.1, y: 0.9 }] },
+      },
+    },
+  ]);
+
+  // A tag names its account once: `username` or the Buffer-only `handle`, not both.
+  const twice = await publish(
+    "instagram",
+    { text: "Team", media: [image("team", "The team")] },
+    { ...instagramBase, userTags: [{ username: "partner", handle: "partner", x: 0.5, y: 0.5 }] },
+  );
+
+  assert.ok(twice.issues.includes("instagram.user_tags"));
 });
 
 it("Buffer sends content.link as a linkAttachment card", async () => {
@@ -850,6 +903,46 @@ it("Buffer reads aggregatedPostMetrics as a channel report", async () => {
     social.analytics.getReport(ref("linkedin"), {
       from: "2025-01-01",
       to: "2026-09-30",
+      metrics: ["postCount"],
+    }),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+});
+
+it("Buffer reports count the end date as a whole day within the 365-day cap", async () => {
+  const { adapter, operations } = fakeBuffer(() => ({
+    aggregatedPostMetrics: {
+      metrics: [{ type: "postCount", value: 1, unit: "count", name: "Posts" }],
+      metricsUpdatedAt: "2026-10-09T06:00:00.000Z",
+    },
+  }));
+
+  const social = createSocial({ backend: adapter, clock });
+
+  // Buffer documents endDateTime as UTC midnight of the last day, inclusive of that day.
+  await social.analytics.getReport(ref("linkedin"), {
+    from: "2026-09-30",
+    to: "2026-09-30",
+    metrics: ["postCount"],
+  });
+
+  assert.deepEqual(operations.at(-1)?.variables["input"], {
+    organizationId: "org_example",
+    channelIds: [channelId("linkedin")],
+    startDateTime: "2026-09-30T00:00:00.000Z",
+    endDateTime: "2026-09-30T00:00:00.000Z",
+  });
+
+  // 2025-01-01 through 2025-12-31 is 365 days; through 2026-01-01 is 366.
+  await social.analytics.getReport(ref("linkedin"), {
+    from: "2025-01-01",
+    to: "2025-12-31",
+    metrics: ["postCount"],
+  });
+  await assert.rejects(
+    social.analytics.getReport(ref("linkedin"), {
+      from: "2025-01-01",
+      to: "2026-01-01",
       metrics: ["postCount"],
     }),
     (error) => error instanceof SocialError && error.code === "invalid_input",

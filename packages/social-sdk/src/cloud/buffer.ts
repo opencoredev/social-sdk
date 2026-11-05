@@ -342,24 +342,32 @@ function bufferPlan(target: PreparedPublishTarget, config: JsonObject) {
 
     for (const row of rows) {
       const tag = isJsonObject(row) ? row : {};
-      const { handle, x, y } = tag;
-      const index = tag["imageIndex"] ?? 0;
+      const { x, y } = tag;
+      // The shared option names `username` and `mediaIndex`; Buffer's own are `handle` and
+      // `imageIndex`, accepted as documented earlier. A tag sets one of each pair at most.
+      const name = tag["username"];
+      const handle = isString(name) ? name.replace(/^@/, "") : tag["handle"];
+      const index = tag["mediaIndex"] ?? tag["imageIndex"] ?? 0;
       const image = isWhole(index) ? media[index] : undefined;
 
       const position = (value: JsonField): value is number =>
         isFiniteNumber(value) && value >= 0 && value <= 1;
 
+      const keys = ["username", "handle", "x", "y", "mediaIndex", "imageIndex"];
+
       if (
         !isString(handle) ||
         !/^[A-Za-z0-9._]{1,30}$/.test(handle) ||
+        (name !== undefined && tag["handle"] !== undefined) ||
+        (tag["mediaIndex"] !== undefined && tag["imageIndex"] !== undefined) ||
         !position(x) ||
         !position(y) ||
         image?.kind !== "image" ||
-        Object.keys(tag).some((key) => !["handle", "x", "y", "imageIndex"].includes(key))
+        Object.keys(tag).some((key) => !keys.includes(key))
       ) {
         fail(
           "instagram.user_tags",
-          "Each user tag needs a handle without @, x and y from 0 to 1, and an image's imageIndex.",
+          "Each user tag needs a username, x and y from 0 to 1, and an image's mediaIndex.",
         );
 
         continue;
@@ -2625,7 +2633,9 @@ export function buffer(options: BufferOptions) {
         const start = Date.parse(`${query.from}T00:00:00Z`);
         const end = Date.parse(`${query.to}T00:00:00Z`);
 
-        if (!Number.isFinite(start) || !Number.isFinite(end) || end - start > 365 * 86_400_000)
+        // Buffer's `endDateTime` is UTC midnight of the last day and covers that whole day, so
+        // `from` to `to` spans (to - from) + 1 days, and Buffer caps that at 365.
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end - start >= 365 * 86_400_000)
           reject("analytics.report.read", "Buffer aggregates at most 365 days.");
 
         const owned = await ownedChannel(account, context, "analytics.report.read");

@@ -271,6 +271,17 @@ function answerFields(value: JsonField, fields: readonly string[], operation: st
   return Object.keys(data).length > 0 ? data : unconfirmed(operation);
 }
 
+/**
+ * The record a create returned. Without its non-empty identifier (`idField`) the answer cannot
+ * show what was created, so the write is unconfirmed.
+ */
+function created(value: JsonField, idField: string, operation: string): JsonObject {
+  const row = isJsonObject(value) ? value : {};
+  const id = row[idField];
+
+  return isString(id) && id.trim() !== "" ? row : unconfirmed(operation);
+}
+
 /** The next page number as a cursor, when the response reports more pages. */
 function nextPage(page: number, pages: number | undefined): string | undefined {
   return pages !== undefined && page < pages ? String(page + 1) : undefined;
@@ -1164,7 +1175,7 @@ export function zernioNative(options: ManagedOptions) {
       return acknowledged(
         "profiles.write",
         request("/v1/profiles", context, profileBody(input)),
-        (response) => profileFields(object(response)["profile"]),
+        (response) => profileFields(created(object(response)["profile"], "_id", "profiles.write")),
       );
     },
     async updateProfile(
@@ -2381,7 +2392,7 @@ export function zernioNative(options: ManagedOptions) {
 
           if (result["success"] !== true) unconfirmed("webhooks.write");
 
-          return webhookFields(result["webhook"] ?? {});
+          return webhookFields(created(result["webhook"], "_id", "webhooks.write"));
         },
       );
     },
@@ -2569,7 +2580,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return publicFields(object(result["board"]), [
+          return publicFields(created(result["board"], "id", "accounts.write"), [
             "id",
             "name",
             "description",
@@ -2667,7 +2678,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return publicFields(object(result["playlist"]), [
+          return publicFields(created(result["playlist"], "id", "accounts.write"), [
             "id",
             "title",
             "description",
@@ -3019,7 +3030,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return accountGroup(object(result["group"]));
+          return accountGroup(created(result["group"], "_id", "accounts.write"));
         },
       );
     },
@@ -3420,7 +3431,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return oauthApp(object(result["app"]));
+          return oauthApp(created(result["app"], "id", "accounts.write"));
         },
       );
     },
@@ -4955,7 +4966,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return discordRole(object(result["data"]));
+          return discordRole(created(result["data"], "id", "accounts.write"));
         },
       );
     },
@@ -5157,7 +5168,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return publicFields(object(result["data"]), ["id", "name"]);
+          return publicFields(created(result["data"], "id", "posts.write"), ["id", "name"]);
         },
       );
     },
@@ -5281,7 +5292,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return discordEvent(object(result["data"]));
+          return discordEvent(created(result["data"], "id", "accounts.write"));
         },
       );
     },
@@ -6183,7 +6194,7 @@ export function zernioNative(options: ManagedOptions) {
         (reply) => {
           const result = object(reply);
 
-          return publicFields(object(result["label"]), ["id", "name"]);
+          return publicFields(created(result["label"], "id", "messages.write"), ["id", "name"]);
         },
       );
     },

@@ -1,6 +1,12 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
-import { connectedAccountRef, createSocial, type Platform } from "../src/index.js";
+import {
+  connectedAccountRef,
+  createSocial,
+  type ConnectedAccountRef,
+  type Platform,
+  type PublishOptionsFor,
+} from "../src/index.js";
 import { postiz } from "../src/cloud/postiz.js";
 import type { JsonObject, JsonValue, MediaAttachment, PublishContent } from "../src/core/types.js";
 import { definedFields } from "../src/core/fields.js";
@@ -51,7 +57,7 @@ const youtubeChoices = { title: "Launch", visibility: "public", madeForKids: fal
 async function publish(
   platform: Platform,
   content: PublishContent,
-  options: JsonObject,
+  options: PublishOptionsFor<Platform>,
   schedule?: { readonly at: string },
 ) {
   const uploads: string[] = [];
@@ -338,6 +344,51 @@ it("Postiz maps Instagram trial reels, collaborators, and reel audio", async () 
     (
       await publish("instagram", { media: [video] }, { graduationStrategy: "MANUAL" })
     ).issues.includes("instagram.graduation_strategy"),
+  );
+});
+
+it("Postiz maps the shared trialReel values to a trial reel and its graduation strategy", async () => {
+  const account: ConnectedAccountRef<"instagram"> = connectedAccountRef({
+    backend: "default",
+    platform: "instagram",
+    accountId: "int1",
+  });
+
+  const manual: PublishOptionsFor<"instagram"> = { trialReel: "manual" };
+  const performance: PublishOptionsFor<"instagram"> = { trialReel: "performance" };
+
+  const cases: readonly { options: PublishOptionsFor<"instagram">; strategy: string }[] = [
+    { options: manual, strategy: "MANUAL" },
+    { options: performance, strategy: "SS_PERFORMANCE" },
+  ];
+
+  for (const { options, strategy } of cases) {
+    const { post, issues } = await publish(account.platform, { media: [video] }, options);
+
+    assert.deepEqual(issues, []);
+    assert.deepEqual(settingsOf(post), {
+      post_type: "post",
+      is_trial_reel: true,
+      graduation_strategy: strategy,
+    });
+  }
+
+  const photo = await publish(account.platform, { media: [image("a")] }, manual);
+
+  assert.ok(photo.issues.includes("instagram.trial_reel"));
+
+  // The shared value already names the strategy, so a second one is a conflict.
+  const both = await publish(
+    account.platform,
+    { media: [video] },
+    { trialReel: "manual", graduationStrategy: "SS_PERFORMANCE" },
+  );
+
+  assert.ok(both.issues.includes("instagram.graduation_strategy"));
+  assert.ok(
+    (
+      await publish(account.platform, { media: [video] }, { trialReel: "sometimes" })
+    ).issues.includes("instagram.trial_reel"),
   );
 });
 
