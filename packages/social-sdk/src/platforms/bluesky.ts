@@ -38,6 +38,7 @@ import {
   isFiniteNumber,
   isJsonObject,
   isString,
+  number,
   object,
   optionalNumber,
   optionalObject,
@@ -1874,6 +1875,29 @@ function writtenRef(value: JsonField, operation: string): BlueskyPostRef {
     });
 
   return { uri, cid };
+}
+
+/**
+ * Decodes the response of a write that Bluesky already received. The write may have happened, so
+ * a missing or malformed required field is an uncertain outcome, never a definite failure.
+ */
+function decodeWrite<T>(
+  response: JsonValue,
+  operation: string,
+  decode: (response: JsonObject) => T,
+): T {
+  try {
+    return decode(object(response));
+  } catch (cause) {
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message:
+        "Bluesky received the write but returned a missing or malformed result. Reconcile before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+      cause,
+    });
+  }
 }
 
 /**
@@ -3737,17 +3761,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           };
     });
 
-    const response = object(
-      await xrpc("com.atproto.repo.applyWrites", context, {
-        body: JSON.stringify({
-          repo: auth.did,
-          writes: wire,
-          ...definedFields({ validate: extra.validate, swapCommit: extra.swapCommit }),
-        }),
+    const raw = await xrpc("com.atproto.repo.applyWrites", context, {
+      body: JSON.stringify({
+        repo: auth.did,
+        writes: wire,
+        ...definedFields({ validate: extra.validate, swapCommit: extra.swapCommit }),
       }),
-    );
+    });
 
     try {
+      const response = object(raw);
+
       const commit = response["commit"] === undefined ? undefined : object(response["commit"]);
 
       const results = array(response["results"] ?? []).map((value, index): BlueskyWriteResult => {
@@ -3889,7 +3913,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
     const record = mutate(existing?.record);
 
-    return postRef(
+    return writtenRef(
       existing === undefined
         ? await xrpc("com.atproto.repo.createRecord", context, {
             body: JSON.stringify({ repo: auth.did, collection, rkey, record }),
@@ -3903,6 +3927,9 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               swapRecord: existing.cid,
             }),
           }),
+      existing === undefined
+        ? "bluesky.com.atproto.repo.createRecord"
+        : "bluesky.com.atproto.repo.putRecord",
     );
   }
 
@@ -4388,19 +4415,37 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     return object(await xrpc(`${method}?${query}`, context));
   };
 
-  /** One authenticated procedure call with a JSON body. */
+  /**
+   * One authenticated procedure call with a JSON body. `decode` reads the required output fields;
+   * it runs after dispatch, so its failure is reported as an uncertain write.
+   */
+  const decodedProcedure = async <T>(
+    account: ConnectedAccountRef,
+    supplied: AdapterOperationContext | undefined,
+    method: string,
+    operation: string,
+    body: JsonObject,
+    decode: (response: JsonObject) => T,
+  ): Promise<T> => {
+    const context = nativeContext(supplied, operation);
+    assertNativeAccount(account, context, operation);
+
+    return decodeWrite(
+      await xrpc(method, context, { body: JSON.stringify(body) }),
+      operation,
+      decode,
+    );
+  };
+
+  /** One authenticated procedure call with a JSON body whose output is an object. */
   const procedure = async (
     account: ConnectedAccountRef,
     supplied: AdapterOperationContext | undefined,
     method: string,
     operation: string,
     body: JsonObject,
-  ): Promise<JsonObject> => {
-    const context = nativeContext(supplied, operation);
-    assertNativeAccount(account, context, operation);
-
-    return object(await xrpc(method, context, { body: JSON.stringify(body) }));
-  };
+  ): Promise<JsonObject> =>
+    decodedProcedure(account, supplied, method, operation, body, (response) => response);
 
   /** One authenticated procedure whose lexicon declares no output; HTTP 200 may carry no body. */
   const voidProcedure = async (
@@ -4452,12 +4497,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     operation: string,
     input: BlueskyConvoInput,
   ): Promise<JsonObject> =>
-    object(
-      (
-        await procedure(input.account, input.context, method, operation, {
-          convoId: convoId(input.conversationId, operation),
-        })
-      )["convo"],
+    decodedProcedure(
+      input.account,
+      input.context,
+      method,
+      operation,
+      { convoId: convoId(input.conversationId, operation) },
+      (response) => object(response["convo"]),
     );
 
   const joinLink = (response: JsonObject): JsonObject => object(response["joinLink"]);
@@ -4602,12 +4648,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     return dids;
   };
 
+  // createGroup and editGroup: at most 50 graphemes and 500 UTF-8 bytes.
   const groupName = (value: string, operation: string): string => {
-    if (!value.trim() || new TextEncoder().encode(value).byteLength > 1280)
+    if (
+      !value.trim() ||
+      graphemeCount(value) > 50 ||
+      new TextEncoder().encode(value).byteLength > 500
+    )
       throw new SocialError({
         code: "invalid_input",
         operation,
-        message: "Group chat names need 1 to 1,280 bytes.",
+        message: "Group chat names need 1 to 50 graphemes and at most 500 bytes.",
         retryDisposition: { kind: "never" },
       });
 
@@ -4671,14 +4722,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         retryDisposition: { kind: "never" },
       });
 
-    return object(
-      (
-        await procedure(input.account, input.context, method, operation, {
-          convoId: convoId(input.conversationId, operation),
-          messageId: convoId(input.messageId, operation),
-          value: input.value,
-        })
-      )["message"],
+    return decodedProcedure(
+      input.account,
+      input.context,
+      method,
+      operation,
+      {
+        convoId: convoId(input.conversationId, operation),
+        messageId: convoId(input.messageId, operation),
+        value: input.value,
+      },
+      (response) => object(response["message"]),
     );
   };
 
@@ -4687,12 +4741,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     operation: string,
     input: BlueskyConvoInput,
   ): Promise<JsonObject> =>
-    object(
-      (
-        await procedure(input.account, input.context, method, operation, {
-          convoId: convoId(input.conversationId, operation),
-        })
-      )["convo"],
+    decodedProcedure(
+      input.account,
+      input.context,
+      method,
+      operation,
+      {
+        convoId: convoId(input.conversationId, operation),
+      },
+      (response) => object(response["convo"]),
     );
 
   const groupMembers = async (
@@ -4700,13 +4757,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     operation: string,
     input: BlueskyConvoInput & { readonly members: readonly string[] },
   ): Promise<JsonObject> =>
-    object(
-      (
-        await procedure(input.account, input.context, method, operation, {
-          convoId: convoId(input.conversationId, operation),
-          members: memberDids(input.members, 49, operation),
-        })
-      )["convo"],
+    decodedProcedure(
+      input.account,
+      input.context,
+      method,
+      operation,
+      {
+        convoId: convoId(input.conversationId, operation),
+        members: memberDids(input.members, 49, operation),
+      },
+      (response) => object(response["convo"]),
     );
 
   const native: BlueskyNative = {
@@ -4933,7 +4993,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       recordKey(input.listUri, "app.bsky.graph.list");
 
-      return postRef(
+      return writtenRef(
         await xrpc("com.atproto.repo.createRecord", context, {
           body: JSON.stringify({
             repo: auth.did,
@@ -4952,6 +5012,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         }),
+        operation,
       );
     },
     async deleteStarterPack(input) {
@@ -5168,16 +5229,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         verified: preferences.verified && { ...preferences.verified },
       });
 
-      return object(
-        (
-          await procedure(
-            input.account,
-            input.context,
-            "app.bsky.notification.putPreferencesV2",
-            "bluesky.notifications.preferences",
-            body,
-          )
-        )["preferences"],
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "app.bsky.notification.putPreferencesV2",
+        "bluesky.notifications.preferences",
+        body,
+        (response) => object(response["preferences"]),
       );
     },
     async listActivitySubscriptions(input) {
@@ -5345,13 +5403,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.drafts.create");
       assertNativeAccount(input.account, context, "bluesky.drafts.create");
 
-      const response = object(
+      return decodeWrite(
         await xrpc("app.bsky.draft.createDraft", context, {
           body: JSON.stringify({ draft: draftJson(input.draft) }),
         }),
+        "bluesky.drafts.create",
+        (response) => ({ id: string(response["id"]) }),
       );
-
-      return { id: string(response["id"]) };
     },
     async listDrafts(input) {
       const context = nativeContext(input.context, "bluesky.drafts.list");
@@ -6571,7 +6629,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           retryDisposition: { kind: "never" },
         });
 
-      return postRef(
+      return writtenRef(
         await xrpc("com.atproto.repo.putRecord", context, {
           body: JSON.stringify({
             repo: auth.did,
@@ -6596,6 +6654,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         }),
+        operation,
       );
     },
     async clearLiveStatus(input) {
@@ -6855,7 +6914,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const facets = description === undefined ? [] : richTextFacets(description, []);
 
-      return postRef(
+      return writtenRef(
         await xrpc("com.atproto.repo.putRecord", context, {
           body: JSON.stringify({
             repo: auth.did,
@@ -6876,6 +6935,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             },
           }),
         }),
+        operation,
       );
     },
     async deleteFeedGenerator(input) {
@@ -7092,17 +7152,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         message: messageJson(item),
       }));
 
-      return listOf(
-        await procedure(
-          input.account,
-          input.context,
-          "chat.bsky.convo.sendMessageBatch",
-          operation,
-          {
-            items,
-          },
-        ),
-        "items",
+      // The lexicon requires `items`; a reply without it is not a confirmation.
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.convo.sendMessageBatch",
+        operation,
+        { items },
+        (response) => array(response["items"]).map((value) => object(value)),
       );
     },
     async getConvoForMembers(input) {
@@ -7188,36 +7245,29 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async markConversationRead(input) {
       const operation = "bluesky.chat.read";
 
-      return object(
-        (
-          await procedure(input.account, input.context, "chat.bsky.convo.updateRead", operation, {
-            convoId: convoId(input.conversationId, operation),
-            ...definedFields({ messageId: input.messageId }),
-          })
-        )["convo"],
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.convo.updateRead",
+        operation,
+        {
+          convoId: convoId(input.conversationId, operation),
+          ...definedFields({ messageId: input.messageId }),
+        },
+        (response) => object(response["convo"]),
       );
     },
     async markAllConversationsRead(input) {
       const operation = "bluesky.chat.readAll";
 
-      const response = await procedure(
+      return decodedProcedure(
         input.account,
         input.context,
         "chat.bsky.convo.updateAllRead",
         operation,
         definedFields({ status: input.status }),
+        (response) => number(response["updatedCount"]),
       );
-
-      const count = response["updatedCount"];
-
-      if (!isFiniteNumber(count))
-        throw new SocialError({
-          code: "upstream_failure",
-          operation,
-          message: "Bluesky did not return updatedCount.",
-        });
-
-      return count;
     },
     async muteConversation(input) {
       return convoAction("chat.bsky.convo.muteConvo", "bluesky.chat.mute", input);
@@ -7228,15 +7278,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async leaveConversation(input) {
       const operation = "bluesky.chat.leave";
 
-      const response = await procedure(
+      return decodedProcedure(
         input.account,
         input.context,
         "chat.bsky.convo.leaveConvo",
         operation,
         { convoId: convoId(input.conversationId, operation) },
+        (response) => ({ rev: string(response["rev"]) }),
       );
-
-      return { rev: string(response["rev"]) };
     },
     async deleteMessageForSelf(input) {
       const operation = "bluesky.chat.deleteForSelf";
@@ -7269,25 +7318,31 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async createGroupChat(input) {
       const operation = "bluesky.chat.groups.create";
 
-      return object(
-        (
-          await procedure(input.account, input.context, "chat.bsky.group.createGroup", operation, {
-            name: groupName(input.name, operation),
-            members: memberDids(input.members, 49, operation),
-          })
-        )["convo"],
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.createGroup",
+        operation,
+        {
+          name: groupName(input.name, operation),
+          members: memberDids(input.members, 49, operation),
+        },
+        (response) => object(response["convo"]),
       );
     },
     async renameGroupChat(input) {
       const operation = "bluesky.chat.groups.edit";
 
-      return object(
-        (
-          await procedure(input.account, input.context, "chat.bsky.group.editGroup", operation, {
-            convoId: convoId(input.conversationId, operation),
-            name: groupName(input.name, operation),
-          })
-        )["convo"],
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.editGroup",
+        operation,
+        {
+          convoId: convoId(input.conversationId, operation),
+          name: groupName(input.name, operation),
+        },
+        (response) => object(response["convo"]),
       );
     },
     async addGroupChatMembers(input) {
@@ -7367,15 +7422,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           retryDisposition: { kind: "never" },
         });
 
-      return chatPreferences(
-        await procedure(
-          input.account,
-          input.context,
-          "chat.bsky.notification.putPreferences",
-          operation,
-          body,
-        ),
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.notification.putPreferences",
         operation,
+        body,
+        (response) => chatPreferences(response, operation),
       );
     },
     async getUnreadConversationCounts(input) {
@@ -7439,12 +7492,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async createJoinLink(input) {
       const operation = "bluesky.chat.joinLinks.create";
 
-      return joinLink(
-        await procedure(input.account, input.context, "chat.bsky.group.createJoinLink", operation, {
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.createJoinLink",
+        operation,
+        {
           convoId: convoId(input.conversationId, operation),
           joinRule: joinRule(input.joinRule, operation),
           ...definedFields({ requireApproval: input.requireApproval }),
-        }),
+        },
+        joinLink,
       );
     },
     async editJoinLink(input) {
@@ -7458,39 +7516,48 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           retryDisposition: { kind: "never" },
         });
 
-      return joinLink(
-        await procedure(input.account, input.context, "chat.bsky.group.editJoinLink", operation, {
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.editJoinLink",
+        operation,
+        {
           convoId: convoId(input.conversationId, operation),
           ...definedFields({
             joinRule:
               input.joinRule === undefined ? undefined : joinRule(input.joinRule, operation),
             requireApproval: input.requireApproval,
           }),
-        }),
+        },
+        joinLink,
       );
     },
     async enableJoinLink(input) {
       const operation = "bluesky.chat.joinLinks.enable";
 
-      return joinLink(
-        await procedure(input.account, input.context, "chat.bsky.group.enableJoinLink", operation, {
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.enableJoinLink",
+        operation,
+        {
           convoId: convoId(input.conversationId, operation),
-        }),
+        },
+        joinLink,
       );
     },
     async disableJoinLink(input) {
       const operation = "bluesky.chat.joinLinks.disable";
 
-      return joinLink(
-        await procedure(
-          input.account,
-          input.context,
-          "chat.bsky.group.disableJoinLink",
-          operation,
-          {
-            convoId: convoId(input.conversationId, operation),
-          },
-        ),
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.disableJoinLink",
+        operation,
+        {
+          convoId: convoId(input.conversationId, operation),
+        },
+        joinLink,
       );
     },
     async getJoinLinkPreviews(input) {
@@ -7512,18 +7579,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async requestJoinGroupChat(input) {
       const operation = "bluesky.chat.joinLinks.join";
 
-      const result = await procedure(
+      return decodedProcedure(
         input.account,
         input.context,
         "chat.bsky.group.requestJoin",
         operation,
         { code: convoId(input.code, operation) },
+        (result) => ({
+          status: string(result["status"]),
+          ...definedFields({ convo: optionalObject(result["convo"]) }),
+        }),
       );
-
-      return {
-        status: string(result["status"]),
-        ...definedFields({ convo: optionalObject(result["convo"]) }),
-      };
     },
     async withdrawJoinRequest(input) {
       const operation = "bluesky.chat.joinRequests.withdraw";
@@ -7551,19 +7617,16 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async approveJoinRequest(input) {
       const operation = "bluesky.chat.joinRequests.approve";
 
-      return object(
-        (
-          await procedure(
-            input.account,
-            input.context,
-            "chat.bsky.group.approveJoinRequest",
-            operation,
-            {
-              convoId: convoId(input.conversationId, operation),
-              member: memberDid(input.member, operation),
-            },
-          )
-        )["convo"],
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.approveJoinRequest",
+        operation,
+        {
+          convoId: convoId(input.conversationId, operation),
+          member: memberDid(input.member, operation),
+        },
+        (response) => object(response["convo"]),
       );
     },
     async rejectJoinRequest(input) {
@@ -8086,22 +8149,23 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           retryDisposition: { kind: "never" },
         });
 
-      const created = await procedure(
+      return decodedProcedure(
         input.account,
         input.context,
         "com.atproto.server.createAppPassword",
         operation,
         { name, ...definedFields({ privileged: input.privileged }) },
+        (created) => {
+          const privileged = created["privileged"];
+
+          return {
+            name: string(created["name"]),
+            password: string(created["password"]),
+            createdAt: string(created["createdAt"]),
+            ...definedFields({ privileged: isBoolean(privileged) ? privileged : undefined }),
+          };
+        },
       );
-
-      const privileged = created["privileged"];
-
-      return {
-        name: string(created["name"]),
-        password: string(created["password"]),
-        createdAt: string(created["createdAt"]),
-        ...definedFields({ privileged: isBoolean(privileged) ? privileged : undefined }),
-      };
     },
     async listAppPasswords(input) {
       return listOf(
@@ -8161,21 +8225,18 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async refreshIdentity(input) {
       const operation = "bluesky.identity.refresh";
 
-      const info = await procedure(
+      return decodedProcedure(
         input.account,
         input.context,
         "com.atproto.identity.refreshIdentity",
         operation,
-        {
-          identifier: requiredText(input.identifier, operation, "handle or DID"),
-        },
+        { identifier: requiredText(input.identifier, operation, "handle or DID") },
+        (info) => ({
+          did: string(info["did"]),
+          handle: string(info["handle"]),
+          didDoc: object(info["didDoc"]),
+        }),
       );
-
-      return {
-        did: string(info["did"]),
-        handle: string(info["handle"]),
-        didDoc: object(info["didDoc"]),
-      };
     },
     async deactivateAccount(input) {
       const operation = "bluesky.account.deactivate";
@@ -8232,18 +8293,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, operation);
       assertNativeAccount(input.account, context, operation);
 
-      const tokenRequired = object(
+      return decodeWrite(
         await xrpc("com.atproto.server.requestEmailUpdate", context, { method: "POST" }),
-      )["tokenRequired"];
+        operation,
+        (response) => {
+          const tokenRequired = response["tokenRequired"];
 
-      if (!isBoolean(tokenRequired))
-        throw new SocialError({
-          code: "upstream_failure",
-          operation,
-          message: "Bluesky did not say whether an email token is required.",
-        });
+          if (!isBoolean(tokenRequired))
+            throw new SocialError({
+              code: "upstream_failure",
+              operation,
+              message: "Bluesky did not say whether an email token is required.",
+            });
 
-      return { tokenRequired };
+          return { tokenRequired };
+        },
+      );
     },
     async updateEmail(input) {
       const operation = "bluesky.account.updateEmail";
@@ -8308,25 +8373,21 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async signPlcOperation(input) {
       const operation = "bluesky.identity.signPlc";
 
-      return object(
-        (
-          await procedure(
-            input.account,
-            input.context,
-            "com.atproto.identity.signPlcOperation",
-            operation,
-            {
-              token: requiredText(input.token, operation, "token"),
-              ...definedFields({
-                rotationKeys:
-                  input.rotationKeys === undefined ? undefined : [...input.rotationKeys],
-                alsoKnownAs: input.alsoKnownAs === undefined ? undefined : [...input.alsoKnownAs],
-                verificationMethods: input.verificationMethods,
-                services: input.services,
-              }),
-            },
-          )
-        )["operation"],
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "com.atproto.identity.signPlcOperation",
+        operation,
+        {
+          token: requiredText(input.token, operation, "token"),
+          ...definedFields({
+            rotationKeys: input.rotationKeys === undefined ? undefined : [...input.rotationKeys],
+            alsoKnownAs: input.alsoKnownAs === undefined ? undefined : [...input.alsoKnownAs],
+            verificationMethods: input.verificationMethods,
+            services: input.services,
+          }),
+        },
+        (response) => object(response["operation"]),
       );
     },
     async submitPlcOperation(input) {
@@ -8397,7 +8458,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async verifyPhone(input) {
       const operation = "bluesky.contacts.verifyPhone";
 
-      const result = await procedure(
+      return decodedProcedure(
         input.account,
         input.context,
         "app.bsky.contact.verifyPhone",
@@ -8406,9 +8467,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           phone: phoneNumber(input.phone, operation),
           code: requiredText(input.code, operation, "verification code"),
         },
+        (result) => ({ token: string(result["token"]) }),
       );
-
-      return { token: string(result["token"]) };
     },
     async importContacts(input) {
       const operation = "bluesky.contacts.import";
@@ -8421,7 +8481,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           retryDisposition: { kind: "never" },
         });
 
-      const response = await procedure(
+      return decodedProcedure(
         input.account,
         input.context,
         "app.bsky.contact.importContacts",
@@ -8430,26 +8490,26 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           token: requiredText(input.token, operation, "verification token"),
           contacts: input.contacts.map((contact) => phoneNumber(contact, operation)),
         },
+        (response) =>
+          array(response["matchesAndContactIndexes"]).map((value) => {
+            const entry = object(value);
+
+            const contactIndex = entry["contactIndex"];
+
+            if (
+              !isFiniteNumber(contactIndex) ||
+              !Number.isSafeInteger(contactIndex) ||
+              contactIndex < 0
+            )
+              throw new SocialError({
+                code: "upstream_failure",
+                operation,
+                message: "Bluesky returned an invalid contact index.",
+              });
+
+            return { match: object(entry["match"]), contactIndex };
+          }),
       );
-
-      return array(response["matchesAndContactIndexes"]).map((value) => {
-        const entry = object(value);
-
-        const contactIndex = entry["contactIndex"];
-
-        if (
-          !isFiniteNumber(contactIndex) ||
-          !Number.isSafeInteger(contactIndex) ||
-          contactIndex < 0
-        )
-          throw new SocialError({
-            code: "upstream_failure",
-            operation,
-            message: "Bluesky returned an invalid contact index.",
-          });
-
-        return { match: object(entry["match"]), contactIndex };
-      });
     },
     async getContactMatches(input) {
       return actorPage(
@@ -8605,7 +8665,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           }),
         });
 
-        return { hidden: true, threadgate: postRef(created) };
+        return { hidden: true, threadgate: writtenRef(created, operation) };
       }
 
       const hiddenReplies = input.hidden
@@ -8623,7 +8683,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         }),
       });
 
-      return { hidden: input.hidden, threadgate: postRef(updated) };
+      return { hidden: input.hidden, threadgate: writtenRef(updated, operation) };
     },
   };
 

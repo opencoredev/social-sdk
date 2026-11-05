@@ -1085,7 +1085,8 @@ Chat settings and account data:
 
 Bluesky's group chats are in beta: the `chat.bsky.group.*` endpoints are marked unstable while
 under active development, so their shapes may change. `native.createGroupChat({ account, name,
-members })` creates a group with up to 49 other member DIDs (name up to 1,280 bytes); it is not
+members })` creates a group with up to 49 other member DIDs. Names for `createGroupChat` and
+`renameGroupChat` take 1 to 50 graphemes and at most 500 bytes. Group creation is not
 idempotent, so repeating it makes a second group. `native.renameGroupChat`,
 `native.addGroupChatMembers`, and `native.removeGroupChatMembers` call `editGroup`,
 `addMembers`, and `removeMembers`. Added members start in `request` status and must accept.
