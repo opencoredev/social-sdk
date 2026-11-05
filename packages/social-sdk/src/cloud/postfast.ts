@@ -38,6 +38,7 @@ import {
   isBoolean,
   isJsonObject,
   isString,
+  number,
   object,
   optionalNumber,
   optionalString,
@@ -48,6 +49,7 @@ import {
   accountMatches,
   capabilityManifest,
   documentMimeTypes,
+  acknowledged,
   managedHttp,
   managedConstraints,
   managedOptionIssues,
@@ -1062,8 +1064,9 @@ export function postfast(options: ManagedOptions) {
     if (at !== undefined && !(Date.parse(at) > clock().getTime()))
       reject("posts.publish", "The schedule time passed while media uploaded.");
 
-    const response = object(
-      await request("/social-posts", context, {
+    const ids = await acknowledged(
+      "posts.publish",
+      request("/social-posts", context, {
         posts: [
           {
             content: target.content.text ?? "",
@@ -1081,9 +1084,9 @@ export function postfast(options: ManagedOptions) {
           controls: Object.keys(controls).length ? controls : undefined,
         }),
       }),
+      (reply) => array(object(reply)["postIds"]),
     );
 
-    const ids = array(response["postIds"]);
     const id = ids.length === 1 && isString(ids[0]) ? ids[0] : undefined;
 
     if (!id)
@@ -1505,8 +1508,9 @@ export function postfast(options: ManagedOptions) {
 
         if (input.redirectUrl !== undefined) httpsUrl(input.redirectUrl);
 
-        const result = object(
-          await request("/social-media/connect-link", context, {
+        return acknowledged(
+          "accounts.connect",
+          request("/social-media/connect-link", context, {
             ...definedFields({
               platforms: input.platforms ? [...input.platforms] : undefined,
               expiryDays: input.expiryDays,
@@ -1514,9 +1518,8 @@ export function postfast(options: ManagedOptions) {
               externalId: input.externalId || undefined,
             }),
           }),
+          (reply) => ({ url: httpsUrl(string(object(reply)["connectUrl"])).href }),
         );
-
-        return { url: httpsUrl(string(result["connectUrl"])).href };
       },
       /**
        * Save a draft (`status: DRAFT`, schedule optional) or hold a scheduled post for approval
@@ -1552,14 +1555,18 @@ export function postfast(options: ManagedOptions) {
         if (input.ids.length < 1 || input.ids.length > 100)
           reject("posts.deleteBackendRecord", "Delete 1 to 100 posts per bulk call.");
 
-        const result = object(
-          await request("/social-posts/bulk-delete", context, { ids: [...input.ids] }),
-        );
+        return acknowledged(
+          "posts.deleteBackendRecord",
+          request("/social-posts/bulk-delete", context, { ids: [...input.ids] }),
+          (reply) => {
+            const result = object(reply);
 
-        return {
-          deletedIds: array(result["deletedIds"]).filter(isString),
-          notFoundIds: array(result["notFoundIds"]).filter(isString),
-        };
+            return {
+              deletedIds: array(result["deletedIds"]).filter(isString),
+              notFoundIds: array(result["notFoundIds"]).filter(isString),
+            };
+          },
+        );
       },
       /** Upload an SRT or VTT caption file and return the key for YouTube `captionKey`. */
       async uploadCaptions(
@@ -1855,15 +1862,16 @@ export function postfast(options: ManagedOptions) {
         input: { readonly conversationId: string },
         context: AdapterOperationContext,
       ) {
-        const result = object(
-          await request(
+        return acknowledged(
+          "comments.write",
+          request(
             `/social-inbox/conversations/${encodeURIComponent(input.conversationId)}/read`,
             context,
             {},
           ),
+          // The answer is the Conversation; without its unread count it confirms nothing.
+          (reply) => ({ unreadCount: number(object(reply)["unreadCount"]) }),
         );
-
-        return { ...definedFields({ unreadCount: optionalNumber(result["unreadCount"]) }) };
       },
       /**
        * Set a conversation's triage state (POST /social-inbox/conversations/:id/status).
@@ -1947,17 +1955,19 @@ export function postfast(options: ManagedOptions) {
   }
 
   async function remove(id: string, context: AdapterOperationContext): Promise<void> {
-    const result = object(
-      await request(`/social-posts/${encodeURIComponent(id)}`, context, undefined, {}, "DELETE"),
+    await acknowledged(
+      "posts.lifecycle",
+      request(`/social-posts/${encodeURIComponent(id)}`, context, undefined, {}, "DELETE"),
+      (reply) => {
+        if (object(reply)["deleted"] !== true)
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "posts.lifecycle",
+            message: "PostFast did not confirm the deletion. Reconcile before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+      },
     );
-
-    if (result["deleted"] !== true)
-      throw new SocialError({
-        code: "ambiguous_outcome",
-        operation: "posts.lifecycle",
-        message: "PostFast did not confirm the deletion. Reconcile before retrying.",
-        retryDisposition: { kind: "reconcile-first" },
-      });
   }
 
   return adapter;

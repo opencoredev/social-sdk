@@ -49,6 +49,7 @@ import { decodeWebhook, verifyZernioWebhook } from "../server/webhooks.js";
 import {
   accountMatches,
   capabilityManifest,
+  acknowledged,
   managedHttp,
   managedPreparation,
   managedOptionIssues,
@@ -1608,7 +1609,7 @@ function createZernioClient(options: ManagedOptions) {
     const tiktokTitle = tiktokPhoto ? optionalString(config["title"]) : undefined;
 
     try {
-      const response = await request("/v1/posts", context, {
+      const sent = request("/v1/posts", context, {
         content: tiktokTitle ?? target.content.text ?? "",
         mediaItems: media,
         ...data.root,
@@ -1624,11 +1625,13 @@ function createZernioClient(options: ManagedOptions) {
         ...submissionFields(target, submission),
       });
 
-      return zernioOutcome(response, {
-        account: target.account,
-        targetIndex: target.targetIndex,
-        observedAt: now(),
-      });
+      return await acknowledged("posts.publish", sent, (response) =>
+        zernioOutcome(response, {
+          account: target.account,
+          targetIndex: target.targetIndex,
+          observedAt: now(),
+        }),
+      );
     } catch (error) {
       const existingPostId =
         error instanceof SocialError ? error.details?.["existingPostId"] : undefined;
@@ -2186,23 +2189,21 @@ export function zernio(options: ManagedOptions) {
       ): Promise<CommentRef> {
         accountMatches(ref, context);
 
-        const result = object(
-          await request(`/v1/inbox/comments/${encodeURIComponent(ref.postId)}`, context, {
+        return acknowledged(
+          "comments.write",
+          request(`/v1/inbox/comments/${encodeURIComponent(ref.postId)}`, context, {
             accountId: ref.accountId,
             message: content.text,
             commentId: ref.commentId,
           }),
+          (body) => {
+            const result = object(body);
+
+            if (result["success"] !== true) unconfirmed("comments.write");
+
+            return { ...ref, commentId: string(object(result["data"])["commentId"]) };
+          },
         );
-
-        if (result["success"] !== true)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "comments.write",
-            message: "Comment reply lacks a confirmed success result; reconcile before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        return { ...ref, commentId: string(object(result["data"])["commentId"]) };
       },
     },
     search: {
@@ -2374,25 +2375,22 @@ export function zernio(options: ManagedOptions) {
       ): Promise<JsonObject> {
         accountMatches(ref, context);
 
-        const result = object(
-          await request(
+        return acknowledged(
+          "messages.write",
+          request(
             `/v1/inbox/conversations/${encodeURIComponent(ref.conversationId)}/messages`,
             context,
             { accountId: ref.accountId, message: content.text },
           ),
+          (body): JsonObject => {
+            const result = object(body);
+
+            if (result["success"] !== true) unconfirmed("messages.write");
+            const messageId = optionalString(object(result["data"])["messageId"]);
+
+            return { state: "sent", ...definedFields({ messageId: messageId || undefined }) };
+          },
         );
-
-        if (result["success"] !== true)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "messages.write",
-            message: "Message outcome is unconfirmed. Reconcile before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-        const data = object(result["data"]);
-        const messageId = optionalString(data["messageId"]);
-
-        return { state: "sent", ...definedFields({ messageId: messageId || undefined }) };
       },
     },
     webhooks: {

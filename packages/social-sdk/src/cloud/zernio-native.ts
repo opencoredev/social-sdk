@@ -17,6 +17,7 @@ import type {
 import { definedFields } from "../core/fields.js";
 import {
   array,
+  isBoolean,
   isJsonArray,
   isJsonObject,
   isString,
@@ -30,6 +31,7 @@ import {
 } from "../transport/validation.js";
 import {
   accountMatches,
+  acknowledged,
   managedPreparation,
   managedOptionIssues,
   normalizePlatform,
@@ -261,6 +263,13 @@ function documentedFields(value: JsonField, fields: readonly string[]): JsonObje
       return entry === undefined ? [] : [[field, entry]];
     }),
   );
+}
+
+/** A write's documented answer fields; an answer with none of them cannot confirm the write. */
+function answerFields(value: JsonField, fields: readonly string[], operation: string): JsonObject {
+  const data = documentedFields(value, fields);
+
+  return Object.keys(data).length > 0 ? data : unconfirmed(operation);
 }
 
 /** The next page number as a cursor, when the response reports more pages. */
@@ -852,13 +861,13 @@ export function zernioNative(options: ManagedOptions) {
     const path = `/v1/twitter/${action}`;
     const fields = { accountId: input.account.accountId, tweetId: input.postId };
 
-    const result = object(
-      on
-        ? await request(path, context, fields)
-        : await request(path, context, undefined, fields, "DELETE"),
+    await acknowledged(
+      "posts.repost",
+      on ? request(path, context, fields) : request(path, context, undefined, fields, "DELETE"),
+      (reply) => {
+        if (object(reply)[flag] !== on) unconfirmed("posts.repost");
+      },
     );
-
-    if (result[flag] !== on) unconfirmed("posts.repost");
   };
 
   const likeable = (
@@ -952,7 +961,7 @@ export function zernioNative(options: ManagedOptions) {
   };
 
   /** A Google Business route of one account, for its selected location or `locationId`. */
-  const googleBusiness = async (
+  const googleBusinessRequest = async (
     input: GoogleBusinessLocationInput,
     context: AdapterOperationContext,
     operation: string,
@@ -963,15 +972,16 @@ export function zernioNative(options: ManagedOptions) {
       readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     } = {},
   ) =>
-    object(
-      await request(
-        accountRoute(input.account, context, operation, ["google-business"], route),
-        context,
-        call.body,
-        { ...definedFields({ locationId: input.locationId }), ...call.query },
-        call.method,
-      ),
+    request(
+      accountRoute(input.account, context, operation, ["google-business"], route),
+      context,
+      call.body,
+      { ...definedFields({ locationId: input.locationId }), ...call.query },
+      call.method,
     );
+
+  const googleBusiness = async (...args: Parameters<typeof googleBusinessRequest>) =>
+    object(await googleBusinessRequest(...args));
 
   /** An account-scoped analytics route that takes `accountId` as a query parameter. */
   const platformAnalyticsAccount = (
@@ -1021,7 +1031,7 @@ export function zernioNative(options: ManagedOptions) {
   };
 
   /** A `/v1/discord/...` route acting as the connected bot of `account`. */
-  const discord = async (
+  const discordRequest = async (
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
     operation: string,
@@ -1039,21 +1049,22 @@ export function zernioNative(options: ManagedOptions) {
     if (!/^\d+$/.test(path.split("/")[4] ?? ""))
       invalid(operation, "Discord server and channel IDs are numeric snowflakes.");
 
-    return object(
-      await request(
-        path,
-        context,
-        call.body,
-        {
-          ...definedFields({
-            accountId: call.accountQuery === false ? undefined : account.accountId,
-          }),
-          ...call.query,
-        },
-        call.method,
-      ),
+    return request(
+      path,
+      context,
+      call.body,
+      {
+        ...definedFields({
+          accountId: call.accountQuery === false ? undefined : account.accountId,
+        }),
+        ...call.query,
+      },
+      call.method,
     );
   };
+
+  const discord = async (...args: Parameters<typeof discordRequest>) =>
+    object(await discordRequest(...args));
 
   return {
     async createConnection(input: ZernioConnectionOptions, context: AdapterOperationContext) {
@@ -1124,8 +1135,9 @@ export function zernioNative(options: ManagedOptions) {
       if (!/^[^-\s]+-[^-\s]+$/.test(input.state))
         invalid("accounts.connect", "state must be {userId}-{profileId}.");
 
-      const response = object(
-        await request("/v1/connect/bluesky/credentials", context, {
+      return acknowledged(
+        "accounts.connect",
+        request("/v1/connect/bluesky/credentials", context, {
           identifier: input.identifier,
           appPassword: input.appPassword,
           state: input.state,
@@ -1133,13 +1145,16 @@ export function zernioNative(options: ManagedOptions) {
             redirect_url: input.redirectUrl ? httpsUrl(input.redirectUrl).href : undefined,
           }),
         }),
+        (reply) => {
+          const response = object(reply);
+
+          const connected = response["account"];
+
+          if (connected === undefined) return unconfirmed("accounts.connect");
+
+          return account(connected, context.backendInstance);
+        },
       );
-
-      const connected = response["account"];
-
-      if (connected === undefined) return unconfirmed("accounts.connect");
-
-      return account(connected, context.backendInstance);
     },
     async createProfile(
       input: ZernioProfileInput & { readonly name: string },
@@ -1147,9 +1162,11 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       if (!input.name.trim()) invalid("profiles.write", "A profile name is required.");
 
-      const response = object(await request("/v1/profiles", context, profileBody(input)));
-
-      return profileFields(response["profile"]);
+      return acknowledged(
+        "profiles.write",
+        request("/v1/profiles", context, profileBody(input)),
+        (response) => profileFields(object(response)["profile"]),
+      );
     },
     async updateProfile(
       input: ZernioProfileInput & { readonly profileId: string },
@@ -1161,11 +1178,15 @@ export function zernioNative(options: ManagedOptions) {
       if (Object.keys(body).length === 0)
         invalid("profiles.write", "Provide at least one profile field to change.");
 
-      const response = object(
-        await request(`/v1/profiles/${encodeURIComponent(profileId)}`, context, body, {}, "PUT"),
-      );
+      return acknowledged(
+        "profiles.write",
+        request(`/v1/profiles/${encodeURIComponent(profileId)}`, context, body, {}, "PUT"),
+        (reply) => {
+          const response = object(reply);
 
-      return profileFields(response["profile"]);
+          return profileFields(response["profile"]);
+        },
+      );
     },
     async deleteProfile(input: { readonly profileId: string }, context: AdapterOperationContext) {
       const response = await request(
@@ -1186,17 +1207,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       accountMatches(input.account, context);
 
-      const response = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           `/v1/accounts/${encodeURIComponent(input.account.accountId)}`,
           context,
           { profileId: input.profileId },
           {},
           "PATCH",
         ),
-      );
+        (reply) => {
+          const response = object(reply);
 
-      if (response["profileId"] !== input.profileId) unconfirmed("accounts.write");
+          if (response["profileId"] !== input.profileId) unconfirmed("accounts.write");
+        },
+      );
     },
     /** Token, permission and sync health for one account (GET /v1/accounts/{id}/health). */
     async getAccountHealth(
@@ -1244,17 +1269,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       accountMatches(input.account, context);
 
-      const response = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           `/v1/accounts/${encodeURIComponent(input.account.accountId)}`,
           context,
           undefined,
           {},
           "DELETE",
         ),
-      );
+        (reply) => {
+          const response = object(reply);
 
-      if (!isString(response["message"])) unconfirmed("accounts.write");
+          if (!isString(response["message"])) unconfirmed("accounts.write");
+        },
+      );
     },
     /**
      * Save a draft, hold a post for approval or take the next queue slot. The options and
@@ -1294,13 +1323,12 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       await ownedPost(input.delivery, input.delivery.deliveryId, context);
 
-      return zernioOutcome(
-        await request(
-          `/v1/posts/${encodeURIComponent(input.delivery.deliveryId)}/review`,
-          context,
-          { decision: input.decision },
-        ),
-        deliveryContext(input.delivery),
+      return acknowledged(
+        "posts.update",
+        request(`/v1/posts/${encodeURIComponent(input.delivery.deliveryId)}/review`, context, {
+          decision: input.decision,
+        }),
+        (reply) => zernioOutcome(reply, deliveryContext(input.delivery)),
       );
     },
     /** Change the text or time of a draft, scheduled, failed or cancelled post (PUT /v1/posts/{id}). */
@@ -1327,15 +1355,16 @@ export function zernioNative(options: ManagedOptions) {
       if (Object.keys(body).length === 0)
         invalid("posts.update", "Provide new text or a new schedule time.");
 
-      return zernioOutcome(
-        await request(
+      return acknowledged(
+        "posts.update",
+        request(
           `/v1/posts/${encodeURIComponent(input.delivery.deliveryId)}`,
           context,
           body,
           {},
           "PUT",
         ),
-        deliveryContext(input.delivery),
+        (reply) => zernioOutcome(reply, deliveryContext(input.delivery)),
       );
     },
     /**
@@ -1358,17 +1387,21 @@ export function zernioNative(options: ManagedOptions) {
       if (entry["platformPostId"] !== input.post.postId)
         invalid("posts.update", "The backend record does not identify this published post.");
 
-      const result = object(
-        await request(`/v1/posts/${encodeURIComponent(recordId)}/edit`, context, {
+      return acknowledged(
+        "posts.update",
+        request(`/v1/posts/${encodeURIComponent(recordId)}/edit`, context, {
           platform: wirePlatform(input.post.platform),
           content: input.text,
           accountId: input.post.accountId,
         }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("posts.update");
+
+          return { ...input.post, postId: string(result["id"]) };
+        },
       );
-
-      if (result["success"] !== true) unconfirmed("posts.update");
-
-      return { ...input.post, postId: string(result["id"]) };
     },
     /** Update a YouTube video's metadata without re-uploading it (direct video ID mode). */
     async updateYouTubeMetadata(
@@ -1399,18 +1432,22 @@ export function zernioNative(options: ManagedOptions) {
       if (Object.keys(fields).length === 0)
         invalid("posts.update", "Provide at least one metadata field to change.");
 
-      const result = object(
-        await request("/v1/posts/_/update-metadata", context, {
+      return acknowledged(
+        "posts.update",
+        request("/v1/posts/_/update-metadata", context, {
           platform: "youtube",
           videoId: input.post.postId,
           accountId: input.post.accountId,
           ...fields,
         }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("posts.update");
+
+          return { updatedFields: stringList(result["updatedFields"]) };
+        },
       );
-
-      if (result["success"] !== true) unconfirmed("posts.update");
-
-      return { updatedFields: stringList(result["updatedFields"]) };
     },
     /** Retry a failed post now (POST /v1/posts/{id}/retry). */
     async retryPost(input: { readonly delivery: DeliveryRef }, context: AdapterOperationContext) {
@@ -1419,13 +1456,10 @@ export function zernioNative(options: ManagedOptions) {
       if (record["status"] !== "failed")
         invalid("posts.publish", "Only a failed post can be retried.");
 
-      return zernioOutcome(
-        await request(
-          `/v1/posts/${encodeURIComponent(input.delivery.deliveryId)}/retry`,
-          context,
-          {},
-        ),
-        deliveryContext(input.delivery),
+      return acknowledged(
+        "posts.publish",
+        request(`/v1/posts/${encodeURIComponent(input.delivery.deliveryId)}/retry`, context, {}),
+        (reply) => zernioOutcome(reply, deliveryContext(input.delivery)),
       );
     },
     /**
@@ -1826,19 +1860,17 @@ export function zernioNative(options: ManagedOptions) {
       const path = `${commentPath(input.comment)}/hide`;
       const hide = input.action === "hide";
 
-      const result = object(
+      return acknowledged(
+        "comments.moderate",
         hide
-          ? await request(path, context, { accountId: input.comment.accountId })
-          : await request(
-              path,
-              context,
-              undefined,
-              { accountId: input.comment.accountId },
-              "DELETE",
-            ),
-      );
+          ? request(path, context, { accountId: input.comment.accountId })
+          : request(path, context, undefined, { accountId: input.comment.accountId }, "DELETE"),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["hidden"] !== hide) unconfirmed("comments.moderate");
+          if (result["hidden"] !== hide) unconfirmed("comments.moderate");
+        },
+      );
     },
     /** Delete a comment (DELETE /v1/inbox/comments/{postId}?commentId=). */
     async deleteComment(input: { readonly comment: CommentRef }, context: AdapterOperationContext) {
@@ -1847,17 +1879,21 @@ export function zernioNative(options: ManagedOptions) {
       if (!zernioCommentDeletePlatforms.includes(input.comment.platform))
         invalid("comments.delete", "Zernio cannot delete comments on this platform.");
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "comments.delete",
+        request(
           `/v1/inbox/comments/${encodeURIComponent(input.comment.postId)}`,
           context,
           undefined,
           { accountId: input.comment.accountId, commentId: input.comment.commentId },
           "DELETE",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("comments.delete");
+          if (result["success"] !== true) unconfirmed("comments.delete");
+        },
+      );
     },
     /**
      * Answer a comment with one private DM (Instagram and Facebook; once per comment, within
@@ -1874,16 +1910,20 @@ export function zernioNative(options: ManagedOptions) {
 
       if (!input.text.trim()) invalid("comments.write", "Private reply text is required.");
 
-      const result = object(
-        await request(`${commentPath(input.comment)}/private-reply`, context, {
+      return acknowledged(
+        "comments.write",
+        request(`${commentPath(input.comment)}/private-reply`, context, {
           accountId: input.comment.accountId,
           message: input.text,
         }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["status"] !== "success") unconfirmed("comments.write");
+
+          return { ...definedFields({ messageId: optionalString(result["messageId"]) }) };
+        },
       );
-
-      if (result["status"] !== "success") unconfirmed("comments.write");
-
-      return { ...definedFields({ messageId: optionalString(result["messageId"]) }) };
     },
     async likePost(
       input: {
@@ -1895,16 +1935,20 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       likeable(input.post, context);
 
-      const result = object(
-        await request(`/v1/inbox/posts/${encodeURIComponent(input.post.postId)}/like`, context, {
+      return acknowledged(
+        "likes.write",
+        request(`/v1/inbox/posts/${encodeURIComponent(input.post.postId)}/like`, context, {
           accountId: input.post.accountId,
           ...definedFields({ reactionType: input.reactionType, cid: input.cid }),
         }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["liked"] !== true) unconfirmed("likes.write");
+
+          return { ...definedFields({ likeUri: optionalString(result["likeUri"]) }) };
+        },
       );
-
-      if (result["liked"] !== true) unconfirmed("likes.write");
-
-      return { ...definedFields({ likeUri: optionalString(result["likeUri"]) }) };
     },
     async unlikePost(
       input: { readonly post: PlatformPostRef; readonly likeUri?: string },
@@ -1912,17 +1956,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       likeable(input.post, context);
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "likes.write",
+        request(
           `/v1/inbox/posts/${encodeURIComponent(input.post.postId)}/like`,
           context,
           undefined,
           { accountId: input.post.accountId, ...definedFields({ likeUri: input.likeUri }) },
           "DELETE",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["liked"] !== false) unconfirmed("likes.write");
+          if (result["liked"] !== false) unconfirmed("likes.write");
+        },
+      );
     },
     async likeComment(
       input: {
@@ -1934,16 +1982,20 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       likeable(input.comment, context);
 
-      const result = object(
-        await request(`${commentPath(input.comment)}/like`, context, {
+      return acknowledged(
+        "likes.write",
+        request(`${commentPath(input.comment)}/like`, context, {
           accountId: input.comment.accountId,
           ...definedFields({ reactionType: input.reactionType, cid: input.cid }),
         }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["liked"] !== true) unconfirmed("likes.write");
+
+          return { ...definedFields({ likeUri: optionalString(result["likeUri"]) }) };
+        },
       );
-
-      if (result["liked"] !== true) unconfirmed("likes.write");
-
-      return { ...definedFields({ likeUri: optionalString(result["likeUri"]) }) };
     },
     async unlikeComment(
       input: { readonly comment: CommentRef; readonly likeUri?: string },
@@ -1951,17 +2003,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       likeable(input.comment, context);
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "likes.write",
+        request(
           `${commentPath(input.comment)}/like`,
           context,
           undefined,
           { accountId: input.comment.accountId, ...definedFields({ likeUri: input.likeUri }) },
           "DELETE",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["liked"] !== false) unconfirmed("likes.write");
+          if (result["liked"] !== false) unconfirmed("likes.write");
+        },
+      );
     },
     /** Pin or unpin a comment on your own post (POST or DELETE .../{commentId}/pin). */
     async pinComment(
@@ -1971,19 +2027,17 @@ export function zernioNative(options: ManagedOptions) {
       accountMatches(input.comment, context);
       const path = `${commentPath(input.comment)}/pin`;
 
-      const result = object(
+      return acknowledged(
+        "comments.moderate",
         input.pinned
-          ? await request(path, context, { accountId: input.comment.accountId })
-          : await request(
-              path,
-              context,
-              undefined,
-              { accountId: input.comment.accountId },
-              "DELETE",
-            ),
-      );
+          ? request(path, context, { accountId: input.comment.accountId })
+          : request(path, context, undefined, { accountId: input.comment.accountId }, "DELETE"),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["pinned"] !== input.pinned) unconfirmed("comments.moderate");
+          if (result["pinned"] !== input.pinned) unconfirmed("comments.moderate");
+        },
+      );
     },
     /** Retweet an X post (POST /v1/twitter/retweet). */
     async repost(
@@ -2017,17 +2071,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       xAccount(input.account, context);
 
-      const result = object(
-        await request("/v1/twitter/follow", context, {
+      return acknowledged(
+        "follows.write",
+        request("/v1/twitter/follow", context, {
           accountId: input.account.accountId,
           targetUserId: input.userId,
         }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["following"] !== true && result["pending_follow"] !== true)
+            unconfirmed("follows.write");
+
+          return { pending: result["pending_follow"] === true };
+        },
       );
-
-      if (result["following"] !== true && result["pending_follow"] !== true)
-        unconfirmed("follows.write");
-
-      return { pending: result["pending_follow"] === true };
     },
     async unfollow(
       input: { readonly account: ConnectedAccountRef; readonly userId: string },
@@ -2035,17 +2093,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       xAccount(input.account, context);
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "follows.write",
+        request(
           "/v1/twitter/follow",
           context,
           undefined,
           { accountId: input.account.accountId, targetUserId: input.userId },
           "DELETE",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["following"] !== false) unconfirmed("follows.write");
+          if (result["following"] !== false) unconfirmed("follows.write");
+        },
+      );
     },
     /** Mark a conversation read (POST /v1/inbox/conversations/{id}/read). */
     async markConversationRead(
@@ -2054,17 +2116,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       accountMatches(input.conversation, context);
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "messages.write",
+        request(
           `/v1/inbox/conversations/${encodeURIComponent(input.conversation.conversationId)}/read`,
           context,
           { accountId: input.conversation.accountId },
         ),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("messages.write");
+
+          return { ...definedFields({ markedCount: optionalNumber(result["markedCount"]) }) };
+        },
       );
-
-      if (result["success"] !== true) unconfirmed("messages.write");
-
-      return { ...definedFields({ markedCount: optionalNumber(result["markedCount"]) }) };
     },
     /** Start a conversation with a user by ID or handle (POST /v1/inbox/conversations). */
     async startConversation(
@@ -2079,23 +2145,27 @@ export function zernioNative(options: ManagedOptions) {
 
       if (!input.text.trim()) invalid("messages.write", "Message text is required.");
 
-      const result = object(
-        await request("/v1/inbox/conversations", context, {
+      return acknowledged(
+        "messages.write",
+        request("/v1/inbox/conversations", context, {
           accountId: input.account.accountId,
           message: input.text,
           ...("id" in input.recipient
             ? { participantId: input.recipient.id }
             : { participantUsername: input.recipient.username }),
         }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("messages.write");
+
+          return {
+            ...input.account,
+            kind: "conversation",
+            conversationId: string(object(result["data"])["conversationId"]),
+          };
+        },
       );
-
-      if (result["success"] !== true) unconfirmed("messages.write");
-
-      return {
-        ...input.account,
-        kind: "conversation",
-        conversationId: string(object(result["data"])["conversationId"]),
-      };
     },
     /** Send text and/or one public attachment in a conversation. */
     async sendMessage(
@@ -2114,8 +2184,9 @@ export function zernioNative(options: ManagedOptions) {
       if (!input.text?.trim() && input.attachment === undefined)
         invalid("messages.write", "Send text, an attachment or both.");
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "messages.write",
+        request(
           `/v1/inbox/conversations/${encodeURIComponent(input.conversation.conversationId)}/messages`,
           context,
           {
@@ -2127,18 +2198,21 @@ export function zernioNative(options: ManagedOptions) {
             }),
           },
         ),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("messages.write");
+
+          return {
+            state: "sent" as const,
+            ...definedFields({
+              messageId: isJsonObject(result["data"])
+                ? optionalString(result["data"]["messageId"])
+                : undefined,
+            }),
+          };
+        },
       );
-
-      if (result["success"] !== true) unconfirmed("messages.write");
-
-      return {
-        state: "sent" as const,
-        ...definedFields({
-          messageId: isJsonObject(result["data"])
-            ? optionalString(result["data"]["messageId"])
-            : undefined,
-        }),
-      };
     },
     /** Mentions of the account (LinkedIn organizations, Instagram, Facebook Pages). */
     async listMentions(
@@ -2250,18 +2324,22 @@ export function zernioNative(options: ManagedOptions) {
 
       if (!input.text.trim()) invalid("comments.write", "Review reply text is required.");
 
-      const result = object(
-        await request(`/v1/inbox/reviews/${encodeURIComponent(input.reviewId)}/reply`, context, {
+      return acknowledged(
+        "comments.write",
+        request(`/v1/inbox/reviews/${encodeURIComponent(input.reviewId)}/reply`, context, {
           accountId: input.account.accountId,
           message: input.text,
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(result["reply"] ?? unconfirmed("comments.write"), [
-        "id",
-        "text",
-        "created",
-      ]);
+          return publicFields(result["reply"] ?? unconfirmed("comments.write"), [
+            "id",
+            "text",
+            "created",
+          ]);
+        },
+      );
     },
     async deleteReviewReply(
       input: { readonly account: ConnectedAccountRef; readonly reviewId: string },
@@ -2290,11 +2368,17 @@ export function zernioNative(options: ManagedOptions) {
     async createWebhook(input: ZernioWebhookInput, context: AdapterOperationContext) {
       const body = webhookBody(input);
 
-      const result = object(await request("/v1/webhooks/settings", context, body));
+      return acknowledged(
+        "webhooks.write",
+        request("/v1/webhooks/settings", context, body),
+        (response) => {
+          const result = object(response);
 
-      if (result["success"] !== true) unconfirmed("webhooks.write");
+          if (result["success"] !== true) unconfirmed("webhooks.write");
 
-      return webhookFields(result["webhook"] ?? {});
+          return webhookFields(result["webhook"] ?? {});
+        },
+      );
     },
     async updateWebhook(
       input: Partial<ZernioWebhookInput> & { readonly webhookId: string },
@@ -2302,46 +2386,58 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       const { webhookId, ...fields } = input;
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "webhooks.write",
+        request(
           "/v1/webhooks/settings",
           context,
           { _id: webhookId, ...webhookBody(fields) },
           {},
           "PUT",
         ),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("webhooks.write");
+
+          return webhookFields(result["webhook"] ?? {});
+        },
       );
-
-      if (result["success"] !== true) unconfirmed("webhooks.write");
-
-      return webhookFields(result["webhook"] ?? {});
     },
     async deleteWebhook(input: { readonly webhookId: string }, context: AdapterOperationContext) {
-      const result = object(
-        await request(
+      return acknowledged(
+        "webhooks.write",
+        request(
           "/v1/webhooks/settings",
           context,
           undefined,
           { webhookId: input.webhookId },
           "DELETE",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("webhooks.write");
+          if (result["success"] !== true) unconfirmed("webhooks.write");
+        },
+      );
     },
     /** Send a test delivery, optionally as a sample of one event type. */
     async testWebhook(
       input: { readonly webhookId: string; readonly event?: string },
       context: AdapterOperationContext,
     ) {
-      const result = object(
-        await request("/v1/webhooks/test", context, {
+      return acknowledged(
+        "webhooks.write",
+        request("/v1/webhooks/test", context, {
           webhookId: input.webhookId,
           ...definedFields({ event: input.event }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("webhooks.write");
+          if (result["success"] !== true) unconfirmed("webhooks.write");
+        },
+      );
     },
     /** The 25 most recent posts on the platform itself, live (GET /v1/accounts/{id}/posts). */
     async listPlatformPosts(
@@ -2400,21 +2496,25 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       if (!/^\d+$/.test(input.pageId)) invalid("accounts.write", "pageId is a numeric Page ID.");
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           accountRoute(input.account, context, "accounts.write", ["facebook"], "facebook-page"),
           context,
           { selectedPageId: input.pageId },
           {},
           "PUT",
         ),
+        (reply) => {
+          const result = object(reply);
+
+          const selected = isJsonObject(result["selectedPage"]) ? result["selectedPage"] : {};
+
+          if (selected["id"] !== input.pageId) unconfirmed("accounts.write");
+
+          return publicFields(selected, ["id", "name"]);
+        },
       );
-
-      const selected = isJsonObject(result["selectedPage"]) ? result["selectedPage"] : {};
-
-      if (selected["id"] !== input.pageId) unconfirmed("accounts.write");
-
-      return publicFields(selected, ["id", "name"]);
     },
     /** Pinterest boards of an account (GET /v1/accounts/{id}/pinterest-boards), for `boardId`. */
     async listPinterestBoards(
@@ -2455,14 +2555,24 @@ export function zernioNative(options: ManagedOptions) {
         "pinterest-boards",
       );
 
-      const result = object(
-        await request(route, context, {
+      return acknowledged(
+        "accounts.write",
+        request(route, context, {
           name: input.name,
           ...definedFields({ description: input.description, privacy: input.privacy }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(object(result["board"]), ["id", "name", "description", "privacy", "url"]);
+          return publicFields(object(result["board"]), [
+            "id",
+            "name",
+            "description",
+            "privacy",
+            "url",
+          ]);
+        },
+      );
     },
     /** Set the board Pins use when `boardId` is omitted (PUT /v1/accounts/{id}/pinterest-boards). */
     async setDefaultPinterestBoard(
@@ -2543,21 +2653,25 @@ export function zernioNative(options: ManagedOptions) {
         "youtube-playlists",
       );
 
-      const result = object(
-        await request(route, context, {
+      return acknowledged(
+        "accounts.write",
+        request(route, context, {
           title: input.title,
           ...definedFields({ description: input.description, privacy: input.privacy }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(object(result["playlist"]), [
-        "id",
-        "title",
-        "description",
-        "privacy",
-        "itemCount",
-        "thumbnailUrl",
-      ]);
+          return publicFields(object(result["playlist"]), [
+            "id",
+            "title",
+            "description",
+            "privacy",
+            "itemCount",
+            "thumbnailUrl",
+          ]);
+        },
+      );
     },
     /** Set the playlist uploads join when `playlistId` is omitted (PUT .../youtube-playlists). */
     async setDefaultYouTubePlaylist(
@@ -2578,8 +2692,9 @@ export function zernioNative(options: ManagedOptions) {
         "youtube-playlists",
       );
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           route,
           context,
           {
@@ -2589,9 +2704,12 @@ export function zernioNative(options: ManagedOptions) {
           {},
           "PUT",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("accounts.write");
+          if (result["success"] !== true) unconfirmed("accounts.write");
+        },
+      );
     },
     /** Google Business Profile locations for `locationId` (GET /v1/accounts/{id}/gmb-locations). */
     async listGoogleBusinessLocations(
@@ -2665,17 +2783,15 @@ export function zernioNative(options: ManagedOptions) {
         "reddit-subreddits",
       );
 
-      const result = object(
-        await request(
-          route,
-          context,
-          { defaultSubreddit: subredditName(input.subreddit) },
-          {},
-          "PUT",
-        ),
-      );
+      return acknowledged(
+        "accounts.write",
+        request(route, context, { defaultSubreddit: subredditName(input.subreddit) }, {}, "PUT"),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("accounts.write");
+          if (result["success"] !== true) unconfirmed("accounts.write");
+        },
+      );
     },
     /** A subreddit's posting rules and Reddit's site rules (GET .../reddit-subreddits/{name}/rules). */
     async subredditRules(
@@ -2888,15 +3004,19 @@ export function zernioNative(options: ManagedOptions) {
 
       for (const ref of input.accounts) accountMatches(ref, context);
 
-      const result = object(
-        await request("/v1/account-groups", context, {
+      return acknowledged(
+        "accounts.write",
+        request("/v1/account-groups", context, {
           name: input.name,
           accountIds: input.accounts.map((ref) => ref.accountId),
           ...definedFields({ profileId: input.profileId }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return accountGroup(object(result["group"]));
+          return accountGroup(object(result["group"]));
+        },
+      );
     },
     /** Rename a group or replace its accounts (PUT /v1/account-groups/{groupId}). */
     async updateAccountGroup(
@@ -3029,8 +3149,9 @@ export function zernioNative(options: ManagedOptions) {
         "discord-settings",
       );
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           route,
           context,
           definedFields({
@@ -3042,9 +3163,12 @@ export function zernioNative(options: ManagedOptions) {
           {},
           "PATCH",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return discordSettings(object(result["account"]));
+          return discordSettings(object(result["account"]));
+        },
+      );
     },
     /** A Facebook Page's public about, website, phone, emails and hours (GET .../facebook-page-info). */
     async getFacebookPageInfo(
@@ -3101,7 +3225,13 @@ export function zernioNative(options: ManagedOptions) {
         "facebook-page-info",
       );
 
-      return pageInfo(object(await request(route, context, body, {}, "PATCH")));
+      return acknowledged("accounts.write", request(route, context, body, {}, "PATCH"), (result) =>
+        answerFields(
+          result,
+          ["about", "description", "website", "phone", "emails", "hours"],
+          "accounts.write",
+        ),
+      );
     },
     /** LinkedIn organizations the member administers (GET .../linkedin-organizations). */
     async listLinkedInOrganizations(
@@ -3157,8 +3287,9 @@ export function zernioNative(options: ManagedOptions) {
         "linkedin-organization",
       );
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           route,
           context,
           {
@@ -3177,11 +3308,14 @@ export function zernioNative(options: ManagedOptions) {
           {},
           "PUT",
         ),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["accountType"] !== input.accountType) unconfirmed("accounts.write");
+
+          return publicFields(result, ["accountType", "accountName"]);
+        },
       );
-
-      if (result["accountType"] !== input.accountType) unconfirmed("accounts.write");
-
-      return publicFields(result, ["accountType", "accountName"]);
     },
     /** Whether a Facebook Page is subscribed to Zernio's webhooks (GET .../webhook-subscription). */
     async getWebhookSubscription(
@@ -3211,9 +3345,13 @@ export function zernioNative(options: ManagedOptions) {
         "webhook-subscription",
       );
 
-      const result = object(await request(route, context, {}));
+      return acknowledged("webhooks.write", request(route, context, {}), (reply) => {
+        const result = object(reply);
 
-      return { resubscribed: result["resubscribed"] === true, ...webhookSubscription(result) };
+        if (!isBoolean(result["resubscribed"])) unconfirmed("webhooks.write");
+
+        return { resubscribed: result["resubscribed"] === true, ...webhookSubscription(result) };
+      });
     },
     /** Your own OAuth apps for white-label connects (GET /v1/connect/oauth-apps). Secrets are never returned. */
     async listOAuthApps(
@@ -3261,8 +3399,9 @@ export function zernioNative(options: ManagedOptions) {
       if (!input.clientId.trim() || !input.clientSecret.trim())
         invalid("accounts.write", "Provide the app's client ID and secret.");
 
-      const result = object(
-        await request("/v1/connect/oauth-apps", context, {
+      return acknowledged(
+        "accounts.write",
+        request("/v1/connect/oauth-apps", context, {
           platform: wirePlatform(platform(input.platform, options)),
           label: input.label,
           clientId: input.clientId,
@@ -3273,9 +3412,12 @@ export function zernioNative(options: ManagedOptions) {
             scopeAreas: input.scopeAreas && [...input.scopeAreas],
           }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return oauthApp(object(result["app"]));
+          return oauthApp(object(result["app"]));
+        },
+      );
     },
     /** One OAuth app (GET /v1/connect/oauth-apps/{appId}). */
     async getOAuthApp(input: { readonly appId: string }, context: AdapterOperationContext) {
@@ -3307,17 +3449,21 @@ export function zernioNative(options: ManagedOptions) {
 
       if (Object.keys(body).length === 0) invalid("accounts.write", "Change at least one field.");
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           `/v1/connect/oauth-apps/${encodeURIComponent(input.appId)}`,
           context,
           body,
           {},
           "PATCH",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return oauthApp(object(result["app"]));
+          return oauthApp(object(result["app"]));
+        },
+      );
     },
     /**
      * Remove an OAuth app (DELETE /v1/connect/oauth-apps/{appId}). With `confirm: true` Zernio
@@ -3327,8 +3473,9 @@ export function zernioNative(options: ManagedOptions) {
       input: { readonly appId: string; readonly confirm?: boolean },
       context: AdapterOperationContext,
     ) {
-      const result = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           `/v1/connect/oauth-apps/${encodeURIComponent(input.appId)}`,
           context,
           undefined,
@@ -3337,9 +3484,12 @@ export function zernioNative(options: ManagedOptions) {
           }),
           "DELETE",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return { disconnectedAccounts: number(result["disconnectedAccounts"]) };
+          return { disconnectedAccounts: number(result["disconnectedAccounts"]) };
+        },
+      );
     },
     /** Check an OAuth app's keys with the platform (POST /v1/connect/oauth-apps/{appId}/test). */
     async testOAuthApp(input: { readonly appId: string }, context: AdapterOperationContext) {
@@ -3373,8 +3523,9 @@ export function zernioNative(options: ManagedOptions) {
       )
         invalid("accounts.write", "brandName is 1 to 60 characters.");
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "accounts.write",
+        request(
           "/v1/connect/welcome-screen",
           context,
           {
@@ -3388,9 +3539,14 @@ export function zernioNative(options: ManagedOptions) {
           {},
           "PUT",
         ),
+        (reply) => {
+          return answerFields(
+            reply,
+            ["showByDefault", "brandName", "logoUrl", "theme"],
+            "accounts.write",
+          );
+        },
       );
-
-      return welcomeScreen(result);
     },
     /**
      * Finish a Discord connect by binding channels of a server to a profile
@@ -3964,32 +4120,36 @@ export function zernioNative(options: ManagedOptions) {
       if (input.url !== undefined && input.postId !== undefined)
         invalid("posts.read", "Give a post url or a postId, not both.");
 
-      const result = object(
-        await request("/v1/posts/sync-external", context, {
+      return acknowledged(
+        "posts.write",
+        request("/v1/posts/sync-external", context, {
           accountId: input.account.accountId,
           ...definedFields({
             url: input.url === undefined ? undefined : httpsUrl(input.url).href,
             postId: input.postId,
           }),
         }),
+        (reply) => {
+          const result = object(reply);
+
+          const synced = object(result["synced"]);
+
+          return {
+            ...publicFields(synced, ["postsFound", "postsSynced", "skipped"]),
+            ...definedFields({ found: optionalBoolean(result["found"]) }),
+            posts: listOf(result["posts"]).map((post) =>
+              publicFields(post, [
+                "platform",
+                "platformPostId",
+                "platformPostUrl",
+                "content",
+                "publishedAt",
+                "mediaType",
+              ]),
+            ),
+          };
+        },
       );
-
-      const synced = isJsonObject(result["synced"]) ? result["synced"] : {};
-
-      return {
-        ...publicFields(synced, ["postsFound", "postsSynced", "skipped"]),
-        ...definedFields({ found: optionalBoolean(result["found"]) }),
-        posts: listOf(result["posts"]).map((post) =>
-          publicFields(post, [
-            "platform",
-            "platformPostId",
-            "platformPostUrl",
-            "content",
-            "publishedAt",
-            "mediaType",
-          ]),
-        ),
-      };
     },
     /**
      * Create posts from a Zernio CSV file (POST /v1/posts/bulk-upload). `dryRun` validates every
@@ -4009,8 +4169,9 @@ export function zernioNative(options: ManagedOptions) {
 
       form.append("file", file, "posts.csv");
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "posts.publish",
+        request(
           "/v1/posts/bulk-upload",
           context,
           form,
@@ -4018,9 +4179,14 @@ export function zernioNative(options: ManagedOptions) {
             dryRun: input.dryRun === undefined ? undefined : String(input.dryRun),
           }),
         ),
+        (reply) => {
+          return answerFields(
+            reply,
+            ["total", "valid", "invalid", "results", "warnings"],
+            "posts.publish",
+          );
+        },
       );
-
-      return documentedFields(result, ["total", "valid", "invalid", "results", "warnings"]);
     },
     /** Character count per platform for a text (POST /v1/tools/validate/post-length). */
     async validatePostLength(input: { readonly text: string }, context: AdapterOperationContext) {
@@ -4180,18 +4346,18 @@ export function zernioNative(options: ManagedOptions) {
           `Give an updateMask and only these location fields: ${googleLocationFields.join(", ")}.`,
         );
 
-      const result = await googleBusiness(
-        input,
-        context,
+      return acknowledged(
         "accounts.write",
-        "gmb-location-details",
-        {
+        googleBusinessRequest(input, context, "accounts.write", "gmb-location-details", {
           body: { updateMask: input.updateMask, ...input.fields },
           method: "PUT",
+        }),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("accounts.write");
         },
       );
-
-      if (result["success"] !== true) unconfirmed("accounts.write");
     },
     /** A location's attributes, such as accessibility or payment options (GET .../gmb-attributes). */
     async getGoogleBusinessAttributes(
@@ -4219,12 +4385,16 @@ export function zernioNative(options: ManagedOptions) {
           "Each attribute needs a name, and attributeMask names the ones to set.",
         );
 
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-attributes", {
-        body: { attributes: [...input.attributes], attributeMask: input.attributeMask },
-        method: "PUT",
-      });
-
-      return listOf(result["attributes"]);
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-attributes", {
+          body: { attributes: [...input.attributes], attributeMask: input.attributeMask },
+          method: "PUT",
+        }),
+        (reply) => {
+          return array(object(reply)["attributes"]).map(object);
+        },
+      );
     },
     /** Which attributes a category supports (GET /v1/accounts/{id}/gmb-attribute-metadata). */
     async googleBusinessAttributeMetadata(
@@ -4278,12 +4448,16 @@ export function zernioNative(options: ManagedOptions) {
       input: GoogleBusinessLocationInput & { readonly serviceItems: readonly JsonObject[] },
       context: AdapterOperationContext,
     ) {
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-services", {
-        body: { serviceItems: [...input.serviceItems] },
-        method: "PUT",
-      });
-
-      return listOf(result["services"]);
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-services", {
+          body: { serviceItems: [...input.serviceItems] },
+          method: "PUT",
+        }),
+        (reply) => {
+          return array(object(reply)["services"]).map(object);
+        },
+      );
     },
     /** A restaurant location's food menus (GET /v1/accounts/{id}/gmb-food-menus). */
     async getGoogleBusinessFoodMenus(
@@ -4305,12 +4479,16 @@ export function zernioNative(options: ManagedOptions) {
       if (input.menus.some((menu) => !isJsonArray(menu["labels"])))
         invalid("accounts.write", "Each menu needs labels.");
 
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-food-menus", {
-        body: { menus: [...input.menus], ...definedFields({ updateMask: input.updateMask }) },
-        method: "PUT",
-      });
-
-      return listOf(result["menus"]);
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-food-menus", {
+          body: { menus: [...input.menus], ...definedFields({ updateMask: input.updateMask }) },
+          method: "PUT",
+        }),
+        (reply) => {
+          return array(object(reply)["menus"]).map(object);
+        },
+      );
     },
     /** Booking, ordering and reservation links on the listing (GET .../gmb-place-actions). */
     async listGoogleBusinessPlaceActions(
@@ -4333,11 +4511,19 @@ export function zernioNative(options: ManagedOptions) {
       },
       context: AdapterOperationContext,
     ) {
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-place-actions", {
-        body: { uri: httpsUrl(input.uri).href, placeActionType: input.placeActionType },
-      });
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-place-actions", {
+          body: { uri: httpsUrl(input.uri).href, placeActionType: input.placeActionType },
+        }),
+        (reply) => {
+          const result = object(reply);
 
-      return placeAction(result);
+          string(result["name"]);
+
+          return placeAction(result);
+        },
+      );
     },
     async updateGoogleBusinessPlaceAction(
       input: GoogleBusinessLocationInput & {
@@ -4350,29 +4536,43 @@ export function zernioNative(options: ManagedOptions) {
       if (input.uri === undefined && input.placeActionType === undefined)
         invalid("accounts.write", "Change the link or its type.");
 
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-place-actions", {
-        body: {
-          name: input.name,
-          ...definedFields({
-            uri: input.uri === undefined ? undefined : httpsUrl(input.uri).href,
-            placeActionType: input.placeActionType,
-          }),
-        },
-        method: "PATCH",
-      });
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-place-actions", {
+          body: {
+            name: input.name,
+            ...definedFields({
+              uri: input.uri === undefined ? undefined : httpsUrl(input.uri).href,
+              placeActionType: input.placeActionType,
+            }),
+          },
+          method: "PATCH",
+        }),
+        (reply) => {
+          const result = object(reply);
 
-      return placeAction(result);
+          string(result["name"]);
+
+          return placeAction(result);
+        },
+      );
     },
     async deleteGoogleBusinessPlaceAction(
       input: GoogleBusinessLocationInput & { readonly name: string },
       context: AdapterOperationContext,
     ) {
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-place-actions", {
-        query: { name: input.name },
-        method: "DELETE",
-      });
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-place-actions", {
+          query: { name: input.name },
+          method: "DELETE",
+        }),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["deleted"] !== true) unconfirmed("accounts.write");
+          if (result["deleted"] !== true) unconfirmed("accounts.write");
+        },
+      );
     },
     /** Photos and videos on the listing (GET /v1/accounts/{id}/gmb-media). */
     async listGoogleBusinessMedia(
@@ -4403,29 +4603,43 @@ export function zernioNative(options: ManagedOptions) {
       },
       context: AdapterOperationContext,
     ) {
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-media", {
-        body: {
-          sourceUrl: httpsUrl(input.sourceUrl).href,
-          ...definedFields({
-            mediaFormat: input.mediaFormat,
-            description: input.description,
-            category: input.category,
-          }),
-        },
-      });
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-media", {
+          body: {
+            sourceUrl: httpsUrl(input.sourceUrl).href,
+            ...definedFields({
+              mediaFormat: input.mediaFormat,
+              description: input.description,
+              category: input.category,
+            }),
+          },
+        }),
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(result, ["name", "mediaFormat", "googleUrl"]);
+          string(result["name"]);
+
+          return publicFields(result, ["name", "mediaFormat", "googleUrl"]);
+        },
+      );
     },
     async deleteGoogleBusinessMedia(
       input: GoogleBusinessLocationInput & { readonly mediaId: string },
       context: AdapterOperationContext,
     ) {
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-media", {
-        query: { mediaId: input.mediaId },
-        method: "DELETE",
-      });
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-media", {
+          query: { mediaId: input.mediaId },
+          method: "DELETE",
+        }),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["deleted"] !== true) unconfirmed("accounts.write");
+          if (result["deleted"] !== true) unconfirmed("accounts.write");
+        },
+      );
     },
     /** Verification state of a location (GET /v1/accounts/{id}/gmb-verifications). */
     async getGoogleBusinessVerifications(
@@ -4482,24 +4696,30 @@ export function zernioNative(options: ManagedOptions) {
       if (input.method === "EMAIL" && input.emailAddress === undefined)
         invalid("accounts.write", "Email verification needs the emailAddress.");
 
-      const result = await googleBusiness(input, context, "accounts.write", "gmb-verifications", {
-        body: {
-          method: input.method,
-          ...definedFields({
-            languageCode: input.languageCode,
-            phoneNumber: input.phoneNumber,
-            emailAddress: input.emailAddress,
-            mailerContact: input.mailerContact,
-          }),
-        },
-      });
+      return acknowledged(
+        "accounts.write",
+        googleBusinessRequest(input, context, "accounts.write", "gmb-verifications", {
+          body: {
+            method: input.method,
+            ...definedFields({
+              languageCode: input.languageCode,
+              phoneNumber: input.phoneNumber,
+              emailAddress: input.emailAddress,
+              mailerContact: input.mailerContact,
+            }),
+          },
+        }),
+        (reply) => {
+          const result = object(reply);
 
-      return documentedFields(object(result["verification"]), [
-        "name",
-        "method",
-        "state",
-        "createTime",
-      ]);
+          return documentedFields(object(result["verification"]), [
+            "name",
+            "method",
+            "state",
+            "createTime",
+          ]);
+        },
+      );
     },
     /** Finish a verification with the PIN Google sent (POST .../gmb-verifications/{id}/complete). */
     async completeGoogleBusinessVerification(
@@ -4511,20 +4731,26 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       if (!/^\w{1,32}$/.test(input.pin)) invalid("accounts.write", "Give the verification PIN.");
 
-      const result = await googleBusiness(
-        input,
-        context,
+      return acknowledged(
         "accounts.write",
-        `gmb-verifications/${encodeURIComponent(input.verificationId)}/complete`,
-        { body: { pin: input.pin } },
-      );
+        googleBusinessRequest(
+          input,
+          context,
+          "accounts.write",
+          `gmb-verifications/${encodeURIComponent(input.verificationId)}/complete`,
+          { body: { pin: input.pin } },
+        ),
+        (reply) => {
+          const result = object(reply);
 
-      return documentedFields(object(result["verification"]), [
-        "name",
-        "method",
-        "state",
-        "createTime",
-      ]);
+          return documentedFields(object(result["verification"]), [
+            "name",
+            "method",
+            "state",
+            "createTime",
+          ]);
+        },
+      );
     },
     /**
      * Upvote (1), downvote (-1) or clear a vote (0) on a Reddit post or comment by its fullname,
@@ -4543,11 +4769,15 @@ export function zernioNative(options: ManagedOptions) {
 
       const route = accountRoute(input.account, context, "likes.write", ["reddit"], "reddit-vote");
 
-      const result = object(
-        await request(route, context, { thingId: input.thingId, direction: input.direction }),
-      );
+      return acknowledged(
+        "likes.write",
+        request(route, context, { thingId: input.thingId, direction: input.direction }),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("likes.write");
+          if (result["success"] !== true) unconfirmed("likes.write");
+        },
+      );
     },
     /** Search Reddit posts, optionally within one subreddit (GET /v1/reddit/search). */
     async redditSearch(
@@ -4677,8 +4907,9 @@ export function zernioNative(options: ManagedOptions) {
       if ((input.text?.length ?? 0) > 2000 || (input.embeds?.length ?? 0) > 10)
         invalid("messages.write", "Text is up to 2,000 characters and embeds up to 10.");
 
-      const result = object(
-        await request("/v1/discord/dms", context, {
+      return acknowledged(
+        "messages.write",
+        request("/v1/discord/dms", context, {
           accountId: input.account.accountId,
           userId: input.userId,
           ...definedFields({
@@ -4687,9 +4918,14 @@ export function zernioNative(options: ManagedOptions) {
             tts: input.tts,
           }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(result, ["messageId", "channelId", "url", "timestamp"]);
+          string(result["messageId"]);
+
+          return publicFields(result, ["messageId", "channelId", "url", "timestamp"]);
+        },
+      );
     },
     /** Roles of the connected server (GET /v1/discord/guilds/{guildId}/roles). */
     async listDiscordRoles(input: DiscordGuildInput, context: AdapterOperationContext) {
@@ -4706,17 +4942,17 @@ export function zernioNative(options: ManagedOptions) {
       input: DiscordGuildInput & DiscordRoleFields & { readonly name: string },
       context: AdapterOperationContext,
     ) {
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "accounts.write",
-        guildPath(input, "roles"),
-        {
+        discordRequest(input.account, context, "accounts.write", guildPath(input, "roles"), {
           body: discordRoleBody(input),
+        }),
+        (reply) => {
+          const result = object(reply);
+
+          return discordRole(object(result["data"]));
         },
       );
-
-      return discordRole(object(result["data"]));
     },
     async updateDiscordRole(
       input: DiscordGuildInput & DiscordRoleFields & { readonly roleId: string },
@@ -4727,29 +4963,41 @@ export function zernioNative(options: ManagedOptions) {
       if (Object.keys(body).length === 0)
         invalid("accounts.write", "Change at least one role field.");
 
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "accounts.write",
-        guildPath(input, `roles/${encodeURIComponent(input.roleId)}`),
-        { body, method: "PATCH" },
-      );
+        discordRequest(
+          input.account,
+          context,
+          "accounts.write",
+          guildPath(input, `roles/${encodeURIComponent(input.roleId)}`),
+          { body, method: "PATCH" },
+        ),
+        (reply) => {
+          const result = object(reply);
 
-      return discordRole(object(result["data"]));
+          return discordRole(object(result["data"]));
+        },
+      );
     },
     async deleteDiscordRole(
       input: DiscordGuildInput & { readonly roleId: string },
       context: AdapterOperationContext,
     ) {
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "accounts.write",
-        guildPath(input, `roles/${encodeURIComponent(input.roleId)}`),
-        { method: "DELETE" },
-      );
+        discordRequest(
+          input.account,
+          context,
+          "accounts.write",
+          guildPath(input, `roles/${encodeURIComponent(input.roleId)}`),
+          { method: "DELETE" },
+        ),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("accounts.write");
+          if (result["success"] !== true) unconfirmed("accounts.write");
+        },
+      );
     },
     /** Members of the server, paged by user ID (GET /v1/discord/guilds/{guildId}/members). */
     async listDiscordMembers(
@@ -4825,18 +5073,24 @@ export function zernioNative(options: ManagedOptions) {
       },
       context: AdapterOperationContext,
     ) {
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "accounts.write",
-        guildPath(
-          input,
-          `members/${encodeURIComponent(input.userId)}/roles/${encodeURIComponent(input.roleId)}`,
+        discordRequest(
+          input.account,
+          context,
+          "accounts.write",
+          guildPath(
+            input,
+            `members/${encodeURIComponent(input.userId)}/roles/${encodeURIComponent(input.roleId)}`,
+          ),
+          { method: input.assigned ? "PUT" : "DELETE" },
         ),
-        { method: input.assigned ? "PUT" : "DELETE" },
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("accounts.write");
+          if (result["success"] !== true) unconfirmed("accounts.write");
+        },
+      );
     },
     /** Pinned messages of a channel (GET /v1/discord/channels/{channelId}/pins). */
     async listDiscordPins(input: DiscordChannelInput, context: AdapterOperationContext) {
@@ -4856,15 +5110,21 @@ export function zernioNative(options: ManagedOptions) {
       input: DiscordChannelInput & { readonly messageId: string; readonly pinned: boolean },
       context: AdapterOperationContext,
     ) {
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "posts.write",
-        channelPath(input, `pins/${encodeURIComponent(input.messageId)}`),
-        { method: input.pinned ? "PUT" : "DELETE" },
-      );
+        discordRequest(
+          input.account,
+          context,
+          "posts.write",
+          channelPath(input, `pins/${encodeURIComponent(input.messageId)}`),
+          { method: input.pinned ? "PUT" : "DELETE" },
+        ),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("posts.write");
+          if (result["success"] !== true) unconfirmed("posts.write");
+        },
+      );
     },
     /** Start a public thread, from a message or standalone (POST .../channels/{channelId}/threads). */
     async createDiscordThread(
@@ -4878,12 +5138,9 @@ export function zernioNative(options: ManagedOptions) {
       if (!input.name.trim() || input.name.length > 100)
         invalid("posts.write", "name is 1 to 100 characters.");
 
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "posts.write",
-        channelPath(input, "threads"),
-        {
+        discordRequest(input.account, context, "posts.write", channelPath(input, "threads"), {
           body: {
             name: input.name,
             ...definedFields({
@@ -4891,40 +5148,55 @@ export function zernioNative(options: ManagedOptions) {
               autoArchiveDuration: input.autoArchiveDuration,
             }),
           },
+        }),
+        (reply) => {
+          const result = object(reply);
+
+          return publicFields(object(result["data"]), ["id", "name"]);
         },
       );
-
-      return publicFields(object(result["data"]), ["id", "name"]);
     },
     /** Publish an announcement-channel message to following servers (POST .../messages/{id}/crosspost). */
     async crosspostDiscordMessage(
       input: DiscordChannelInput & { readonly messageId: string },
       context: AdapterOperationContext,
     ) {
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "posts.write",
-        channelPath(input, `messages/${encodeURIComponent(input.messageId)}/crosspost`),
-        { body: {} },
-      );
+        discordRequest(
+          input.account,
+          context,
+          "posts.write",
+          channelPath(input, `messages/${encodeURIComponent(input.messageId)}/crosspost`),
+          { body: {} },
+        ),
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(object(result["data"]), ["id", "channel_id", "timestamp"]);
+          return publicFields(object(result["data"]), ["id", "channel_id", "timestamp"]);
+        },
+      );
     },
     /** Delete a channel message (DELETE /v1/discord/channels/{channelId}/messages/{messageId}). */
     async deleteDiscordMessage(
       input: DiscordChannelInput & { readonly messageId: string },
       context: AdapterOperationContext,
     ) {
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "posts.write",
-        channelPath(input, `messages/${encodeURIComponent(input.messageId)}`),
-        { method: "DELETE" },
-      );
+        discordRequest(
+          input.account,
+          context,
+          "posts.write",
+          channelPath(input, `messages/${encodeURIComponent(input.messageId)}`),
+          { method: "DELETE" },
+        ),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("posts.write");
+          if (result["success"] !== true) unconfirmed("posts.write");
+        },
+      );
     },
     /** Scheduled events of the server (GET /v1/discord/guilds/{guildId}/events). */
     async listDiscordEvents(
@@ -4986,12 +5258,9 @@ export function zernioNative(options: ManagedOptions) {
       if (entity.type === "external" && (!entity.location.trim() || entity.location.length > 100))
         invalid("accounts.write", "An external event's location is 1 to 100 characters.");
 
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "accounts.write",
-        guildPath(input, "events"),
-        {
+        discordRequest(input.account, context, "accounts.write", guildPath(input, "events"), {
           body: {
             accountId: input.account.accountId,
             name: input.name,
@@ -5003,10 +5272,13 @@ export function zernioNative(options: ManagedOptions) {
             }),
           },
           accountQuery: false,
+        }),
+        (reply) => {
+          const result = object(reply);
+
+          return discordEvent(object(result["data"]));
         },
       );
-
-      return discordEvent(object(result["data"]));
     },
     async updateDiscordEvent(
       input: DiscordGuildInput & {
@@ -5036,33 +5308,45 @@ export function zernioNative(options: ManagedOptions) {
       if (Object.keys(changes).length === 0)
         invalid("accounts.write", "Change at least one event field.");
 
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "accounts.write",
-        guildPath(input, `events/${encodeURIComponent(input.eventId)}`),
-        {
-          body: { accountId: input.account.accountId, ...changes },
-          method: "PATCH",
-          accountQuery: false,
+        discordRequest(
+          input.account,
+          context,
+          "accounts.write",
+          guildPath(input, `events/${encodeURIComponent(input.eventId)}`),
+          {
+            body: { accountId: input.account.accountId, ...changes },
+            method: "PATCH",
+            accountQuery: false,
+          },
+        ),
+        (reply) => {
+          const result = object(reply);
+
+          return discordEvent(object(result["data"]));
         },
       );
-
-      return discordEvent(object(result["data"]));
     },
     async deleteDiscordEvent(
       input: DiscordGuildInput & { readonly eventId: string },
       context: AdapterOperationContext,
     ) {
-      const result = await discord(
-        input.account,
-        context,
+      return acknowledged(
         "accounts.write",
-        guildPath(input, `events/${encodeURIComponent(input.eventId)}`),
-        { method: "DELETE" },
-      );
+        discordRequest(
+          input.account,
+          context,
+          "accounts.write",
+          guildPath(input, `events/${encodeURIComponent(input.eventId)}`),
+          { method: "DELETE" },
+        ),
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("accounts.write");
+          if (result["success"] !== true) unconfirmed("accounts.write");
+        },
+      );
     },
     /**
      * A post's daily analytics series (GET /v1/analytics/post-timeline), one row per day and
@@ -5679,16 +5963,20 @@ export function zernioNative(options: ManagedOptions) {
       if (input.banAuthor && input.status !== "rejected")
         invalid("comments.moderate", "banAuthor goes with a rejected comment.");
 
-      const result = object(
-        await request(`${commentPath(input.comment)}/moderation`, context, {
+      return acknowledged(
+        "comments.moderate",
+        request(`${commentPath(input.comment)}/moderation`, context, {
           accountId: input.comment.accountId,
           platform: "youtube",
           moderationStatus: input.status,
           ...definedFields({ banAuthor: input.banAuthor }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("comments.moderate");
+          if (result["success"] !== true) unconfirmed("comments.moderate");
+        },
+      );
     },
     /** Full-text search across DM conversations (GET /v1/inbox/conversations/search). */
     async searchConversations(
@@ -5744,19 +6032,23 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       accountMatches(input.conversation, context);
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "messages.write",
+        request(
           conversationPath(input.conversation),
           context,
           { accountId: input.conversation.accountId, status: input.status },
           {},
           "PUT",
         ),
+        (reply) => {
+          const result = object(reply);
+
+          const data = isJsonObject(result["data"]) ? result["data"] : {};
+
+          if (data["status"] !== input.status) unconfirmed("messages.write");
+        },
       );
-
-      const data = isJsonObject(result["data"]) ? result["data"] : {};
-
-      if (data["status"] !== input.status) unconfirmed("messages.write");
     },
     /** Delete a conversation and its stored messages from Zernio (DELETE /v1/inbox/conversations/{id}). */
     async deleteConversation(
@@ -5765,19 +6057,24 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       accountMatches(input.conversation, context);
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "messages.write",
+        request(
           conversationPath(input.conversation),
           context,
           undefined,
           { accountId: input.conversation.accountId },
           "DELETE",
         ),
+        (reply) => {
+          const result = object(reply);
+
+          if (result["success"] !== true) unconfirmed("messages.write");
+          const data = isJsonObject(result["data"]) ? result["data"] : {};
+
+          return { ...definedFields({ deletedMessages: optionalNumber(data["deletedMessages"]) }) };
+        },
       );
-
-      const data = isJsonObject(result["data"]) ? result["data"] : {};
-
-      return { ...definedFields({ deletedMessages: optionalNumber(data["deletedMessages"]) }) };
     },
     /** Accept a message request by replying to it (POST /v1/inbox/conversations/{id}/accept). */
     async acceptMessageRequest(
@@ -5789,16 +6086,20 @@ export function zernioNative(options: ManagedOptions) {
       if (!input.text.trim())
         invalid("messages.write", "Accepting a request sends a reply; give its text.");
 
-      const result = object(
-        await request(`${conversationPath(input.conversation)}/accept`, context, {
+      return acknowledged(
+        "messages.write",
+        request(`${conversationPath(input.conversation)}/accept`, context, {
           accountId: input.conversation.accountId,
           message: input.text,
         }),
+        (reply) => {
+          const result = object(reply);
+
+          const data = isJsonObject(result["data"]) ? result["data"] : {};
+
+          return { messageId: string(data["messageId"]) };
+        },
       );
-
-      const data = isJsonObject(result["data"]) ? result["data"] : {};
-
-      return { messageId: string(data["messageId"]) };
     },
     /**
      * Meta handover protocol (POST /v1/inbox/conversations/{id}/thread-control): `take` control,
@@ -5822,8 +6123,9 @@ export function zernioNative(options: ManagedOptions) {
       if (input.metadata !== undefined && input.metadata.length > 2000)
         invalid("messages.write", "metadata is up to 2,000 characters.");
 
-      const result = object(
-        await request(`${conversationPath(input.conversation)}/thread-control`, context, {
+      return acknowledged(
+        "messages.write",
+        request(`${conversationPath(input.conversation)}/thread-control`, context, {
           accountId: input.conversation.accountId,
           action: input.action,
           ...definedFields({
@@ -5832,12 +6134,17 @@ export function zernioNative(options: ManagedOptions) {
             metadata: input.metadata,
           }),
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(isJsonObject(result["control"]) ? result["control"] : {}, [
-        "owner",
-        "ownerAppId",
-      ]);
+          if (result["success"] !== true) unconfirmed("messages.write");
+
+          return publicFields(isJsonObject(result["control"]) ? result["control"] : {}, [
+            "owner",
+            "ownerAppId",
+          ]);
+        },
+      );
     },
     /** A Facebook Page's conversation labels (GET /v1/inbox/labels). */
     async listInboxLabels(
@@ -5862,14 +6169,18 @@ export function zernioNative(options: ManagedOptions) {
 
       if (!input.name.trim()) invalid("messages.write", "A label needs a name.");
 
-      const result = object(
-        await request("/v1/inbox/labels", context, {
+      return acknowledged(
+        "messages.write",
+        request("/v1/inbox/labels", context, {
           accountId: input.account.accountId,
           name: input.name,
         }),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      return publicFields(object(result["label"]), ["id", "name"]);
+          return publicFields(object(result["label"]), ["id", "name"]);
+        },
+      );
     },
     async deleteInboxLabel(
       input: { readonly account: ConnectedAccountRef; readonly labelId: string },
@@ -5877,17 +6188,21 @@ export function zernioNative(options: ManagedOptions) {
     ) {
       accountMatches(input.account, context);
 
-      const result = object(
-        await request(
+      return acknowledged(
+        "messages.write",
+        request(
           `/v1/inbox/labels/${encodeURIComponent(input.labelId)}`,
           context,
           undefined,
           { accountId: input.account.accountId },
           "DELETE",
         ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("messages.write");
+          if (result["success"] !== true) unconfirmed("messages.write");
+        },
+      );
     },
     /** Labels on one conversation (GET /v1/inbox/conversations/{id}/labels). */
     async listConversationLabels(
@@ -5918,19 +6233,23 @@ export function zernioNative(options: ManagedOptions) {
       const path = `${conversationPath(input.conversation)}/labels`;
       const accountId = input.conversation.accountId;
 
-      const result = object(
+      return acknowledged(
+        "messages.write",
         input.applied
-          ? await request(path, context, { accountId, labelId: input.labelId })
-          : await request(
+          ? request(path, context, { accountId, labelId: input.labelId })
+          : request(
               `${path}/${encodeURIComponent(input.labelId)}`,
               context,
               undefined,
               { accountId },
               "DELETE",
             ),
-      );
+        (reply) => {
+          const result = object(reply);
 
-      if (result["success"] !== true) unconfirmed("messages.write");
+          if (result["success"] !== true) unconfirmed("messages.write");
+        },
+      );
     },
     /**
      * Read a Messenger, Instagram or Telegram bot setting: the persistent menu

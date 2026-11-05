@@ -43,6 +43,7 @@ import {
 } from "../transport/validation.js";
 import {
   accountMatches,
+  acknowledged,
   capabilityManifest,
   managedConstraints,
   managedOptionIssues,
@@ -1547,17 +1548,15 @@ export function buffer(options: BufferOptions) {
   const clock = () => options.clock?.() ?? new Date();
   const now = () => clock().toISOString();
 
-  const graphql = async (
+  const send = async (
     operation: string,
     query: string,
     variables: JsonObject,
     context: AdapterOperationContext,
     kind: "query" | "mutation",
-  ): Promise<JsonObject> => {
-    let response: JsonValue;
-
+  ): Promise<JsonValue> => {
     try {
-      response = await http({
+      return await http({
         url: new URL(apiOrigin),
         headers: {
           Authorization: `Bearer ${options.apiKey}`,
@@ -1574,7 +1573,15 @@ export function buffer(options: BufferOptions) {
 
       throw transportError(error, operation, context, kind);
     }
+  };
 
+  /** The `data` of a GraphQL answer; stated errors keep their own classification. */
+  const payloadData = (
+    response: JsonValue,
+    operation: string,
+    context: AdapterOperationContext,
+    kind: "query" | "mutation",
+  ): JsonObject => {
     const payload = object(response);
     const errors = payload["errors"];
 
@@ -1609,6 +1616,30 @@ export function buffer(options: BufferOptions) {
 
     return object(data);
   };
+
+  const graphql = async (
+    operation: string,
+    query: string,
+    variables: JsonObject,
+    context: AdapterOperationContext,
+    kind: "query" | "mutation",
+  ): Promise<JsonObject> =>
+    payloadData(await send(operation, query, variables, context, kind), operation, context, kind);
+
+  /**
+   * Run a mutation and decode its answer inside the uncertain-write boundary: once Buffer
+   * answered 2xx, a payload `decode` cannot read leaves the change unconfirmed.
+   */
+  const mutate = <T>(
+    operation: string,
+    query: string,
+    variables: JsonObject,
+    context: AdapterOperationContext,
+    decode: (data: JsonObject) => T,
+  ): Promise<T> =>
+    acknowledged(operation, send(operation, query, variables, context, "mutation"), (response) =>
+      decode(payloadData(response, operation, context, "mutation")),
+    );
 
   const organizations = async (context: AdapterOperationContext): Promise<string[]> => {
     if (organizationId) return [organizationId];
@@ -1980,7 +2011,7 @@ export function buffer(options: BufferOptions) {
     context: AdapterOperationContext,
     operation: string,
   ): Promise<void> => {
-    const data = await graphql(
+    return mutate(
       operation,
       `
         mutation DeletePost($input: DeletePostInput!) {
@@ -1996,30 +2027,30 @@ export function buffer(options: BufferOptions) {
       `,
       { input: { id } },
       context,
-      "mutation",
+      (data) => {
+        const result = object(data["deletePost"]);
+
+        if (result["id"] === id) return;
+
+        const message = optionalString(result["message"]);
+
+        if (message)
+          throw new SocialError({
+            code: "invalid_input",
+            operation,
+            message,
+          });
+
+        throw new SocialError({
+          code: "ambiguous_outcome",
+          operation,
+          backend: context.backendInstance,
+          correlationId: context.correlationId,
+          message: "Buffer did not confirm the deletion. Reconcile before retrying.",
+          retryDisposition: { kind: "reconcile-first" },
+        });
+      },
     );
-
-    const result = object(data["deletePost"]);
-
-    if (result["id"] === id) return;
-
-    const message = optionalString(result["message"]);
-
-    if (message)
-      throw new SocialError({
-        code: "invalid_input",
-        operation,
-        message,
-      });
-
-    throw new SocialError({
-      code: "ambiguous_outcome",
-      operation,
-      backend: context.backendInstance,
-      correlationId: context.correlationId,
-      message: "Buffer did not confirm the deletion. Reconcile before retrying.",
-      retryDisposition: { kind: "reconcile-first" },
-    });
   };
 
   const manifest = capabilityManifest(
@@ -2399,7 +2430,7 @@ export function buffer(options: BufferOptions) {
           }),
         };
 
-        const data = await graphql(
+        return mutate(
           "posts.publish",
           `mutation CreatePost($input: CreatePostInput!) {
             createPost(input: $input) {
@@ -2415,31 +2446,31 @@ export function buffer(options: BufferOptions) {
           }`,
           { input },
           context,
-          "mutation",
+          (data) => {
+            const result = object(data["createPost"]);
+
+            if (isJsonObject(result["post"]))
+              return outcome(object(result["post"]), target.account, target.targetIndex);
+
+            const message = optionalString(result["message"]);
+
+            if (message)
+              throw new SocialError({
+                code: "invalid_input",
+                operation: "posts.publish",
+                message,
+              });
+
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "posts.publish",
+              backend: context.backendInstance,
+              correlationId: context.correlationId,
+              message: "Buffer did not confirm post creation. Reconcile before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+          },
         );
-
-        const result = object(data["createPost"]);
-
-        if (isJsonObject(result["post"]))
-          return outcome(object(result["post"]), target.account, target.targetIndex);
-
-        const message = optionalString(result["message"]);
-
-        if (message)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "posts.publish",
-            message,
-          });
-
-        throw new SocialError({
-          code: "ambiguous_outcome",
-          operation: "posts.publish",
-          backend: context.backendInstance,
-          correlationId: context.correlationId,
-          message: "Buffer did not confirm post creation. Reconcile before retrying.",
-          retryDisposition: { kind: "reconcile-first" },
-        });
       },
       async list(
         account: ConnectedAccountRef,
@@ -2678,7 +2709,7 @@ export function buffer(options: BufferOptions) {
 
         if (Object.keys(input).length === 1) reject("posts.update", "Pass at least one change.");
 
-        const data = await graphql(
+        return mutate(
           "posts.update",
           `mutation EditPost($input: EditPostInput!) {
             editPost(input: $input) {
@@ -2694,10 +2725,10 @@ export function buffer(options: BufferOptions) {
           }`,
           { input },
           context,
-          "mutation",
+          (data) => {
+            return actionOutcome(object(data["editPost"]), ref, "posts.update");
+          },
         );
-
-        return actionOutcome(object(data["editPost"]), ref, "posts.update");
       },
 
       /**
@@ -2880,7 +2911,7 @@ export function buffer(options: BufferOptions) {
         if (row["status"] !== "scheduled")
           reject("posts.schedule", "Only a scheduled Buffer post moves in the queue.");
 
-        const data = await graphql(
+        return mutate(
           "posts.schedule",
           `mutation MovePostInQueue($input: MovePostInQueueInput!) {
             movePostInQueue(input: $input) {
@@ -2896,10 +2927,10 @@ export function buffer(options: BufferOptions) {
           }`,
           { input: { id: string(row["id"]), position } },
           context,
-          "mutation",
+          (data) => {
+            return actionOutcome(object(data["movePostInQueue"]), ref, "posts.schedule");
+          },
         );
-
-        return actionOutcome(object(data["movePostInQueue"]), ref, "posts.schedule");
       },
 
       /**
@@ -3040,7 +3071,7 @@ export function buffer(options: BufferOptions) {
 
         if (input.placeAfterId !== undefined) bufferId(input.placeAfterId, operation, "idea");
 
-        const data = await graphql(
+        return mutate(
           operation,
           `
             mutation CreateIdea($input: CreateIdeaInput!) {
@@ -3088,26 +3119,26 @@ export function buffer(options: BufferOptions) {
             },
           },
           context,
-          "mutation",
+          (data) => {
+            // The mutation was dispatched; anything short of an idea ID or a stated error is uncertain.
+            const result = optionalObject(data["createIdea"]) ?? {};
+            const idea = optionalObject(result["idea"]);
+            const id = idea === undefined ? undefined : optionalString(idea["id"]);
+
+            if (id) return { id };
+
+            const message = idea === undefined ? optionalString(result["message"]) : undefined;
+
+            if (message) throw new SocialError({ code: "invalid_input", operation, message });
+
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "Buffer did not confirm the idea. Check the Create space before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+          },
         );
-
-        // The mutation was dispatched; anything short of an idea ID or a stated error is uncertain.
-        const result = optionalObject(data["createIdea"]) ?? {};
-        const idea = optionalObject(result["idea"]);
-        const id = idea === undefined ? undefined : optionalString(idea["id"]);
-
-        if (id) return { id };
-
-        const message = idea === undefined ? optionalString(result["message"]) : undefined;
-
-        if (message) throw new SocialError({ code: "invalid_input", operation, message });
-
-        throw new SocialError({
-          code: "ambiguous_outcome",
-          operation,
-          message: "Buffer did not confirm the idea. Check the Create space before retrying.",
-          retryDisposition: { kind: "reconcile-first" },
-        });
       },
 
       /** `ideaGroups`: the idea groups (Create-space board columns) of an organization. */

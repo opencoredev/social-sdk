@@ -51,6 +51,7 @@ import {
   accountMatches,
   capabilityManifest,
   managedConstraints,
+  acknowledged,
   managedHttp,
   managedOptionIssues,
   managedPreparation,
@@ -2788,27 +2789,31 @@ export function postiz(options: PostizOptions) {
         if (row["state"] !== "QUEUE" && row["state"] !== "DRAFT")
           reject("posts.status.update", "Only a queued or draft Postiz post changes status.");
 
-        const result = object(
-          await request(
+        return acknowledged(
+          "posts.status.update",
+          request(
             `/posts/${encodeURIComponent(string(row["id"]))}/status`,
             context,
             { status },
             {},
             "PUT",
           ),
+          (reply) => {
+            const result = object(reply);
+
+            const state = result["state"];
+            const expected = status === "draft" ? "DRAFT" : "QUEUE";
+
+            if (result["id"] === row["id"] && state === expected) return { state: expected };
+
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "posts.status.update",
+              message: "Postiz did not confirm the status change. Read the post before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+          },
         );
-
-        const state = result["state"];
-        const expected = status === "draft" ? "DRAFT" : "QUEUE";
-
-        if (result["id"] === row["id"] && state === expected) return { state: expected };
-
-        throw new SocialError({
-          code: "ambiguous_outcome",
-          operation: "posts.status.update",
-          message: "Postiz did not confirm the status change. Read the post before retrying.",
-          retryDisposition: { kind: "reconcile-first" },
-        });
       },
 
       /**
@@ -2828,25 +2833,30 @@ export function postiz(options: PostizOptions) {
         if (row["state"] !== "QUEUE" && row["state"] !== "DRAFT")
           reject("posts.update", "Postiz changes settings only before a post publishes.");
 
-        const result = object(
-          await request(
+        return acknowledged(
+          "posts.update",
+          request(
             `/posts/${encodeURIComponent(string(row["id"]))}/settings`,
             context,
             { settings },
             {},
             "PUT",
           ),
+          (reply) => {
+            const result = object(reply);
+
+            if (result["postId"] !== row["id"])
+              throw new SocialError({
+                code: "ambiguous_outcome",
+                operation: "posts.update",
+                message:
+                  "Postiz did not confirm the settings change. Read the post before retrying.",
+                retryDisposition: { kind: "reconcile-first" },
+              });
+
+            return definedFields({ publishDate: optionalString(result["publishDate"]) });
+          },
         );
-
-        if (result["postId"] !== row["id"])
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "posts.update",
-            message: "Postiz did not confirm the settings change. Read the post before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        return definedFields({ publishDate: optionalString(result["publishDate"]) });
       },
 
       /**
@@ -2938,25 +2948,27 @@ export function postiz(options: PostizOptions) {
         const storedDate = optionalString(row["actualDate"]) ?? string(row["publishDate"]);
         const date = republish ? now() : new Date(storedDate).toISOString();
 
-        const response = await request("/posts", context, {
-          type: republish ? "now" : "update",
-          date,
-          shortLink: false,
-          ...definedFields({
-            republish: republish || undefined,
-            inter: isFiniteNumber(interval) && interval >= 1 ? interval : undefined,
+        const rows = await acknowledged(
+          operation,
+          request("/posts", context, {
+            type: republish ? "now" : "update",
+            date,
+            shortLink: false,
+            ...definedFields({
+              republish: republish || undefined,
+              inter: isFiniteNumber(interval) && interval >= 1 ? interval : undefined,
+            }),
+            tags,
+            posts: [
+              {
+                integration: { id: ref.accountId },
+                value: [{ id: string(row["id"]), content: edit.text, image }],
+                settings: isJsonObject(parsed) ? parsed : {},
+              },
+            ],
           }),
-          tags,
-          posts: [
-            {
-              integration: { id: ref.accountId },
-              value: [{ id: string(row["id"]), content: edit.text, image }],
-              settings: isJsonObject(parsed) ? parsed : {},
-            },
-          ],
-        });
-
-        const rows = isJsonArray(response) ? response.map(object) : [];
+          (reply) => (isJsonArray(reply) ? reply.map(object) : []),
+        );
 
         if (rows.length !== 1 || rows[0]?.["postId"] !== row["id"])
           throw new SocialError({
@@ -3087,24 +3099,28 @@ export function postiz(options: PostizOptions) {
 
         const row = await missingRelease(ref, context, "posts.resolve");
 
-        const result = object(
-          await request(
+        return acknowledged(
+          "posts.resolve",
+          request(
             `/posts/${encodeURIComponent(string(row["id"]))}/release-id`,
             context,
             { releaseId },
             {},
             "PUT",
           ),
+          (reply) => {
+            const result = object(reply);
+
+            if (result["id"] === row["id"] && result["releaseId"] === releaseId) return;
+
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "posts.resolve",
+              message: "Postiz did not confirm the release ID. Read the post before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+          },
         );
-
-        if (result["id"] === row["id"] && result["releaseId"] === releaseId) return;
-
-        throw new SocialError({
-          code: "ambiguous_outcome",
-          operation: "posts.resolve",
-          message: "Postiz did not confirm the release ID. Read the post before retrying.",
-          retryDisposition: { kind: "reconcile-first" },
-        });
       },
 
       /**
@@ -3126,7 +3142,7 @@ export function postiz(options: PostizOptions) {
         if (images.length > 3 || (images.length > 0 && input.type !== "veo3"))
           reject("media.generate", "veo3 takes up to three reference images.");
 
-        const result = await request("/generate-video", context, {
+        const sent = request("/generate-video", context, {
           type: input.type,
           output: input.output,
           customParams: {
@@ -3143,7 +3159,19 @@ export function postiz(options: PostizOptions) {
           },
         });
 
-        return array(result).map(mediaItem);
+        // The generation used credits; an answer without its files cannot confirm what was made.
+        return acknowledged("media.generate", sent, (reply) => {
+          const files = array(reply).map(mediaItem);
+
+          if (files.length > 0) return files;
+
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "media.generate",
+            message: "Postiz returned no generated files. Check the media library before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+        });
       },
 
       /** `POST /video/function`: helpers for video generation, such as `loadVoices`. */
@@ -3202,8 +3230,9 @@ export function postiz(options: PostizOptions) {
         if (input.fit !== undefined && input.fit !== "blur" && input.fit !== "crop")
           reject("media.clip", "Choose the blur or crop fit.");
 
-        const result = object(
-          await request("/clipping", context, {
+        return acknowledged(
+          "media.clip",
+          request("/clipping", context, {
             url: httpsUrl(input.url).href,
             ...definedFields({
               integrations: integrations.length > 0 ? [...integrations] : undefined,
@@ -3211,9 +3240,12 @@ export function postiz(options: PostizOptions) {
               fit: input.fit,
             }),
           }),
-        );
+          (reply) => {
+            const result = object(reply);
 
-        return { id: string(result["id"]) };
+            return { id: string(result["id"]) };
+          },
+        );
       },
 
       /** `GET /clipping/:id`: a clipping's status and its clips. */
@@ -3326,23 +3358,21 @@ export function postiz(options: PostizOptions) {
         "This identifier does not show that Social SDK saved this Postiz post alone in its group, and deleting it could remove other posts. Use the identifier the adapter returned when it published or edited the post, or manage it in Postiz.",
       );
 
-    const result = await request(
-      `/posts/${encodeURIComponent(string(row["id"]))}`,
-      context,
-      undefined,
-      {},
-      "DELETE",
+    await acknowledged(
+      "posts.lifecycle",
+      request(`/posts/${encodeURIComponent(string(row["id"]))}`, context, undefined, {}, "DELETE"),
+      (reply) => {
+        // Postiz answers with the group's first post, which is this one for an adapter group.
+        if (isJsonObject(reply) && reply["id"] === row["id"]) return;
+
+        throw new SocialError({
+          code: "ambiguous_outcome",
+          operation: "posts.lifecycle",
+          message: "Postiz did not confirm the deletion. Reconcile before retrying.",
+          retryDisposition: { kind: "reconcile-first" },
+        });
+      },
     );
-
-    // Postiz answers with the group's first post, which is this one for an adapter group.
-    if (!isJsonArray(result) && result !== null && object(result)["id"] === row["id"]) return;
-
-    throw new SocialError({
-      code: "ambiguous_outcome",
-      operation: "posts.lifecycle",
-      message: "Postiz did not confirm the deletion. Reconcile before retrying.",
-      retryDisposition: { kind: "reconcile-first" },
-    });
   }
 
   return adapter;

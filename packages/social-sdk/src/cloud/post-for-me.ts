@@ -42,6 +42,7 @@ import { verifyPostForMeWebhook, decodeWebhook } from "../server/webhooks.js";
 import {
   accountMatches,
   capabilityManifest,
+  acknowledged,
   managedHttp,
   managedPreparation,
   managedOptionIssues,
@@ -1135,18 +1136,22 @@ export function postForMe(options: ManagedOptions) {
       ) {
         accountMatches(input.account, context);
 
-        const result = object(
-          await request(
+        return acknowledged(
+          "accounts.write",
+          request(
             `/v1/social-accounts/${encodeURIComponent(input.account.accountId)}/disconnect`,
             context,
             {},
           ),
+          (reply) => {
+            const result = object(reply);
+
+            if (result["id"] !== input.account.accountId || result["status"] !== "disconnected")
+              unconfirmed("accounts.write");
+
+            return account(result, context.backendInstance);
+          },
         );
-
-        if (result["id"] !== input.account.accountId || result["status"] !== "disconnected")
-          unconfirmed("accounts.write");
-
-        return account(result, context.backendInstance);
       },
       /** Permanently delete an account and its post history (DELETE /v1/social-accounts/{id}). */
       async deleteAccount(
@@ -1173,19 +1178,23 @@ export function postForMe(options: ManagedOptions) {
       ) {
         accountMatches(input.account, context);
 
-        const result = object(
-          await request(
+        return acknowledged(
+          "accounts.write",
+          request(
             `/v1/social-accounts/${encodeURIComponent(input.account.accountId)}`,
             context,
             { external_id: input.externalId },
             {},
             "PATCH",
           ),
+          (reply) => {
+            const result = object(reply);
+
+            if (result["id"] !== input.account.accountId) unconfirmed("accounts.write");
+
+            return account(result, context.backendInstance);
+          },
         );
-
-        if (result["id"] !== input.account.accountId) unconfirmed("accounts.write");
-
-        return account(result, context.backendInstance);
       },
       /**
        * Change the caption or time of a draft or scheduled post before it publishes
@@ -1234,8 +1243,9 @@ export function postForMe(options: ManagedOptions) {
 
         const scheduledAt = input.at ?? optionalString(record["scheduled_at"]);
 
-        const result = object(
-          await request(
+        return acknowledged(
+          "posts.update",
+          request(
             `/v1/social-posts/${encodeURIComponent(id)}`,
             context,
             {
@@ -1248,21 +1258,24 @@ export function postForMe(options: ManagedOptions) {
             {},
             "PUT",
           ),
-        );
+          (reply) => {
+            const result = object(reply);
 
-        if (result["id"] !== id) unconfirmed("posts.update");
+            if (result["id"] !== id) unconfirmed("posts.update");
 
-        return postForMeOutcome(result, undefined, {
-          account: {
-            kind: "connected-account",
-            version: 1,
-            backend: input.delivery.backend,
-            platform: input.delivery.platform,
-            accountId: input.delivery.accountId,
+            return postForMeOutcome(result, undefined, {
+              account: {
+                kind: "connected-account",
+                version: 1,
+                backend: input.delivery.backend,
+                platform: input.delivery.platform,
+                accountId: input.delivery.accountId,
+              },
+              targetIndex: 0,
+              observedAt: now(),
+            });
           },
-          targetIndex: 0,
-          observedAt: now(),
-        });
+        );
       },
       /**
        * Render how a post will look per account before publishing (POST /v1/social-post-previews).
@@ -1454,21 +1467,26 @@ export function postForMe(options: ManagedOptions) {
         if (input.eventTypes.length === 0)
           invalid("webhooks.write", "Subscribe to at least one event.");
 
-        const result = object(
-          await request("/v1/webhooks", context, {
+        return acknowledged(
+          "webhooks.write",
+          request("/v1/webhooks", context, {
             url: httpsUrl(input.url).href,
             event_types: [...input.eventTypes],
           }),
-        );
+          (reply) => {
+            const result = object(reply);
 
-        return { ...webhookFields(result), secret: string(result["secret"]) };
+            return { ...webhookFields(result), secret: string(result["secret"]) };
+          },
+        );
       },
       async updateWebhook(
         input: Partial<PostForMeWebhookInput> & { readonly webhookId: string },
         context: AdapterOperationContext,
       ) {
-        const result = object(
-          await request(
+        return acknowledged(
+          "webhooks.write",
+          request(
             `/v1/webhooks/${encodeURIComponent(input.webhookId)}`,
             context,
             {
@@ -1480,24 +1498,31 @@ export function postForMe(options: ManagedOptions) {
             {},
             "PATCH",
           ),
+          (reply) => {
+            const result = object(reply);
+
+            if (result["id"] !== input.webhookId) unconfirmed("webhooks.write");
+
+            return webhookFields(result);
+          },
         );
-
-        if (result["id"] !== input.webhookId) unconfirmed("webhooks.write");
-
-        return webhookFields(result);
       },
       async deleteWebhook(input: { readonly webhookId: string }, context: AdapterOperationContext) {
-        const result = object(
-          await request(
+        return acknowledged(
+          "webhooks.write",
+          request(
             `/v1/webhooks/${encodeURIComponent(input.webhookId)}`,
             context,
             undefined,
             {},
             "DELETE",
           ),
-        );
+          (reply) => {
+            const result = object(reply);
 
-        if (result["success"] !== true) unconfirmed("webhooks.write");
+            if (result["success"] !== true) unconfirmed("webhooks.write");
+          },
+        );
       },
     },
   });

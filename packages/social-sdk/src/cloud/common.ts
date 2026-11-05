@@ -325,6 +325,34 @@ export function managedHttp(
   };
 }
 
+/**
+ * Decode the answer to a dispatched write inside the uncertain-write boundary. The request's
+ * own errors keep their classification: an HTTP error status stays a definite failure. Once the
+ * write got a 2xx, a body the decoder throws on cannot prove what happened, so it is
+ * `ambiguous_outcome` with `reconcile-first`. A `SocialError` the decoder raises on purpose,
+ * such as a provider's stated rejection or its own unconfirmed error, is kept.
+ */
+export async function acknowledged<T>(
+  operation: string,
+  sent: Promise<JsonValue>,
+  decode: (body: JsonValue) => T,
+): Promise<T> {
+  const body = await sent;
+
+  try {
+    return decode(body);
+  } catch (error) {
+    if (error instanceof SocialError) throw error;
+
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: "The provider did not confirm the change. Reconcile before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  }
+}
+
 export type PublishFormats = (platform: KnownPlatform) => CapabilityDeclaration["formats"];
 
 export const publishFormats: PublishFormats = (platform) => {
