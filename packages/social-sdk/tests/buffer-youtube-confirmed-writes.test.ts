@@ -144,7 +144,47 @@ it("Buffer keeps GraphQL error prose out of public errors", async () => {
     (error: SocialError) =>
       error instanceof SocialError &&
       error.upstreamCode === undefined &&
-      !error.message.includes("private-content-marker"),
+      !error.message.includes("private-content-marker") &&
+      uncertain(error),
+  );
+  assert.equal(state.calls, 1);
+});
+
+const mutationErrors: readonly { readonly name: string; readonly errors: JsonValue }[] = [
+  {
+    name: "an execution error without extensions",
+    errors: [{ message: "fixture", path: ["createIdea"] }],
+  },
+  {
+    name: "an unfamiliar code",
+    errors: [{ message: "fixture", extensions: { code: "INTERNAL_SERVER_ERROR" } }],
+  },
+  {
+    name: "a rejection code next to an unrecognized error",
+    errors: [{ message: "a", extensions: { code: "FORBIDDEN" } }, { message: "b" }],
+  },
+];
+
+for (const { name, errors } of mutationErrors)
+  it(`Buffer keeps a mutation uncertain after ${name}`, async () => {
+    const { state, fetch } = answering({ data: null, errors });
+
+    await assert.rejects(
+      bufferWith(fetch).native.createIdea({ text: "fixture" }, context()),
+      uncertain,
+    );
+    assert.equal(state.calls, 1);
+  });
+
+it("Buffer keeps a documented rejection code definite on a mutation", async () => {
+  const { state, fetch } = answering({
+    data: null,
+    errors: [{ message: "fixture", extensions: { code: "FORBIDDEN" } }],
+  });
+
+  await assert.rejects(
+    bufferWith(fetch).native.createIdea({ text: "fixture" }, context()),
+    (error: SocialError) => error.code === "missing_permission",
   );
   assert.equal(state.calls, 1);
 });

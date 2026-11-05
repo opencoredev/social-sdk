@@ -114,7 +114,9 @@ export function localTikTokVideo(
   return { kind: "valid", video: { source, mimeType, plan } };
 }
 
-const uploadHost = /^open-upload(?:-[a-z0-9]+)*\.tiktokapis\.com$/;
+// open-upload hosts from FILE_UPLOAD initialization, and the regional upload.us host TikTok's
+// Media Transfer Guide (updated 2026-08-04) uses in its chunk-upload example.
+const uploadHost = /^(?:open-upload(?:-[a-z0-9]+)*|upload\.us)\.tiktokapis\.com$/;
 
 /** Accepts only provider-issued HTTPS upload URLs on known TikTok upload hosts. */
 export function tiktokUploadUrl(value: string): URL | undefined {

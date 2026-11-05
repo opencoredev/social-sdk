@@ -1604,6 +1604,17 @@ function transportError(
   });
 }
 
+/** GraphQL error codes that show Buffer refused a request rather than failing while running it. */
+const rejectionCodes = new Set([
+  "RATE_LIMIT_EXCEEDED",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "BAD_USER_INPUT",
+  "GRAPHQL_PARSE_FAILED",
+  "GRAPHQL_VALIDATION_FAILED",
+]);
+
 function graphqlFailure(
   errors: readonly JsonValue[],
   operation: string,
@@ -1613,17 +1624,25 @@ function graphqlFailure(
   const first = errors[0];
   const upstreamCode = first === undefined ? undefined : graphqlCode(first);
 
+  const definite = (error: JsonValue) => {
+    const errorCode = graphqlCode(error);
+
+    return errorCode !== undefined && rejectionCodes.has(errorCode);
+  };
+
+  // A mutation that was sent is rejected only when every error carries a code that shows
+  // Buffer refused it. An execution error, an unknown code or none leaves it uncertain.
   const code: keyof typeof graphqlMessages =
-    upstreamCode === "RATE_LIMIT_EXCEEDED"
-      ? "rate_limited"
-      : upstreamCode === "UNAUTHORIZED"
-        ? "reconnect_required"
-        : upstreamCode === "FORBIDDEN"
-          ? "missing_permission"
-          : upstreamCode === "NOT_FOUND"
-            ? "not_found"
-            : kind === "mutation" && upstreamCode === "UNEXPECTED"
-              ? "ambiguous_outcome"
+    kind === "mutation" && (errors.length === 0 || !errors.every(definite))
+      ? "ambiguous_outcome"
+      : upstreamCode === "RATE_LIMIT_EXCEEDED"
+        ? "rate_limited"
+        : upstreamCode === "UNAUTHORIZED"
+          ? "reconnect_required"
+          : upstreamCode === "FORBIDDEN"
+            ? "missing_permission"
+            : upstreamCode === "NOT_FOUND"
+              ? "not_found"
               : "upstream_failure";
 
   return new SocialError({

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
 import { SocialError } from "../src/core/errors.js";
 import { tiktok } from "../src/platforms/tiktok.js";
+import { tiktokUploadUrl } from "../src/platforms/tiktok-upload.js";
 import type {
   AdapterOperationContext,
   DeliveryOutcome,
@@ -664,4 +665,22 @@ it("TikTok metrics keep provider names and add canonical names where equivalent"
     accountMetrics.find((metric) => metric.name === "likes_count")?.canonicalName,
     "likes",
   );
+});
+
+it("TikTok accepts the documented regional upload host and nothing broader", () => {
+  assert.ok(
+    tiktokUploadUrl(
+      "https://upload.us.tiktokapis.com/video/?upload_id=67890&upload_token=chunkexample",
+    ),
+  );
+  assert.ok(tiktokUploadUrl("https://open-upload-i18n.tiktokapis.com/video/?upload_id=1"));
+
+  for (const rejected of [
+    "http://upload.us.tiktokapis.com/video/",
+    "https://upload.xx.tiktokapis.com/video/",
+    "https://upload.us.tiktokapis.com.attacker.example/video/",
+    "https://upload.tiktokapis.com.attacker.example/video/",
+    "https://attacker.example/upload.us.tiktokapis.com",
+  ])
+    assert.equal(tiktokUploadUrl(rejected), undefined, rejected);
 });
