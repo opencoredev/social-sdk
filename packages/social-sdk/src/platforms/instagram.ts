@@ -1809,6 +1809,47 @@ export function instagram(
     }
   };
 
+  /**
+   * Decode a dispatched write's answer. The transport already reports a lost, unreadable or
+   * 5xx answer as uncertain; a 2xx answer that is not an object may still mean the write took
+   * effect, so it is uncertain too and must be reconciled rather than repeated.
+   */
+  const writeObject = (value: JsonField, operation: string): JsonObject => {
+    if (isJsonObject(value)) return value;
+
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: "Instagram returned an unreadable answer to the write. Reconcile before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  };
+
+  /** Read the ID a write returned; without it the write is uncertain, not failed. */
+  const writeId = (result: JsonObject, key: string, operation: string): string => {
+    const id = result[key];
+
+    if (isString(id) && id.length > 0) return id;
+
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: `Instagram returned no ${key} for the write. Reconcile before retrying.`,
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  };
+
+  /** Meta answers these writes with `{ success: true }`; anything else leaves the result unknown. */
+  const confirmWrite = (value: JsonField, operation: string, message: string): void => {
+    if (!isJsonObject(value) || value["success"] !== true)
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message,
+        retryDisposition: { kind: "reconcile-first" },
+      });
+  };
+
   const requireFacebookLogin = (operation: string) => {
     if (flavor !== "facebook-login")
       throw new SocialError({
@@ -2161,17 +2202,18 @@ export function instagram(
     let result: JsonObject;
 
     try {
-      result = object(
+      result = writeObject(
         await request(`/${encodeURIComponent(account.accountId)}/media_publish`, context, {
           creation_id: containerId,
         }),
+        "instagram.posts.publish",
       );
     } catch (error) {
       if (workflowId) await workflows.update(workflowId, { stage: "unknown" });
       throw error;
     }
 
-    const nativeId = string(result["id"]);
+    const nativeId = writeId(result, "id", "instagram.posts.publish");
     const issues = publishIssues(result);
 
     const outcome: DeliveryOutcome = {
@@ -2274,7 +2316,7 @@ export function instagram(
 
     await workflows.update(workflow.id, { stage: "unknown" });
 
-    const parent = object(
+    const parent = writeObject(
       await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
         media_type: "CAROUSEL",
         children: workflow.childIds.join(","),
@@ -2282,9 +2324,10 @@ export function instagram(
         ...definedFields({ share_to_feed: workflow.shareToFeed }),
         ...workflow.parentFields,
       }),
+      "instagram.posts.publish",
     );
 
-    const parentId = string(parent["id"]);
+    const parentId = writeId(parent, "id", "instagram.posts.publish");
     await workflows.update(workflow.id, { parentId, stage: "parent" });
 
     return publishContainer(account, parentId, context, workflow.id);
@@ -2637,13 +2680,18 @@ export function instagram(
         message: "Instagram message text must be 1,000 UTF-8 bytes or fewer.",
       });
 
-    return validatedObject(
+    const result = writeObject(
       await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
         recipient: { id: recipientId },
         message: { text },
       }),
       "instagram.messages.write",
     );
+
+    // A send without a message ID may still have been delivered.
+    writeId(result, "message_id", "instagram.messages.write");
+
+    return result;
   };
 
   // Audio fields from the Instagram Audio API guide (Graph v26.0, checked 2026-11-04):
@@ -3115,7 +3163,7 @@ export function instagram(
               });
             await workflows.update(workflow.id, { stage: "unknown" });
 
-            const created = object(
+            const created = writeObject(
               await request(`/${encodeURIComponent(target.account.accountId)}/media`, context, {
                 ...(item.kind === "image"
                   ? {
@@ -3130,9 +3178,10 @@ export function instagram(
                   ? { is_carousel_item: true }
                   : { caption: target.content.text ?? "", ...plan }),
               }),
+              "instagram.posts.publish",
             );
 
-            children.push(string(created["id"]));
+            children.push(writeId(created, "id", "instagram.posts.publish"));
             await workflows.update(workflow.id, { childIds: [...children], stage: "children" });
           }
         } catch (error) {
@@ -3296,13 +3345,14 @@ export function instagram(
       ): Promise<CommentRef> {
         authorize(ref, context);
 
-        const result = object(
+        const result = writeObject(
           await request(`/${encodeURIComponent(ref.commentId)}/replies`, context, {
             message: content.text,
           }),
+          "instagram.comments.write",
         );
 
-        return { ...ref, commentId: string(result["id"]) };
+        return { ...ref, commentId: writeId(result, "id", "instagram.comments.write") };
       },
     },
     messages: {
@@ -3463,26 +3513,41 @@ export function instagram(
     native: {
       async moderateComment({ account, commentId, hidden, context }) {
         authorize(account, context);
-        await request(
-          `/${encodeURIComponent(commentId)}`,
-          context,
-          undefined,
-          { hide: String(hidden) },
-          "POST",
+
+        confirmWrite(
+          await request(
+            `/${encodeURIComponent(commentId)}`,
+            context,
+            undefined,
+            { hide: String(hidden) },
+            "POST",
+          ),
+          "instagram.comments.moderate",
+          "Instagram did not confirm the comment visibility change. Read the comment before retrying.",
         );
       },
       async deleteComment({ account, commentId, context }) {
         authorize(account, context);
-        await request(`/${encodeURIComponent(commentId)}`, context, undefined, {}, "DELETE");
+
+        confirmWrite(
+          await request(`/${encodeURIComponent(commentId)}`, context, undefined, {}, "DELETE"),
+          "instagram.comments.delete",
+          "Instagram did not confirm the comment deletion. Read the comment before retrying.",
+        );
       },
       async setCommentsEnabled({ account, mediaId, enabled, context }) {
         authorize(account, context);
-        await request(
-          `/${encodeURIComponent(mediaId)}`,
-          context,
-          undefined,
-          { comment_enabled: String(enabled) },
-          "POST",
+
+        confirmWrite(
+          await request(
+            `/${encodeURIComponent(mediaId)}`,
+            context,
+            undefined,
+            { comment_enabled: String(enabled) },
+            "POST",
+          ),
+          "instagram.comments.settings",
+          "Instagram did not confirm the comment setting. Read the media before retrying.",
         );
       },
       async listCommentReplies({ account, commentId, cursor, limit, context }) {
@@ -3699,7 +3764,7 @@ export function instagram(
           operation: "instagram.media.upload",
         });
 
-        const created = validatedObject(
+        const created = writeObject(
           await request(
             `/${encodeURIComponent(account.accountId)}/media`,
             context,
@@ -3716,7 +3781,22 @@ export function instagram(
           "instagram.media.upload",
         );
 
-        return { containerId: string(created["id"]), uploadUri: ruploadUri(created["uri"]).href };
+        const containerId = writeId(created, "id", "instagram.media.upload");
+
+        try {
+          return { containerId, uploadUri: ruploadUri(created["uri"]).href };
+        } catch (cause) {
+          // The container exists, so the caller reconciles it instead of creating another.
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "instagram.media.upload",
+            message:
+              "Instagram created the upload container without a usable rupload URI. Read the container before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+            details: { containerId },
+            cause,
+          });
+        }
       },
       async uploadVideo({ account, uploadUri, source, context }) {
         authorize(account, context);
@@ -3929,7 +4009,7 @@ export function instagram(
         if (!/^\d{1,32}$/.test(mediaId))
           invalidOption("instagram.collaboration.write", "mediaId must be a numeric media ID.");
 
-        const result = validatedObject(
+        const result = writeObject(
           await request(
             `/${encodeURIComponent(account.accountId)}/collaboration_invites`,
             context,
@@ -4092,7 +4172,7 @@ export function instagram(
         authorize(account, context);
         requireFacebookLogin("instagram.events.write");
 
-        const result = validatedObject(
+        const result = writeObject(
           await request(
             `/${encodeURIComponent(account.accountId)}/upcoming_events`,
             context,
@@ -4101,7 +4181,7 @@ export function instagram(
           "instagram.events.write",
         );
 
-        return { id: string(result["id"]) };
+        return { id: writeId(result, "id", "instagram.events.write") };
       },
       async updateUpcomingEvent({ account, eventId, context, ...event }) {
         authorize(account, context);
@@ -4114,12 +4194,12 @@ export function instagram(
             "Supply at least one upcoming event field to update.",
           );
 
-        const result = validatedObject(
+        const result = writeObject(
           await request(`/${encodeURIComponent(eventId)}`, context, fields),
           "instagram.events.write",
         );
 
-        return { id: string(result["id"]) };
+        return { id: writeId(result, "id", "instagram.events.write") };
       },
       async listRecentlySearchedHashtags({ account, limit, cursor, context }) {
         authorize(account, context);
@@ -4138,12 +4218,12 @@ export function instagram(
         authorize(account, context);
         const message = nonEmptyText(text, "instagram.comments.write", "Comment text");
 
-        const result = validatedObject(
+        const result = writeObject(
           await request(`/${encodeURIComponent(mediaId)}/comments`, context, { message }),
           "instagram.comments.write",
         );
 
-        return { id: string(result["id"]) };
+        return { id: writeId(result, "id", "instagram.comments.write") };
       },
       async getComment({ account, commentId, context }) {
         authorize(account, context);
@@ -4196,7 +4276,7 @@ export function instagram(
         authorize(account, context);
         const message = nonEmptyText(text, "instagram.mentions.reply", "Mention reply text");
 
-        const result = validatedObject(
+        const result = writeObject(
           await request(`/${encodeURIComponent(account.accountId)}/mentions`, context, {
             media_id: nonEmptyText(mediaId, "instagram.mentions.reply", "mediaId"),
             message,
@@ -4205,7 +4285,7 @@ export function instagram(
           "instagram.mentions.reply",
         );
 
-        return { id: string(result["id"]) };
+        return { id: writeId(result, "id", "instagram.mentions.reply") };
       },
       async privateReply({ account, commentId, text, context }) {
         authorize(account, context);
@@ -4772,16 +4852,20 @@ export function instagram(
           stage: "unknown",
         });
 
-        const created = object(
+        const created = writeObject(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
             media_type: "REELS",
             video_url: videoUrl,
             ...definedFields({ caption: caption === "" ? undefined : caption }),
             ...fields,
           }),
+          "instagram.reels.publish",
         );
 
-        const ready = await saveNativeContainer(workflow.id, string(created["id"]));
+        const ready = await saveNativeContainer(
+          workflow.id,
+          writeId(created, "id", "instagram.reels.publish"),
+        );
 
         return resumeWorkflow(ready, account, context);
       },
@@ -4804,15 +4888,19 @@ export function instagram(
           stage: "unknown",
         });
 
-        const created = object(
+        const created = writeObject(
           await request(`/${encodeURIComponent(account.accountId)}/media`, context, {
             media_type: "STORIES",
             ...(videoUrl === undefined ? { image_url: mediaUrl } : { video_url: videoUrl }),
             ...fields,
           }),
+          "instagram.stories.publish",
         );
 
-        const ready = await saveNativeContainer(workflow.id, string(created["id"]));
+        const ready = await saveNativeContainer(
+          workflow.id,
+          writeId(created, "id", "instagram.stories.publish"),
+        );
 
         return resumeWorkflow(ready, account, context);
       },

@@ -2663,11 +2663,12 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     const { target, blob, context } = input;
     const path = `/${encodeURIComponent(pageId)}/videos`;
 
-    const started = object(
+    const started = writeObject(
       await videoRequest(path, context, { upload_phase: "start", file_size: blob.size }),
+      "facebook.videos.upload",
     );
 
-    const videoId = string(started["video_id"]);
+    const videoId = writeId(started, "video_id", "facebook.videos.upload");
 
     try {
       const sessionId = string(started["upload_session_id"]);
@@ -2681,7 +2682,11 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
         form.set("start_offset", String(start));
         form.set("video_file_chunk", blob.slice(start, end), "chunk");
 
-        const moved = object(await videoRequest(path, context, form));
+        const moved = writeObject(
+          await videoRequest(path, context, form),
+          "facebook.videos.upload",
+        );
+
         const next = byteOffset(moved["start_offset"], blob.size);
 
         if (next <= start)
@@ -2903,7 +2908,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     const first = media[0];
 
     if (media.length === 1 && first !== undefined && schedule === undefined) {
-      const result = object(
+      const result = writeObject(
         await request(
           options.albumId === undefined
             ? `${page}/photos`
@@ -2915,6 +2920,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
             ...photoOptionFields(options),
           }),
         ),
+        "facebook.posts.publish",
       );
 
       const postId = optionalString(result["post_id"]);
@@ -2922,7 +2928,12 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       // Meta returns no post_id for a photo added to an album; the ID is then a Photo node.
       // https://developers.facebook.com/docs/graph-api/reference/photo/ (checked 2026-11-04)
       return postId === undefined
-        ? published(target.account, target.targetIndex, string(result["id"]), "photo")
+        ? published(
+            target.account,
+            target.targetIndex,
+            writeId(result, "id", "facebook.posts.publish"),
+            "photo",
+          )
         : published(target.account, target.targetIndex, postId);
     }
 
@@ -2960,7 +2971,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
     try {
       for (const item of media) {
-        const uploaded = object(
+        const uploaded = writeObject(
           await request(
             `${page}/photos`,
             context,
@@ -2971,9 +2982,10 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
               alt_text_custom: item.altText,
             }),
           ),
+          "facebook.posts.publish",
         );
 
-        photoIds.push(string(uploaded["id"]));
+        photoIds.push(writeId(uploaded, "id", "facebook.posts.publish"));
       }
     } catch (error) {
       if (!(error instanceof SocialError)) throw error;
@@ -2985,13 +2997,14 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
     let result: JsonObject;
 
     try {
-      result = object(
+      result = writeObject(
         await request(`${page}/feed`, context, {
           attached_media: photoIds.map((id) => ({ media_fbid: id })),
           ...definedFields({ message: target.content.text }),
           ...feedOptionFields(options, undefined),
           ...scheduleFields(schedule),
         }),
+        "facebook.posts.publish",
       );
     } catch (error) {
       // An ambiguous answer may still have created the post, which needs its photos, so they
@@ -3007,7 +3020,7 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       return definiteFailure(error);
     }
 
-    const id = string(result["id"]);
+    const id = writeId(result, "id", "facebook.posts.publish");
 
     return schedule === undefined
       ? published(target.account, target.targetIndex, id)
@@ -3052,15 +3065,16 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       scheduleIssue(schedule.at, scheduleKind(format), "facebook.posts.schedule");
 
     if (format === "feed") {
-      const result = object(
+      const result = writeObject(
         await request(`${page}/feed`, context, {
           ...definedFields({ message: target.content.text, link: target.content.link?.url }),
           ...feedOptionFields(options, target.content.link?.url),
           ...scheduleFields(schedule),
         }),
+        "facebook.posts.publish",
       );
 
-      const id = string(result["id"]);
+      const id = writeId(result, "id", "facebook.posts.publish");
 
       return schedule === undefined
         ? published(target.account, target.targetIndex, id)
@@ -3111,11 +3125,12 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       )
         return uploadVideoInChunks({ target, blob: video.source.blob, fields, files, context });
 
-      const result = object(
+      const result = writeObject(
         await videoRequest(`${page}/videos`, context, mediaBody(video, "file_url", fields, files)),
+        "facebook.videos.upload",
       );
 
-      const id = string(result["id"]);
+      const id = writeId(result, "id", "facebook.videos.upload");
 
       return schedule === undefined
         ? processing(target.account, target.targetIndex, id, "VIDEO_SUBMITTED")
@@ -6101,13 +6116,14 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
         if (!content.text.trim()) fail("comments.write", "Facebook comment replies need text.");
 
-        const result = object(
+        const result = writeObject(
           await request(`/${encodeURIComponent(ref.commentId)}/comments`, context, {
             message: content.text,
           }),
+          "comments.write",
         );
 
-        return { ...ref, commentId: string(result["id"]) };
+        return { ...ref, commentId: writeId(result, "id", "comments.write") };
       },
     },
     messages,

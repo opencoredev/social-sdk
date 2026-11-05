@@ -254,6 +254,9 @@ test("Threads native reply management routes preserve fields and cursors", async
       const url = new URL(String(input));
       requests.push(url);
 
+      // Threads documents `{ success: true }` as the manage_reply answer.
+      if (url.pathname.endsWith("/manage_reply")) return Response.json({ success: true });
+
       return Response.json({
         data: [],
         paging: { cursors: { after: "next" }, next: "https://graph.threads.net/next" },

@@ -553,6 +553,26 @@ function fail(
   });
 }
 
+/**
+ * A dispatched write whose answer cannot be read may still have taken effect, so it is
+ * uncertain: the caller reconciles before retrying instead of repeating the write.
+ */
+function uncertain(operation: string, message: string): never {
+  throw new SocialError({
+    code: "ambiguous_outcome",
+    operation,
+    message: `${message} Reconcile before retrying.`,
+    retryDisposition: { kind: "reconcile-first" },
+  });
+}
+
+/** Threads answers moderation and deletion writes with `{ success: true }`. */
+function confirmWrite(result: JsonObject, operation: string, message: string): JsonObject {
+  if (result["success"] !== true) uncertain(operation, message);
+
+  return result;
+}
+
 // Meta counts emoji as UTF-8 bytes; ordinary Unicode remains character-counted.
 // RGI_Emoji includes flags, keycaps, modifiers and joined emoji sequences.
 function threadsTextLength(text: string): number {
@@ -1206,6 +1226,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       );
     } catch (e) {
       if (e instanceof SocialError) throw metaOAuthReconnect(e);
+
+      // The transport already reports a lost, unreadable or 5xx write answer as uncertain. A 2xx
+      // write answer that is not an object may still mean the write took effect.
+      if (init.method !== undefined && init.method !== "GET")
+        uncertain(operation, "Threads returned an unreadable answer to the write.");
       fail(operation, "Threads API request failed.");
     }
   }
@@ -1577,7 +1602,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       const childId = optionalString(child["id"]);
 
       if (childId === undefined)
-        fail("threads.container.child", "Threads did not return a child container ID.");
+        uncertain("threads.container.child", "Threads did not return a child container ID.");
       cur = await store.update(cur.id, {
         childIds: [...cur.childIds, childId],
         stage: "children",
@@ -1645,7 +1670,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       const parentId = optionalString(parent["id"]);
 
       if (parentId === undefined)
-        fail("threads.container.create", "Threads did not return a container ID.");
+        uncertain("threads.container.create", "Threads did not return a container ID.");
 
       // With auto_publish_text, Threads publishes during container creation. Its reference does
       // not say whether the returned ID is the container or the post, so the SDK neither calls
@@ -2410,14 +2435,19 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       const creationId = optionalString(container["id"]);
 
       if (creationId === undefined)
-        fail("threads.posts.quote", "Threads did not return a quote container ID.");
+        uncertain("threads.posts.quote", "Threads did not return a quote container ID.");
 
-      return request(
+      const result = await request(
         `${encodeURIComponent(account.accountId)}/threads_publish?creation_id=${encodeURIComponent(creationId)}`,
         { method: "POST" },
         "threads.posts.quote",
         context,
       );
+
+      if (optionalString(result["id"]) === undefined)
+        uncertain("threads.posts.quote", "Threads did not return the quote post ID.");
+
+      return result;
     },
     async repost({ account, postId, context }) {
       authorize(account, "threads.posts.repost");
@@ -2435,23 +2465,22 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       // The response carries the new repost's ID. Source, accessed 2026-11-04:
       // https://developers.facebook.com/documentation/threads/posts/reposts
       if (optionalString(result["id"]) === undefined)
-        throw new SocialError({
-          code: "ambiguous_outcome",
-          operation: "threads.posts.repost",
-          message: "Threads did not return a repost ID; reconcile before retrying.",
-          retryDisposition: { kind: "reconcile-first" },
-        });
+        uncertain("threads.posts.repost", "Threads did not return a repost ID.");
 
       return result;
     },
     async deletePost({ account, postId, context }) {
       authorize(account, "threads.posts.delete");
 
-      await request(
-        encodeURIComponent(postId),
-        { method: "DELETE" },
+      confirmWrite(
+        await request(
+          encodeURIComponent(postId),
+          { method: "DELETE" },
+          "threads.posts.delete",
+          context,
+        ),
         "threads.posts.delete",
-        context,
+        "Threads did not confirm the post deletion.",
       );
     },
     async search({
@@ -2532,11 +2561,15 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     async hideReply({ account, replyId, hide, context }) {
       authorize(account, "threads.comments.moderate");
 
-      return request(
-        `${encodeURIComponent(replyId)}/manage_reply?hide=${String(hide)}`,
-        { method: "POST" },
+      return confirmWrite(
+        await request(
+          `${encodeURIComponent(replyId)}/manage_reply?hide=${String(hide)}`,
+          { method: "POST" },
+          "threads.comments.moderate",
+          context,
+        ),
         "threads.comments.moderate",
-        context,
+        "Threads did not confirm the reply visibility change.",
       );
     },
     async deleteComment({ account, commentId, context }) {
@@ -2558,8 +2591,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         context,
       );
 
-      if (result["success"] !== true)
-        fail("threads.comments.delete", "Threads did not confirm the reply deletion.");
+      confirmWrite(
+        result,
+        "threads.comments.delete",
+        "Threads did not confirm the reply deletion.",
+      );
     },
     async listReplies({ account, mediaId, cursor, before, reverse, fields, context }) {
       authorize(account, "threads.comments.list");
@@ -2639,11 +2675,15 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     async managePendingReply({ account, replyId, approve, context }) {
       authorize(account, "threads.comments.moderate");
 
-      return request(
-        `${encodeURIComponent(replyId)}/manage_pending_reply?approve=${String(approve)}`,
-        { method: "POST" },
+      return confirmWrite(
+        await request(
+          `${encodeURIComponent(replyId)}/manage_pending_reply?approve=${String(approve)}`,
+          { method: "POST" },
+          "threads.comments.moderate",
+          context,
+        ),
         "threads.comments.moderate",
-        context,
+        "Threads did not confirm the pending reply decision.",
       );
     },
   };
@@ -3009,7 +3049,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         const creationId = optionalString(container["id"]);
 
         if (creationId === undefined)
-          fail("threads.comments.reply", "Threads did not return a reply container ID.");
+          uncertain("threads.comments.reply", "Threads did not return a reply container ID.");
 
         const result = await request(
           `${encodeURIComponent(comment.accountId)}/threads_publish?creation_id=${encodeURIComponent(creationId)}`,
