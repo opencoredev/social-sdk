@@ -103,7 +103,7 @@ interface Feature {
 
 interface Gap {
   readonly id: string;
-  readonly part: "src" | "test" | "docs" | "forbid";
+  readonly part: "src" | "test" | "docs" | "forbid" | "absent";
   readonly pattern: string;
 }
 
