@@ -1188,7 +1188,7 @@
         "operation: \\\"profile\\.update\\\""
       ],
       "test": [
-        "profile\\.update"
+        "feature:threads\\.account\\.update\\b"
       ],
       "docs": [
         "profile updates"
@@ -1528,7 +1528,7 @@
         "operation: \\\"messages\\.read\\\""
       ],
       "test": [
-        "messages\\.read"
+        "feature:threads\\.messaging\\b"
       ],
       "docs": [
         "messages, and notifications are declared `unsupported-by-platform`"

@@ -559,8 +559,7 @@
         "video\\.upload"
       ],
       "test": [
-        "/v2/post/publish/inbox/video/init/",
-        "video\\.upload"
+        "feature:tiktok\\.publish\\.video\\.inbox_upload\\b"
       ],
       "docs": [
         "video\\.upload",
@@ -1197,7 +1196,7 @@
         "user\\.info\\.stats"
       ],
       "test": [
-        "video\\.upload"
+        "feature:tiktok\\.auth\\.scope\\.video_upload_list_stats\\b"
       ],
       "docs": [
         "video\\.upload",

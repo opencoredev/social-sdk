@@ -414,16 +414,19 @@
     "effort": "S",
     "probe": {
       "src": [
-        "(?<![\\s\\S])(?![\\s\\S]*restricted to private visibility)"
+        "no longer forces uploads from unverified API projects to private"
       ],
       "test": [
-        "(?<![\\s\\S])(?![\\s\\S]*restricted to private visibility)"
+        "feature:youtube\\.publish\\.unverified_project_privacy\\b"
       ],
       "docs": [
-        "(?<![\\s\\S])(?![\\s\\S]*restricted to private visibility)"
+        "no longer forces videos uploaded from unverified API projects to private"
       ],
       "forbid": [
         "unaudited API projects created after July 28, 2020 are restricted to private visibility"
+      ],
+      "absent": [
+        "restricted to private visibility"
       ]
     }
   },

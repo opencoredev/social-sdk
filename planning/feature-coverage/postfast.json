@@ -711,16 +711,19 @@
     "effort": "S",
     "probe": {
       "src": [
-        "(?<![\\s\\S])(?![\\s\\S]*bluesky\\.video_unsupported)"
+        "PostFast posts one MP4 video up to 100 MB to Bluesky"
       ],
       "test": [
-        "(?<![\\s\\S])(?![\\s\\S]*bluesky\\.video_unsupported)"
+        "feature:postfast\\.publish\\.bluesky\\.video\\b"
       ],
       "docs": [
         "Bluesky[^\\n]*\\bvideos?\\b[^\\n]*(supported|allowed|accepted)"
       ],
       "forbid": [
         "Bluesky support for text and images only"
+      ],
+      "absent": [
+        "bluesky\\.video_unsupported"
       ]
     }
   },

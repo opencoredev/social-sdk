@@ -1649,7 +1649,7 @@
         "\\\"POST\\\""
       ],
       "test": [
-        "comments\\.reply"
+        "feature:facebook\\.comments\\.write\\b"
       ],
       "docs": [
         "comments\\.reply"

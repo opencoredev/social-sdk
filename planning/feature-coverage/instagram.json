@@ -1399,7 +1399,7 @@
         "/replies`, context, \\{"
       ],
       "test": [
-        "comments\\.reply\\("
+        "feature:instagram\\.comments\\.reply\\b"
       ],
       "docs": [
         "comments\\.reply"
@@ -2790,13 +2790,16 @@
     "effort": "M",
     "probe": {
       "src": [
-        "(?<![\\s\\S])(?![\\s\\S]*Facebook Login messaging uses the Messenger Platform)"
+        "on graph\\.facebook\\.com, which needs a Unified Login"
       ],
       "test": [
         "feature:instagram.messaging.facebook_hosted_tokens\\b"
       ],
       "docs": [
         "graph\\.facebook\\.com/\\{ig-user-id\\}/messages"
+      ],
+      "absent": [
+        "Facebook Login messaging uses the Messenger Platform"
       ]
     },
     "round": 2

@@ -12,7 +12,8 @@
 
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { JsonObject } from "../packages/social-sdk/src/core/types.js";
 import { isJsonValue } from "../packages/social-sdk/src/transport/json.js";
 import {
@@ -22,7 +23,7 @@ import {
   type JsonField,
 } from "../packages/social-sdk/src/transport/validation.js";
 
-const root = new URL("../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../", import.meta.url));
 
 const inventoryDir = join(root, "planning/feature-coverage");
 
@@ -69,6 +70,14 @@ const sharedSources = [
   "src/server/oauth-internal.ts",
 ];
 
+// Tests of the shared OAuth and webhook modules count for every provider, as their source does.
+const sharedTestModules = sharedSources.map((path) =>
+  path.replace(/^src/, "").replace(/\.ts$/, ".js"),
+);
+
+// Modules several managed adapters share; importing one does not make a test provider-specific.
+const sharedModules = new Set(["src/cloud/common.ts", "src/cloud/lifecycle.ts"]);
+
 const managedProviders = new Set(["zernio", "post-for-me", "postfast", "postiz", "buffer"]);
 
 const fullAccess = new Set(["public", "approval", "paid-tier", "beta"]);
@@ -80,6 +89,8 @@ interface Probe {
   readonly test: readonly RegExp[];
   readonly docs: readonly RegExp[];
   readonly forbid: readonly RegExp[];
+  /** Text that must be gone from the provider's source, its tests and its docs. */
+  readonly absent: readonly RegExp[];
 }
 
 interface Feature {
@@ -147,7 +158,15 @@ function decodeFeature(value: JsonField, where: string): Feature {
     test: patterns(rawProbe["test"], `${id}.probe.test`),
     docs: patterns(rawProbe["docs"], `${id}.probe.docs`),
     forbid: patterns(rawProbe["forbid"], `${id}.probe.forbid`),
+    absent: patterns(rawProbe["absent"], `${id}.probe.absent`),
   };
+
+  // A pattern that matches empty text passes against nothing, so it proves nothing.
+  // Use `absent` for text that must be gone.
+  for (const part of ["src", "test", "docs"] as const)
+    for (const pattern of probe[part])
+      if (pattern.test(""))
+        throw new Error(`${id}.probe.${part} matches empty text: ${pattern.source}`);
 
   if (scope === "core" && probe.docs.length === 0) throw new Error(`${id} needs a docs probe`);
 
@@ -263,6 +282,11 @@ async function main(): Promise<void> {
   const onlyIndex = args.indexOf("--provider");
   const only = onlyIndex === -1 ? undefined : args[onlyIndex + 1];
 
+  if (onlyIndex !== -1 && (only === undefined || !providerSources.has(only)))
+    throw new Error(
+      `--provider needs one of: ${[...providerSources.keys()].join(", ")} (got ${only ?? "nothing"})`,
+    );
+
   const features: Feature[] = [];
   const seen = new Set<string>();
 
@@ -287,7 +311,35 @@ async function main(): Promise<void> {
 
   const testFiles = await listFiles(join(sdkDir, "tests"), ".ts");
 
-  const tests = (await Promise.all(testFiles.map(async (path) => readText(path)))).join("\n");
+  const testTexts = await Promise.all(
+    testFiles.map(async (path) => ({ name: basename(path), text: await readText(path) })),
+  );
+
+  // Tagged probes (`feature:<id>`) may sit in any test file. Other test probes only count in
+  // the provider's own test files: named after it, or importing one of its adapter modules.
+  const allTests = testTexts.map(({ text }) => text).join("\n");
+
+  const providerTests = new Map<string, string>();
+
+  for (const [provider, paths] of providerSources) {
+    const modules = paths
+      .filter((path) => !sharedModules.has(path))
+      .map((path) => path.replace(/^src/, "").replace(/\.ts$/, ".js"));
+
+    providerTests.set(
+      provider,
+      testTexts
+        .filter(
+          ({ name, text }) =>
+            name.startsWith(`${provider}-`) ||
+            name === `${provider}.test.ts` ||
+            modules.some((module) => text.includes(module)) ||
+            sharedTestModules.some((module) => text.includes(module)),
+        )
+        .map(({ text }) => text)
+        .join("\n"),
+    );
+  }
 
   const allDocs = (
     await Promise.all((await listFiles(docsDir, ".mdx")).map(async (path) => readText(path)))
@@ -337,12 +389,26 @@ async function main(): Promise<void> {
           gaps.push({ id: feature.id, part: "src", pattern: pattern.source });
 
       for (const pattern of feature.probe.test)
-        if (!pattern.test(tests))
+        if (
+          !pattern.test(
+            pattern.source.startsWith("feature:")
+              ? allTests
+              : (providerTests.get(feature.provider) ?? ""),
+          )
+        )
           gaps.push({ id: feature.id, part: "test", pattern: pattern.source });
     }
 
     for (const pattern of feature.probe.docs)
       if (!pattern.test(docs)) gaps.push({ id: feature.id, part: "docs", pattern: pattern.source });
+
+    for (const pattern of feature.probe.absent)
+      if (
+        pattern.test(source) ||
+        pattern.test(providerTests.get(feature.provider) ?? "") ||
+        pattern.test(docs)
+      )
+        gaps.push({ id: feature.id, part: "absent", pattern: pattern.source });
 
     for (const pattern of feature.probe.forbid)
       if (pattern.test(allDocs))
