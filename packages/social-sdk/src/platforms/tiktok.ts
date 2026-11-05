@@ -1829,7 +1829,7 @@ export function tiktok(
             () => undefined,
           );
           response = await abortable(pending, controller.signal);
-        } catch (error) {
+        } catch {
           context.signal?.removeEventListener("abort", abort);
           throw new SocialError({
             code: context.signal?.aborted
@@ -1838,8 +1838,8 @@ export function tiktok(
                 ? "timeout"
                 : "upstream_failure",
             operation: "native",
+            // The transport error can carry request details; keep only the classification.
             message: "The TikTok data download request did not complete.",
-            cause: error,
           });
         } finally {
           clearTimeout(timer);
@@ -1896,7 +1896,7 @@ export function tiktok(
 
             try {
               next = await abortable(reader.read(), controller.signal);
-            } catch (error) {
+            } catch {
               release();
               void reader.cancel().catch(() => undefined);
               stream.error(
@@ -1904,7 +1904,6 @@ export function tiktok(
                   code: context.signal?.aborted ? "cancelled" : "upstream_failure",
                   operation: "native",
                   message: "The TikTok data archive stream did not complete.",
-                  cause: error,
                 }),
               );
 

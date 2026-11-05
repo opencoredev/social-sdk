@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
@@ -234,4 +235,62 @@ it("TikTok cancels the body of a rate-limited portability download", async () =>
     (error: SocialError) => error.code === "rate_limited",
   );
   assert.equal(cancelled, true);
+});
+
+it("TikTok data download failures keep no transport error that could carry request details", async () => {
+  const secret = "https://open.tiktokapis.com/v2/user/data/download/?token=fixture-private";
+
+  const failing = tiktok({
+    auth: { accessToken: "review-fixture", openId: "review-creator" },
+    verifiedMediaOrigins: [],
+    fetch: async () => {
+      throw new TypeError(`connect failed for ${secret}`);
+    },
+  });
+
+  assert.ok(failing.native);
+
+  const context = {
+    backendInstance: "default",
+    correlationId: "privacy-download",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 1000 },
+  };
+
+  await assert.rejects(
+    failing.native.downloadDataRequest({ account, requestId: "123451234512345", context }),
+    (error: SocialError) =>
+      error instanceof SocialError &&
+      error.cause === undefined &&
+      !inspect(error, { depth: 5 }).includes("fixture-private"),
+  );
+
+  const streaming = tiktok({
+    auth: { accessToken: "review-fixture", openId: "review-creator" },
+    verifiedMediaOrigins: [],
+    fetch: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull() {
+            throw new TypeError(`socket reset for ${secret}`);
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/zip" } },
+      ),
+  });
+
+  assert.ok(streaming.native);
+
+  const stream = await streaming.native.downloadDataRequest({
+    account,
+    requestId: "123451234512345",
+    context,
+  });
+
+  await assert.rejects(
+    new Response(stream).arrayBuffer(),
+    (error: SocialError) =>
+      error instanceof SocialError &&
+      error.cause === undefined &&
+      !inspect(error, { depth: 5 }).includes("fixture-private"),
+  );
 });
