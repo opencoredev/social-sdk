@@ -7,6 +7,8 @@ import {
   profileRef,
   type AccountRecord,
   type AdapterOperationContext,
+  type BlueskyBlobRef,
+  type BlueskyPublishOptions,
   type CapabilityManifest,
   type CommentRef,
   type ConnectedAccountRef,
@@ -26,16 +28,19 @@ import {
 import { SocialError } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
 import { normalizeComment, normalizeMetrics } from "../core/projections.js";
-import { abortable, createHttp, HttpError } from "../transport/http.js";
+import { abortable, createHttp, HttpError, type HttpErrorData } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
+import { parseJson } from "../transport/json.js";
 import {
   array,
   isBoolean,
   isFiniteNumber,
+  isJsonObject,
   isString,
   object,
   optionalNumber,
+  optionalObject,
   optionalString,
   string,
   type JsonField,
@@ -52,6 +57,17 @@ const DEFAULT_VIDEO_SERVICE = "https://video.bsky.app";
 
 /** Bluesky's video guide recommends a 30 minute upload token lifetime. */
 const VIDEO_UPLOAD_TOKEN_SECONDS = 30 * 60;
+
+/**
+ * Videos larger than this go through the multipart upload from `media.upload`. Smaller ones use
+ * the single `app.bsky.video.uploadVideo` request.
+ */
+const MULTIPART_VIDEO_MIN_BYTES = 50_000_000;
+
+/** A part upload mints a fresh service token when the current one expires within this window. */
+const VIDEO_TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+const VIDEO_UPLOAD_JOB_ID = /^[\x21-\x7e]{1,256}$/;
 
 export interface BlueskyAuthorization {
   readonly service: string;
@@ -98,6 +114,56 @@ export interface BlueskyVideoJob {
   readonly message?: string;
 }
 
+/** A multipart upload session opened by `app.bsky.video.startUpload`. */
+export interface BlueskyVideoUploadSession {
+  /** Upload job ID used by `uploadVideoPart`, `finishVideoUpload`, and the status calls. */
+  readonly jobId: string;
+  /** Size of every part except the last, which carries the remainder. */
+  readonly partSizeBytes: number;
+  readonly partCount: number;
+  /** When the service discards an unfinished session. */
+  readonly expiresAt: string;
+}
+
+/** Receipt for one part from `app.bsky.video.uploadPart`. */
+export interface BlueskyVideoPartReceipt {
+  readonly partNumber: number;
+  readonly sizeBytes: number;
+}
+
+/** Output of `app.bsky.video.getUploadStatus`. */
+export interface BlueskyVideoUploadStatus {
+  readonly jobId: string;
+  readonly partSizeBytes: number;
+  readonly partCount: number;
+  /** Part numbers the service has recorded. Re-send the others before finishing. */
+  readonly receivedParts: readonly number[];
+  readonly expiresAt: string;
+  /** `created`, `finishing`, `completed`, `failed`, `aborted`, `expired`, or a newer value. */
+  readonly state: string;
+  /** Present when `state` is `completed`. Poll `getVideoJobStatus` with this ID. */
+  readonly completedJobId?: string;
+  /** Present when `state` is `completed`. */
+  readonly job?: BlueskyVideoJob;
+  /** Present when `state` is `failed`. */
+  readonly failureReason?: string;
+}
+
+/** Output of `app.bsky.video.abortUpload`. */
+export interface BlueskyVideoUploadAbortResult {
+  /** `aborted`, or the terminal outcome the session already had: `completed`, `failed`, `expired`. */
+  readonly state: string;
+  readonly completedJobId?: string;
+  readonly failureReason?: string;
+}
+
+/** Advisory media properties the video service uses only to fail early. */
+export interface BlueskyVideoUploadHints {
+  readonly durationMs?: number;
+  readonly width?: number;
+  readonly height?: number;
+}
+
 /** Output of `app.bsky.video.getUploadLimits` for the configured account. */
 export interface BlueskyVideoUploadLimits {
   readonly canUpload: boolean;
@@ -137,19 +203,109 @@ export interface BlueskySearchPostsResult {
   readonly hitsTotal?: number;
 }
 
+/** A threadgate allow rule: who may reply to a root post. */
+export type BlueskyReplyRule = NonNullable<BlueskyPublishOptions["replyControls"]>[number];
+
+/** One post inside a server-side draft (`app.bsky.draft.defs#draftPost`). */
+export interface BlueskyDraftPost {
+  /** Up to 10,000 bytes; drafts hold more than a post so it can be split later. */
+  readonly text: string;
+  readonly contentLabels?: BlueskyPublishOptions["contentLabels"];
+  /** URL for a link card, stored as `embedExternals`. */
+  readonly linkUrl?: string;
+  /** Post to quote, stored as `embedRecords`. */
+  readonly quote?: BlueskyPostRef;
+  /**
+   * Up to 4 images, stored as `embedImages`. Paths are local to the device that saved the
+   * draft (`deviceId`); Bluesky stores no image bytes with a draft.
+   */
+  readonly images?: readonly BlueskyDraftMedia[];
+  /** Up to 20 images for a gallery, stored as `embedGallery`. */
+  readonly gallery?: readonly BlueskyDraftMedia[];
+  /** One video, stored as `embedVideos`, with up to 20 caption tracks as text. */
+  readonly video?: BlueskyDraftMedia & {
+    readonly captions?: readonly { readonly lang: string; readonly content: string }[];
+  };
+}
+
+/** A device-local media reference in a draft (`app.bsky.draft.defs#draftEmbedLocalRef`). */
+export interface BlueskyDraftMedia {
+  /** File path on the saving device, 1 to 1,024 characters. */
+  readonly path: string;
+  /** Alt text, up to 2,000 graphemes. */
+  readonly alt?: string;
+}
+
+/** A server-side draft (`app.bsky.draft.defs#draft`): one post or a thread of up to 100. */
+export interface BlueskyDraft {
+  readonly posts: readonly BlueskyDraftPost[];
+  readonly languages?: readonly string[];
+  /** Threadgate rules to apply when the draft is published. */
+  readonly replyControls?: readonly BlueskyReplyRule[];
+  /** Write a postgate `disableRule` when the draft is published. */
+  readonly disableQuotes?: boolean;
+  readonly deviceId?: string;
+  readonly deviceName?: string;
+}
+
+/** One record operation inside a com.atproto.repo.applyWrites transaction. */
+export type BlueskyWrite =
+  | {
+      readonly action: "create";
+      readonly collection: string;
+      /** Omit to let the PDS assign a TID. */
+      readonly rkey?: string;
+      readonly value: JsonObject;
+    }
+  | {
+      readonly action: "update";
+      readonly collection: string;
+      readonly rkey: string;
+      readonly value: JsonObject;
+    }
+  | { readonly action: "delete"; readonly collection: string; readonly rkey: string };
+
+export interface BlueskyWriteResult {
+  readonly action: BlueskyWrite["action"];
+  /** Absent for deletes. */
+  readonly uri?: string;
+  readonly cid?: string;
+  readonly validationStatus?: "valid" | "unknown";
+}
+
+export interface BlueskyApplyWritesResult {
+  readonly commit?: { readonly cid: string; readonly rev: string };
+  readonly results: readonly BlueskyWriteResult[];
+}
+
 export interface BlueskyNative {
   readonly getPost: (input: {
     readonly uri: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /** Hydrates up to 25 posts by AT-URI with one `app.bsky.feed.getPosts` call. */
+  readonly getPosts: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly uris: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
   readonly getPostThread: (input: {
     readonly uri: string;
+    /** Reply levels to include, 0 to 1000. Bluesky's default is 6. */
+    readonly depth?: number;
+    /** Parent levels to include, 0 to 1000. Bluesky's default is 80. */
+    readonly parentHeight?: number;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
   readonly searchPosts: (input: BlueskySearchPostsInput) => Promise<BlueskySearchPostsResult>;
   readonly likePost: (input: {
     readonly post: BlueskyPostRef;
     readonly account: ConnectedAccountRef;
+    /**
+     * The `app.bsky.feed.repost` record the post was seen through. Stored as the like's `via`
+     * strongRef so the reposter gets a `like-via-repost` notification.
+     */
+    readonly via?: BlueskyPostRef;
     readonly context?: AdapterOperationContext;
   }) => Promise<{ readonly uri: string; readonly cid: string }>;
   readonly unlikePost: (input: {
@@ -160,6 +316,8 @@ export interface BlueskyNative {
   readonly repostPost: (input: {
     readonly post: BlueskyPostRef;
     readonly account: ConnectedAccountRef;
+    /** The repost record the post was seen through, stored as the repost's `via` strongRef. */
+    readonly via?: BlueskyPostRef;
     readonly context?: AdapterOperationContext;
   }) => Promise<BlueskyPostRef>;
   readonly quotePost: (input: {
@@ -196,9 +354,73 @@ export interface BlueskyNative {
     readonly account: ConnectedAccountRef;
     readonly context?: AdapterOperationContext;
   }) => Promise<BlueskyVideoUploadLimits>;
+  /**
+   * Uploads one MP4 in parts: `app.bsky.video.startUpload`, one `uploadPart` request per part in
+   * order, then `finishUpload`. Returns the processing job without waiting for it; poll
+   * `getVideoJobStatus` with the returned `jobId`. It never retries a request or aborts the
+   * session on its own. A failure after the session opened carries the upload job ID in
+   * `error.details.uploadJobId`, so the caller can resume with `getVideoUploadStatus`,
+   * `uploadVideoPart`, and `finishVideoUpload`, or release the quota with `abortVideoUpload`.
+   */
+  readonly uploadVideoMultipart: (
+    input: {
+      readonly account: ConnectedAccountRef;
+      readonly video: Blob;
+      readonly mimeType?: string;
+      /** File name reported to the video service. Defaults to `video.mp4`. */
+      readonly name?: string;
+      readonly context?: AdapterOperationContext;
+    } & BlueskyVideoUploadHints,
+  ) => Promise<BlueskyVideoJob>;
+  /** Opens a multipart upload session with `app.bsky.video.startUpload`. */
+  readonly startVideoUpload: (
+    input: {
+      readonly account: ConnectedAccountRef;
+      /** Exact byte size of the whole video. */
+      readonly sizeBytes: number;
+      readonly mimeType?: "video/mp4";
+      readonly name?: string;
+      readonly context?: AdapterOperationContext;
+    } & BlueskyVideoUploadHints,
+  ) => Promise<BlueskyVideoUploadSession>;
+  /**
+   * Sends one part with `app.bsky.video.uploadPart`. Part `n` (from 1) holds bytes
+   * `(n - 1) * partSizeBytes` up to `n * partSizeBytes` of the video; the service rejects any
+   * other length. Parts are idempotent, so a part can be sent again.
+   */
+  readonly uploadVideoPart: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly jobId: string;
+    readonly partNumber: number;
+    readonly part: Blob;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoPartReceipt>;
+  /**
+   * Finishes a multipart upload with `app.bsky.video.finishUpload` and returns the processing
+   * job. On deduplication the returned `jobId` differs from the upload job ID; poll with it.
+   */
+  readonly finishVideoUpload: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly jobId: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoJob>;
+  /** Reads a multipart upload session once with `app.bsky.video.getUploadStatus`. */
+  readonly getVideoUploadStatus: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly jobId: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoUploadStatus>;
+  /** Aborts an unfinished session with `app.bsky.video.abortUpload`, releasing its quota. */
+  readonly abortVideoUpload: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly jobId: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVideoUploadAbortResult>;
   readonly follow: (input: {
     readonly account: ConnectedAccountRef;
     readonly did: string;
+    /** The `app.bsky.graph.starterpack` record the follow came from, stored as `via`. */
+    readonly via?: BlueskyPostRef;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
   readonly unfollow: (input: {
@@ -219,6 +441,10 @@ export interface BlueskyNative {
   readonly mute: (input: {
     readonly account: ConnectedAccountRef;
     readonly did: string;
+    /** Mute only this actor's reposts instead of the whole account. */
+    readonly onlyReposts?: boolean;
+    /** Mute only this actor's quote posts instead of the whole account. */
+    readonly onlyQuoteposts?: boolean;
     readonly context?: AdapterOperationContext;
   }) => Promise<void>;
   readonly unmute: (input: {
@@ -226,8 +452,8 @@ export interface BlueskyNative {
     readonly did: string;
     readonly context?: AdapterOperationContext;
   }) => Promise<void>;
-  readonly getFollowers: (input: BlueskyActorPageInput) => Promise<BlueskyActorPageResult>;
-  readonly getFollows: (input: BlueskyActorPageInput) => Promise<BlueskyActorPageResult>;
+  readonly getFollowers: (input: BlueskyFollowPageInput) => Promise<BlueskyActorPageResult>;
+  readonly getFollows: (input: BlueskyFollowPageInput) => Promise<BlueskyActorPageResult>;
   readonly getMutes: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
   readonly getBlocks: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
   readonly getLikes: (input: BlueskyPostPageInput) => Promise<BlueskyLikePageResult>;
@@ -247,9 +473,65 @@ export interface BlueskyNative {
         | "posts_with_replies"
         | "posts_no_replies"
         | "posts_with_media"
-        | "posts_and_author_threads";
+        | "posts_and_author_threads"
+        | "posts_with_video";
+      /** Include the actor's pinned post at the top of the first page. */
+      readonly includePins?: boolean;
     },
   ) => Promise<BlueskyFeedPageResult>;
+  /** Recent posts and reposts from the members of a list. */
+  readonly getListFeed: (
+    input: BlueskyPageInput & { readonly listUri: string },
+  ) => Promise<BlueskyFeedPageResult>;
+  /** Posts that quote a post. `cid` narrows to one version of the record. */
+  readonly getQuotes: (input: BlueskyPostPageInput) => Promise<BlueskyPage>;
+  /** Actors who reposted a post. */
+  readonly getRepostedBy: (input: BlueskyPostPageInput) => Promise<BlueskyPage>;
+  /** Feed generators an actor created. */
+  readonly getActorFeeds: (input: BlueskyActorPageInput) => Promise<BlueskyPage>;
+  /** One feed generator view plus its online and validity flags. */
+  readonly getFeedGenerator: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly feed: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly getFeedGenerators: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly feeds: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Detailed profile views for up to 25 actors (DIDs or handles). */
+  readonly getProfiles: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly actors: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Suggested accounts to follow (`app.bsky.actor.getSuggestions`). */
+  readonly getSuggestions: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
+  /** Accounts similar to one actor (`app.bsky.graph.getSuggestedFollowsByActor`). */
+  readonly getSuggestedFollowsByActor: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly actor: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyActorPageResult>;
+  /** Follow, block, and list-membership relationships between one actor and up to 30 others. */
+  readonly getRelationships: (input: {
+    readonly account: ConnectedAccountRef;
+    /** Defaults to the configured account. */
+    readonly actor?: string;
+    readonly others: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Followers of `actor` whom the configured account also follows. */
+  readonly getKnownFollowers: (
+    input: BlueskyPageInput & { readonly actor: string },
+  ) => Promise<BlueskyActorPageResult>;
+  /** Reads an actor's verification state from their profile view. */
+  readonly getVerificationState: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly actor?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyVerificationState | undefined>;
   readonly searchActors: (input: BlueskyActorSearchInput) => Promise<BlueskyActorPageResult>;
   readonly searchActorsTypeahead: (
     input: BlueskyActorSearchInput,
@@ -265,11 +547,123 @@ export interface BlueskyNative {
   readonly unmuteList: (input: BlueskyListActionInput) => Promise<void>;
   readonly blockList: (input: BlueskyListActionInput) => Promise<void>;
   readonly unblockList: (input: BlueskyListActionInput) => Promise<void>;
+  /** Moderation lists the configured account blocks. */
+  readonly getListBlocks: (input: BlueskyPageInput) => Promise<BlueskyPage>;
+  /** Moderation lists the configured account mutes. */
+  readonly getListMutes: (input: BlueskyPageInput) => Promise<BlueskyPage>;
+  /** The configured account's curate and mod lists, each with `actor`'s membership. */
+  readonly getListsWithMembership: (
+    input: BlueskyPageInput & {
+      readonly actor: string;
+      readonly purposes?: readonly ("modlist" | "curatelist")[];
+    },
+  ) => Promise<BlueskyPage>;
+  /** Mutes notifications from a thread and its replies. Mutes are private. */
+  readonly muteThread: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly rootUri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly unmuteThread: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly rootUri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /**
+   * Creates an `app.bsky.graph.starterpack` record. The list must be a reference list
+   * (`app.bsky.graph.defs#referencelist`) owned by this account.
+   */
+  readonly createStarterPack: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly name: string;
+    readonly listUri: string;
+    readonly description?: string;
+    /** Up to three feed generator AT-URIs to suggest. */
+    readonly feeds?: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  readonly deleteStarterPack: (input: BlueskyOwnedRecordInput) => Promise<void>;
+  readonly getStarterPack: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly uri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly getStarterPacks: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly uris: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  readonly getActorStarterPacks: (input: BlueskyActorPageInput) => Promise<BlueskyPage>;
+  readonly searchStarterPacks: (input: BlueskyActorSearchInput) => Promise<BlueskyPage>;
+  /** Removes this account's repost record. Only repost URIs in this repository are accepted. */
+  readonly unrepostPost: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly repostUri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Private bookmarks. Bluesky currently accepts `app.bsky.feed.post` records only. */
+  readonly createBookmark: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly post: BlueskyPostRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly deleteBookmark: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly uri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly getBookmarks: (input: BlueskyPageInput) => Promise<BlueskyPage>;
+  /** Labeler service views by DID; `detailed` adds each service's label policies. */
+  readonly getLabelerServices: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly dids: readonly string[];
+    readonly detailed?: boolean;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Labels on subjects matching AT-URI patterns (a trailing `*` matches a prefix). */
+  readonly queryLabels: (
+    input: BlueskyPageInput & {
+      readonly uriPatterns: readonly string[];
+      readonly sources?: readonly string[];
+    },
+  ) => Promise<BlueskyPage>;
   readonly createModerationReport: (input: BlueskyModerationReportInput) => Promise<JsonObject>;
   readonly listNotifications: (input: {
     readonly account: ConnectedAccountRef;
     readonly cursor?: string;
     readonly limit?: number;
+    /** Only these notification reasons, for example `["mention", "reply", "quote"]`. */
+    readonly reasons?: readonly string[];
+    /** Only notifications from accounts the user marked as priority. */
+    readonly priority?: boolean;
+    readonly seenAt?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly getUnreadNotificationCount: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly priority?: boolean;
+    readonly seenAt?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<number>;
+  /** Reads push and in-app notification preferences per notification type. */
+  readonly getNotificationPreferences: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Changes only the supplied notification types with `putPreferencesV2`; returns the result. */
+  readonly putNotificationPreferences: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly preferences: BlueskyNotificationPreferences;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Accounts whose new posts or replies notify the configured account. */
+  readonly listActivitySubscriptions: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
+  /** Subscribes to (or, with both flags false, unsubscribes from) an account's activity. */
+  readonly putActivitySubscription: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly subject: string;
+    readonly post: boolean;
+    readonly reply: boolean;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
   readonly markNotificationsSeen: (input: {
@@ -282,9 +676,59 @@ export interface BlueskyNative {
     readonly account: ConnectedAccountRef;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /**
+   * Replaces the whole `app.bsky.actor.profile/self` record. Pass the CID you read as
+   * `swapRecord` so the PDS rejects the write if the profile changed since. Prefer editProfile.
+   */
   readonly updateProfile: (input: {
     readonly account: ConnectedAccountRef;
     readonly profile: JsonObject;
+    readonly swapRecord?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /**
+   * Changes only the given profile fields. It reads the stored record, merges the changes
+   * (`null` removes a field), and writes it back with the read CID as `swapRecord`.
+   */
+  readonly editProfile: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly changes: BlueskyProfileChanges;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /** Pins one of this account's posts to the profile, or unpins with `post: null`. */
+  readonly pinPost: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly post: BlueskyPostRef | null;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /**
+   * Marks the account as live with an `app.bsky.actor.status` record linking to the stream.
+   * Replaces any current status.
+   */
+  readonly setLiveStatus: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly url: string;
+    readonly title?: string;
+    readonly description?: string;
+    readonly thumb?: BlueskyBlobRef;
+    /** How long the status lasts, in whole minutes (at least 1). */
+    readonly durationMinutes: number;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /** Ends the live status by deleting the status record. */
+  readonly clearLiveStatus: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Private account preferences: saved feeds, muted words, content label settings, and more. */
+  readonly getPreferences: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Replaces the entire preference list. Read, change, and write back the full array. */
+  readonly putPreferences: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly preferences: readonly JsonObject[];
     readonly context?: AdapterOperationContext;
   }) => Promise<void>;
   readonly listFeeds: (input: {
@@ -297,6 +741,14 @@ export interface BlueskyNative {
     readonly account: ConnectedAccountRef;
     readonly cursor?: string;
     readonly limit?: number;
+    /** `direct` or `group` conversations only. */
+    readonly kind?: "direct" | "group";
+    /** `accepted` or `request` conversations only; prefer listConvoRequests for requests. */
+    readonly status?: "accepted" | "request";
+    /** Only conversations with unread messages. */
+    readonly unreadOnly?: boolean;
+    /** Group chats by lock state: `unlocked`, `locked`, or `locked-permanently`. */
+    readonly lockStatus?: "unlocked" | "locked" | "locked-permanently";
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
   readonly listMessages: (input: {
@@ -306,17 +758,899 @@ export interface BlueskyNative {
     readonly limit?: number;
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
-  readonly sendMessage: (input: {
+  /**
+   * Sends one message. Links and hashtags in the text become facets, `mentions` adds DID
+   * mentions at UTF-8 offsets, and `embedPost` shares a post as an `app.bsky.embed.record`.
+   */
+  readonly sendMessage: (
+    input: BlueskyMessageInput & {
+      readonly account: ConnectedAccountRef;
+      readonly conversationId: string;
+      readonly context?: AdapterOperationContext;
+    },
+  ) => Promise<JsonObject>;
+  /** Sends up to 100 messages, possibly to different conversations, in one call. */
+  readonly sendMessageBatch: (input: {
     readonly account: ConnectedAccountRef;
-    readonly conversationId: string;
-    readonly text: string;
+    readonly items: readonly (BlueskyMessageInput & { readonly conversationId: string })[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Gets or creates the direct conversation with the given members (DIDs, at most 10). */
+  readonly getConvoForMembers: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly members: readonly string[];
     readonly context?: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /** Checks whether a direct chat with the members is allowed, without creating one. */
+  readonly getConvoAvailability: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly members: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly canChat: boolean; readonly convo?: JsonObject }>;
+  readonly getConversation: (input: BlueskyConvoInput) => Promise<JsonObject>;
+  /** Incoming message requests and group join requests. Marked unstable by Bluesky. */
+  readonly listConvoRequests: (input: BlueskyPageInput) => Promise<BlueskyPage>;
+  /** Accepts a message request. Returns the accept `rev`, absent if already accepted. */
+  readonly acceptConvo: (input: BlueskyConvoInput) => Promise<{ readonly rev?: string }>;
+  readonly addReaction: (input: BlueskyReactionInput) => Promise<JsonObject>;
+  readonly removeReaction: (input: BlueskyReactionInput) => Promise<JsonObject>;
+  /** Marks a conversation read up to `messageId`, or to the latest message. */
+  readonly markConversationRead: (
+    input: BlueskyConvoInput & { readonly messageId?: string },
+  ) => Promise<JsonObject>;
+  /** Marks every conversation (optionally only `accepted` or `request`) read. */
+  readonly markAllConversationsRead: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly status?: "accepted" | "request";
+    readonly context?: AdapterOperationContext;
+  }) => Promise<number>;
+  readonly muteConversation: (input: BlueskyConvoInput) => Promise<JsonObject>;
+  readonly unmuteConversation: (input: BlueskyConvoInput) => Promise<JsonObject>;
+  /** Leaves a conversation. For a direct chat it only hides the conversation for this user. */
+  readonly leaveConversation: (input: BlueskyConvoInput) => Promise<{ readonly rev: string }>;
+  /** Deletes a message for this user only; other members still see it. */
+  readonly deleteMessageForSelf: (
+    input: BlueskyConvoInput & { readonly messageId: string },
+  ) => Promise<JsonObject>;
+  /** Reads chat events after `cursor` (new messages, reactions, read and membership changes). */
+  readonly getChatLog: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly cursor?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly logs: readonly JsonObject[]; readonly cursor?: string }>;
+  /** Group chats. Bluesky marks these endpoints unstable while under active development. */
+  readonly createGroupChat: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly name: string;
+    /** Member DIDs, at most 49 besides the creator. */
+    readonly members: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  readonly renameGroupChat: (
+    input: BlueskyConvoInput & { readonly name: string },
+  ) => Promise<JsonObject>;
+  /** Adds members in `request` status; each must accept. */
+  readonly addGroupChatMembers: (
+    input: BlueskyConvoInput & { readonly members: readonly string[] },
+  ) => Promise<JsonObject>;
+  readonly removeGroupChatMembers: (
+    input: BlueskyConvoInput & { readonly members: readonly string[] },
+  ) => Promise<JsonObject>;
   /**
    * Hides or unhides a reply in a thread whose root post belongs to this account.
    * Updates the root post's `app.bsky.feed.threadgate` record `hiddenReplies` list.
    */
   readonly hideReply: (input: BlueskyHideReplyInput) => Promise<BlueskyHideReplyResult>;
+  /**
+   * Uploads one blob with `com.atproto.repo.uploadBlob` and returns its reference for a record:
+   * profile avatars and banners, link-card thumbnails, or video caption files. The PDS deletes a
+   * blob that no record references within a few minutes.
+   */
+  readonly uploadBlob: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly blob: Blob;
+    /** Defaults to the Blob's own type. Required when the Blob has none. */
+    readonly mimeType?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyBlobRef>;
+  /**
+   * Replaces the reply rules on one of this account's root posts. `allow: null` removes the
+   * rules so anyone can reply; `[]` lets nobody reply. Hidden replies are kept. The write uses
+   * the read record's CID as `swapRecord`, so a concurrent change fails instead of being lost.
+   */
+  readonly setThreadgate: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postUri: string;
+    readonly allow: readonly BlueskyReplyRule[] | null;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /** Turns quoting of one of this account's posts off or back on with a postgate `disableRule`. */
+  readonly setQuotesDisabled: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postUri: string;
+    readonly disabled: boolean;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /**
+   * Detaches (or reattaches) this account's post from another post that quotes it, through the
+   * postgate `detachedEmbeddingUris` list (at most 50 URIs).
+   */
+  readonly detachQuote: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postUri: string;
+    readonly quoteUri: string;
+    readonly detached: boolean;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /** Stores a private server-side draft with `app.bsky.draft.createDraft`. */
+  readonly createDraft: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly draft: BlueskyDraft;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly id: string }>;
+  /** Lists this account's drafts with `app.bsky.draft.getDrafts`. */
+  readonly listDrafts: (input: BlueskyPageInput) => Promise<{
+    readonly drafts: readonly JsonObject[];
+    readonly cursor?: string;
+  }>;
+  /** Replaces a draft. Bluesky silently ignores an ID that does not exist. */
+  readonly updateDraft: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly id: string;
+    readonly draft: BlueskyDraft;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly deleteDraft: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly id: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Applies creates, updates, and deletes to this account's repository in one transaction. */
+  readonly applyWrites: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly writes: readonly BlueskyWrite[];
+    /** `false` skips lexicon validation on the PDS; omit to use the PDS default. */
+    readonly validate?: boolean;
+    /** Commit CID the repository must still be at, for compare-and-swap. */
+    readonly swapCommit?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyApplyWritesResult>;
+  /**
+   * Reads an `app.bsky.notification.declaration` record (rkey `self`). `undefined` means no
+   * record, which Bluesky treats as `allowSubscriptions: "followers"`.
+   */
+  readonly getNotificationDeclaration: (input: {
+    readonly account: ConnectedAccountRef;
+    /** DID whose declaration to read. Defaults to the connected account. */
+    readonly actor?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly allowSubscriptions: string } | undefined>;
+  /** Sets who may subscribe to this account's new posts and replies. */
+  readonly setNotificationDeclaration: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly allowSubscriptions: "followers" | "mutuals" | "none";
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /** Reads the `chat.bsky.actor.declaration` record; `undefined` when the account has none. */
+  readonly getChatDeclaration: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly actor?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyChatDeclaration | undefined>;
+  /** Sets who may start a chat with this account and who may add it to group chats. */
+  readonly setChatDeclaration: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly allowIncoming: BlueskyChatAudience;
+    readonly allowGroupInvites?: BlueskyChatAudience;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /** Reads chat availability for this account from `chat.bsky.actor.getStatus`. */
+  readonly getChatStatus: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{
+    readonly chatDisabled: boolean;
+    readonly canCreateGroups: boolean;
+    readonly groupMemberLimit: number;
+  }>;
+  /** Reads `hideFromAlgorithmicRecommendations`; a missing record reads as `false`. */
+  readonly getContentVisibility: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly actor?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly hideFromAlgorithmicRecommendations: boolean }>;
+  /** Asks feeds and recommendation surfaces to leave this account's posts out. */
+  readonly setContentVisibility: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly hideFromAlgorithmicRecommendations: boolean;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /**
+   * Asks to be left out of someone else's reference list (the list behind a starter pack) by
+   * creating an `app.bsky.graph.referencelistoptout` record.
+   */
+  readonly optOutOfReferenceList: (input: {
+    readonly account: ConnectedAccountRef;
+    /** DID-based AT-URI of the `app.bsky.graph.list` record. */
+    readonly listUri: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /** Withdraws an opt-out by deleting this account's opt-out record. */
+  readonly deleteReferenceListOptOut: (input: BlueskyOwnedRecordInput) => Promise<void>;
+  /**
+   * Creates an `app.bsky.actor.link` record. A link shows on the profile only after its
+   * reference is added to the profile's `links` with `editProfile`.
+   */
+  readonly createProfileLink: (input: {
+    readonly account: ConnectedAccountRef;
+    /** https URL. */
+    readonly url: string;
+    /** Up to 40 graphemes. */
+    readonly title?: string;
+    /** PNG, JPEG, or WebP blob of at most 100,000 bytes from `uploadBlob`. */
+    readonly icon?: BlueskyBlobRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  readonly deleteProfileLink: (input: BlueskyOwnedRecordInput) => Promise<void>;
+  /**
+   * Creates or replaces an `app.bsky.feed.generator` record so a custom feed appears in
+   * Bluesky. Serving the feed is your generator's job; see `blueskyFeedGeneratorDescription`.
+   */
+  readonly putFeedGenerator: (input: {
+    readonly account: ConnectedAccountRef;
+    /** Record key, which becomes the last segment of the feed AT-URI. */
+    readonly rkey: string;
+    /** The feed generator service DID, usually a `did:web`. */
+    readonly did: string;
+    /** Up to 24 graphemes. */
+    readonly displayName: string;
+    /** Up to 300 graphemes. */
+    readonly description?: string;
+    readonly avatar?: BlueskyBlobRef;
+    /** Whether the generator accepts `app.bsky.feed.sendInteractions` feedback. */
+    readonly acceptsInteractions?: boolean;
+    readonly contentMode?:
+      | "app.bsky.feed.defs#contentModeUnspecified"
+      | "app.bsky.feed.defs#contentModeVideo";
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  readonly deleteFeedGenerator: (input: BlueskyOwnedRecordInput) => Promise<void>;
+  /**
+   * Creates or replaces the account's `app.bsky.labeler.service` declaration (rkey `self`).
+   * The account must also run a labeler service; this record only declares it.
+   */
+  readonly putLabelerService: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly policies: BlueskyLabelerPolicies;
+    /** Report reason types in scope; omit to accept all. */
+    readonly reasonTypes?: readonly string[];
+    /** `account`, `record`, or `chat`. */
+    readonly subjectTypes?: readonly string[];
+    /** Collection NSIDs that can be reported; omit to accept any. */
+    readonly subjectCollections?: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPostRef>;
+  /**
+   * Downloads this account's chat data from `chat.bsky.actor.exportAccountData`. The service
+   * answers with JSON Lines; each line becomes one object. Responses are capped at 50 MB.
+   */
+  readonly exportChatAccountData: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Deletes this account's chat data with `chat.bsky.actor.deleteAccount`. Irreversible. */
+  readonly deleteChatAccount: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Chat-service notification settings, separate from `app.bsky.notification` preferences. */
+  readonly getChatNotificationPreferences: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyChatNotificationPreferences>;
+  /** Changes `chat` and/or `chatRequest` settings and returns the stored preferences. */
+  readonly putChatNotificationPreferences: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly chat?: BlueskyChatNotificationPreference;
+    readonly chatRequest?: BlueskyChatNotificationPreference;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyChatNotificationPreferences>;
+  /** Unread accepted and request conversation counts (`chat.bsky.convo.getUnreadCounts`). */
+  readonly getUnreadConversationCounts: (input: {
+    readonly account: ConnectedAccountRef;
+    /** Count group chats too. Bluesky's default is true. */
+    readonly includeGroupChats?: boolean;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly unreadAcceptedConvos: number; readonly unreadRequestConvos: number }>;
+  /** Locks a group chat so members cannot send messages. Owners and admins only. Unstable. */
+  readonly lockGroupChat: (input: BlueskyConvoInput) => Promise<JsonObject>;
+  readonly unlockGroupChat: (input: BlueskyConvoInput) => Promise<JsonObject>;
+  /** Pages the members of a conversation. Unstable. */
+  readonly getConvoMembers: (
+    input: BlueskyConvoInput & { readonly cursor?: string; readonly limit?: number },
+  ) => Promise<BlueskyActorPageResult>;
+  /** Group chats this account shares with `subject`. Unstable. */
+  readonly listMutualGroups: (
+    input: BlueskyPageInput & { readonly subject: string },
+  ) => Promise<BlueskyPage>;
+  /** Creates the group's join link. A group has at most one enabled link. Unstable. */
+  readonly createJoinLink: (
+    input: BlueskyConvoInput & {
+      readonly joinRule: "anyone" | "followedByOwner";
+      readonly requireApproval?: boolean;
+    },
+  ) => Promise<JsonObject>;
+  readonly editJoinLink: (
+    input: BlueskyConvoInput & {
+      readonly joinRule?: "anyone" | "followedByOwner";
+      readonly requireApproval?: boolean;
+    },
+  ) => Promise<JsonObject>;
+  readonly enableJoinLink: (input: BlueskyConvoInput) => Promise<JsonObject>;
+  readonly disableJoinLink: (input: BlueskyConvoInput) => Promise<JsonObject>;
+  /** Previews up to 50 join link codes; disabled and invalid codes come back as such. */
+  readonly getJoinLinkPreviews: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly codes: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Joins through a link code; `pending` when the owner must approve. */
+  readonly requestJoinGroupChat: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly code: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly status: string; readonly convo?: JsonObject }>;
+  readonly withdrawJoinRequest: (input: BlueskyConvoInput) => Promise<void>;
+  /** Pending join requests for a group this account owns or administers. */
+  readonly listJoinRequests: (
+    input: BlueskyConvoInput & { readonly cursor?: string; readonly limit?: number },
+  ) => Promise<BlueskyPage>;
+  readonly approveJoinRequest: (
+    input: BlueskyConvoInput & { readonly member: string },
+  ) => Promise<JsonObject>;
+  readonly rejectJoinRequest: (
+    input: BlueskyConvoInput & { readonly member: string },
+  ) => Promise<void>;
+  /** Marks a group's join requests as read. */
+  readonly markJoinRequestsRead: (input: BlueskyConvoInput) => Promise<void>;
+  /**
+   * Structured post search with `app.bsky.feed.searchPostsV2`: include and exclude lists for
+   * authors, mentions, domains, URLs, embedded records, hashtags, and languages, plus media
+   * and reply filters. `query` may be omitted when a filter narrows the search.
+   */
+  readonly searchPostsV2: (
+    input: BlueskySearchPostsV2Input,
+  ) => Promise<BlueskySearchPostsResult & { readonly detectedQueryLanguages?: readonly string[] }>;
+  /**
+   * Pre-grouped notifications from `app.bsky.notification.getGroupedNotifications`. Bluesky
+   * marks this endpoint unstable. Returns `groups`, `relatedViews`, `seenAt`, and `cursor`.
+   */
+  readonly getGroupedNotifications: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly feed?: "all" | "people-i-follow" | "conversations" | "followers" | "activity";
+    /** 1 to 50. Bluesky's default is 30. */
+    readonly limit?: number;
+    readonly cursor?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** This account's starter packs, each with `actor`'s list item when they are in it. */
+  readonly getStarterPacksWithMembership: (
+    input: BlueskyPageInput & { readonly actor: string },
+  ) => Promise<BlueskyPage>;
+  /** Starter pack search with `app.bsky.graph.searchStarterPacksV2`. */
+  readonly searchStarterPacksV2: (
+    input: BlueskyActorSearchInput,
+  ) => Promise<BlueskyPage & { readonly hitsTotal?: number }>;
+  /**
+   * Resolves an Atmosphere record into an enhanced link card with
+   * `app.bsky.embed.getEmbedExternalView`. Write the returned `associatedRefs` into the post
+   * with the `linkAssociatedRefs` publish option. An empty object means fall back.
+   */
+  readonly getEmbedExternalView: (input: {
+    readonly account: ConnectedAccountRef;
+    /** The web URL the card represents. */
+    readonly url: string;
+    /** AT-URI of the record the page declares; takes precedence over `uris`. */
+    readonly canonicalUri?: string;
+    /** Legacy Standard.site record AT-URIs, at most 4. */
+    readonly uris?: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /**
+   * Sends show-more, show-less, seen, and clickthrough feedback to a feed generator with
+   * `app.bsky.feed.sendInteractions`, proxied to `feedServiceDid#bsky_fg`.
+   */
+  readonly sendFeedInteractions: (input: {
+    readonly account: ConnectedAccountRef;
+    /** The feed generator's service DID (`did` in its generator view). */
+    readonly feedServiceDid: string;
+    /** The feed's AT-URI. */
+    readonly feed?: string;
+    readonly interactions: readonly BlueskyFeedInteraction[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Which collections a repository holds and whether its handle verifies. */
+  readonly describeRepo: (input: {
+    readonly account: ConnectedAccountRef;
+    /** DID or handle. Defaults to the connected account. */
+    readonly repo?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyRepoDescription>;
+  /**
+   * Reads a thread as a flat list with `app.bsky.unspecced.getPostThreadV2`, which Bluesky
+   * marks unstable. `hasOtherReplies` says whether `getPostThreadOtherV2` has hidden replies.
+   */
+  readonly getPostThreadV2: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly anchor: string;
+    /** Include parents. Default true. */
+    readonly above?: boolean;
+    /** Reply levels below the anchor, 0 to 20. Default 6. */
+    readonly below?: number;
+    /** Replies per level, 0 to 100. Default 10. */
+    readonly branchingFactor?: number;
+    readonly sort?: "newest" | "oldest" | "top";
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Hidden and other replies for an anchor post (`getPostThreadOtherV2`, unstable). */
+  readonly getPostThreadOtherV2: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly anchor: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Current trends (`app.bsky.unspecced.getTrends`, unstable). `limit` 1 to 25. */
+  readonly getTrends: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly limit?: number;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Trending and suggested topics (`app.bsky.unspecced.getTrendingTopics`, unstable). */
+  readonly getTrendingTopics: (input: {
+    readonly account: ConnectedAccountRef;
+    /** DID used to personalize; defaults to none. */
+    readonly viewer?: string;
+    readonly limit?: number;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Suggested accounts, optionally for one category (`getSuggestedUsers`, unstable). */
+  readonly getSuggestedUsers: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly category?: string;
+    /** 1 to 50. */
+    readonly limit?: number;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyActorPageResult>;
+  /** Popular feed generators, optionally matching `query` (`getPopularFeedGenerators`). */
+  readonly getPopularFeedGenerators: (
+    input: BlueskyPageInput & { readonly query?: string },
+  ) => Promise<BlueskyPage>;
+  /** Suggested feeds (`getSuggestedFeeds`, unstable). `limit` 1 to 25. */
+  readonly getSuggestedFeeds: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly limit?: number;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPage>;
+  /** Suggested starter packs (`getSuggestedStarterPacks`, unstable). `limit` 1 to 25. */
+  readonly getSuggestedStarterPacks: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly limit?: number;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<BlueskyPage>;
+  /** Tagged actor and feed suggestions (`getTaggedSuggestions`, unstable). */
+  readonly getTaggedSuggestions: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly JsonObject[]>;
+  /** Age assurance rules per region (`app.bsky.ageassurance.getConfig`). */
+  readonly getAgeAssuranceConfig: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** This account's age assurance `state` and `metadata` for a country (and region). */
+  readonly getAgeAssuranceState: (input: {
+    readonly account: ConnectedAccountRef;
+    /** ISO 3166-1 alpha-2 country code. */
+    readonly countryCode: string;
+    readonly regionCode?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /**
+   * Starts age assurance with `app.bsky.ageassurance.begin`; Bluesky emails the user a
+   * verification link. Returns the new state.
+   */
+  readonly beginAgeAssurance: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly email: string;
+    /** Language for the email, such as `en`. */
+    readonly language: string;
+    readonly countryCode: string;
+    readonly regionCode?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Resolves a handle to a DID with `com.atproto.identity.resolveHandle`. */
+  readonly resolveHandle: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly handle: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<string>;
+  /** Reads a DID document with `com.atproto.identity.resolveDid`. */
+  readonly resolveDid: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly did: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /**
+   * Resolves a handle or DID with `com.atproto.identity.resolveIdentity`. The server checks
+   * both directions; `handle` is `handle.invalid` when the handle does not verify.
+   */
+  readonly resolveIdentity: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly identifier: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly did: string; readonly handle: string; readonly didDoc: JsonObject }>;
+  /**
+   * Creates an app password with `com.atproto.server.createAppPassword`. The password is
+   * returned only here; store it like any credential. Needs a full-scope session: app-password
+   * sessions cannot create app passwords. `privileged` passwords can also use chat.
+   */
+  readonly createAppPassword: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly name: string;
+    readonly privileged?: boolean;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{
+    readonly name: string;
+    readonly password: string;
+    readonly createdAt: string;
+    readonly privileged?: boolean;
+  }>;
+  /** Lists app password names and dates. Passwords themselves are never returned. */
+  readonly listAppPasswords: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<
+    readonly { readonly name: string; readonly createdAt: string; readonly privileged?: boolean }[]
+  >;
+  /** Revokes an app password by name, ending every session it created. */
+  readonly revokeAppPassword: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly name: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Changes the account's handle with `com.atproto.identity.updateHandle`. */
+  readonly updateHandle: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly handle: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Asks the service to re-resolve a handle or DID now, after a DNS or handle change. */
+  readonly refreshIdentity: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly identifier: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly did: string; readonly handle: string; readonly didDoc: JsonObject }>;
+  /**
+   * Deactivates the account with `com.atproto.server.deactivateAccount`. Its content stops
+   * being served until `activateAccount`. `deleteAfter` asks the PDS to delete it after then.
+   */
+  readonly deactivateAccount: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly deleteAfter?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly activateAccount: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Emails a deletion token; finish with `deleteBlueskyAccount`. */
+  readonly requestAccountDelete: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Emails a confirmation token for the account's address; finish with `confirmEmail`. */
+  readonly requestEmailConfirmation: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly confirmEmail: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly email: string;
+    readonly token: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Starts an email change; `tokenRequired` says whether a code was emailed. */
+  readonly requestEmailUpdate: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly tokenRequired: boolean }>;
+  readonly updateEmail: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly email: string;
+    /** Required when `requestEmailUpdate` returned `tokenRequired: true`. */
+    readonly token?: string;
+    /** Require an emailed code at sign-in. */
+    readonly emailAuthFactor?: boolean;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /**
+   * Mints a service-auth JWT with `com.atproto.server.getServiceAuth`, for example to create an
+   * account on a new PDS during migration. Treat the token as a credential.
+   */
+  readonly getServiceAuth: (input: {
+    readonly account: ConnectedAccountRef;
+    /** DID of the service the token is for. */
+    readonly aud: string;
+    /** Lifetime in seconds. */
+    readonly expiresInSeconds?: number;
+    /** Restrict the token to one method NSID. */
+    readonly lxm?: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<string>;
+  /** DID credentials the (new) PDS wants in the DID document during migration. */
+  readonly getRecommendedDidCredentials: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Emails a token that `signPlcOperation` needs. did:plc accounts only. */
+  readonly requestPlcOperationSignature: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Has the current PDS sign a PLC operation with the given changes; returns the operation. */
+  readonly signPlcOperation: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly token: string;
+    readonly rotationKeys?: readonly string[];
+    readonly alsoKnownAs?: readonly string[];
+    readonly verificationMethods?: JsonObject;
+    readonly services?: JsonObject;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** Submits a signed PLC operation through the (new) PDS. */
+  readonly submitPlcOperation: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly operation: JsonObject;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /**
+   * Imports a repository CAR file with `com.atproto.repo.importRepo`. Large repositories need a
+   * `context` with a longer `retryBudget.maxElapsedMs` than the 30-second default.
+   */
+  readonly importRepo: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly car: Blob | Uint8Array<ArrayBuffer>;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Blobs referenced by imported records that the PDS does not have yet. */
+  readonly listMissingBlobs: (input: BlueskyPageInput) => Promise<{
+    readonly blobs: readonly { readonly cid: string; readonly recordUri: string }[];
+    readonly cursor?: string;
+  }>;
+  /** Texts a verification code to a phone number for contact import. Beta. */
+  readonly startPhoneVerification: (input: {
+    readonly account: ConnectedAccountRef;
+    /** E.164, for example `+12125550123`. */
+    readonly phone: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Exchanges the texted code for the token `importContacts` needs. */
+  readonly verifyPhone: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly phone: string;
+    readonly code: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly token: string }>;
+  /**
+   * Uploads up to 1,000 E.164 phone numbers with `app.bsky.contact.importContacts` and returns
+   * matched profiles with the index of the contact each matched.
+   */
+  readonly importContacts: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly token: string;
+    readonly contacts: readonly string[];
+    readonly context?: AdapterOperationContext;
+  }) => Promise<readonly { readonly match: JsonObject; readonly contactIndex: number }[]>;
+  readonly getContactMatches: (input: BlueskyPageInput) => Promise<BlueskyActorPageResult>;
+  readonly dismissContactMatch: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly subject: string;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+  /** When contacts were last synced and how many matched; `undefined` if never. */
+  readonly getContactSyncStatus: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<{ readonly syncedAt: string; readonly matchesCount: number } | undefined>;
+  /** Deletes the account's imported contact data and phone verification. */
+  readonly removeContactData: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context?: AdapterOperationContext;
+  }) => Promise<void>;
+}
+
+/** Filters for `app.bsky.feed.searchPostsV2`. Arrays repeat the query parameter. */
+export interface BlueskySearchPostsV2Input extends BlueskyPageInput {
+  readonly query?: string;
+  readonly sort?: "recent" | "top";
+  readonly authors?: readonly string[];
+  readonly excludeAuthors?: readonly string[];
+  readonly mentions?: readonly string[];
+  readonly excludeMentions?: readonly string[];
+  readonly domains?: readonly string[];
+  readonly excludeDomains?: readonly string[];
+  readonly urls?: readonly string[];
+  readonly excludeUrls?: readonly string[];
+  readonly embeddedAtUris?: readonly string[];
+  readonly excludeEmbeddedAtUris?: readonly string[];
+  /** Without `#`, up to 64 graphemes each. */
+  readonly hashtags?: readonly string[];
+  readonly excludeHashtags?: readonly string[];
+  readonly languages?: readonly string[];
+  readonly excludeLanguages?: readonly string[];
+  readonly since?: string;
+  readonly until?: string;
+  /** Search the full index instead of the recent window. */
+  readonly allTime?: boolean;
+  readonly hasMedia?: boolean;
+  readonly hasVideo?: boolean;
+  readonly replyParentUri?: string;
+  readonly threadRootUri?: string;
+  readonly excludeReplies?: boolean;
+  readonly repliesOnly?: boolean;
+  /** Only posts from accounts the viewer follows. */
+  readonly following?: boolean;
+  /** Hint for queries in `ja`, `zh`, `ko`, `th`, or `ar`. */
+  readonly queryLanguage?: string;
+}
+
+/** One `app.bsky.feed.defs#interaction` sent back to a feed generator. */
+export interface BlueskyFeedInteraction {
+  /** The post AT-URI the interaction is about. */
+  readonly item?: string;
+  /** For example `app.bsky.feed.defs#requestLess` or `app.bsky.feed.defs#interactionSeen`. */
+  readonly event: string;
+  /** The `feedContext` the skeleton item carried, echoed back. */
+  readonly feedContext?: string;
+  /** The `reqId` the feed response carried, echoed back. */
+  readonly reqId?: string;
+}
+
+export interface BlueskyRepoDescription {
+  readonly did: string;
+  readonly handle: string;
+  readonly handleIsCorrect: boolean;
+  readonly collections: readonly string[];
+  readonly didDoc: JsonObject;
+}
+
+/** Which chats notify, and whether they push (`chat.bsky.notification.defs#chatPreference`). */
+export interface BlueskyChatNotificationPreference {
+  readonly include: "all" | "follows";
+  readonly push: boolean;
+}
+
+export interface BlueskyChatNotificationPreferences {
+  readonly chat: BlueskyChatNotificationPreference;
+  readonly chatRequest: BlueskyChatNotificationPreference;
+}
+
+/** `all`, `following`, or `none`. */
+export type BlueskyChatAudience = "all" | "following" | "none";
+
+export interface BlueskyChatDeclaration {
+  readonly allowIncoming: string;
+  readonly allowGroupInvites?: string;
+}
+
+/** One custom label a labeler defines (`com.atproto.label.defs#labelValueDefinition`). */
+export interface BlueskyLabelValueDefinition {
+  /** Lowercase letters and hyphens, up to 100 characters. */
+  readonly identifier: string;
+  readonly severity: "inform" | "alert" | "none";
+  readonly blurs: "content" | "media" | "none";
+  readonly defaultSetting?: "ignore" | "warn" | "hide";
+  readonly adultOnly?: boolean;
+  readonly locales: readonly {
+    readonly lang: string;
+    readonly name: string;
+    readonly description: string;
+  }[];
+}
+
+export interface BlueskyLabelerPolicies {
+  /** Every label value the labeler may emit, global or custom. */
+  readonly labelValues: readonly string[];
+  readonly labelValueDefinitions?: readonly BlueskyLabelValueDefinition[];
+}
+
+/** XRPC query parameters; arrays repeat the parameter name. */
+type QueryParams = Readonly<Record<string, string | readonly string[] | undefined>>;
+
+/** Field changes for `app.bsky.actor.profile`. `null` removes a field; omitted fields stay. */
+export interface BlueskyProfileChanges {
+  /** Up to 64 graphemes. */
+  readonly displayName?: string | null;
+  /** Up to 256 graphemes. */
+  readonly description?: string | null;
+  /** Up to 20 graphemes. */
+  readonly pronouns?: string | null;
+  readonly website?: string | null;
+  /** PNG or JPEG blob of at most 1,000,000 bytes from `native.uploadBlob`. */
+  readonly avatar?: BlueskyBlobRef | null;
+  readonly banner?: BlueskyBlobRef | null;
+  readonly pinnedPost?: BlueskyPostRef | null;
+  /** The `app.bsky.graph.starterpack` record the account signed up through. */
+  readonly joinedViaStarterPack?: BlueskyPostRef | null;
+  /** Up to 10 `app.bsky.actor.link` records from `createProfileLink`, in display order. */
+  readonly links?: readonly BlueskyPostRef[] | null;
+}
+
+/** Message content for `chat.bsky.convo.defs#messageInput`. */
+export interface BlueskyMessageInput {
+  /** Up to 1,000 graphemes and 10,000 UTF-8 bytes. */
+  readonly text: string;
+  readonly mentions?: BlueskyPublishOptions["mentions"];
+  /** A post to share in the message. */
+  readonly embedPost?: BlueskyPostRef;
+  /** A group chat join link code to share as a `chat.bsky.embed.joinLink` card. */
+  readonly embedJoinLink?: string;
+}
+
+export interface BlueskyConvoInput {
+  readonly account: ConnectedAccountRef;
+  readonly conversationId: string;
+  readonly context?: AdapterOperationContext;
+}
+
+export interface BlueskyReactionInput extends BlueskyConvoInput {
+  readonly messageId: string;
+  /** One emoji. */
+  readonly value: string;
+}
+
+/** A page of native views with Bluesky's opaque cursor. */
+export interface BlueskyPage {
+  readonly items: readonly JsonObject[];
+  readonly cursor?: string;
+}
+
+/** `app.bsky.actor.defs#verificationState` from a profile view. */
+export interface BlueskyVerificationState {
+  /** `valid`, `invalid`, or `none` for verifications issued about this actor. */
+  readonly verifiedStatus: string;
+  /** `valid`, `invalid`, or `none` for this actor acting as a trusted verifier. */
+  readonly trustedVerifierStatus: string;
+  readonly verifications: readonly {
+    readonly issuer: string;
+    readonly uri: string;
+    readonly isValid: boolean;
+    readonly createdAt: string;
+  }[];
+}
+
+type FilterablePreference = {
+  readonly include: "all" | "follows";
+  readonly list: boolean;
+  readonly push: boolean;
+};
+
+type PlainPreference = { readonly list: boolean; readonly push: boolean };
+
+/** Fields of `app.bsky.notification.putPreferencesV2`. Omitted types stay unchanged. */
+export interface BlueskyNotificationPreferences {
+  readonly chat?: { readonly include: "all" | "accepted"; readonly push: boolean };
+  readonly follow?: FilterablePreference;
+  readonly like?: FilterablePreference;
+  readonly likeViaRepost?: FilterablePreference;
+  readonly mention?: FilterablePreference;
+  readonly quote?: FilterablePreference;
+  readonly reply?: FilterablePreference;
+  readonly repost?: FilterablePreference;
+  readonly repostViaRepost?: FilterablePreference;
+  readonly starterpackJoined?: PlainPreference;
+  readonly subscribedPost?: PlainPreference;
+  readonly unverified?: PlainPreference;
+  readonly verified?: PlainPreference;
 }
 
 export interface BlueskyHideReplyInput {
@@ -349,6 +1683,11 @@ export interface BlueskyPostPageInput extends BlueskyPageInput {
   readonly cid?: string;
 }
 
+/** `latest` (newest first) or `top`; other values the AppView adds are passed through. */
+export interface BlueskyFollowPageInput extends BlueskyActorPageInput {
+  readonly sort?: "latest" | "top" | (string & {});
+}
+
 export interface BlueskyActorSearchInput extends BlueskyPageInput {
   readonly query: string;
 }
@@ -371,7 +1710,11 @@ export interface BlueskyFeedPageResult {
 export interface BlueskyCreateListInput {
   readonly account: ConnectedAccountRef;
   readonly name: string;
-  readonly purpose: "app.bsky.graph.defs#curatelist" | "app.bsky.graph.defs#modlist";
+  /** A reference list backs a starter pack. */
+  readonly purpose:
+    | "app.bsky.graph.defs#curatelist"
+    | "app.bsky.graph.defs#modlist"
+    | "app.bsky.graph.defs#referencelist";
   readonly description?: string;
   readonly context?: AdapterOperationContext;
 }
@@ -410,6 +1753,8 @@ export interface BlueskyModerationReportInput {
     | { readonly $type: "com.atproto.admin.defs#repoRef"; readonly did: string }
     | { readonly $type: "com.atproto.repo.strongRef"; readonly uri: string; readonly cid: string };
   readonly reason?: string;
+  /** The tool that filed the report, for moderator tracing (`modTool.name`, free-form `meta`). */
+  readonly modTool?: { readonly name: string; readonly meta?: JsonValue };
   readonly context?: AdapterOperationContext;
 }
 
@@ -489,7 +1834,7 @@ function operationError(operation: string, cause: unknown, mutation = true): Soc
             : !mutation && error.status !== undefined && error.status >= 500
               ? { kind: "after-delay", delayMs: 1000 }
               : { kind: "never" },
-      ...definedFields({ upstreamStatus: error.status }),
+      ...definedFields({ upstreamStatus: error.status, upstreamCode: error.data?.code }),
     });
   }
 
@@ -506,6 +1851,44 @@ function postRef(value: JsonField): BlueskyPostRef {
   const record = object(value);
 
   return { uri: string(record["uri"]), cid: string(record["cid"]) };
+}
+
+/**
+ * Decodes the `{ uri, cid }` a successful record write returns. The write may already have
+ * happened, so an unreadable response is an uncertain outcome rather than a transport error.
+ */
+function writtenRef(value: JsonField, operation: string): BlueskyPostRef {
+  const record = isJsonObject(value) ? value : {};
+
+  const uri = optionalString(record["uri"]);
+
+  const cid = optionalString(record["cid"]);
+
+  if (!uri || !cid)
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message:
+        "Bluesky accepted the record write but returned no URI and CID. Reconcile before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+
+  return { uri, cid };
+}
+
+/**
+ * XRPC names a missing record `RecordNotFound` on HTTP 400; keep only that name.
+ * Source: https://github.com/bluesky-social/atproto/blob/7fc8c879cdbc619b76c03e6ef4d05ae2dc5d9ac2/lexicons/com/atproto/repo/getRecord.json
+ */
+function decodeXrpcError(body: JsonValue): HttpErrorData | undefined {
+  return isJsonObject(body) && body["error"] === "RecordNotFound"
+    ? { code: "record-not-found" }
+    : undefined;
+}
+
+/** A `getRecord` failure that means the record does not exist (some hosts answer 404). */
+function isMissingRecord(error: SocialError): boolean {
+  return error.upstreamCode === "record-not-found" || error.upstreamStatus === 404;
 }
 
 function videoServiceOrigin(value: string | undefined): URL {
@@ -605,6 +1988,119 @@ function videoJob(value: JsonField, did: string): BlueskyVideoJob {
   };
 }
 
+function invalidUploadResponse(message: string): never {
+  throw new HttpError(message, "invalid-response", true);
+}
+
+function positiveInteger(value: JsonField): number {
+  if (!isFiniteNumber(value) || !Number.isSafeInteger(value) || value <= 0)
+    return invalidUploadResponse("Upstream response has an invalid part number, count, or size.");
+
+  return value;
+}
+
+function uploadJobId(value: JsonField): string {
+  const id = string(value);
+
+  if (!VIDEO_UPLOAD_JOB_ID.test(id))
+    return invalidUploadResponse("Upstream response has a malformed upload job ID.");
+
+  return id;
+}
+
+/** Parses app.bsky.video.startUpload output. */
+function uploadSession(value: JsonField): BlueskyVideoUploadSession {
+  const session = object(value);
+
+  return {
+    jobId: uploadJobId(session["jobId"]),
+    partSizeBytes: positiveInteger(session["partSizeBytes"]),
+    partCount: positiveInteger(session["partCount"]),
+    expiresAt: string(session["expiresAt"]),
+  };
+}
+
+/** Parses app.bsky.video.getUploadStatus output and binds a completed job to the configured DID. */
+function uploadStatus(value: JsonField, did: string): BlueskyVideoUploadStatus {
+  const status = object(value);
+
+  const completedJobId =
+    status["completedJobId"] === undefined ? undefined : uploadJobId(status["completedJobId"]);
+
+  const job = status["jobStatus"] === undefined ? undefined : videoJob(status["jobStatus"], did);
+
+  const failureReason = optionalString(status["failureReason"]);
+
+  return {
+    jobId: uploadJobId(status["jobId"]),
+    partSizeBytes: positiveInteger(status["partSizeBytes"]),
+    partCount: positiveInteger(status["partCount"]),
+    receivedParts: array(status["receivedParts"]).map((part) => positiveInteger(part)),
+    expiresAt: string(status["expiresAt"]),
+    state: string(status["state"]),
+    ...definedFields({ completedJobId, job, failureReason }),
+  };
+}
+
+/** Parses app.bsky.video.abortUpload output. */
+function uploadAbortResult(value: JsonField): BlueskyVideoUploadAbortResult {
+  const result = object(value);
+
+  const completedJobId =
+    result["completedJobId"] === undefined ? undefined : uploadJobId(result["completedJobId"]);
+
+  const failureReason = optionalString(result["failureReason"]);
+
+  return { state: string(result["state"]), ...definedFields({ completedJobId, failureReason }) };
+}
+
+interface VideoPart {
+  readonly partNumber: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** Splits `size` bytes into parts numbered from 1; the last part carries the remainder. */
+function videoParts(size: number, partSize: number): VideoPart[] {
+  const parts: VideoPart[] = [];
+
+  for (let start = 0; start < size; start += partSize)
+    parts.push({ partNumber: parts.length + 1, start, end: Math.min(start + partSize, size) });
+
+  return parts;
+}
+
+function isPlainFileName(name: string): boolean {
+  return (
+    name.length <= 255 &&
+    ![...name].some((char) => char.charCodeAt(0) < 0x20 || char === "/" || char === "\\")
+  );
+}
+
+function hasValidHints(hints: BlueskyVideoUploadHints): boolean {
+  return [hints.durationMs, hints.width, hints.height].every(
+    (value) => value === undefined || (Number.isSafeInteger(value) && value > 0),
+  );
+}
+
+/** Adds the multipart upload job ID to a failure so the caller can resume or abort the session. */
+function withUploadJob(failure: SocialError, jobId: string): SocialError {
+  return new SocialError({
+    code: failure.code,
+    operation: failure.operation,
+    message: failure.message,
+    backend: failure.backend,
+    account: failure.account,
+    issues: failure.issues,
+    correlationId: failure.correlationId,
+    upstreamStatus: failure.upstreamStatus,
+    upstreamCode: failure.upstreamCode,
+    retryDisposition: failure.retryDisposition,
+    details: { ...failure.details, uploadJobId: jobId },
+    cause: failure,
+  });
+}
+
 type RichTextFacet = {
   readonly index: { readonly byteStart: number; readonly byteEnd: number };
   readonly features: readonly JsonObject[];
@@ -687,48 +2183,386 @@ function isJsonBody(body: BodyInit | undefined): body is string {
   return typeof body === "string";
 }
 
-function richTextOptions(text: string, target: PreparedPublishTarget): JsonObject {
-  const options = target.options;
+const POST_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.feed\.post\/[A-Za-z0-9._~:-]{1,512}$/;
 
-  if (options !== undefined && !isOptionBag(options))
-    invalidRichText("Bluesky options must be an object.");
+const LIST_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.graph\.list\/[A-Za-z0-9._~:-]{1,512}$/;
 
-  const config = options ?? {};
+const CID = /^[A-Za-z0-9]{8,2048}$/;
 
-  if (Object.keys(config).some((key) => key !== "languages" && key !== "mentions"))
-    invalidRichText("A supplied Bluesky option is not supported.");
+const REPOST_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.feed\.repost\/[A-Za-z0-9._~:-]{1,512}$/;
 
-  let langs: string[] | undefined;
+const LINK_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.actor\.link\/[A-Za-z0-9._~:-]{1,512}$/;
 
-  const languages = "languages" in config ? config.languages : undefined;
+const LIST_RECORD_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.graph\.list\/[A-Za-z0-9._~:-]{1,512}$/;
 
-  if (languages !== undefined) {
-    if (!isStringList(languages) || languages.length > 3)
-      invalidRichText("Bluesky accepts at most three language tags.");
+const DID = /^did:[a-z]+:[A-Za-z0-9._:%-]{1,2000}$/;
 
-    try {
-      langs = Intl.getCanonicalLocales([...languages]);
-    } catch {
-      invalidRichText("Bluesky languages must be valid BCP 47 tags.");
-    }
+const LABEL_IDENTIFIER = /^[a-z-]{1,100}$/;
+
+const STARTER_PACK_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.graph\.starterpack\/[A-Za-z0-9._~:-]{1,512}$/;
+
+/** Validates an optional `via` strongRef against the record collection it must point to. */
+function viaRef(
+  via: BlueskyPostRef | undefined,
+  uri: RegExp,
+  operation: string,
+  what: string,
+): JsonObject | undefined {
+  if (via === undefined) return undefined;
+
+  if (!uri.test(via.uri) || !CID.test(via.cid))
+    throw new SocialError({
+      code: "invalid_input",
+      operation,
+      message: `via must be the AT-URI and CID of ${what}.`,
+      retryDisposition: { kind: "never" },
+    });
+
+  return { uri: via.uri, cid: via.cid };
+}
+
+const NSID = /^[a-zA-Z][a-zA-Z0-9-]{0,62}(\.[a-zA-Z0-9-]{1,63}){2,}$/;
+
+const RKEY = /^[A-Za-z0-9._~:-]{1,512}$/;
+
+/** The reference PDS rejects applyWrites batches larger than 200 writes. */
+const MAX_APPLY_WRITES = 200;
+
+/** Validates a blob reference returned by com.atproto.repo.uploadBlob. */
+function blobRef(value: JsonField, operation: string): JsonObject {
+  const blob = object(value);
+
+  const link = object(blob["ref"])["$link"];
+
+  const mimeType = blob["mimeType"];
+
+  const size = blob["size"];
+
+  if (
+    blob["$type"] !== "blob" ||
+    !isString(link) ||
+    !link ||
+    !isString(mimeType) ||
+    !isFiniteNumber(size) ||
+    !Number.isSafeInteger(size) ||
+    size < 0
+  )
+    throw new SocialError({
+      code: "upstream_failure",
+      operation,
+      message: "Bluesky returned an invalid blob reference.",
+    });
+
+  return { $type: "blob", ref: { $link: link }, mimeType, size };
+}
+
+/** Self-label values the Bluesky app honours on posts. */
+const POST_SELF_LABELS = new Set(["porn", "sexual", "nudity", "graphic-media"]);
+
+/** Most Bluesky clients render at most four images; galleries carry five to ten. */
+const MAX_GALLERY_IMAGES = 10;
+
+const MAX_CAPTION_BYTES = 20_000;
+
+const MAX_LINK_THUMB_BYTES = 1_000_000;
+
+const PUBLISH_OPTION_KEYS = new Set([
+  "languages",
+  "mentions",
+  "tags",
+  "contentLabels",
+  "quote",
+  "replyControls",
+  "disableQuotes",
+  "videoCaptions",
+  "videoPresentation",
+  "linkThumbnail",
+  "linkAssociatedRefs",
+]);
+
+type ReplyRuleKind = "mention" | "follower" | "following" | "list";
+
+const REPLY_RULE_TYPES: Readonly<Record<ReplyRuleKind, string>> = {
+  mention: "app.bsky.feed.threadgate#mentionRule",
+  follower: "app.bsky.feed.threadgate#followerRule",
+  following: "app.bsky.feed.threadgate#followingRule",
+  list: "app.bsky.feed.threadgate#listRule",
+};
+
+function isReplyRuleKind(value: unknown): value is ReplyRuleKind {
+  return value === "mention" || value === "follower" || value === "following" || value === "list";
+}
+
+function isReplyRule(value: unknown): value is BlueskyReplyRule {
+  if (!isOptionBag(value) || !("kind" in value) || !isReplyRuleKind(value.kind)) return false;
+
+  return value.kind !== "list" || ("listUri" in value && typeof value.listUri === "string");
+}
+
+function isFlag(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isPresentation(value: unknown): value is "default" | "gif" {
+  return value === "default" || value === "gif";
+}
+
+function isCaptionInput(value: unknown): value is CaptionTrack {
+  return (
+    isOptionBag(value) &&
+    "lang" in value &&
+    "file" in value &&
+    typeof value.lang === "string" &&
+    isBlobRefInput(
+      value.file,
+      (mimeType, size) => mimeType === "text/vtt" && size <= MAX_CAPTION_BYTES,
+    )
+  );
+}
+
+/** Admits a `com.atproto.repo.uploadBlob` reference whose MIME type and size pass `accept`. */
+function isBlobRefInput(
+  value: unknown,
+  accept: (mimeType: string, size: number) => boolean,
+): value is BlueskyBlobRef {
+  return (
+    isOptionBag(value) &&
+    "$type" in value &&
+    "ref" in value &&
+    "mimeType" in value &&
+    "size" in value &&
+    value.$type === "blob" &&
+    isOptionBag(value.ref) &&
+    "$link" in value.ref &&
+    typeof value.ref.$link === "string" &&
+    typeof value.mimeType === "string" &&
+    typeof value.size === "number" &&
+    blobRefFits(
+      {
+        $type: "blob",
+        ref: { $link: value.ref.$link },
+        mimeType: value.mimeType,
+        size: value.size,
+      },
+      accept,
+    )
+  );
+}
+
+/** Checks a typed blob reference's link syntax, size, and MIME type. */
+function blobRefFits(
+  blob: BlueskyBlobRef,
+  accept: (mimeType: string, size: number) => boolean,
+): boolean {
+  return (
+    blob.$type === "blob" &&
+    /^[a-z0-9]{8,128}$/i.test(blob.ref.$link) &&
+    Number.isSafeInteger(blob.size) &&
+    blob.size > 0 &&
+    accept(blob.mimeType, blob.size)
+  );
+}
+
+function blobJson(blob: BlueskyBlobRef): JsonObject {
+  return {
+    $type: "blob",
+    ref: { $link: blob.ref.$link },
+    mimeType: blob.mimeType,
+    size: blob.size,
+  };
+}
+
+const RECORD_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/[a-zA-Z][a-zA-Z0-9-]{0,62}(\.[a-zA-Z0-9-]{1,63}){2,}\/[A-Za-z0-9._~:-]{1,512}$/;
+
+/** A strongRef to any record in a DID-based repository. */
+function isRecordRefInput(value: unknown): value is BlueskyPostRef {
+  return (
+    isOptionBag(value) &&
+    "uri" in value &&
+    "cid" in value &&
+    typeof value.uri === "string" &&
+    typeof value.cid === "string" &&
+    RECORD_URI.test(value.uri) &&
+    CID.test(value.cid)
+  );
+}
+
+function isPostRefInput(value: unknown): value is BlueskyPostRef {
+  return (
+    isOptionBag(value) &&
+    "uri" in value &&
+    "cid" in value &&
+    typeof value.uri === "string" &&
+    typeof value.cid === "string" &&
+    POST_URI.test(value.uri) &&
+    CID.test(value.cid)
+  );
+}
+
+/** A validated WebVTT caption track for `app.bsky.embed.video#caption`. */
+interface CaptionTrack {
+  readonly lang: string;
+  readonly file: BlueskyBlobRef;
+}
+
+/** Publish options after validation. `record` holds the fields written straight into the post. */
+interface PostOptions {
+  readonly record: JsonObject;
+  readonly quote?: BlueskyPostRef;
+  /** Threadgate `allow` rules. Present (even empty) only when the caller set replyControls. */
+  readonly replyRules?: readonly JsonObject[];
+  readonly disableQuotes: boolean;
+  readonly captions: readonly CaptionTrack[];
+  readonly presentation?: "default" | "gif";
+  readonly linkThumbnail?: BlueskyBlobRef;
+  readonly linkAssociatedRefs?: readonly BlueskyPostRef[];
+}
+
+/** A copy of a stored record without one field, so a rewrite can drop it. */
+function withoutField(record: JsonObject | undefined, field: string): JsonObject {
+  return Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => key !== field));
+}
+
+function byteOffset(text: string, index: number): number {
+  return new TextEncoder().encode(text.slice(0, index)).byteLength;
+}
+
+/**
+ * Hashtag facets, following the detection rules of Bluesky's reference RichText: a `#` or `＃`
+ * after whitespace or at the start, at least one non-digit, non-punctuation character, trailing
+ * punctuation removed, and at most 64 characters.
+ */
+function tagFacets(text: string): RichTextFacet[] {
+  const facets: RichTextFacet[] = [];
+
+  // Each `(?:(?!…).)` is one tag character: not whitespace, a soft hyphen, a zero-width or
+  // joining character, or U+20E2. The middle run must also contain a non-digit, non-punctuation
+  // character. Alternation keeps the joiners out of character classes.
+  const pattern =
+    /(^|\s)[#＃]((?!\ufe0f)(?:(?!\s|\u00AD|\u2060|\u200A|\u200B|\u200C|\u200D|\u20E2).)*(?:(?!\d|\p{P}|\s|\u00AD|\u2060|\u200A|\u200B|\u200C|\u200D|\u20E2).)+(?:(?!\s|\u00AD|\u2060|\u200A|\u200B|\u200C|\u200D|\u20E2).)*)?/gu;
+
+  for (const match of text.matchAll(pattern)) {
+    const leading = match[1] ?? "";
+
+    const tag = (match[2] ?? "").trim().replace(/\p{P}+$/gu, "");
+
+    if (tag.length === 0 || tag.length > 64) continue;
+
+    const start = match.index + leading.length;
+
+    facets.push({
+      index: {
+        byteStart: byteOffset(text, start),
+        byteEnd: byteOffset(text, start + 1 + tag.length),
+      },
+      features: [{ $type: "app.bsky.richtext.facet#tag", tag }],
+    });
   }
 
-  const facets = linkFacets(text);
+  return facets;
+}
+
+function overlaps(facet: RichTextFacet, others: readonly RichTextFacet[]): boolean {
+  return others.some(
+    (other) =>
+      facet.index.byteStart < other.index.byteEnd && facet.index.byteEnd > other.index.byteStart,
+  );
+}
+
+function languageTags(values: readonly string[], max: number, message: string): string[] {
+  if (values.length > max) invalidRichText(message);
+
+  try {
+    return Intl.getCanonicalLocales([...values]);
+  } catch {
+    invalidRichText("Bluesky languages must be valid BCP 47 tags.");
+  }
+}
+
+function postTags(values: readonly string[]): string[] {
+  if (values.length > 8) invalidRichText("Bluesky options.tags accepts at most 8 hashtags.");
+
+  return values.map((raw) => {
+    const tag = raw.trim().replace(/^[#＃]/u, "");
+
+    if (
+      tag.length === 0 ||
+      /\s/u.test(tag) ||
+      graphemeCount(tag) > 64 ||
+      new TextEncoder().encode(tag).byteLength > 640
+    )
+      invalidRichText("Each Bluesky tag needs 1-64 graphemes, at most 640 bytes, and no spaces.");
+
+    return tag;
+  });
+}
+
+function selfLabels(values: readonly string[]): JsonObject {
+  if (
+    values.length === 0 ||
+    values.length > 10 ||
+    values.some((label) => !POST_SELF_LABELS.has(label))
+  )
+    invalidRichText(
+      "Bluesky contentLabels accepts up to 10 of porn, sexual, nudity, and graphic-media.",
+    );
+
+  return {
+    $type: "com.atproto.label.defs#selfLabels",
+    values: [...new Set(values)].map((val) => ({ val })),
+  };
+}
+
+function replyRules(rules: readonly BlueskyReplyRule[]): JsonObject[] {
+  if (rules.length > 5) invalidRichText("Bluesky replyControls accepts at most 5 rules.");
+
+  return rules.map((rule) => {
+    if (rule.kind !== "list") return { $type: REPLY_RULE_TYPES[rule.kind] };
+
+    if (!LIST_URI.test(rule.listUri))
+      invalidRichText("A list reply rule needs an app.bsky.graph.list AT-URI in listUri.");
+
+    return { $type: REPLY_RULE_TYPES.list, list: rule.listUri };
+  });
+}
+
+function captionTracks(tracks: readonly CaptionTrack[]): CaptionTrack[] {
+  if (tracks.length > 20) invalidRichText("Bluesky videoCaptions accepts at most 20 tracks.");
+
+  return tracks.map((track) => {
+    const [lang] = languageTags([track.lang], 1, "Caption lang must be one BCP 47 tag.");
+
+    if (lang === undefined) invalidRichText("Caption lang must be one BCP 47 tag.");
+
+    return { lang, file: track.file };
+  });
+}
+
+/**
+ * Rich-text facets for post or chat text: a link facet per URL, a tag facet per hashtag, and the
+ * caller's DID mentions after checking their UTF-8 offsets.
+ */
+function richTextFacets(text: string, mentions: readonly MentionInput[]): RichTextFacet[] {
+  const links = linkFacets(text);
+
+  const facets = [...links, ...tagFacets(text).filter((facet) => !overlaps(facet, links))];
 
   const bytes = new TextEncoder().encode(text);
 
-  const mentions = ("mentions" in config ? config.mentions : undefined) ?? [];
-
-  if (!isOptionList(mentions) || mentions.length > 100)
+  if (mentions.length > 100)
     invalidRichText("Bluesky mentions must be an array of at most 100 DID references.");
 
   const spans: { start: number; end: number }[] = [];
 
   for (const value of mentions) {
-    if (!isOptionBag(value)) invalidRichText("Each mention requires UTF-8 offsets and a DID.");
-
     if (
-      !hasMentionFields(value) ||
       !Number.isSafeInteger(value.byteStart) ||
       !Number.isSafeInteger(value.byteEnd) ||
       value.byteStart < 0 ||
@@ -749,7 +2583,7 @@ function richTextOptions(text: string, target: PreparedPublishTarget): JsonObjec
       spans.some((span) => byteStart < span.end && byteEnd > span.start) ||
       facets.some((facet) => byteStart < facet.index.byteEnd && byteEnd > facet.index.byteStart)
     )
-      invalidRichText("Mention spans must not overlap links or other mentions.");
+      invalidRichText("Mention spans must not overlap links, hashtags, or other mentions.");
     spans.push({ start: byteStart, end: byteEnd });
     facets.push({
       index: { byteStart, byteEnd },
@@ -759,7 +2593,345 @@ function richTextOptions(text: string, target: PreparedPublishTarget): JsonObjec
 
   facets.sort((left, right) => left.index.byteStart - right.index.byteStart);
 
-  return definedFields({ langs, facets: facets.length ? facets : undefined });
+  return facets;
+}
+
+function postOptions(text: string, target: PreparedPublishTarget): PostOptions {
+  const options = target.options ?? {};
+
+  if (!isOptionBag(options)) invalidRichText("Bluesky options must be an object.");
+
+  if (Object.keys(options).some((key) => !PUBLISH_OPTION_KEYS.has(key)))
+    invalidRichText("A supplied Bluesky option is not supported.");
+
+  const languages = "languages" in options ? options.languages : undefined;
+
+  if (languages !== undefined && !isStringList(languages))
+    invalidRichText("Bluesky accepts at most three language tags.");
+
+  const langs =
+    languages === undefined
+      ? undefined
+      : languageTags(languages, 3, "Bluesky accepts at most three language tags.");
+
+  const mentions = ("mentions" in options ? options.mentions : undefined) ?? [];
+
+  if (!isOptionList(mentions) || mentions.length > 100 || !mentions.every(hasMentionFields))
+    invalidRichText("Bluesky mentions must be an array of at most 100 DID references.");
+
+  const facets = richTextFacets(text, mentions);
+
+  const tagList = "tags" in options ? options.tags : undefined;
+
+  if (tagList !== undefined && !isStringList(tagList))
+    invalidRichText("Bluesky options.tags must be a list of strings.");
+
+  const labelList = "contentLabels" in options ? options.contentLabels : undefined;
+
+  if (labelList !== undefined && !isStringList(labelList))
+    invalidRichText("Bluesky contentLabels must be a list of label values.");
+
+  const tags = tagList === undefined ? undefined : postTags(tagList);
+
+  const labels = labelList === undefined ? undefined : selfLabels(labelList);
+
+  const quote = "quote" in options ? options.quote : undefined;
+
+  if (quote !== undefined && !isPostRefInput(quote))
+    invalidRichText("Bluesky options.quote needs a post AT-URI and CID.");
+
+  const ruleList = "replyControls" in options ? options.replyControls : undefined;
+
+  if (ruleList !== undefined && (!isOptionList(ruleList) || !ruleList.every(isReplyRule)))
+    invalidRichText("Each reply rule needs kind mention, follower, following, or list.");
+
+  const rules = ruleList === undefined ? undefined : replyRules(ruleList);
+
+  const disableQuotes = "disableQuotes" in options ? options.disableQuotes : undefined;
+
+  if (disableQuotes !== undefined && !isFlag(disableQuotes))
+    invalidRichText("Bluesky options.disableQuotes must be a boolean.");
+
+  const captionList = "videoCaptions" in options ? options.videoCaptions : undefined;
+
+  if (
+    captionList !== undefined &&
+    (!isOptionList(captionList) || !captionList.every(isCaptionInput))
+  )
+    invalidRichText(
+      "Each video caption needs a lang and an uploaded text/vtt blob of at most 20,000 bytes.",
+    );
+
+  const captions = captionList === undefined ? [] : captionTracks(captionList);
+
+  const presentation = "videoPresentation" in options ? options.videoPresentation : undefined;
+
+  if (presentation !== undefined && !isPresentation(presentation))
+    invalidRichText("Bluesky options.videoPresentation must be default or gif.");
+
+  const linkThumbnail = "linkThumbnail" in options ? options.linkThumbnail : undefined;
+
+  if (
+    linkThumbnail !== undefined &&
+    !isBlobRefInput(
+      linkThumbnail,
+      (mimeType, size) =>
+        /^image\/[a-z0-9!#$&^_.+-]+$/i.test(mimeType) && size <= MAX_LINK_THUMB_BYTES,
+    )
+  )
+    invalidRichText(
+      "Bluesky linkThumbnail must be an uploaded image/* blob of at most 1,000,000 bytes.",
+    );
+
+  const associated = "linkAssociatedRefs" in options ? options.linkAssociatedRefs : undefined;
+
+  if (
+    associated !== undefined &&
+    (!isOptionList(associated) || !associated.every((ref) => isRecordRefInput(ref)))
+  )
+    invalidRichText("Bluesky linkAssociatedRefs must be record AT-URI and CID pairs.");
+
+  const linkAssociatedRefs = associated?.map((ref) => ({ uri: ref.uri, cid: ref.cid }));
+
+  return {
+    record: definedFields({
+      langs,
+      facets: facets.length ? facets : undefined,
+      tags,
+      labels,
+    }),
+    disableQuotes: disableQuotes === true,
+    captions,
+    ...definedFields({ quote, replyRules: rules, presentation, linkThumbnail, linkAssociatedRefs }),
+  };
+}
+
+const TID_ALPHABET = "234567abcdefghijklmnopqrstuvwxyz";
+
+let lastTidMicros = 0n;
+
+/**
+ * A record key in the AT Protocol TID format: 53 bits of microseconds since the epoch and a
+ * 10-bit clock identifier, base32-sortable. Callers that write a post together with its
+ * threadgate or postgate need the key before the write, because gates share the post's key.
+ */
+function nextTid(): string {
+  const now = BigInt(Date.now()) * 1000n;
+
+  lastTidMicros = now > lastTidMicros ? now : lastTidMicros + 1n;
+
+  const clock = new Uint16Array(1);
+  globalThis.crypto.getRandomValues(clock);
+
+  let value = (lastTidMicros << 10n) | BigInt((clock[0] ?? 0) & 0x3ff);
+
+  let out = "";
+
+  for (let index = 0; index < 13; index++) {
+    out = (TID_ALPHABET[Number(value & 31n)] ?? "2") + out;
+    value >>= 5n;
+  }
+
+  return out;
+}
+
+const DRAFT_ID = /^[234567a-z]{13}$/;
+
+/** Encodes a draft for `app.bsky.draft.defs#draft`, validating it against the lexicon bounds. */
+function draftJson(draft: BlueskyDraft): JsonObject {
+  if (draft.posts.length === 0 || draft.posts.length > 100)
+    invalidRichText("A Bluesky draft holds 1 to 100 posts.", "bluesky.drafts");
+
+  const posts = draft.posts.map((post): JsonObject => {
+    if (new TextEncoder().encode(post.text).byteLength > 10_000)
+      invalidRichText("Draft post text is limited to 10,000 bytes.", "bluesky.drafts");
+
+    if (post.linkUrl !== undefined && !/^https?:\/\/[^\s]+$/i.test(post.linkUrl))
+      invalidRichText("Draft linkUrl must be an absolute http(s) URL.", "bluesky.drafts");
+
+    if (post.quote !== undefined && !isPostRefInput(post.quote))
+      invalidRichText("Draft quote needs a post AT-URI and CID.", "bluesky.drafts");
+
+    const mediaKinds = [post.images, post.gallery, post.video].filter((kind) => kind !== undefined);
+
+    if (
+      mediaKinds.length > 1 ||
+      (post.images?.length ?? 0) > 4 ||
+      post.images?.length === 0 ||
+      (post.gallery?.length ?? 0) > 20 ||
+      post.gallery?.length === 0 ||
+      (post.video?.captions?.length ?? 0) > 20 ||
+      (post.video?.captions ?? []).some(
+        (caption) =>
+          !caption.lang.trim() || new TextEncoder().encode(caption.content).byteLength > 10_000,
+      )
+    )
+      invalidRichText(
+        "A draft post holds one media kind: 1 to 4 images, a gallery of 1 to 20 images, or one video with up to 20 captions of at most 10,000 UTF-8 bytes.",
+        "bluesky.drafts",
+      );
+
+    const localImage = (media: BlueskyDraftMedia): JsonObject => {
+      if (media.path.length < 1 || new TextEncoder().encode(media.path).byteLength > 1024)
+        invalidRichText("Draft media paths are 1 to 1,024 UTF-8 bytes.", "bluesky.drafts");
+
+      if (media.alt !== undefined && graphemeCount(media.alt) > 2000)
+        invalidRichText("Draft alt text is limited to 2,000 graphemes.", "bluesky.drafts");
+
+      return { localRef: { path: media.path }, ...definedFields({ alt: media.alt }) };
+    };
+
+    const video = post.video;
+
+    return {
+      text: post.text,
+      ...definedFields({
+        labels: post.contentLabels === undefined ? undefined : selfLabels(post.contentLabels),
+        embedExternals: post.linkUrl === undefined ? undefined : [{ uri: post.linkUrl }],
+        embedRecords:
+          post.quote === undefined
+            ? undefined
+            : [{ record: { uri: post.quote.uri, cid: post.quote.cid } }],
+        embedImages: post.images?.map(localImage),
+        embedGallery:
+          post.gallery === undefined
+            ? undefined
+            : {
+                items: post.gallery.map((media) => ({
+                  $type: "app.bsky.draft.defs#draftEmbedImage",
+                  ...localImage(media),
+                })),
+              },
+        embedVideos:
+          video === undefined
+            ? undefined
+            : [
+                {
+                  ...localImage(video),
+                  ...definedFields({
+                    captions: video.captions?.map((caption) => ({
+                      lang: caption.lang,
+                      content: caption.content,
+                    })),
+                  }),
+                },
+              ],
+      }),
+    };
+  });
+
+  for (const [field, value] of [
+    ["deviceId", draft.deviceId],
+    ["deviceName", draft.deviceName],
+  ] as const)
+    if (value !== undefined && value.length > 100)
+      invalidRichText(`Draft ${field} is limited to 100 characters.`, "bluesky.drafts");
+
+  return {
+    posts,
+    ...definedFields({
+      langs:
+        draft.languages === undefined
+          ? undefined
+          : languageTags(draft.languages, 3, "A Bluesky draft accepts at most three languages."),
+      threadgateAllow:
+        draft.replyControls === undefined ? undefined : replyRules(draft.replyControls),
+      postgateEmbeddingRules: draft.disableQuotes
+        ? [{ $type: "app.bsky.feed.postgate#disableRule" }]
+        : undefined,
+      deviceId: draft.deviceId,
+      deviceName: draft.deviceName,
+    }),
+  };
+}
+
+const PROFILE_TEXT_LIMITS = {
+  displayName: { graphemes: 64, bytes: 640 },
+  description: { graphemes: 256, bytes: 2560 },
+  pronouns: { graphemes: 20, bytes: 200 },
+} as const;
+
+/** Validates profile changes against the app.bsky.actor.profile lexicon and encodes them. */
+function profileChanges(
+  changes: BlueskyProfileChanges,
+  operation: string,
+): Record<string, JsonValue | null> {
+  for (const [field, limit] of Object.entries(PROFILE_TEXT_LIMITS)) {
+    const value =
+      field === "displayName"
+        ? changes.displayName
+        : field === "description"
+          ? changes.description
+          : changes.pronouns;
+
+    if (
+      isStringItem(value) &&
+      (graphemeCount(value) > limit.graphemes ||
+        new TextEncoder().encode(value).byteLength > limit.bytes)
+    )
+      invalidRichText(`Profile ${field} is limited to ${limit.graphemes} graphemes.`, operation);
+  }
+
+  if (isStringItem(changes.website) && !/^https?:\/\/[^\s]+$/i.test(changes.website))
+    invalidRichText("Profile website must be an absolute http(s) URL.", operation);
+
+  const image = (blob: BlueskyBlobRef | null | undefined): JsonObject | null | undefined => {
+    if (blob === null || blob === undefined) return blob;
+
+    if (
+      !blobRefFits(
+        blob,
+        (mimeType, size) =>
+          (mimeType === "image/png" || mimeType === "image/jpeg") && size <= 1_000_000,
+      )
+    )
+      invalidRichText(
+        "Avatars and banners must be PNG or JPEG blobs of at most 1,000,000 bytes.",
+        operation,
+      );
+
+    return blobJson(blob);
+  };
+
+  const pinned = changes.pinnedPost;
+
+  if (pinned !== undefined && pinned !== null && !isPostRefInput(pinned))
+    invalidRichText("pinnedPost needs a post AT-URI and CID.", operation);
+
+  const joined = changes.joinedViaStarterPack;
+
+  if (
+    joined !== undefined &&
+    joined !== null &&
+    (!STARTER_PACK_URI.test(joined.uri) || !CID.test(joined.cid))
+  )
+    invalidRichText("joinedViaStarterPack needs a starter pack AT-URI and CID.", operation);
+
+  const links = changes.links;
+
+  if (
+    links !== undefined &&
+    links !== null &&
+    (links.length > 10 || links.some((link) => !LINK_URI.test(link.uri) || !CID.test(link.cid)))
+  )
+    invalidRichText("Profile links take up to 10 app.bsky.actor.link AT-URIs and CIDs.", operation);
+
+  return definedFields({
+    displayName: changes.displayName,
+    description: changes.description,
+    pronouns: changes.pronouns,
+    website: changes.website,
+    avatar: image(changes.avatar),
+    banner: image(changes.banner),
+    pinnedPost:
+      pinned === undefined || pinned === null ? pinned : { uri: pinned.uri, cid: pinned.cid },
+    joinedViaStarterPack:
+      joined === undefined || joined === null ? joined : { uri: joined.uri, cid: joined.cid },
+    links:
+      links === undefined || links === null
+        ? links
+        : links.map((link) => ({ uri: link.uri, cid: link.cid })),
+  });
 }
 
 interface PublicProjection {
@@ -852,6 +3024,15 @@ const publicMediaRecord: PublicProjection = {
         external: { strings: ["uri", "title", "description"], objects: { thumb: publicBlob } },
       },
     },
+    "app.bsky.embed.gallery": {
+      strings: ["$type"],
+      arrays: {
+        items: {
+          strings: ["$type", "alt"],
+          objects: { image: publicBlob, aspectRatio: publicAspectRatio },
+        },
+      },
+    },
   },
 };
 
@@ -889,6 +3070,15 @@ const publicMediaView: PublicProjection = {
     "app.bsky.embed.external#view": {
       strings: ["$type"],
       objects: { external: { strings: ["uri", "title", "description", "thumb"] } },
+    },
+    "app.bsky.embed.gallery#view": {
+      strings: ["$type"],
+      arrays: {
+        items: {
+          strings: ["$type", "thumbnail", "fullsize", "alt"],
+          objects: { aspectRatio: publicAspectRatio },
+        },
+      },
     },
   },
 };
@@ -935,7 +3125,7 @@ const publicEmbedView: PublicProjection = {
 
 const publicFeedPost: PublicProjection = {
   strings: ["uri", "cid", "indexedAt"],
-  numbers: ["likeCount", "repostCount", "replyCount", "quoteCount"],
+  numbers: ["likeCount", "repostCount", "replyCount", "quoteCount", "bookmarkCount"],
   objects: { author: publicAuthor, record: publicPostRecord, embed: publicEmbedView },
   arrays: {
     labels: {
@@ -1119,7 +3309,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         platform: "bluesky",
         availability: "unsupported-by-platform",
         notes:
-          "Bluesky has no signed webhook delivery. Read the connected account inbox with notifications.list and markSeen. The firehose and Jetstream are network indexing streams; filtering by the connected DID watches its authored records, not inbound mentions or replies.",
+          "Bluesky has no signed webhook delivery. Read the connected account inbox with notifications.list and markSeen. The firehose and Jetstream are network indexing streams; filtering by the connected DID watches its authored records, not inbound mentions or replies. blueskyJetstreamSubscription builds a Jetstream URL and parseBlueskyJetstreamEvent decodes frames; the SDK opens no sockets.",
       },
       {
         operation: "accounts.read",
@@ -1133,10 +3323,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         platform: "bluesky",
         availability: "available",
         formats: ["text", "image", "video"],
-        // Mirrors prepareTarget: up to four images (2,000,000 bytes each) or one uploaded MP4.
-        constraints: { maxItems: MAX_IMAGES, allowedMimeTypes: ["image/*", "video/mp4"] },
+        // Mirrors prepareTarget: up to ten images (2,000,000 bytes each) or one uploaded MP4.
+        constraints: { maxItems: MAX_GALLERY_IMAGES, allowedMimeTypes: ["image/*", "video/mp4"] },
         notes:
-          "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant.",
+          "One to four images use app.bsky.embed.images; five to ten use app.bsky.embed.gallery and need width and height. Reply controls and quote blocking write a threadgate and postgate with the post in one com.atproto.repo.applyWrites call. App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant.",
       },
       {
         operation: "posts.schedule",
@@ -1179,6 +3369,32 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         formats: ["text", "image"],
       },
       {
+        operation: "posts.draft",
+        platform: "bluesky",
+        availability: "available",
+        surface: "native",
+        notes:
+          "native.createDraft, listDrafts, updateDraft, and deleteDraft store private app.bsky.draft drafts. Drafts do not publish on a schedule; image, gallery, and video draft embeds hold device-local paths, not media bytes.",
+      },
+      ...["bookmarks.read", "bookmarks.write", "labels.read"].map((operation) => ({
+        operation,
+        platform: "bluesky" as const,
+        availability: "available" as const,
+        surface: "native" as const,
+        notes:
+          operation === "labels.read"
+            ? "native.getLabelerServices and native.queryLabels read labeler views and labels."
+            : "Private bookmarks through app.bsky.bookmark; post records only.",
+      })),
+      {
+        operation: "messages.group.write",
+        platform: "bluesky",
+        availability: "available",
+        surface: "native",
+        notes:
+          "Bluesky marks chat.bsky.group endpoints unstable while under active development. Group creation is not idempotent.",
+      },
+      {
         operation: "comments.read",
         platform: "bluesky",
         availability: "available",
@@ -1219,7 +3435,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         availability: "available",
         formats: ["video"],
         notes:
-          "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference.",
+          "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token: one uploadVideo request up to 50,000,000 bytes, the multipart upload above that. Returns the processing job ID as the media reference.",
       },
       {
         operation: "media.video",
@@ -1227,7 +3443,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         availability: "available",
         formats: ["video"],
         notes:
-          "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job.",
+          "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job. native.uploadVideoMultipart sends startUpload, each uploadPart in order, and finishUpload; startVideoUpload, uploadVideoPart, finishVideoUpload, getVideoUploadStatus, and abortVideoUpload expose each step for resuming.",
       },
       {
         operation: "media.status",
@@ -1284,8 +3500,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       readonly body?: BodyInit;
       readonly headers?: HeadersInit;
       readonly maxAttempts?: number;
+      /** Forces POST for a procedure that takes no input body. */
+      readonly method?: "POST";
+      /** Keeps the XRPC `RecordNotFound` error name on a failed request. */
+      readonly decodeRecordNotFound?: true;
     } = {},
   ): Promise<JsonValue> {
+    const httpMethod = init.method ?? (init.body === undefined ? "GET" : "POST");
+
     // Keep a transport protocol error local to this request so concurrent calls
     // cannot overwrite its original response evidence.
     let sessionError: SocialError | undefined;
@@ -1330,18 +3552,81 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       return await requestHttp({
         url: endpoint(service, method),
         timeoutMs: remainingBudget(context),
-        method: init.body === undefined ? "GET" : "POST",
+        method: httpMethod,
         ...(options.session
           ? { headers }
           : { headers: { ...authHeaders(auth), ...Object.fromEntries(headers.entries()) } }),
-        ...definedFields({ body: init.body, signal: context.signal }),
+        ...definedFields({
+          body: init.body,
+          signal: context.signal,
+          decodeErrorBody: init.decodeRecordNotFound ? decodeXrpcError : undefined,
+        }),
         maxAttempts:
           init.maxAttempts ??
-          (init.body === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1),
+          (httpMethod === "GET" ? Math.min(context.retryBudget.maxAttempts, 3) : 1),
       });
     } catch (error) {
       if (sessionError !== undefined) throw sessionError;
-      throw operationError(`bluesky.${method}`, error, init.body !== undefined);
+      throw operationError(`bluesky.${method}`, error, httpMethod === "POST");
+    }
+  }
+
+  /**
+   * One authenticated GET whose response is text rather than JSON, such as JSON Lines. It uses
+   * the same credentials and chat proxy header as `xrpc`, without retries.
+   */
+  async function xrpcText(
+    method: string,
+    context: AdapterOperationContext,
+    maxBytes: number,
+  ): Promise<string> {
+    const operation = `bluesky.${method}`;
+
+    const headers = new Headers(options.session ? undefined : authHeaders(auth));
+
+    if (method.startsWith("chat.bsky."))
+      headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
+
+    const controller = new AbortController();
+
+    const abort = () => controller.abort(context.signal?.reason);
+    context.signal?.addEventListener("abort", abort, { once: true });
+
+    const timer = setTimeout(
+      () => controller.abort(new Error("HTTP deadline exceeded")),
+      Math.max(1, remainingBudget(context)),
+    );
+
+    try {
+      const url = endpoint(service, method);
+
+      const init: RequestInit = { method: "GET", headers, signal: controller.signal };
+
+      const response = await abortable(
+        options.session === undefined
+          ? fetchWithoutRedirects(fetcher, url, init)
+          : options.session.fetchHandler(url.pathname + url.search, init),
+        controller.signal,
+      );
+
+      if (!response.ok) {
+        void response.body?.cancel().catch(() => undefined);
+
+        throw new HttpError("Bluesky rejected the request.", "http", true, response.status);
+      }
+
+      if (response.body === null) return "";
+
+      return new TextDecoder("utf-8", { fatal: true }).decode(
+        await readBinary(response.body, maxBytes, controller.signal),
+      );
+    } catch (error) {
+      if (error instanceof SocialError) throw error;
+
+      throw operationError(operation, error, false);
+    } finally {
+      clearTimeout(timer);
+      context.signal?.removeEventListener("abort", abort);
     }
   }
 
@@ -1381,6 +3666,305 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     return { did, ...definedFields({ handle: optionalString(session["handle"]) }) };
   }
 
+  /** Uploads bytes with com.atproto.repo.uploadBlob and returns the validated blob reference. */
+  async function uploadBytes(
+    bytes: Uint8Array,
+    mimeType: string,
+    context: AdapterOperationContext,
+  ): Promise<JsonObject> {
+    const response = object(
+      await xrpc("com.atproto.repo.uploadBlob", context, {
+        body: new Blob([bytes.slice()], { type: mimeType }),
+        headers: { "Content-Type": mimeType },
+      }),
+    );
+
+    return blobRef(response["blob"], "bluesky.uploadBlob");
+  }
+
+  /** Sends one com.atproto.repo.applyWrites transaction and decodes each per-write result. */
+  async function applyWritesRequest(
+    writes: readonly BlueskyWrite[],
+    context: AdapterOperationContext,
+    extra: { readonly validate?: boolean; readonly swapCommit?: string } = {},
+  ): Promise<BlueskyApplyWritesResult> {
+    const operation = "bluesky.applyWrites";
+
+    if (writes.length === 0 || writes.length > MAX_APPLY_WRITES)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: `applyWrites takes 1 to ${MAX_APPLY_WRITES} writes.`,
+        retryDisposition: { kind: "never" },
+      });
+
+    const wire = writes.map((write): JsonObject => {
+      if (!NSID.test(write.collection))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Each write needs a valid collection NSID.",
+          retryDisposition: { kind: "never" },
+        });
+
+      if (write.rkey !== undefined && (!RKEY.test(write.rkey) || /^\.{1,2}$/.test(write.rkey)))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Record keys must use the AT Protocol record-key syntax.",
+          retryDisposition: { kind: "never" },
+        });
+
+      if (write.action !== "delete" && write.value["$type"] !== write.collection)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Each record value needs a $type equal to its collection.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return write.action === "delete"
+        ? {
+            $type: "com.atproto.repo.applyWrites#delete",
+            collection: write.collection,
+            rkey: write.rkey,
+          }
+        : {
+            $type: `com.atproto.repo.applyWrites#${write.action}`,
+            collection: write.collection,
+            value: write.value,
+            ...definedFields({ rkey: write.rkey }),
+          };
+    });
+
+    const response = object(
+      await xrpc("com.atproto.repo.applyWrites", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          writes: wire,
+          ...definedFields({ validate: extra.validate, swapCommit: extra.swapCommit }),
+        }),
+      }),
+    );
+
+    try {
+      const commit = response["commit"] === undefined ? undefined : object(response["commit"]);
+
+      const results = array(response["results"] ?? []).map((value, index): BlueskyWriteResult => {
+        const result = object(value);
+
+        const action = writes[index]?.action ?? "create";
+
+        const status = optionalString(result["validationStatus"]);
+
+        return {
+          action,
+          ...definedFields({
+            uri: optionalString(result["uri"]),
+            cid: optionalString(result["cid"]),
+            validationStatus: status === "valid" || status === "unknown" ? status : undefined,
+          }),
+        };
+      });
+
+      return {
+        results,
+        ...definedFields({
+          commit:
+            commit === undefined
+              ? undefined
+              : { cid: string(commit["cid"]), rev: string(commit["rev"]) },
+        }),
+      };
+    } catch {
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message: "Bluesky accepted applyWrites but returned unreadable results. Reconcile first.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+    }
+  }
+
+  /**
+   * Reads this account's threadgate or postgate for a post and writes the mutated record. An
+   * existing record is replaced with its CID as `swapRecord`; a missing one is created with the
+   * post's record key, which fails rather than overwrites if another writer created it first.
+   */
+  async function upsertGate(
+    collection: "app.bsky.feed.threadgate" | "app.bsky.feed.postgate",
+    postUri: string,
+    mutate: (current: JsonObject | undefined) => JsonObject,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyPostRef> {
+    return upsertOwnRecord(collection, recordKey(postUri, "app.bsky.feed.post"), mutate, context);
+  }
+
+  /** Read-modify-write of one record in this repository with compare-and-swap. */
+  /** Reads one record from any repository; `undefined` when it does not exist. */
+  async function readRecord(
+    repo: string,
+    collection: string,
+    rkey: string,
+    context: AdapterOperationContext,
+  ): Promise<JsonObject | undefined> {
+    const query = new URLSearchParams({ repo, collection, rkey });
+
+    try {
+      return object(
+        object(
+          await xrpc(`com.atproto.repo.getRecord?${query}`, context, {
+            decodeRecordNotFound: true,
+          }),
+        )["value"],
+      );
+    } catch (error) {
+      if (error instanceof SocialError && isMissingRecord(error)) return undefined;
+
+      throw error;
+    }
+  }
+
+  /** Writes a singleton record with rkey `self`, creating or replacing it. */
+  async function putSelfRecord(
+    collection: string,
+    record: JsonObject,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyPostRef> {
+    return writtenRef(
+      await xrpc("com.atproto.repo.putRecord", context, {
+        body: JSON.stringify({ repo: auth.did, collection, rkey: "self", record }),
+      }),
+      "bluesky.com.atproto.repo.putRecord",
+    );
+  }
+
+  /** Creates a TID-keyed record in this account's repository. */
+  async function createOwnRecord(
+    collection: string,
+    record: JsonObject,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyPostRef> {
+    return writtenRef(
+      await xrpc("com.atproto.repo.createRecord", context, {
+        body: JSON.stringify({ repo: auth.did, collection, record }),
+      }),
+      "bluesky.com.atproto.repo.createRecord",
+    );
+  }
+
+  /** Deletes one of this account's records after checking the URI's collection. */
+  async function deleteOwnRecord(
+    input: BlueskyOwnedRecordInput,
+    collection: string,
+    operation: string,
+  ): Promise<void> {
+    const context = nativeContext(input.context, operation);
+    assertNativeAccount(input.account, context, operation);
+
+    await xrpc("com.atproto.repo.deleteRecord", context, {
+      body: JSON.stringify({ repo: auth.did, collection, rkey: recordKey(input.uri, collection) }),
+    });
+  }
+
+  async function upsertOwnRecord(
+    collection: string,
+    rkey: string,
+    mutate: (current: JsonObject | undefined) => JsonObject,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyPostRef> {
+    const query = new URLSearchParams({ repo: auth.did, collection, rkey });
+
+    let existing: { readonly record: JsonObject; readonly cid: string } | undefined;
+
+    try {
+      const found = object(
+        await xrpc(`com.atproto.repo.getRecord?${query}`, context, { decodeRecordNotFound: true }),
+      );
+
+      existing = { record: object(found["value"]), cid: string(found["cid"]) };
+    } catch (error) {
+      if (!(error instanceof SocialError) || !isMissingRecord(error)) throw error;
+    }
+
+    const record = mutate(existing?.record);
+
+    return postRef(
+      existing === undefined
+        ? await xrpc("com.atproto.repo.createRecord", context, {
+            body: JSON.stringify({ repo: auth.did, collection, rkey, record }),
+          })
+        : await xrpc("com.atproto.repo.putRecord", context, {
+            body: JSON.stringify({
+              repo: auth.did,
+              collection,
+              rkey,
+              record,
+              swapRecord: existing.cid,
+            }),
+          }),
+    );
+  }
+
+  /**
+   * Creates a post and its threadgate and/or postgate in one applyWrites transaction. Gates must
+   * share the post's record key, so the key is generated here as a TID before the write.
+   */
+  async function createGatedPost(
+    record: JsonObject,
+    parsed: PostOptions,
+    createdAt: string,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyPostRef> {
+    const rkey = nextTid();
+
+    const uri = `at://${auth.did}/app.bsky.feed.post/${rkey}`;
+
+    const writes: BlueskyWrite[] = [
+      { action: "create", collection: "app.bsky.feed.post", rkey, value: record },
+    ];
+
+    if (parsed.replyRules !== undefined)
+      writes.push({
+        action: "create",
+        collection: "app.bsky.feed.threadgate",
+        rkey,
+        value: {
+          $type: "app.bsky.feed.threadgate",
+          post: uri,
+          allow: [...parsed.replyRules],
+          createdAt,
+        },
+      });
+
+    if (parsed.disableQuotes)
+      writes.push({
+        action: "create",
+        collection: "app.bsky.feed.postgate",
+        rkey,
+        value: {
+          $type: "app.bsky.feed.postgate",
+          post: uri,
+          embeddingRules: [{ $type: "app.bsky.feed.postgate#disableRule" }],
+          createdAt,
+        },
+      });
+
+    const { results } = await applyWritesRequest(writes, context);
+
+    const first = results[0];
+
+    if (first?.uri !== uri || first.cid === undefined || !first.cid)
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation: "bluesky.publish",
+        message: "Bluesky did not confirm the post in the applyWrites result. Reconcile first.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+
+    return { uri, cid: first.cid };
+  }
+
   const videoOrigin = videoServiceOrigin(options.videoService);
 
   const timeout = options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
@@ -1405,25 +3989,33 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     method: string,
     query: URLSearchParams,
     context: AdapterOperationContext,
-    init: { readonly token?: string; readonly body?: Blob } = {},
+    init: {
+      readonly token?: string;
+      /** Sends a POST with this body. Without it the request is a GET. */
+      readonly payload?: { readonly body: Blob | string; readonly contentType: string };
+      /** Reads a 409 `already_exists` body as the existing job (single-request upload only). */
+      readonly acceptExisting?: true;
+    } = {},
   ): Promise<JsonValue> {
     const url = new URL(`/xrpc/${method}`, videoOrigin);
     url.search = query.toString();
 
+    const payload = init.payload;
+
     try {
-      return await (init.body === undefined ? videoHttp : videoUploadHttp)({
+      return await (init.acceptExisting ? videoUploadHttp : videoHttp)({
         url,
         timeoutMs: remainingBudget(context),
-        method: init.body === undefined ? "GET" : "POST",
+        method: payload === undefined ? "GET" : "POST",
         headers: definedFields({
           Authorization: init.token === undefined ? undefined : `Bearer ${init.token}`,
-          "Content-Type": init.body === undefined ? undefined : "video/mp4",
+          "Content-Type": payload?.contentType,
         }),
-        ...definedFields({ body: init.body, signal: context.signal }),
-        maxAttempts: init.body === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1,
+        ...definedFields({ body: payload?.body, signal: context.signal }),
+        maxAttempts: payload === undefined ? Math.min(context.retryBudget.maxAttempts, 3) : 1,
       });
     } catch (error) {
-      throw operationError(`bluesky.${method}`, error, init.body !== undefined);
+      throw operationError(`bluesky.${method}`, error, payload !== undefined);
     }
   }
 
@@ -1493,6 +4085,146 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     }
 
     return serviceDid(`did:web:${host.replace(":", "%3A")}`, "bluesky.video.upload");
+  }
+
+  /**
+   * Mints the token for the multipart upload calls. Bluesky's app sends every multipart call with
+   * the same token as the single-request upload: audience is the account's PDS service DID, `lxm`
+   * is `com.atproto.repo.uploadBlob`, and it lasts 30 minutes.
+   */
+  async function uploadToken(
+    aud: string,
+    context: AdapterOperationContext,
+  ): Promise<{ readonly token: string; readonly expiresAt: number }> {
+    const expiresAt = Date.now() + VIDEO_UPLOAD_TOKEN_SECONDS * 1000;
+
+    const token = await serviceToken(
+      aud,
+      "com.atproto.repo.uploadBlob",
+      VIDEO_UPLOAD_TOKEN_SECONDS,
+      context,
+    );
+
+    return { token, expiresAt };
+  }
+
+  function jsonPayload(value: JsonObject) {
+    return { body: JSON.stringify(value), contentType: "application/json" };
+  }
+
+  async function startUploadRequest(
+    input: { readonly sizeBytes: number; readonly name?: string } & BlueskyVideoUploadHints,
+    token: string,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyVideoUploadSession> {
+    const response = await videoRequest(
+      "app.bsky.video.startUpload",
+      new URLSearchParams(),
+      context,
+      {
+        token,
+        payload: jsonPayload({
+          sizeBytes: input.sizeBytes,
+          mimeType: "video/mp4",
+          ...definedFields({
+            name: input.name,
+            durationMs: input.durationMs,
+            width: input.width,
+            height: input.height,
+          }),
+        }),
+      },
+    );
+
+    try {
+      return uploadSession(response);
+    } catch (error) {
+      throw operationError("bluesky.app.bsky.video.startUpload", error);
+    }
+  }
+
+  async function uploadPartRequest(
+    input: { readonly jobId: string; readonly partNumber: number; readonly part: Blob },
+    token: string,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyVideoPartReceipt> {
+    const response = await videoRequest(
+      "app.bsky.video.uploadPart",
+      new URLSearchParams({ jobId: input.jobId, partNumber: String(input.partNumber) }),
+      context,
+      { token, payload: { body: input.part, contentType: "application/octet-stream" } },
+    );
+
+    try {
+      const receipt = object(response);
+
+      const partNumber = positiveInteger(receipt["partNumber"]);
+
+      const sizeBytes = positiveInteger(receipt["sizeBytes"]);
+
+      if (partNumber !== input.partNumber || sizeBytes !== input.part.size)
+        invalidUploadResponse("Bluesky recorded a different part number or size.");
+
+      return { partNumber, sizeBytes };
+    } catch (error) {
+      throw operationError("bluesky.app.bsky.video.uploadPart", error);
+    }
+  }
+
+  async function finishUploadRequest(
+    jobId: string,
+    token: string,
+    context: AdapterOperationContext,
+  ): Promise<BlueskyVideoJob> {
+    const response = await videoRequest(
+      "app.bsky.video.finishUpload",
+      new URLSearchParams(),
+      context,
+      { token, payload: jsonPayload({ jobId }) },
+    );
+
+    try {
+      const result = object(response);
+
+      const completedJobId = uploadJobId(result["completedJobId"]);
+
+      // On deduplication the processing job differs from the upload job; poll the completed one.
+      return { ...videoJob(result["jobStatus"], auth.did), jobId: completedJobId };
+    } catch (error) {
+      throw operationError("bluesky.app.bsky.video.finishUpload", error);
+    }
+  }
+
+  /** Validates the account and arguments shared by the multipart session calls. */
+  function multipartContext(
+    input: {
+      readonly account: ConnectedAccountRef;
+      readonly jobId: string;
+      readonly context?: AdapterOperationContext;
+    },
+    operation: string,
+  ): AdapterOperationContext {
+    const context = nativeContext(input.context, operation);
+    assertNativeAccount(input.account, context, operation);
+
+    if (!VIDEO_UPLOAD_JOB_ID.test(input.jobId))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Bluesky video upload job ID is malformed.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return context;
+  }
+
+  function invalidMultipartInput(operation: string): never {
+    throw new SocialError({
+      code: "invalid_input",
+      operation,
+      message: `Bluesky multipart video upload requires a non-empty video/mp4 of at most ${MAX_VIDEO_BYTES} bytes, a plain file name, and positive integer duration and dimension hints.`,
+      retryDisposition: { kind: "never" },
+    });
   }
 
   /** Validates a normalized video attachment and returns its MP4 bytes without I/O. */
@@ -1586,7 +4318,1074 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     };
   };
 
+  /** Trims identifiers (DIDs, handles, or AT-URIs) and enforces the endpoint's count limit. */
+  const identifiers = (
+    values: readonly string[],
+    max: number,
+    operation: string,
+    what: string,
+  ): string[] => {
+    const cleaned = values.map((value) => value.trim());
+
+    if (cleaned.length === 0 || cleaned.length > max || cleaned.some((value) => !value))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: `Provide 1 to ${max} ${what}.`,
+        retryDisposition: { kind: "never" },
+      });
+
+    return cleaned;
+  };
+
+  const listOf = (response: JsonObject, key: string): readonly JsonObject[] =>
+    array(response[key] ?? []).map((value) => object(value));
+
+  const page = (response: JsonObject, key: string): BlueskyPage => ({
+    items: listOf(response, key),
+    ...definedFields({ cursor: optionalString(response["cursor"]) }),
+  });
+
+  const withParams = (query: URLSearchParams, params: QueryParams): URLSearchParams => {
+    for (const [name, value] of Object.entries(params)) {
+      if (value === undefined) continue;
+
+      if (isStringItem(value)) query.set(name, value);
+      else for (const item of value) query.append(name, item);
+    }
+
+    return query;
+  };
+
+  /** One authenticated GET for a paged view; the account must be this adapter's account. */
+  const pagedRead = async (
+    input: BlueskyPageInput,
+    method: string,
+    operation: string,
+    params: QueryParams = {},
+  ): Promise<JsonObject> => {
+    const context = nativeContext(input.context, operation);
+    assertNativeAccount(input.account, context, operation);
+
+    const query = withParams(pageQuery(input, operation), params);
+
+    return object(await xrpc(`${method}?${query}`, context));
+  };
+
+  /** One authenticated GET without paging. */
+  const viewRead = async (
+    account: ConnectedAccountRef,
+    supplied: AdapterOperationContext | undefined,
+    method: string,
+    operation: string,
+    params: QueryParams,
+  ): Promise<JsonObject> => {
+    const context = nativeContext(supplied, operation);
+    assertNativeAccount(account, context, operation);
+
+    const query = withParams(new URLSearchParams(), params);
+
+    return object(await xrpc(`${method}?${query}`, context));
+  };
+
+  /** One authenticated procedure call with a JSON body. */
+  const procedure = async (
+    account: ConnectedAccountRef,
+    supplied: AdapterOperationContext | undefined,
+    method: string,
+    operation: string,
+    body: JsonObject,
+  ): Promise<JsonObject> => {
+    const context = nativeContext(supplied, operation);
+    assertNativeAccount(account, context, operation);
+
+    return object(await xrpc(method, context, { body: JSON.stringify(body) }));
+  };
+
+  /** One authenticated procedure whose lexicon declares no output; HTTP 200 may carry no body. */
+  const voidProcedure = async (
+    account: ConnectedAccountRef,
+    supplied: AdapterOperationContext | undefined,
+    method: string,
+    operation: string,
+    body: JsonObject,
+  ): Promise<void> => {
+    const context = nativeContext(supplied, operation);
+    assertNativeAccount(account, context, operation);
+
+    await xrpc(method, context, { body: JSON.stringify(body) });
+  };
+
+  const chatPreference = (
+    value: JsonField,
+    operation: string,
+  ): BlueskyChatNotificationPreference => {
+    const preference = object(value);
+
+    const include = preference["include"],
+      push = preference["push"];
+
+    if ((include !== "all" && include !== "follows") || !isBoolean(push))
+      throw new SocialError({
+        code: "upstream_failure",
+        operation,
+        message: "Bluesky returned an invalid chat notification preference.",
+      });
+
+    return { include, push };
+  };
+
+  const chatPreferences = (
+    response: JsonObject,
+    operation: string,
+  ): BlueskyChatNotificationPreferences => {
+    const preferences = object(response["preferences"]);
+
+    return {
+      chat: chatPreference(preferences["chat"], operation),
+      chatRequest: chatPreference(preferences["chatRequest"], operation),
+    };
+  };
+
+  const convoProcedure = async (
+    method: string,
+    operation: string,
+    input: BlueskyConvoInput,
+  ): Promise<JsonObject> =>
+    object(
+      (
+        await procedure(input.account, input.context, method, operation, {
+          convoId: convoId(input.conversationId, operation),
+        })
+      )["convo"],
+    );
+
+  const joinLink = (response: JsonObject): JsonObject => object(response["joinLink"]);
+
+  const joinRule = (value: string, operation: string): string => {
+    if (value !== "anyone" && value !== "followedByOwner")
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "joinRule must be anyone or followedByOwner.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value;
+  };
+
+  const memberDid = (value: string, operation: string): string => {
+    if (!DID.test(value))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "member must be a DID.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value;
+  };
+
+  /** A trimmed, non-empty string field. */
+  const requiredText = (value: string, operation: string, what: string): string => {
+    const trimmed = value.trim();
+
+    if (!trimmed)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: `Provide a ${what}.`,
+        retryDisposition: { kind: "never" },
+      });
+
+    return trimmed;
+  };
+
+  /** A procedure with neither input nor output, sent as a bodyless POST. */
+  const emptyProcedure = async (
+    input: { readonly account: ConnectedAccountRef; readonly context?: AdapterOperationContext },
+    method: string,
+    operation: string,
+  ): Promise<void> => {
+    const context = nativeContext(input.context, operation);
+    assertNativeAccount(input.account, context, operation);
+
+    await xrpc(method, context, { method: "POST" });
+  };
+
+  const emailAddress = (value: string, operation: string): string => {
+    if (!/^[^\s@]+@[^\s@]+$/.test(value))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Provide an email address.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value;
+  };
+
+  const phoneNumber = (value: string, operation: string): string => {
+    if (!/^\+[1-9][0-9]{6,14}$/.test(value))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Phone numbers must be in E.164 format, such as +12125550123.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value;
+  };
+
+  /** Encodes an optional page size bounded by the endpoint's own maximum. */
+  const limitParam = (value: number | undefined, max: number, operation: string) => {
+    if (value === undefined) return undefined;
+
+    if (!Number.isSafeInteger(value) || value < 1 || value > max)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: `Page size must be between 1 and ${max}.`,
+        retryDisposition: { kind: "never" },
+      });
+
+    return String(value);
+  };
+
+  const countryCode = (value: string, operation: string): string => {
+    if (!/^[A-Za-z]{2}$/.test(value))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "countryCode must be a two-letter ISO 3166-1 code.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value.toUpperCase();
+  };
+
+  const atUri = (value: string, operation: string): string => {
+    if (!/^at:\/\/[^\s/]+(\/[^\s/]+){0,2}$/.test(value))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Expected an AT-URI.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value;
+  };
+
+  const convoId = (value: string, operation: string): string => {
+    if (!/^[\x21-\x7e]{1,256}$/.test(value))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Conversation and message IDs are opaque printable strings.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value;
+  };
+
+  const memberDids = (values: readonly string[], max: number, operation: string): string[] => {
+    const dids = identifiers(values, max, operation, "member DIDs");
+
+    if (dids.some((value) => !/^did:[a-z]+:[A-Za-z0-9._:%-]{1,2000}$/.test(value)))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Chat members are identified by DID.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return dids;
+  };
+
+  const groupName = (value: string, operation: string): string => {
+    if (!value.trim() || new TextEncoder().encode(value).byteLength > 1280)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Group chat names need 1 to 1,280 bytes.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return value;
+  };
+
+  /** Encodes `chat.bsky.convo.defs#messageInput` with facets and an optional shared post. */
+  const messageJson = (input: BlueskyMessageInput): JsonObject => {
+    if (
+      !input.text.trim() ||
+      graphemeCount(input.text) > 1000 ||
+      new TextEncoder().encode(input.text).byteLength > 10_000
+    )
+      invalidRichText(
+        "Message text is required and limited to 1,000 graphemes and 10,000 bytes.",
+        "bluesky.chat.send",
+      );
+
+    if (input.embedPost !== undefined && !isPostRefInput(input.embedPost))
+      invalidRichText("embedPost needs a post AT-URI and CID.", "bluesky.chat.send");
+
+    if (
+      input.embedJoinLink !== undefined &&
+      (input.embedPost !== undefined || !/^[\x21-\x7e]{1,256}$/.test(input.embedJoinLink))
+    )
+      invalidRichText(
+        "embedJoinLink needs a join link code and cannot be combined with embedPost.",
+        "bluesky.chat.send",
+      );
+
+    const facets = richTextFacets(input.text, input.mentions ?? []);
+
+    return {
+      text: input.text,
+      ...definedFields({
+        facets: facets.length ? facets : undefined,
+        embed:
+          input.embedPost !== undefined
+            ? {
+                $type: "app.bsky.embed.record",
+                record: { uri: input.embedPost.uri, cid: input.embedPost.cid },
+              }
+            : input.embedJoinLink !== undefined
+              ? { $type: "chat.bsky.embed.joinLink", code: input.embedJoinLink }
+              : undefined,
+      }),
+    };
+  };
+
+  const reaction = async (
+    method: "chat.bsky.convo.addReaction" | "chat.bsky.convo.removeReaction",
+    input: BlueskyReactionInput,
+  ): Promise<JsonObject> => {
+    const operation = "bluesky.chat.reaction";
+
+    if (!input.value || input.value.length > 64 || graphemeCount(input.value) !== 1)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "A chat reaction is a single emoji.",
+        retryDisposition: { kind: "never" },
+      });
+
+    return object(
+      (
+        await procedure(input.account, input.context, method, operation, {
+          convoId: convoId(input.conversationId, operation),
+          messageId: convoId(input.messageId, operation),
+          value: input.value,
+        })
+      )["message"],
+    );
+  };
+
+  const convoAction = async (
+    method: string,
+    operation: string,
+    input: BlueskyConvoInput,
+  ): Promise<JsonObject> =>
+    object(
+      (
+        await procedure(input.account, input.context, method, operation, {
+          convoId: convoId(input.conversationId, operation),
+        })
+      )["convo"],
+    );
+
+  const groupMembers = async (
+    method: string,
+    operation: string,
+    input: BlueskyConvoInput & { readonly members: readonly string[] },
+  ): Promise<JsonObject> =>
+    object(
+      (
+        await procedure(input.account, input.context, method, operation, {
+          convoId: convoId(input.conversationId, operation),
+          members: memberDids(input.members, 49, operation),
+        })
+      )["convo"],
+    );
+
   const native: BlueskyNative = {
+    async getPosts(input) {
+      const operation = "bluesky.posts.hydrate";
+
+      const query = new URLSearchParams();
+
+      for (const uri of identifiers(input.uris, 25, operation, "post AT-URIs"))
+        query.append("uris", atUri(uri, operation));
+
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      return listOf(object(await xrpc(`app.bsky.feed.getPosts?${query}`, context)), "posts");
+    },
+    async getListFeed(input) {
+      const operation = "bluesky.feeds.list";
+
+      return feedPage(
+        await pagedRead(input, "app.bsky.feed.getListFeed", operation, {
+          list: atUri(input.listUri, operation),
+        }),
+        operation,
+      );
+    },
+    async getQuotes(input) {
+      const operation = "bluesky.posts.quotes";
+
+      return page(
+        await pagedRead(input, "app.bsky.feed.getQuotes", operation, {
+          uri: atUri(input.uri, operation),
+          cid: input.cid || undefined,
+        }),
+        "posts",
+      );
+    },
+    async getRepostedBy(input) {
+      const operation = "bluesky.posts.repostedBy";
+
+      return page(
+        await pagedRead(input, "app.bsky.feed.getRepostedBy", operation, {
+          uri: atUri(input.uri, operation),
+          cid: input.cid || undefined,
+        }),
+        "repostedBy",
+      );
+    },
+    async getActorFeeds(input) {
+      return page(
+        await pagedRead(input, "app.bsky.feed.getActorFeeds", "bluesky.feeds.actor", {
+          actor: input.actor?.trim() || auth.did,
+        }),
+        "feeds",
+      );
+    },
+    async getFeedGenerator(input) {
+      const operation = "bluesky.feeds.generator";
+
+      return viewRead(input.account, input.context, "app.bsky.feed.getFeedGenerator", operation, {
+        feed: atUri(input.feed, operation),
+      });
+    },
+    async getFeedGenerators(input) {
+      const operation = "bluesky.feeds.generators";
+
+      const feeds = identifiers(input.feeds, 100, operation, "feed generator AT-URIs").map((uri) =>
+        atUri(uri, operation),
+      );
+
+      return listOf(
+        await viewRead(input.account, input.context, "app.bsky.feed.getFeedGenerators", operation, {
+          feeds,
+        }),
+        "feeds",
+      );
+    },
+    async getProfiles(input) {
+      const operation = "bluesky.profiles.batch";
+
+      return listOf(
+        await viewRead(input.account, input.context, "app.bsky.actor.getProfiles", operation, {
+          actors: identifiers(input.actors, 25, operation, "actors"),
+        }),
+        "profiles",
+      );
+    },
+    async getSuggestions(input) {
+      return actorPage(
+        await pagedRead(input, "app.bsky.actor.getSuggestions", "bluesky.profiles.suggestions"),
+        "actors",
+      );
+    },
+    async getSuggestedFollowsByActor(input) {
+      const operation = "bluesky.profiles.suggestions";
+
+      return actorPage(
+        await viewRead(
+          input.account,
+          input.context,
+          "app.bsky.graph.getSuggestedFollowsByActor",
+          operation,
+          { actor: identifiers([input.actor], 1, operation, "actor")[0] },
+        ),
+        "suggestions",
+      );
+    },
+    async getRelationships(input) {
+      const operation = "bluesky.graph.relationships";
+
+      return listOf(
+        await viewRead(input.account, input.context, "app.bsky.graph.getRelationships", operation, {
+          actor: input.actor?.trim() || auth.did,
+          others: identifiers(input.others, 30, operation, "other actors"),
+        }),
+        "relationships",
+      );
+    },
+    async getKnownFollowers(input) {
+      const operation = "bluesky.graph.knownFollowers";
+
+      return actorPage(
+        await pagedRead(input, "app.bsky.graph.getKnownFollowers", operation, {
+          actor: identifiers([input.actor], 1, operation, "actor")[0],
+        }),
+        "followers",
+      );
+    },
+    async getVerificationState(input) {
+      const profile = await native.getProfile(input);
+
+      const state = profile["verification"];
+
+      if (state === undefined) return undefined;
+
+      const view = object(state);
+
+      return {
+        verifiedStatus: string(view["verifiedStatus"]),
+        trustedVerifierStatus: string(view["trustedVerifierStatus"]),
+        verifications: array(view["verifications"] ?? []).map((value) => {
+          const entry = object(value);
+
+          const isValid = entry["isValid"];
+
+          if (!isBoolean(isValid))
+            throw new SocialError({
+              code: "upstream_failure",
+              operation: "bluesky.profile.verification",
+              message: "Bluesky returned a verification without isValid.",
+            });
+
+          return {
+            issuer: string(entry["issuer"]),
+            uri: string(entry["uri"]),
+            isValid,
+            createdAt: string(entry["createdAt"]),
+          };
+        }),
+      };
+    },
+    async getListBlocks(input) {
+      return page(
+        await pagedRead(input, "app.bsky.graph.getListBlocks", "bluesky.lists.blocks"),
+        "lists",
+      );
+    },
+    async getListMutes(input) {
+      return page(
+        await pagedRead(input, "app.bsky.graph.getListMutes", "bluesky.lists.mutes"),
+        "lists",
+      );
+    },
+    async getListsWithMembership(input) {
+      const operation = "bluesky.lists.membership";
+
+      return page(
+        await pagedRead(input, "app.bsky.graph.getListsWithMembership", operation, {
+          actor: identifiers([input.actor], 1, operation, "actor")[0],
+          purposes: input.purposes,
+        }),
+        "listsWithMembership",
+      );
+    },
+    async muteThread(input) {
+      const operation = "bluesky.threads.mute";
+
+      await voidProcedure(input.account, input.context, "app.bsky.graph.muteThread", operation, {
+        root: atUri(input.rootUri, operation),
+      });
+    },
+    async unmuteThread(input) {
+      const operation = "bluesky.threads.unmute";
+
+      await voidProcedure(input.account, input.context, "app.bsky.graph.unmuteThread", operation, {
+        root: atUri(input.rootUri, operation),
+      });
+    },
+    async createStarterPack(input) {
+      const operation = "bluesky.starterPacks.create";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const name = input.name.trim();
+
+      const feeds = input.feeds ?? [];
+
+      if (
+        !name ||
+        graphemeCount(name) > 50 ||
+        new TextEncoder().encode(name).byteLength > 500 ||
+        (input.description !== undefined &&
+          (graphemeCount(input.description) > 300 ||
+            new TextEncoder().encode(input.description).byteLength > 3000)) ||
+        feeds.length > 3
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "A starter pack needs a 1-50 grapheme name, at most a 300 grapheme description, and at most 3 feeds.",
+          retryDisposition: { kind: "never" },
+        });
+
+      recordKey(input.listUri, "app.bsky.graph.list");
+
+      return postRef(
+        await xrpc("com.atproto.repo.createRecord", context, {
+          body: JSON.stringify({
+            repo: auth.did,
+            collection: "app.bsky.graph.starterpack",
+            record: {
+              $type: "app.bsky.graph.starterpack",
+              name,
+              list: input.listUri,
+              createdAt: new Date().toISOString(),
+              ...definedFields({
+                description: input.description,
+                feeds: feeds.length
+                  ? feeds.map((uri) => ({ uri: atUri(uri, operation) }))
+                  : undefined,
+              }),
+            },
+          }),
+        }),
+      );
+    },
+    async deleteStarterPack(input) {
+      const operation = "bluesky.starterPacks.delete";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({
+          repo: auth.did,
+          collection: "app.bsky.graph.starterpack",
+          rkey: recordKey(input.uri, "app.bsky.graph.starterpack"),
+        }),
+      });
+    },
+    async getStarterPack(input) {
+      const operation = "bluesky.starterPacks.get";
+
+      return object(
+        (
+          await viewRead(input.account, input.context, "app.bsky.graph.getStarterPack", operation, {
+            starterPack: atUri(input.uri, operation),
+          })
+        )["starterPack"],
+      );
+    },
+    async getStarterPacks(input) {
+      const operation = "bluesky.starterPacks.batch";
+
+      const uris = identifiers(input.uris, 25, operation, "starter pack AT-URIs").map((uri) =>
+        atUri(uri, operation),
+      );
+
+      return listOf(
+        await viewRead(input.account, input.context, "app.bsky.graph.getStarterPacks", operation, {
+          uris,
+        }),
+        "starterPacks",
+      );
+    },
+    async getActorStarterPacks(input) {
+      return page(
+        await pagedRead(
+          input,
+          "app.bsky.graph.getActorStarterPacks",
+          "bluesky.starterPacks.actor",
+          {
+            actor: input.actor?.trim() || auth.did,
+          },
+        ),
+        "starterPacks",
+      );
+    },
+    async searchStarterPacks(input) {
+      const operation = "bluesky.starterPacks.search";
+
+      return page(
+        await pagedRead(input, "app.bsky.graph.searchStarterPacks", operation, {
+          q: identifiers([input.query], 1, operation, "search query")[0],
+        }),
+        "starterPacks",
+      );
+    },
+    async unrepostPost(input) {
+      const operation = "bluesky.unrepost";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const prefix = `at://${auth.did}/app.bsky.feed.repost/`;
+
+      const rkey = input.repostUri.startsWith(prefix) ? input.repostUri.slice(prefix.length) : "";
+
+      if (!RKEY.test(rkey) || /^\.{1,2}$/.test(rkey))
+        throw new SocialError({
+          code: "unauthorized",
+          operation,
+          message: "Repost record must belong to this Bluesky account.",
+        });
+
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({ repo: auth.did, collection: "app.bsky.feed.repost", rkey }),
+      });
+    },
+    async createBookmark(input) {
+      const operation = "bluesky.bookmarks.create";
+
+      if (!POST_URI.test(input.post.uri) || !CID.test(input.post.cid))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Bookmarks need a post AT-URI and CID.",
+          retryDisposition: { kind: "never" },
+        });
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "app.bsky.bookmark.createBookmark",
+        operation,
+        {
+          uri: input.post.uri,
+          cid: input.post.cid,
+        },
+      );
+    },
+    async deleteBookmark(input) {
+      const operation = "bluesky.bookmarks.delete";
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "app.bsky.bookmark.deleteBookmark",
+        operation,
+        {
+          uri: atUri(input.uri, operation),
+        },
+      );
+    },
+    async getBookmarks(input) {
+      return page(
+        await pagedRead(input, "app.bsky.bookmark.getBookmarks", "bluesky.bookmarks.list"),
+        "bookmarks",
+      );
+    },
+    async getLabelerServices(input) {
+      const operation = "bluesky.labelers.get";
+
+      return listOf(
+        await viewRead(input.account, input.context, "app.bsky.labeler.getServices", operation, {
+          dids: identifiers(input.dids, 100, operation, "labeler DIDs"),
+          detailed: input.detailed === undefined ? undefined : String(input.detailed),
+        }),
+        "views",
+      );
+    },
+    async queryLabels(input) {
+      const operation = "bluesky.labels.query";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const limit = input.limit ?? 50;
+
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 250)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "queryLabels page size must be between 1 and 250.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const query = withParams(new URLSearchParams({ limit: String(limit) }), {
+        cursor: input.cursor || undefined,
+        uriPatterns: identifiers(input.uriPatterns, 100, operation, "URI patterns"),
+        sources: input.sources,
+      });
+
+      return page(object(await xrpc(`com.atproto.label.queryLabels?${query}`, context)), "labels");
+    },
+    async getUnreadNotificationCount(input) {
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.notification.getUnreadCount",
+        "bluesky.notifications.unread",
+        {
+          priority: input.priority === undefined ? undefined : String(input.priority),
+          seenAt: input.seenAt,
+        },
+      );
+
+      const count = response["count"];
+
+      if (!isFiniteNumber(count) || !Number.isSafeInteger(count) || count < 0)
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "bluesky.notifications.unread",
+          message: "Bluesky returned an invalid unread count.",
+        });
+
+      return count;
+    },
+    async getNotificationPreferences(input) {
+      return object(
+        (
+          await viewRead(
+            input.account,
+            input.context,
+            "app.bsky.notification.getPreferences",
+            "bluesky.notifications.preferences",
+            {},
+          )
+        )["preferences"],
+      );
+    },
+    async putNotificationPreferences(input) {
+      const preferences = input.preferences;
+
+      const body: JsonObject = definedFields({
+        chat: preferences.chat && {
+          include: preferences.chat.include,
+          push: preferences.chat.push,
+        },
+        follow: preferences.follow && { ...preferences.follow },
+        like: preferences.like && { ...preferences.like },
+        likeViaRepost: preferences.likeViaRepost && { ...preferences.likeViaRepost },
+        mention: preferences.mention && { ...preferences.mention },
+        quote: preferences.quote && { ...preferences.quote },
+        reply: preferences.reply && { ...preferences.reply },
+        repost: preferences.repost && { ...preferences.repost },
+        repostViaRepost: preferences.repostViaRepost && { ...preferences.repostViaRepost },
+        starterpackJoined: preferences.starterpackJoined && { ...preferences.starterpackJoined },
+        subscribedPost: preferences.subscribedPost && { ...preferences.subscribedPost },
+        unverified: preferences.unverified && { ...preferences.unverified },
+        verified: preferences.verified && { ...preferences.verified },
+      });
+
+      return object(
+        (
+          await procedure(
+            input.account,
+            input.context,
+            "app.bsky.notification.putPreferencesV2",
+            "bluesky.notifications.preferences",
+            body,
+          )
+        )["preferences"],
+      );
+    },
+    async listActivitySubscriptions(input) {
+      return actorPage(
+        await pagedRead(
+          input,
+          "app.bsky.notification.listActivitySubscriptions",
+          "bluesky.notifications.subscriptions",
+        ),
+        "subscriptions",
+      );
+    },
+    async putActivitySubscription(input) {
+      const operation = "bluesky.notifications.subscribe";
+
+      if (!/^did:[a-z]+:[A-Za-z0-9._:%-]{1,2000}$/.test(input.subject))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Activity subscriptions need the subject account's DID.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return procedure(
+        input.account,
+        input.context,
+        "app.bsky.notification.putActivitySubscription",
+        operation,
+        {
+          subject: input.subject,
+          activitySubscription: { post: input.post, reply: input.reply },
+        },
+      );
+    },
+    async uploadBlob(input) {
+      const operation = "bluesky.uploadBlob";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const mimeType = (input.mimeType ?? input.blob.type).toLowerCase();
+
+      if (input.blob.size === 0 || !/^[a-z0-9.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mimeType))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "uploadBlob needs a non-empty Blob and a type/subtype MIME type.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const response = object(
+        await xrpc("com.atproto.repo.uploadBlob", context, {
+          body: input.blob,
+          headers: { "Content-Type": mimeType },
+        }),
+      );
+
+      const blob = blobRef(response["blob"], operation);
+
+      return {
+        $type: "blob",
+        ref: { $link: string(object(blob["ref"])["$link"]) },
+        mimeType: string(blob["mimeType"]),
+        size: Number(blob["size"]),
+      };
+    },
+    async applyWrites(input) {
+      const context = nativeContext(input.context, "bluesky.applyWrites");
+      assertNativeAccount(input.account, context, "bluesky.applyWrites");
+
+      return applyWritesRequest(
+        input.writes,
+        context,
+        definedFields({ validate: input.validate, swapCommit: input.swapCommit }),
+      );
+    },
+    async setThreadgate(input) {
+      const operation = "bluesky.threadgate.set";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const allow = input.allow === null ? undefined : replyRules(input.allow);
+
+      return upsertGate(
+        "app.bsky.feed.threadgate",
+        input.postUri,
+        // An absent allow list keeps replies open; an empty one closes them.
+        (current) => ({
+          ...withoutField(current, "allow"),
+          $type: "app.bsky.feed.threadgate",
+          post: input.postUri,
+          createdAt: optionalString(current?.["createdAt"]) ?? new Date().toISOString(),
+          ...definedFields({ allow }),
+        }),
+        context,
+      );
+    },
+    async setQuotesDisabled(input) {
+      const operation = "bluesky.postgate.quotes";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      return upsertGate(
+        "app.bsky.feed.postgate",
+        input.postUri,
+        (current) => ({
+          ...withoutField(current, "embeddingRules"),
+          $type: "app.bsky.feed.postgate",
+          post: input.postUri,
+          createdAt: optionalString(current?.["createdAt"]) ?? new Date().toISOString(),
+          ...definedFields({
+            embeddingRules: input.disabled
+              ? [{ $type: "app.bsky.feed.postgate#disableRule" }]
+              : undefined,
+          }),
+        }),
+        context,
+      );
+    },
+    async detachQuote(input) {
+      const operation = "bluesky.postgate.detach";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (!POST_URI.test(input.quoteUri))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "quoteUri must be the AT-URI of the post that quotes yours.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return upsertGate(
+        "app.bsky.feed.postgate",
+        input.postUri,
+        (current) => {
+          const previous =
+            current?.["detachedEmbeddingUris"] === undefined
+              ? []
+              : array(current["detachedEmbeddingUris"]).map((value) => string(value));
+
+          const detached = input.detached
+            ? [...new Set([...previous, input.quoteUri])]
+            : previous.filter((uri) => uri !== input.quoteUri);
+
+          if (detached.length > 50)
+            throw new SocialError({
+              code: "invalid_input",
+              operation,
+              message: "A postgate can detach at most 50 quoting posts.",
+              retryDisposition: { kind: "never" },
+            });
+
+          return {
+            ...current,
+            $type: "app.bsky.feed.postgate",
+            post: input.postUri,
+            createdAt: optionalString(current?.["createdAt"]) ?? new Date().toISOString(),
+            detachedEmbeddingUris: detached,
+          };
+        },
+        context,
+      );
+    },
+    async createDraft(input) {
+      const context = nativeContext(input.context, "bluesky.drafts.create");
+      assertNativeAccount(input.account, context, "bluesky.drafts.create");
+
+      const response = object(
+        await xrpc("app.bsky.draft.createDraft", context, {
+          body: JSON.stringify({ draft: draftJson(input.draft) }),
+        }),
+      );
+
+      return { id: string(response["id"]) };
+    },
+    async listDrafts(input) {
+      const context = nativeContext(input.context, "bluesky.drafts.list");
+      assertNativeAccount(input.account, context, "bluesky.drafts.list");
+
+      const response = object(
+        await xrpc(`app.bsky.draft.getDrafts?${pageQuery(input, "bluesky.drafts.list")}`, context),
+      );
+
+      return {
+        drafts: array(response["drafts"]).map((value) => object(value)),
+        ...definedFields({ cursor: optionalString(response["cursor"]) }),
+      };
+    },
+    async updateDraft(input) {
+      const context = nativeContext(input.context, "bluesky.drafts.update");
+      assertNativeAccount(input.account, context, "bluesky.drafts.update");
+
+      if (!DRAFT_ID.test(input.id)) invalidRichText("Draft IDs are TIDs.", "bluesky.drafts");
+
+      await xrpc("app.bsky.draft.updateDraft", context, {
+        body: JSON.stringify({ draft: { id: input.id, draft: draftJson(input.draft) } }),
+      });
+    },
+    async deleteDraft(input) {
+      const context = nativeContext(input.context, "bluesky.drafts.delete");
+      assertNativeAccount(input.account, context, "bluesky.drafts.delete");
+
+      if (!DRAFT_ID.test(input.id)) invalidRichText("Draft IDs are TIDs.", "bluesky.drafts");
+
+      await xrpc("app.bsky.draft.deleteDraft", context, {
+        body: JSON.stringify({ id: input.id }),
+      });
+    },
     async getPost(input) {
       const context = input.context ?? {
         correlationId: "bluesky-native",
@@ -1618,7 +5417,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         backendInstance: backend,
       };
 
-      const query = new URLSearchParams({ uri: input.uri });
+      for (const [name, value] of [
+        ["depth", input.depth],
+        ["parentHeight", input.parentHeight],
+      ] as const)
+        if (value !== undefined && (!Number.isSafeInteger(value) || value < 0 || value > 1000))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "bluesky.getPostThread",
+            message: `${name} must be an integer from 0 to 1000.`,
+            retryDisposition: { kind: "never" },
+          });
+
+      const query = withParams(new URLSearchParams({ uri: input.uri }), {
+        depth: input.depth === undefined ? undefined : String(input.depth),
+        parentHeight: input.parentHeight === undefined ? undefined : String(input.parentHeight),
+      });
 
       return object(await xrpc(`app.bsky.feed.getPostThread?${query.toString()}`, context));
     },
@@ -1729,6 +5543,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Provide the native post URI and CID returned by a Bluesky read.",
         });
 
+      const likeVia = viaRef(input.via, REPOST_URI, "bluesky.reactions.like", "a repost record");
+
       const context = input.context ?? {
         correlationId: "bluesky-like",
         retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
@@ -1744,6 +5560,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               $type: "app.bsky.feed.like",
               subject: { uri: input.post.uri, cid: input.post.cid },
               createdAt: new Date().toISOString(),
+              ...definedFields({ via: likeVia }),
             },
           }),
         }),
@@ -1806,6 +5623,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.repost");
       assertNativeAccount(input.account, context, "bluesky.repost");
 
+      const via = viaRef(input.via, REPOST_URI, "bluesky.repost", "a repost record");
+
       const result = object(
         await xrpc("com.atproto.repo.createRecord", context, {
           body: JSON.stringify({
@@ -1815,6 +5634,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               $type: "app.bsky.feed.repost",
               subject: input.post,
               createdAt: new Date().toISOString(),
+              ...definedFields({ via }),
             },
           }),
         }),
@@ -1901,7 +5721,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           "app.bsky.video.uploadVideo",
           new URLSearchParams({ did: auth.did, name }),
           context,
-          { token, body: input.video },
+          { token, payload: { body: input.video, contentType: "video/mp4" }, acceptExisting: true },
         ),
       );
 
@@ -1984,9 +5804,190 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         }),
       };
     },
+    async uploadVideoMultipart(input) {
+      // Flow from Bluesky's app: src/lib/media/video/multipart/upload.ts in bluesky-social/social-app.
+      const operation = "bluesky.video.multipart";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const name = input.name ?? "video.mp4";
+
+      const size = input.video.size;
+
+      if (
+        (input.mimeType ?? input.video.type) !== "video/mp4" ||
+        size <= 0 ||
+        size > MAX_VIDEO_BYTES ||
+        !isPlainFileName(name) ||
+        !hasValidHints(input)
+      )
+        invalidMultipartInput(operation);
+
+      const aud = await pdsAudience(context);
+
+      let current = await uploadToken(aud, context);
+
+      const session = await startUploadRequest(
+        {
+          sizeBytes: size,
+          name,
+          ...definedFields({
+            durationMs: input.durationMs,
+            width: input.width,
+            height: input.height,
+          }),
+        },
+        current.token,
+        context,
+      );
+
+      try {
+        const parts = videoParts(size, session.partSizeBytes);
+
+        if (parts.length !== session.partCount)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation,
+            message: "Bluesky returned a part plan that does not match the video size.",
+            retryDisposition: { kind: "never" },
+          });
+
+        for (const part of parts) {
+          if (context.signal?.aborted === true)
+            throw new SocialError({
+              code: "cancelled",
+              operation,
+              message: "Bluesky multipart video upload was cancelled.",
+              retryDisposition: { kind: "never" },
+            });
+
+          if (Date.now() >= current.expiresAt - VIDEO_TOKEN_REFRESH_MARGIN_MS)
+            current = await uploadToken(aud, context);
+
+          await uploadPartRequest(
+            {
+              jobId: session.jobId,
+              partNumber: part.partNumber,
+              part: input.video.slice(part.start, part.end),
+            },
+            current.token,
+            context,
+          );
+        }
+
+        // Bluesky's app mints a fresh token before finishing: the service keeps it to store the
+        // processed blob on the PDS later.
+        current = await uploadToken(aud, context);
+
+        return await finishUploadRequest(session.jobId, current.token, context);
+      } catch (error) {
+        throw withUploadJob(operationError(operation, error), session.jobId);
+      }
+    },
+    async startVideoUpload(input) {
+      const operation = "bluesky.video.multipart.start";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (
+        (input.mimeType !== undefined && input.mimeType !== "video/mp4") ||
+        !Number.isSafeInteger(input.sizeBytes) ||
+        input.sizeBytes <= 0 ||
+        input.sizeBytes > MAX_VIDEO_BYTES ||
+        (input.name !== undefined && !isPlainFileName(input.name)) ||
+        !hasValidHints(input)
+      )
+        invalidMultipartInput(operation);
+
+      const { token } = await uploadToken(await pdsAudience(context), context);
+
+      return await startUploadRequest(
+        {
+          sizeBytes: input.sizeBytes,
+          ...definedFields({
+            name: input.name,
+            durationMs: input.durationMs,
+            width: input.width,
+            height: input.height,
+          }),
+        },
+        token,
+        context,
+      );
+    },
+    async uploadVideoPart(input) {
+      const operation = "bluesky.video.multipart.part";
+      const context = multipartContext(input, operation);
+
+      if (
+        !Number.isSafeInteger(input.partNumber) ||
+        input.partNumber < 1 ||
+        input.part.size <= 0 ||
+        input.part.size > MAX_VIDEO_BYTES
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Bluesky video part needs a part number from 1 and a non-empty Blob.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const { token } = await uploadToken(await pdsAudience(context), context);
+
+      return await uploadPartRequest(
+        { jobId: input.jobId, partNumber: input.partNumber, part: input.part },
+        token,
+        context,
+      );
+    },
+    async finishVideoUpload(input) {
+      const context = multipartContext(input, "bluesky.video.multipart.finish");
+
+      const { token } = await uploadToken(await pdsAudience(context), context);
+
+      return await finishUploadRequest(input.jobId, token, context);
+    },
+    async getVideoUploadStatus(input) {
+      const context = multipartContext(input, "bluesky.video.multipart.status");
+
+      const { token } = await uploadToken(await pdsAudience(context), context);
+
+      const response = await videoRequest(
+        "app.bsky.video.getUploadStatus",
+        new URLSearchParams({ jobId: input.jobId }),
+        context,
+        { token },
+      );
+
+      try {
+        return uploadStatus(response, auth.did);
+      } catch (error) {
+        throw operationError("bluesky.app.bsky.video.getUploadStatus", error, false);
+      }
+    },
+    async abortVideoUpload(input) {
+      const context = multipartContext(input, "bluesky.video.multipart.abort");
+
+      const { token } = await uploadToken(await pdsAudience(context), context);
+
+      const response = await videoRequest(
+        "app.bsky.video.abortUpload",
+        new URLSearchParams(),
+        context,
+        { token, payload: jsonPayload({ jobId: input.jobId }) },
+      );
+
+      try {
+        return uploadAbortResult(response);
+      } catch (error) {
+        throw operationError("bluesky.app.bsky.video.abortUpload", error);
+      }
+    },
     async follow(input) {
       const context = nativeContext(input.context, "bluesky.follow");
       assertNativeAccount(input.account, context, "bluesky.follow");
+
+      const via = viaRef(input.via, STARTER_PACK_URI, "bluesky.follow", "a starter pack record");
 
       return object(
         await xrpc("com.atproto.repo.createRecord", context, {
@@ -1997,6 +5998,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               $type: "app.bsky.graph.follow",
               subject: input.did,
               createdAt: new Date().toISOString(),
+              ...definedFields({ via }),
             },
           }),
         }),
@@ -2049,7 +6051,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.mute");
 
       await xrpc("app.bsky.graph.muteActor", context, {
-        body: JSON.stringify({ actor: input.did }),
+        body: JSON.stringify({
+          actor: input.did,
+          ...definedFields({
+            onlyReposts: input.onlyReposts,
+            onlyQuoteposts: input.onlyQuoteposts,
+          }),
+        }),
       });
     },
     async unmute(input) {
@@ -2067,6 +6075,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
 
+      if (input.sort !== undefined) q.set("sort", input.sort);
+
       return actorPage(
         object(await xrpc(`app.bsky.graph.getFollowers?${q}`, context)),
         "followers",
@@ -2078,6 +6088,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const q = pageQuery(input);
       q.set("actor", input.actor ?? auth.did);
+
+      if (input.sort !== undefined) q.set("sort", input.sort);
 
       return actorPage(object(await xrpc(`app.bsky.graph.getFollows?${q}`, context)), "follows");
     },
@@ -2169,6 +6181,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       q.set("actor", input.actor?.trim() || auth.did);
 
       if (input.filter) q.set("filter", input.filter);
+
+      if (input.includePins !== undefined) q.set("includePins", String(input.includePins));
 
       const value = object(await xrpc(`app.bsky.feed.getAuthorFeed?${q}`, context));
 
@@ -2409,10 +6423,27 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.moderation.report");
       assertNativeAccount(input.account, context, "bluesky.moderation.report");
 
+      if (input.modTool !== undefined && !input.modTool.name.trim())
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.moderation.report",
+          message: "modTool.name must name the reporting tool.",
+          retryDisposition: { kind: "never" },
+        });
+
       const body = {
         reasonType: input.reasonType,
         subject: input.subject,
-        ...definedFields({ reason: input.reason }),
+        ...definedFields({
+          reason: input.reason,
+          modTool:
+            input.modTool === undefined
+              ? undefined
+              : {
+                  name: input.modTool.name.trim(),
+                  ...definedFields({ meta: input.modTool.meta }),
+                },
+        }),
       };
 
       return object(
@@ -2432,9 +6463,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Page size must be between 1 and 100.",
         });
 
-      const query = new URLSearchParams({
-        limit: String(limit),
-        ...definedFields({ cursor: input.cursor || undefined }),
+      const query = withParams(new URLSearchParams({ limit: String(limit) }), {
+        cursor: input.cursor || undefined,
+        reasons: input.reasons,
+        priority: input.priority === undefined ? undefined : String(input.priority),
+        seenAt: input.seenAt,
       });
 
       return object(await xrpc(`app.bsky.notification.listNotifications?${query}`, context));
@@ -2462,14 +6495,505 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.profile.update");
       assertNativeAccount(input.account, context, "bluesky.profile.update");
 
+      if (input.profile["$type"] !== "app.bsky.actor.profile")
+        throw new SocialError({
+          code: "invalid_input",
+          operation: "bluesky.profile.update",
+          message: "The profile record needs $type app.bsky.actor.profile.",
+          retryDisposition: { kind: "never" },
+        });
+
       await xrpc("com.atproto.repo.putRecord", context, {
         body: JSON.stringify({
           repo: auth.did,
           collection: "app.bsky.actor.profile",
           rkey: "self",
           record: input.profile,
+          ...definedFields({ swapRecord: input.swapRecord }),
         }),
       });
+    },
+    async editProfile(input) {
+      const operation = "bluesky.profile.edit";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const changes = profileChanges(input.changes, operation);
+
+      return upsertOwnRecord(
+        "app.bsky.actor.profile",
+        "self",
+        (current) => {
+          const kept = Object.fromEntries(
+            Object.entries(current ?? {}).filter(([key]) => !(key in changes)),
+          );
+
+          const set = Object.fromEntries(
+            Object.entries(changes).flatMap(([key, value]) =>
+              value === null ? [] : [[key, value]],
+            ),
+          );
+
+          return { ...kept, ...set, $type: "app.bsky.actor.profile" };
+        },
+        context,
+      );
+    },
+    async pinPost(input) {
+      if (input.post !== null) recordKey(input.post.uri, "app.bsky.feed.post");
+
+      return native.editProfile({
+        account: input.account,
+        changes: { pinnedPost: input.post },
+        ...definedFields({ context: input.context }),
+      });
+    },
+    async setLiveStatus(input) {
+      const operation = "bluesky.status.live";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (
+        !/^https:\/\/[^\s]+$/i.test(input.url) ||
+        !Number.isSafeInteger(input.durationMinutes) ||
+        input.durationMinutes < 1 ||
+        (input.thumb !== undefined &&
+          !blobRefFits(
+            input.thumb,
+            (mimeType, size) => mimeType.startsWith("image/") && size <= MAX_LINK_THUMB_BYTES,
+          ))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "A live status needs an https stream URL, durationMinutes of at least 1, and an optional image thumb of at most 1,000,000 bytes.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return postRef(
+        await xrpc("com.atproto.repo.putRecord", context, {
+          body: JSON.stringify({
+            repo: auth.did,
+            collection: "app.bsky.actor.status",
+            rkey: "self",
+            record: {
+              $type: "app.bsky.actor.status",
+              status: "app.bsky.actor.status#live",
+              embed: {
+                $type: "app.bsky.embed.external",
+                external: {
+                  uri: input.url,
+                  title: input.title ?? "",
+                  description: input.description ?? "",
+                  ...definedFields({
+                    thumb: input.thumb === undefined ? undefined : blobJson(input.thumb),
+                  }),
+                },
+              },
+              durationMinutes: input.durationMinutes,
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        }),
+      );
+    },
+    async clearLiveStatus(input) {
+      const operation = "bluesky.status.clear";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      await xrpc("com.atproto.repo.deleteRecord", context, {
+        body: JSON.stringify({ repo: auth.did, collection: "app.bsky.actor.status", rkey: "self" }),
+      });
+    },
+    async getNotificationDeclaration(input) {
+      const operation = "bluesky.notifications.declaration.get";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const found = await readRecord(
+        input.actor ?? auth.did,
+        "app.bsky.notification.declaration",
+        "self",
+        context,
+      );
+
+      return found === undefined
+        ? undefined
+        : { allowSubscriptions: string(found["allowSubscriptions"]) };
+    },
+    async setNotificationDeclaration(input) {
+      const operation = "bluesky.notifications.declaration.set";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (!["followers", "mutuals", "none"].includes(input.allowSubscriptions))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "allowSubscriptions must be followers, mutuals, or none.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return putSelfRecord(
+        "app.bsky.notification.declaration",
+        {
+          $type: "app.bsky.notification.declaration",
+          allowSubscriptions: input.allowSubscriptions,
+        },
+        context,
+      );
+    },
+    async getChatDeclaration(input) {
+      const operation = "bluesky.chat.declaration.get";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const found = await readRecord(
+        input.actor ?? auth.did,
+        "chat.bsky.actor.declaration",
+        "self",
+        context,
+      );
+
+      return found === undefined
+        ? undefined
+        : {
+            allowIncoming: string(found["allowIncoming"]),
+            ...definedFields({ allowGroupInvites: optionalString(found["allowGroupInvites"]) }),
+          };
+    },
+    async setChatDeclaration(input) {
+      const operation = "bluesky.chat.declaration.set";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const audiences = ["all", "following", "none"];
+
+      if (
+        !audiences.includes(input.allowIncoming) ||
+        (input.allowGroupInvites !== undefined && !audiences.includes(input.allowGroupInvites))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "allowIncoming and allowGroupInvites must be all, following, or none.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return putSelfRecord(
+        "chat.bsky.actor.declaration",
+        {
+          $type: "chat.bsky.actor.declaration",
+          allowIncoming: input.allowIncoming,
+          ...definedFields({ allowGroupInvites: input.allowGroupInvites }),
+        },
+        context,
+      );
+    },
+    async getChatStatus(input) {
+      const status = await viewRead(
+        input.account,
+        input.context,
+        "chat.bsky.actor.getStatus",
+        "bluesky.chat.status",
+        {},
+      );
+
+      const chatDisabled = status["chatDisabled"],
+        canCreateGroups = status["canCreateGroups"],
+        groupMemberLimit = status["groupMemberLimit"];
+
+      if (
+        !isBoolean(chatDisabled) ||
+        !isBoolean(canCreateGroups) ||
+        !isFiniteNumber(groupMemberLimit)
+      )
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "bluesky.chat.status",
+          message: "Bluesky returned an invalid chat status.",
+        });
+
+      return { chatDisabled, canCreateGroups, groupMemberLimit };
+    },
+    async getContentVisibility(input) {
+      const operation = "bluesky.profile.contentVisibility.get";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const found = await readRecord(
+        input.actor ?? auth.did,
+        "app.bsky.actor.contentVisibilityDeclaration",
+        "self",
+        context,
+      );
+
+      return {
+        hideFromAlgorithmicRecommendations: found?.["hideFromAlgorithmicRecommendations"] === true,
+      };
+    },
+    async setContentVisibility(input) {
+      const operation = "bluesky.profile.contentVisibility.set";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      return putSelfRecord(
+        "app.bsky.actor.contentVisibilityDeclaration",
+        {
+          $type: "app.bsky.actor.contentVisibilityDeclaration",
+          hideFromAlgorithmicRecommendations: input.hideFromAlgorithmicRecommendations,
+        },
+        context,
+      );
+    },
+    async optOutOfReferenceList(input) {
+      const operation = "bluesky.referenceLists.optOut";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (!LIST_RECORD_URI.test(input.listUri))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "listUri must be a DID-based app.bsky.graph.list AT-URI.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return createOwnRecord(
+        "app.bsky.graph.referencelistoptout",
+        {
+          $type: "app.bsky.graph.referencelistoptout",
+          subject: input.listUri,
+          createdAt: new Date().toISOString(),
+        },
+        context,
+      );
+    },
+    async deleteReferenceListOptOut(input) {
+      await deleteOwnRecord(
+        input,
+        "app.bsky.graph.referencelistoptout",
+        "bluesky.referenceLists.optIn",
+      );
+    },
+    async createProfileLink(input) {
+      const operation = "bluesky.profile.links.create";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (
+        !/^https:\/\/[^\s]+$/i.test(input.url) ||
+        (input.title !== undefined &&
+          (graphemeCount(input.title) > 40 ||
+            new TextEncoder().encode(input.title).byteLength > 320)) ||
+        (input.icon !== undefined &&
+          !blobRefFits(
+            input.icon,
+            (mimeType, size) =>
+              ["image/png", "image/jpeg", "image/webp"].includes(mimeType) && size <= 100_000,
+          ))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "A profile link needs an https URL, a title of at most 40 graphemes, and an optional PNG, JPEG, or WebP icon of at most 100,000 bytes.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return createOwnRecord(
+        "app.bsky.actor.link",
+        {
+          $type: "app.bsky.actor.link",
+          url: input.url,
+          ...definedFields({
+            title: input.title,
+            icon: input.icon === undefined ? undefined : blobJson(input.icon),
+          }),
+          createdAt: new Date().toISOString(),
+        },
+        context,
+      );
+    },
+    async deleteProfileLink(input) {
+      await deleteOwnRecord(input, "app.bsky.actor.link", "bluesky.profile.links.delete");
+    },
+    async putFeedGenerator(input) {
+      const operation = "bluesky.feeds.generator.put";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const description = input.description;
+
+      if (
+        !RKEY.test(input.rkey) ||
+        input.rkey === "." ||
+        input.rkey === ".." ||
+        !DID.test(input.did) ||
+        !input.displayName.trim() ||
+        graphemeCount(input.displayName) > 24 ||
+        new TextEncoder().encode(input.displayName).byteLength > 240 ||
+        (description !== undefined &&
+          (graphemeCount(description) > 300 ||
+            new TextEncoder().encode(description).byteLength > 3000)) ||
+        (input.avatar !== undefined &&
+          !blobRefFits(
+            input.avatar,
+            (mimeType, size) =>
+              (mimeType === "image/png" || mimeType === "image/jpeg") && size <= 1_000_000,
+          ))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "A feed generator needs a record key, a service DID, a displayName of 1 to 24 graphemes, a description of at most 300, and an optional PNG or JPEG avatar of at most 1,000,000 bytes.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const facets = description === undefined ? [] : richTextFacets(description, []);
+
+      return postRef(
+        await xrpc("com.atproto.repo.putRecord", context, {
+          body: JSON.stringify({
+            repo: auth.did,
+            collection: "app.bsky.feed.generator",
+            rkey: input.rkey,
+            record: {
+              $type: "app.bsky.feed.generator",
+              did: input.did,
+              displayName: input.displayName,
+              ...definedFields({
+                description,
+                descriptionFacets: facets.length ? facets : undefined,
+                avatar: input.avatar === undefined ? undefined : blobJson(input.avatar),
+                acceptsInteractions: input.acceptsInteractions,
+                contentMode: input.contentMode,
+              }),
+              createdAt: new Date().toISOString(),
+            },
+          }),
+        }),
+      );
+    },
+    async deleteFeedGenerator(input) {
+      await deleteOwnRecord(input, "app.bsky.feed.generator", "bluesky.feeds.generator.delete");
+    },
+    async putLabelerService(input) {
+      const operation = "bluesky.labeler.service.put";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const definitions = input.policies.labelValueDefinitions ?? [];
+
+      const invalidDefinition = definitions.some(
+        (definition) =>
+          !LABEL_IDENTIFIER.test(definition.identifier) ||
+          !["inform", "alert", "none"].includes(definition.severity) ||
+          !["content", "media", "none"].includes(definition.blurs) ||
+          (definition.defaultSetting !== undefined &&
+            !["ignore", "warn", "hide"].includes(definition.defaultSetting)) ||
+          definition.locales.length === 0 ||
+          definition.locales.some(
+            (locale) =>
+              !locale.lang.trim() ||
+              !locale.name.trim() ||
+              graphemeCount(locale.name) > 64 ||
+              graphemeCount(locale.description) > 10_000,
+          ),
+      );
+
+      if (
+        input.policies.labelValues.length === 0 ||
+        input.policies.labelValues.some((value) => !value || value.length > 128) ||
+        invalidDefinition ||
+        (input.subjectCollections ?? []).some((collection) => !NSID.test(collection))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "A labeler declaration needs label values, valid label definitions (lowercase identifier, severity, blurs, and at least one locale), and NSID subject collections.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return putSelfRecord(
+        "app.bsky.labeler.service",
+        {
+          $type: "app.bsky.labeler.service",
+          policies: {
+            labelValues: [...input.policies.labelValues],
+            ...definedFields({
+              labelValueDefinitions:
+                input.policies.labelValueDefinitions === undefined
+                  ? undefined
+                  : definitions.map((definition) => ({
+                      identifier: definition.identifier,
+                      severity: definition.severity,
+                      blurs: definition.blurs,
+                      ...definedFields({
+                        defaultSetting: definition.defaultSetting,
+                        adultOnly: definition.adultOnly,
+                      }),
+                      locales: definition.locales.map((locale) => ({
+                        lang: locale.lang,
+                        name: locale.name,
+                        description: locale.description,
+                      })),
+                    })),
+            }),
+          },
+          ...definedFields({
+            reasonTypes: input.reasonTypes === undefined ? undefined : [...input.reasonTypes],
+            subjectTypes: input.subjectTypes === undefined ? undefined : [...input.subjectTypes],
+            subjectCollections:
+              input.subjectCollections === undefined ? undefined : [...input.subjectCollections],
+          }),
+          createdAt: new Date().toISOString(),
+        },
+        context,
+      );
+    },
+    async getPreferences(input) {
+      return listOf(
+        await viewRead(
+          input.account,
+          input.context,
+          "app.bsky.actor.getPreferences",
+          "bluesky.preferences.get",
+          {},
+        ),
+        "preferences",
+      );
+    },
+    async putPreferences(input) {
+      const operation = "bluesky.preferences.put";
+
+      if (
+        input.preferences.some((preference) => {
+          const type = preference["$type"];
+
+          return !isString(type) || !type.startsWith("app.bsky.actor.defs#");
+        })
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Each preference needs an app.bsky.actor.defs# $type.",
+          retryDisposition: { kind: "never" },
+        });
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "app.bsky.actor.putPreferences",
+        operation,
+        {
+          preferences: [...input.preferences],
+        },
+      );
     },
     async listFeeds(input) {
       const context = nativeContext(input.context, "bluesky.feeds.list");
@@ -2504,9 +7028,12 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           message: "Page size must be between 1 and 100.",
         });
 
-      const query = new URLSearchParams({
-        limit: String(limit),
-        ...definedFields({ cursor: input.cursor || undefined }),
+      const query = withParams(new URLSearchParams({ limit: String(limit) }), {
+        cursor: input.cursor || undefined,
+        kind: input.kind,
+        status: input.status,
+        readState: input.unreadOnly === true ? "unread" : undefined,
+        lockStatus: input.lockStatus,
       });
 
       return object(await xrpc(`chat.bsky.convo.listConvos?${query}`, context));
@@ -2540,17 +7067,1436 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       const context = nativeContext(input.context, "bluesky.chat.send");
       assertNativeAccount(input.account, context, "bluesky.chat.send");
 
-      if (!input.text.trim())
-        throw new SocialError({
-          code: "invalid_input",
-          operation: "bluesky.chat.send",
-          message: "Message text is required.",
-        });
-
       return object(
         await xrpc("chat.bsky.convo.sendMessage", context, {
-          body: JSON.stringify({ convoId: input.conversationId, message: { text: input.text } }),
+          body: JSON.stringify({
+            convoId: convoId(input.conversationId, "bluesky.chat.send"),
+            message: messageJson(input),
+          }),
         }),
+      );
+    },
+    async sendMessageBatch(input) {
+      const operation = "bluesky.chat.sendBatch";
+
+      if (input.items.length === 0 || input.items.length > 100)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "sendMessageBatch takes 1 to 100 messages.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const items = input.items.map((item) => ({
+        convoId: convoId(item.conversationId, operation),
+        message: messageJson(item),
+      }));
+
+      return listOf(
+        await procedure(
+          input.account,
+          input.context,
+          "chat.bsky.convo.sendMessageBatch",
+          operation,
+          {
+            items,
+          },
+        ),
+        "items",
+      );
+    },
+    async getConvoForMembers(input) {
+      const operation = "bluesky.chat.start";
+
+      return object(
+        (
+          await viewRead(
+            input.account,
+            input.context,
+            "chat.bsky.convo.getConvoForMembers",
+            operation,
+            {
+              members: memberDids(input.members, 10, operation),
+            },
+          )
+        )["convo"],
+      );
+    },
+    async getConvoAvailability(input) {
+      const operation = "bluesky.chat.availability";
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "chat.bsky.convo.getConvoAvailability",
+        operation,
+        { members: memberDids(input.members, 10, operation) },
+      );
+
+      const canChat = response["canChat"];
+
+      if (!isBoolean(canChat))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: "Bluesky chat availability is missing canChat.",
+        });
+
+      return {
+        canChat,
+        ...definedFields({
+          convo: response["convo"] === undefined ? undefined : object(response["convo"]),
+        }),
+      };
+    },
+    async getConversation(input) {
+      const operation = "bluesky.chat.get";
+
+      return object(
+        (
+          await viewRead(input.account, input.context, "chat.bsky.convo.getConvo", operation, {
+            convoId: convoId(input.conversationId, operation),
+          })
+        )["convo"],
+      );
+    },
+    async listConvoRequests(input) {
+      return page(
+        await pagedRead(input, "chat.bsky.convo.listConvoRequests", "bluesky.chat.requests"),
+        "requests",
+      );
+    },
+    async acceptConvo(input) {
+      const operation = "bluesky.chat.accept";
+
+      const response = await procedure(
+        input.account,
+        input.context,
+        "chat.bsky.convo.acceptConvo",
+        operation,
+        { convoId: convoId(input.conversationId, operation) },
+      );
+
+      return definedFields({ rev: optionalString(response["rev"]) });
+    },
+    async addReaction(input) {
+      return reaction("chat.bsky.convo.addReaction", input);
+    },
+    async removeReaction(input) {
+      return reaction("chat.bsky.convo.removeReaction", input);
+    },
+    async markConversationRead(input) {
+      const operation = "bluesky.chat.read";
+
+      return object(
+        (
+          await procedure(input.account, input.context, "chat.bsky.convo.updateRead", operation, {
+            convoId: convoId(input.conversationId, operation),
+            ...definedFields({ messageId: input.messageId }),
+          })
+        )["convo"],
+      );
+    },
+    async markAllConversationsRead(input) {
+      const operation = "bluesky.chat.readAll";
+
+      const response = await procedure(
+        input.account,
+        input.context,
+        "chat.bsky.convo.updateAllRead",
+        operation,
+        definedFields({ status: input.status }),
+      );
+
+      const count = response["updatedCount"];
+
+      if (!isFiniteNumber(count))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: "Bluesky did not return updatedCount.",
+        });
+
+      return count;
+    },
+    async muteConversation(input) {
+      return convoAction("chat.bsky.convo.muteConvo", "bluesky.chat.mute", input);
+    },
+    async unmuteConversation(input) {
+      return convoAction("chat.bsky.convo.unmuteConvo", "bluesky.chat.unmute", input);
+    },
+    async leaveConversation(input) {
+      const operation = "bluesky.chat.leave";
+
+      const response = await procedure(
+        input.account,
+        input.context,
+        "chat.bsky.convo.leaveConvo",
+        operation,
+        { convoId: convoId(input.conversationId, operation) },
+      );
+
+      return { rev: string(response["rev"]) };
+    },
+    async deleteMessageForSelf(input) {
+      const operation = "bluesky.chat.deleteForSelf";
+
+      return procedure(
+        input.account,
+        input.context,
+        "chat.bsky.convo.deleteMessageForSelf",
+        operation,
+        {
+          convoId: convoId(input.conversationId, operation),
+          messageId: convoId(input.messageId, operation),
+        },
+      );
+    },
+    async getChatLog(input) {
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "chat.bsky.convo.getLog",
+        "bluesky.chat.log",
+        { cursor: input.cursor || undefined },
+      );
+
+      return {
+        logs: listOf(response, "logs"),
+        ...definedFields({ cursor: optionalString(response["cursor"]) }),
+      };
+    },
+    async createGroupChat(input) {
+      const operation = "bluesky.chat.groups.create";
+
+      return object(
+        (
+          await procedure(input.account, input.context, "chat.bsky.group.createGroup", operation, {
+            name: groupName(input.name, operation),
+            members: memberDids(input.members, 49, operation),
+          })
+        )["convo"],
+      );
+    },
+    async renameGroupChat(input) {
+      const operation = "bluesky.chat.groups.edit";
+
+      return object(
+        (
+          await procedure(input.account, input.context, "chat.bsky.group.editGroup", operation, {
+            convoId: convoId(input.conversationId, operation),
+            name: groupName(input.name, operation),
+          })
+        )["convo"],
+      );
+    },
+    async addGroupChatMembers(input) {
+      return groupMembers("chat.bsky.group.addMembers", "bluesky.chat.groups.add", input);
+    },
+    async removeGroupChatMembers(input) {
+      return groupMembers("chat.bsky.group.removeMembers", "bluesky.chat.groups.remove", input);
+    },
+    async exportChatAccountData(input) {
+      const operation = "bluesky.chat.export";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const text = await xrpcText("chat.bsky.actor.exportAccountData", context, 50_000_000);
+
+      try {
+        return text
+          .split("\n")
+          .filter((line) => line.trim())
+          .map((line) => object(parseJson(line)));
+      } catch {
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: "Bluesky returned chat export lines that are not JSON objects.",
+        });
+      }
+    },
+    async deleteChatAccount(input) {
+      const operation = "bluesky.chat.deleteAccount";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      await xrpc("chat.bsky.actor.deleteAccount", context, { method: "POST" });
+    },
+    async getChatNotificationPreferences(input) {
+      return chatPreferences(
+        await viewRead(
+          input.account,
+          input.context,
+          "chat.bsky.notification.getPreferences",
+          "bluesky.chat.notifications.get",
+          {},
+        ),
+        "bluesky.chat.notifications.get",
+      );
+    },
+    async putChatNotificationPreferences(input) {
+      const operation = "bluesky.chat.notifications.put";
+
+      const encode = (
+        value: BlueskyChatNotificationPreference | undefined,
+      ): JsonObject | undefined => {
+        if (value === undefined) return undefined;
+
+        if ((value.include !== "all" && value.include !== "follows") || !isFlag(value.push))
+          throw new SocialError({
+            code: "invalid_input",
+            operation,
+            message: "Chat notification include must be all or follows, and push a boolean.",
+            retryDisposition: { kind: "never" },
+          });
+
+        return { include: value.include, push: value.push };
+      };
+
+      const body = definedFields({
+        chat: encode(input.chat),
+        chatRequest: encode(input.chatRequest),
+      });
+
+      if (Object.keys(body).length === 0)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Provide chat, chatRequest, or both.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return chatPreferences(
+        await procedure(
+          input.account,
+          input.context,
+          "chat.bsky.notification.putPreferences",
+          operation,
+          body,
+        ),
+        operation,
+      );
+    },
+    async getUnreadConversationCounts(input) {
+      const counts = await viewRead(
+        input.account,
+        input.context,
+        "chat.bsky.convo.getUnreadCounts",
+        "bluesky.chat.unreadCounts",
+        {
+          includeGroupChats:
+            input.includeGroupChats === undefined ? undefined : String(input.includeGroupChats),
+        },
+      );
+
+      const accepted = counts["unreadAcceptedConvos"],
+        requests = counts["unreadRequestConvos"];
+
+      if (!isFiniteNumber(accepted) || !isFiniteNumber(requests))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "bluesky.chat.unreadCounts",
+          message: "Bluesky returned invalid unread conversation counts.",
+        });
+
+      return { unreadAcceptedConvos: accepted, unreadRequestConvos: requests };
+    },
+    async lockGroupChat(input) {
+      return convoProcedure("chat.bsky.convo.lockConvo", "bluesky.chat.groups.lock", input);
+    },
+    async unlockGroupChat(input) {
+      return convoProcedure("chat.bsky.convo.unlockConvo", "bluesky.chat.groups.unlock", input);
+    },
+    async getConvoMembers(input) {
+      const operation = "bluesky.chat.members";
+
+      return actorPage(
+        await pagedRead(input, "chat.bsky.convo.getConvoMembers", operation, {
+          convoId: convoId(input.conversationId, operation),
+        }),
+        "members",
+      );
+    },
+    async listMutualGroups(input) {
+      const operation = "bluesky.chat.groups.mutual";
+
+      if (!DID.test(input.subject))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "subject must be a DID.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return page(
+        await pagedRead(input, "chat.bsky.group.listMutualGroups", operation, {
+          subject: input.subject,
+        }),
+        "convos",
+      );
+    },
+    async createJoinLink(input) {
+      const operation = "bluesky.chat.joinLinks.create";
+
+      return joinLink(
+        await procedure(input.account, input.context, "chat.bsky.group.createJoinLink", operation, {
+          convoId: convoId(input.conversationId, operation),
+          joinRule: joinRule(input.joinRule, operation),
+          ...definedFields({ requireApproval: input.requireApproval }),
+        }),
+      );
+    },
+    async editJoinLink(input) {
+      const operation = "bluesky.chat.joinLinks.edit";
+
+      if (input.joinRule === undefined && input.requireApproval === undefined)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Provide joinRule, requireApproval, or both.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return joinLink(
+        await procedure(input.account, input.context, "chat.bsky.group.editJoinLink", operation, {
+          convoId: convoId(input.conversationId, operation),
+          ...definedFields({
+            joinRule:
+              input.joinRule === undefined ? undefined : joinRule(input.joinRule, operation),
+            requireApproval: input.requireApproval,
+          }),
+        }),
+      );
+    },
+    async enableJoinLink(input) {
+      const operation = "bluesky.chat.joinLinks.enable";
+
+      return joinLink(
+        await procedure(input.account, input.context, "chat.bsky.group.enableJoinLink", operation, {
+          convoId: convoId(input.conversationId, operation),
+        }),
+      );
+    },
+    async disableJoinLink(input) {
+      const operation = "bluesky.chat.joinLinks.disable";
+
+      return joinLink(
+        await procedure(
+          input.account,
+          input.context,
+          "chat.bsky.group.disableJoinLink",
+          operation,
+          {
+            convoId: convoId(input.conversationId, operation),
+          },
+        ),
+      );
+    },
+    async getJoinLinkPreviews(input) {
+      const operation = "bluesky.chat.joinLinks.preview";
+
+      return listOf(
+        await viewRead(
+          input.account,
+          input.context,
+          "chat.bsky.group.getJoinLinkPreviews",
+          operation,
+          {
+            codes: identifiers(input.codes, 50, operation, "join link codes"),
+          },
+        ),
+        "joinLinkPreviews",
+      );
+    },
+    async requestJoinGroupChat(input) {
+      const operation = "bluesky.chat.joinLinks.join";
+
+      const result = await procedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.requestJoin",
+        operation,
+        { code: convoId(input.code, operation) },
+      );
+
+      return {
+        status: string(result["status"]),
+        ...definedFields({ convo: optionalObject(result["convo"]) }),
+      };
+    },
+    async withdrawJoinRequest(input) {
+      const operation = "bluesky.chat.joinRequests.withdraw";
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.withdrawJoinRequest",
+        operation,
+        {
+          convoId: convoId(input.conversationId, operation),
+        },
+      );
+    },
+    async listJoinRequests(input) {
+      const operation = "bluesky.chat.joinRequests.list";
+
+      return page(
+        await pagedRead(input, "chat.bsky.group.listJoinRequests", operation, {
+          convoId: convoId(input.conversationId, operation),
+        }),
+        "requests",
+      );
+    },
+    async approveJoinRequest(input) {
+      const operation = "bluesky.chat.joinRequests.approve";
+
+      return object(
+        (
+          await procedure(
+            input.account,
+            input.context,
+            "chat.bsky.group.approveJoinRequest",
+            operation,
+            {
+              convoId: convoId(input.conversationId, operation),
+              member: memberDid(input.member, operation),
+            },
+          )
+        )["convo"],
+      );
+    },
+    async rejectJoinRequest(input) {
+      const operation = "bluesky.chat.joinRequests.reject";
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.rejectJoinRequest",
+        operation,
+        {
+          convoId: convoId(input.conversationId, operation),
+          member: memberDid(input.member, operation),
+        },
+      );
+    },
+    async markJoinRequestsRead(input) {
+      const operation = "bluesky.chat.joinRequests.read";
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.group.updateJoinRequestsRead",
+        operation,
+        { convoId: convoId(input.conversationId, operation) },
+      );
+    },
+    async searchPostsV2(input) {
+      const operation = "bluesky.search.postsV2";
+
+      const query = input.query?.trim();
+
+      const filters = {
+        authors: input.authors,
+        excludeAuthors: input.excludeAuthors,
+        mentions: input.mentions,
+        excludeMentions: input.excludeMentions,
+        domains: input.domains,
+        excludeDomains: input.excludeDomains,
+        urls: input.urls,
+        excludeUrls: input.excludeUrls,
+        embeddedAtUris: input.embeddedAtUris,
+        excludeEmbeddedAtUris: input.excludeEmbeddedAtUris,
+        hashtags: input.hashtags?.map((tag) => tag.replace(/^#/, "")),
+        excludeHashtags: input.excludeHashtags?.map((tag) => tag.replace(/^#/, "")),
+        languages: input.languages,
+        excludeLanguages: input.excludeLanguages,
+      } satisfies QueryParams;
+
+      if (
+        Object.values(filters).some((list) => list?.some((item) => !item.trim())) ||
+        [...(filters.hashtags ?? []), ...(filters.excludeHashtags ?? [])].some(
+          (tag) => graphemeCount(tag) > 64,
+        ) ||
+        (input.sort !== undefined && input.sort !== "recent" && input.sort !== "top") ||
+        (input.repliesOnly === true && input.excludeReplies === true)
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "Search filters need non-empty values, hashtags of at most 64 graphemes, sort recent or top, and not both repliesOnly and excludeReplies.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const flag = (value: boolean | undefined) =>
+        value === undefined ? undefined : String(value);
+
+      const response = await pagedRead(input, "app.bsky.feed.searchPostsV2", operation, {
+        ...filters,
+        query: query || undefined,
+        sort: input.sort,
+        since: input.since,
+        until: input.until,
+        allTime: flag(input.allTime),
+        hasMedia: flag(input.hasMedia),
+        hasVideo: flag(input.hasVideo),
+        replyParentUri:
+          input.replyParentUri === undefined ? undefined : atUri(input.replyParentUri, operation),
+        threadRootUri:
+          input.threadRootUri === undefined ? undefined : atUri(input.threadRootUri, operation),
+        excludeReplies: flag(input.excludeReplies),
+        repliesOnly: flag(input.repliesOnly),
+        following: flag(input.following),
+        queryLanguage: input.queryLanguage,
+      });
+
+      const hitsTotal = optionalNumber(response["hitsTotal"]);
+
+      const languages = response["detectedQueryLanguages"];
+
+      return {
+        posts: array(response["posts"]).map((post) => object(post)),
+        ...definedFields({
+          cursor: optionalString(response["cursor"]),
+          hitsTotal:
+            hitsTotal !== undefined && Number.isSafeInteger(hitsTotal) ? hitsTotal : undefined,
+          detectedQueryLanguages:
+            languages === undefined ? undefined : array(languages).map((value) => string(value)),
+        }),
+      };
+    },
+    async getGroupedNotifications(input) {
+      const operation = "bluesky.notifications.grouped";
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.notification.getGroupedNotifications",
+        operation,
+        {
+          feed: input.feed,
+          limit: limitParam(input.limit, 50, operation),
+          cursor: input.cursor || undefined,
+        },
+      );
+
+      array(response["groups"]);
+
+      return response;
+    },
+    async getStarterPacksWithMembership(input) {
+      const operation = "bluesky.starterPacks.membership";
+
+      return page(
+        await pagedRead(input, "app.bsky.graph.getStarterPacksWithMembership", operation, {
+          actor: identifiers([input.actor], 1, operation, "actor")[0],
+        }),
+        "starterPacksWithMembership",
+      );
+    },
+    async searchStarterPacksV2(input) {
+      const operation = "bluesky.starterPacks.searchV2";
+
+      const response = await pagedRead(input, "app.bsky.graph.searchStarterPacksV2", operation, {
+        q: identifiers([input.query], 1, operation, "search query")[0],
+      });
+
+      const hitsTotal = optionalNumber(response["hitsTotal"]);
+
+      return {
+        ...page(response, "starterPacks"),
+        ...definedFields({ hitsTotal }),
+      };
+    },
+    async getEmbedExternalView(input) {
+      const operation = "bluesky.embeds.externalView";
+
+      if (!/^https?:\/\/[^\s]+$/i.test(input.url) || (input.uris?.length ?? 0) > 4)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "getEmbedExternalView needs an absolute http(s) url and at most 4 uris.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return viewRead(
+        input.account,
+        input.context,
+        "app.bsky.embed.getEmbedExternalView",
+        operation,
+        {
+          url: input.url,
+          canonicalUri:
+            input.canonicalUri === undefined ? undefined : atUri(input.canonicalUri, operation),
+          uris: input.uris?.map((uri) => atUri(uri, operation)),
+        },
+      );
+    },
+    async sendFeedInteractions(input) {
+      const operation = "bluesky.feeds.interactions";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (
+        !DID.test(input.feedServiceDid) ||
+        input.interactions.length === 0 ||
+        input.interactions.some(
+          (interaction) =>
+            !interaction.event.trim() ||
+            (interaction.feedContext?.length ?? 0) > 2000 ||
+            (interaction.reqId?.length ?? 0) > 100,
+        )
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "Feed interactions need the generator's service DID and at least one interaction with an event, a feedContext of at most 2000 characters, and a reqId of at most 100.",
+          retryDisposition: { kind: "never" },
+        });
+
+      await xrpc("app.bsky.feed.sendInteractions", context, {
+        headers: { "atproto-proxy": `${input.feedServiceDid}#bsky_fg` },
+        body: JSON.stringify({
+          ...definedFields({
+            feed: input.feed === undefined ? undefined : atUri(input.feed, operation),
+          }),
+          interactions: input.interactions.map((interaction) => ({
+            event: interaction.event,
+            ...definedFields({
+              item: interaction.item === undefined ? undefined : atUri(interaction.item, operation),
+              feedContext: interaction.feedContext,
+              reqId: interaction.reqId,
+            }),
+          })),
+        }),
+      });
+    },
+    async describeRepo(input) {
+      const operation = "bluesky.repo.describe";
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "com.atproto.repo.describeRepo",
+        operation,
+        {
+          repo: input.repo ?? auth.did,
+        },
+      );
+
+      const handleIsCorrect = response["handleIsCorrect"];
+
+      if (!isBoolean(handleIsCorrect))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: "Bluesky returned an invalid repository description.",
+        });
+
+      return {
+        did: string(response["did"]),
+        handle: string(response["handle"]),
+        handleIsCorrect,
+        collections: array(response["collections"]).map((value) => string(value)),
+        didDoc: object(response["didDoc"]),
+      };
+    },
+    async getPostThreadV2(input) {
+      const operation = "bluesky.threads.readV2";
+
+      const bounded = (value: number | undefined, max: number) => {
+        if (value === undefined) return undefined;
+
+        if (!Number.isSafeInteger(value) || value < 0 || value > max)
+          throw new SocialError({
+            code: "invalid_input",
+            operation,
+            message: "below is 0 to 20 and branchingFactor 0 to 100.",
+            retryDisposition: { kind: "never" },
+          });
+
+        return String(value);
+      };
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.unspecced.getPostThreadV2",
+        operation,
+        {
+          anchor: atUri(input.anchor, operation),
+          above: input.above === undefined ? undefined : String(input.above),
+          below: bounded(input.below, 20),
+          branchingFactor: bounded(input.branchingFactor, 100),
+          sort: input.sort,
+        },
+      );
+
+      array(response["thread"]);
+
+      return response;
+    },
+    async getPostThreadOtherV2(input) {
+      const operation = "bluesky.threads.otherV2";
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.unspecced.getPostThreadOtherV2",
+        operation,
+        { anchor: atUri(input.anchor, operation) },
+      );
+
+      array(response["thread"]);
+
+      return response;
+    },
+    async getTrends(input) {
+      const operation = "bluesky.trends.list";
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.unspecced.getTrends",
+        operation,
+        {
+          limit: limitParam(input.limit, 25, operation),
+        },
+      );
+
+      array(response["trends"]);
+
+      return response;
+    },
+    async getTrendingTopics(input) {
+      const operation = "bluesky.trends.topics";
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.unspecced.getTrendingTopics",
+        operation,
+        { viewer: input.viewer, limit: limitParam(input.limit, 25, operation) },
+      );
+
+      array(response["topics"]);
+
+      return response;
+    },
+    async getSuggestedUsers(input) {
+      const operation = "bluesky.discovery.users";
+
+      return actorPage(
+        await viewRead(
+          input.account,
+          input.context,
+          "app.bsky.unspecced.getSuggestedUsers",
+          operation,
+          {
+            category: input.category,
+            limit: limitParam(input.limit, 50, operation),
+          },
+        ),
+        "actors",
+      );
+    },
+    async getPopularFeedGenerators(input) {
+      return page(
+        await pagedRead(
+          input,
+          "app.bsky.unspecced.getPopularFeedGenerators",
+          "bluesky.discovery.feeds",
+          {
+            query: input.query?.trim() || undefined,
+          },
+        ),
+        "feeds",
+      );
+    },
+    async getSuggestedFeeds(input) {
+      const operation = "bluesky.discovery.suggestedFeeds";
+
+      return page(
+        await viewRead(
+          input.account,
+          input.context,
+          "app.bsky.unspecced.getSuggestedFeeds",
+          operation,
+          {
+            limit: limitParam(input.limit, 25, operation),
+          },
+        ),
+        "feeds",
+      );
+    },
+    async getSuggestedStarterPacks(input) {
+      const operation = "bluesky.discovery.starterPacks";
+
+      return page(
+        await viewRead(
+          input.account,
+          input.context,
+          "app.bsky.unspecced.getSuggestedStarterPacks",
+          operation,
+          { limit: limitParam(input.limit, 25, operation) },
+        ),
+        "starterPacks",
+      );
+    },
+    async getTaggedSuggestions(input) {
+      return listOf(
+        await viewRead(
+          input.account,
+          input.context,
+          "app.bsky.unspecced.getTaggedSuggestions",
+          "bluesky.discovery.tagged",
+          {},
+        ),
+        "suggestions",
+      );
+    },
+    async getAgeAssuranceConfig(input) {
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.ageassurance.getConfig",
+        "bluesky.ageAssurance.config",
+        {},
+      );
+
+      array(response["regions"]);
+
+      return response;
+    },
+    async getAgeAssuranceState(input) {
+      const operation = "bluesky.ageAssurance.state";
+
+      const response = await viewRead(
+        input.account,
+        input.context,
+        "app.bsky.ageassurance.getState",
+        operation,
+        {
+          countryCode: countryCode(input.countryCode, operation),
+          regionCode: input.regionCode,
+        },
+      );
+
+      object(response["state"]);
+
+      return response;
+    },
+    async beginAgeAssurance(input) {
+      const operation = "bluesky.ageAssurance.begin";
+
+      if (!/^[^\s@]+@[^\s@]+$/.test(input.email) || !input.language.trim())
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Age assurance needs an email address and a language.",
+          retryDisposition: { kind: "never" },
+        });
+
+      return procedure(input.account, input.context, "app.bsky.ageassurance.begin", operation, {
+        email: input.email,
+        language: input.language,
+        countryCode: countryCode(input.countryCode, operation),
+        ...definedFields({ regionCode: input.regionCode }),
+      });
+    },
+    async resolveHandle(input) {
+      const operation = "bluesky.identity.resolveHandle";
+
+      const did = string(
+        (
+          await viewRead(
+            input.account,
+            input.context,
+            "com.atproto.identity.resolveHandle",
+            operation,
+            {
+              handle: identifiers([input.handle], 1, operation, "handle")[0],
+            },
+          )
+        )["did"],
+      );
+
+      if (!DID.test(did))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: "Bluesky resolved the handle to an invalid DID.",
+        });
+
+      return did;
+    },
+    async resolveDid(input) {
+      const operation = "bluesky.identity.resolveDid";
+
+      return object(
+        (
+          await viewRead(
+            input.account,
+            input.context,
+            "com.atproto.identity.resolveDid",
+            operation,
+            {
+              did: memberDid(input.did, operation),
+            },
+          )
+        )["didDoc"],
+      );
+    },
+    async resolveIdentity(input) {
+      const operation = "bluesky.identity.resolve";
+
+      const info = await viewRead(
+        input.account,
+        input.context,
+        "com.atproto.identity.resolveIdentity",
+        operation,
+        {
+          identifier: identifiers([input.identifier], 1, operation, "handle or DID")[0],
+        },
+      );
+
+      const did = string(info["did"]);
+
+      if (!DID.test(did))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: "Bluesky returned an invalid identity.",
+        });
+
+      return { did, handle: string(info["handle"]), didDoc: object(info["didDoc"]) };
+    },
+    async createAppPassword(input) {
+      const operation = "bluesky.appPasswords.create";
+
+      const name = input.name.trim();
+
+      if (!name)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "An app password needs a name.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const created = await procedure(
+        input.account,
+        input.context,
+        "com.atproto.server.createAppPassword",
+        operation,
+        { name, ...definedFields({ privileged: input.privileged }) },
+      );
+
+      const privileged = created["privileged"];
+
+      return {
+        name: string(created["name"]),
+        password: string(created["password"]),
+        createdAt: string(created["createdAt"]),
+        ...definedFields({ privileged: isBoolean(privileged) ? privileged : undefined }),
+      };
+    },
+    async listAppPasswords(input) {
+      return listOf(
+        await viewRead(
+          input.account,
+          input.context,
+          "com.atproto.server.listAppPasswords",
+          "bluesky.appPasswords.list",
+          {},
+        ),
+        "passwords",
+      ).map((entry) => {
+        const privileged = entry["privileged"];
+
+        return {
+          name: string(entry["name"]),
+          createdAt: string(entry["createdAt"]),
+          ...definedFields({ privileged: isBoolean(privileged) ? privileged : undefined }),
+        };
+      });
+    },
+    async revokeAppPassword(input) {
+      await voidProcedure(
+        input.account,
+        input.context,
+        "com.atproto.server.revokeAppPassword",
+        "bluesky.appPasswords.revoke",
+        { name: requiredText(input.name, "bluesky.appPasswords.revoke", "app password name") },
+      );
+    },
+    async updateHandle(input) {
+      const operation = "bluesky.identity.updateHandle";
+
+      const handle = input.handle.trim().toLowerCase();
+
+      if (
+        !/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/.test(handle) ||
+        handle.length > 253
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Provide a valid domain-name handle, such as alice.example.com.",
+          retryDisposition: { kind: "never" },
+        });
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "com.atproto.identity.updateHandle",
+        operation,
+        {
+          handle,
+        },
+      );
+    },
+    async refreshIdentity(input) {
+      const operation = "bluesky.identity.refresh";
+
+      const info = await procedure(
+        input.account,
+        input.context,
+        "com.atproto.identity.refreshIdentity",
+        operation,
+        {
+          identifier: requiredText(input.identifier, operation, "handle or DID"),
+        },
+      );
+
+      return {
+        did: string(info["did"]),
+        handle: string(info["handle"]),
+        didDoc: object(info["didDoc"]),
+      };
+    },
+    async deactivateAccount(input) {
+      const operation = "bluesky.account.deactivate";
+
+      if (input.deleteAfter !== undefined && Number.isNaN(Date.parse(input.deleteAfter)))
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "deleteAfter must be an ISO 8601 datetime.",
+          retryDisposition: { kind: "never" },
+        });
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "com.atproto.server.deactivateAccount",
+        operation,
+        definedFields({ deleteAfter: input.deleteAfter }),
+      );
+    },
+    async activateAccount(input) {
+      await emptyProcedure(input, "com.atproto.server.activateAccount", "bluesky.account.activate");
+    },
+    async requestAccountDelete(input) {
+      await emptyProcedure(
+        input,
+        "com.atproto.server.requestAccountDelete",
+        "bluesky.account.requestDelete",
+      );
+    },
+    async requestEmailConfirmation(input) {
+      await emptyProcedure(
+        input,
+        "com.atproto.server.requestEmailConfirmation",
+        "bluesky.account.requestEmailConfirmation",
+      );
+    },
+    async confirmEmail(input) {
+      const operation = "bluesky.account.confirmEmail";
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "com.atproto.server.confirmEmail",
+        operation,
+        {
+          email: emailAddress(input.email, operation),
+          token: requiredText(input.token, operation, "token"),
+        },
+      );
+    },
+    async requestEmailUpdate(input) {
+      const operation = "bluesky.account.requestEmailUpdate";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const tokenRequired = object(
+        await xrpc("com.atproto.server.requestEmailUpdate", context, { method: "POST" }),
+      )["tokenRequired"];
+
+      if (!isBoolean(tokenRequired))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation,
+          message: "Bluesky did not say whether an email token is required.",
+        });
+
+      return { tokenRequired };
+    },
+    async updateEmail(input) {
+      const operation = "bluesky.account.updateEmail";
+
+      await voidProcedure(
+        input.account,
+        input.context,
+        "com.atproto.server.updateEmail",
+        operation,
+        {
+          email: emailAddress(input.email, operation),
+          ...definedFields({ token: input.token, emailAuthFactor: input.emailAuthFactor }),
+        },
+      );
+    },
+    async getServiceAuth(input) {
+      const operation = "bluesky.server.serviceAuth";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      if (
+        !DID.test(input.aud.split("#")[0] ?? "") ||
+        (input.lxm !== undefined && !NSID.test(input.lxm)) ||
+        (input.expiresInSeconds !== undefined &&
+          (!Number.isSafeInteger(input.expiresInSeconds) || input.expiresInSeconds < 1))
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "getServiceAuth needs a service DID as aud, an NSID lxm, and a positive lifetime.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const query = new URLSearchParams({ aud: input.aud });
+
+      if (input.lxm !== undefined) query.set("lxm", input.lxm);
+
+      if (input.expiresInSeconds !== undefined)
+        query.set("exp", String(Math.floor(Date.now() / 1000) + input.expiresInSeconds));
+
+      return string(
+        object(await xrpc(`com.atproto.server.getServiceAuth?${query}`, context))["token"],
+      );
+    },
+    async getRecommendedDidCredentials(input) {
+      return viewRead(
+        input.account,
+        input.context,
+        "com.atproto.identity.getRecommendedDidCredentials",
+        "bluesky.identity.recommendedCredentials",
+        {},
+      );
+    },
+    async requestPlcOperationSignature(input) {
+      await emptyProcedure(
+        input,
+        "com.atproto.identity.requestPlcOperationSignature",
+        "bluesky.identity.requestPlcSignature",
+      );
+    },
+    async signPlcOperation(input) {
+      const operation = "bluesky.identity.signPlc";
+
+      return object(
+        (
+          await procedure(
+            input.account,
+            input.context,
+            "com.atproto.identity.signPlcOperation",
+            operation,
+            {
+              token: requiredText(input.token, operation, "token"),
+              ...definedFields({
+                rotationKeys:
+                  input.rotationKeys === undefined ? undefined : [...input.rotationKeys],
+                alsoKnownAs: input.alsoKnownAs === undefined ? undefined : [...input.alsoKnownAs],
+                verificationMethods: input.verificationMethods,
+                services: input.services,
+              }),
+            },
+          )
+        )["operation"],
+      );
+    },
+    async submitPlcOperation(input) {
+      await voidProcedure(
+        input.account,
+        input.context,
+        "com.atproto.identity.submitPlcOperation",
+        "bluesky.identity.submitPlc",
+        { operation: input.operation },
+      );
+    },
+    async importRepo(input) {
+      const operation = "bluesky.repo.import";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const size = input.car instanceof Blob ? input.car.size : input.car.byteLength;
+
+      if (size === 0)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "The repository CAR file is empty.",
+          retryDisposition: { kind: "never" },
+        });
+
+      await xrpc("com.atproto.repo.importRepo", context, {
+        body: input.car,
+        headers: { "Content-Type": "application/vnd.ipld.car" },
+      });
+    },
+    async listMissingBlobs(input) {
+      const operation = "bluesky.repo.missingBlobs";
+      const context = nativeContext(input.context, operation);
+      assertNativeAccount(input.account, context, operation);
+
+      const query = new URLSearchParams({
+        ...definedFields({
+          limit: limitParam(input.limit, 1000, operation),
+          cursor: input.cursor || undefined,
+        }),
+      });
+
+      const response = object(await xrpc(`com.atproto.repo.listMissingBlobs?${query}`, context));
+
+      return {
+        blobs: array(response["blobs"]).map((value) => {
+          const blob = object(value);
+
+          return { cid: string(blob["cid"]), recordUri: string(blob["recordUri"]) };
+        }),
+        ...definedFields({ cursor: optionalString(response["cursor"]) }),
+      };
+    },
+    async startPhoneVerification(input) {
+      const operation = "bluesky.contacts.startPhoneVerification";
+
+      await procedure(
+        input.account,
+        input.context,
+        "app.bsky.contact.startPhoneVerification",
+        operation,
+        {
+          phone: phoneNumber(input.phone, operation),
+        },
+      );
+    },
+    async verifyPhone(input) {
+      const operation = "bluesky.contacts.verifyPhone";
+
+      const result = await procedure(
+        input.account,
+        input.context,
+        "app.bsky.contact.verifyPhone",
+        operation,
+        {
+          phone: phoneNumber(input.phone, operation),
+          code: requiredText(input.code, operation, "verification code"),
+        },
+      );
+
+      return { token: string(result["token"]) };
+    },
+    async importContacts(input) {
+      const operation = "bluesky.contacts.import";
+
+      if (input.contacts.length === 0 || input.contacts.length > 1000)
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message: "Import 1 to 1000 phone numbers at a time.",
+          retryDisposition: { kind: "never" },
+        });
+
+      const response = await procedure(
+        input.account,
+        input.context,
+        "app.bsky.contact.importContacts",
+        operation,
+        {
+          token: requiredText(input.token, operation, "verification token"),
+          contacts: input.contacts.map((contact) => phoneNumber(contact, operation)),
+        },
+      );
+
+      return array(response["matchesAndContactIndexes"]).map((value) => {
+        const entry = object(value);
+
+        const contactIndex = entry["contactIndex"];
+
+        if (
+          !isFiniteNumber(contactIndex) ||
+          !Number.isSafeInteger(contactIndex) ||
+          contactIndex < 0
+        )
+          throw new SocialError({
+            code: "upstream_failure",
+            operation,
+            message: "Bluesky returned an invalid contact index.",
+          });
+
+        return { match: object(entry["match"]), contactIndex };
+      });
+    },
+    async getContactMatches(input) {
+      return actorPage(
+        await pagedRead(input, "app.bsky.contact.getMatches", "bluesky.contacts.matches"),
+        "matches",
+      );
+    },
+    async dismissContactMatch(input) {
+      const operation = "bluesky.contacts.dismiss";
+
+      await procedure(input.account, input.context, "app.bsky.contact.dismissMatch", operation, {
+        subject: memberDid(input.subject, operation),
+      });
+    },
+    async getContactSyncStatus(input) {
+      const status = optionalObject(
+        (
+          await viewRead(
+            input.account,
+            input.context,
+            "app.bsky.contact.getSyncStatus",
+            "bluesky.contacts.status",
+            {},
+          )
+        )["syncStatus"],
+      );
+
+      if (status === undefined) return undefined;
+
+      const matchesCount = status["matchesCount"];
+
+      if (!isFiniteNumber(matchesCount))
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "bluesky.contacts.status",
+          message: "Bluesky returned an invalid contact sync status.",
+        });
+
+      return { syncedAt: string(status["syncedAt"]), matchesCount };
+    },
+    async removeContactData(input) {
+      await procedure(
+        input.account,
+        input.context,
+        "app.bsky.contact.removeData",
+        "bluesky.contacts.remove",
+        {},
       );
     },
     async hideReply(input) {
@@ -2687,9 +8633,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     native,
     media: {
       async upload(media, accountRef, context): Promise<MediaRef> {
-        const job = await native.uploadVideo({
+        const video = videoSource(media);
+
+        const upload =
+          video.size > MULTIPART_VIDEO_MIN_BYTES ? native.uploadVideoMultipart : native.uploadVideo;
+
+        const job = await upload({
           account: accountRef,
-          video: videoSource(media),
+          video,
           mimeType: "video/mp4",
           ...definedFields({ name: media.filename }),
           context,
@@ -3016,15 +8967,10 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const text = target.content.text ?? "";
 
-        if (target.content.link !== undefined)
-          issues.push({
-            code: "link.unsupported",
-            message: "Bluesky external link cards are not supported. Put the URL in text instead.",
-            severity: "error" as const,
-          });
+        let parsed: PostOptions | undefined;
 
         try {
-          richTextOptions(text, target);
+          parsed = postOptions(text, target);
         } catch (error) {
           issues.push({
             code: "bluesky.richtext",
@@ -3032,6 +8978,44 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             severity: "error" as const,
           });
         }
+
+        const link = target.content.link;
+
+        if (link !== undefined && !/^https?:\/\/[^\s]+$/i.test(link.url))
+          issues.push({
+            code: "link.invalid",
+            message: "A Bluesky link card needs an absolute http(s) URL.",
+            severity: "error" as const,
+          });
+
+        if (link !== undefined && (target.content.media?.length ?? 0) > 0)
+          issues.push({
+            code: "link.with_media",
+            message:
+              "A Bluesky post carries one media embed: images, one video, or one link card. Put the URL in text instead.",
+            severity: "error" as const,
+          });
+
+        if (parsed?.linkAssociatedRefs !== undefined && link === undefined)
+          issues.push({
+            code: "link.associated_refs_without_link",
+            message: "linkAssociatedRefs applies only to a content.link card.",
+            severity: "error" as const,
+          });
+
+        if (parsed?.linkThumbnail !== undefined && link === undefined)
+          issues.push({
+            code: "link.thumbnail_without_link",
+            message: "linkThumbnail applies only to a content.link card.",
+            severity: "error" as const,
+          });
+
+        if (parsed?.replyRules !== undefined && target.replyTo !== undefined)
+          issues.push({
+            code: "bluesky.reply_controls_on_reply",
+            message: "Reply controls (threadgates) apply to a thread's root post, not to a reply.",
+            severity: "error" as const,
+          });
 
         if (new TextEncoder().encode(text).byteLength > 3000 || graphemeCount(text) > 300)
           issues.push({
@@ -3058,6 +9042,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const videos = media.filter((item) => item.kind === "video");
 
+        if (
+          videos.length === 0 &&
+          parsed !== undefined &&
+          (parsed.captions.length > 0 || parsed.presentation !== undefined)
+        )
+          issues.push({
+            code: "bluesky.video_options_without_video",
+            message: "videoCaptions and videoPresentation apply only to a video post.",
+            severity: "error" as const,
+          });
+
         if (media.some((item) => item.kind === "document"))
           issues.push({
             code: "media.unsupported_kind",
@@ -3068,7 +9063,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         if (videos.length > 0 && media.length !== 1)
           issues.push({
             code: "media.mixed",
-            message: "A Bluesky post carries either up to four images or exactly one video.",
+            message: "A Bluesky post carries either up to ten images or exactly one video.",
             severity: "error" as const,
           });
 
@@ -3133,10 +9128,23 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             });
         }
 
-        if (videos.length === 0 && media.length > MAX_IMAGES)
+        if (videos.length === 0 && media.length > MAX_GALLERY_IMAGES)
           issues.push({
             code: "media.too_many",
-            message: `Bluesky supports at most ${MAX_IMAGES} images per post.`,
+            message: `Bluesky supports at most ${MAX_GALLERY_IMAGES} images per post.`,
+            severity: "error" as const,
+          });
+
+        // Five or more images use app.bsky.embed.gallery, whose items require an aspect ratio.
+        if (
+          videos.length === 0 &&
+          media.length > MAX_IMAGES &&
+          media.some((item) => item.width === undefined || item.height === undefined)
+        )
+          issues.push({
+            code: "media.aspect_ratio_required",
+            message:
+              "A Bluesky gallery of five or more images needs width and height on every image.",
             severity: "error" as const,
           });
 
@@ -3168,11 +9176,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
           const createdAt = new Date().toISOString();
 
-          const richText = richTextOptions(text, target);
+          const parsed = postOptions(text, target);
 
           let reply: JsonObject | undefined;
 
-          let embed: JsonObject | undefined;
+          let media: JsonObject | undefined;
 
           if (target.replyTo !== undefined) {
             if (target.replyTo.kind !== "platform-post")
@@ -3251,7 +9259,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                     },
               );
 
-            embed = {
+            // Caption tracks reference text/vtt blobs the caller uploaded with native.uploadBlob.
+            const captions = parsed.captions.map((track) => ({
+              lang: track.lang,
+              file: blobJson(track.file),
+            }));
+
+            media = {
               $type: "app.bsky.embed.video",
               video: job.blob,
               ...definedFields({
@@ -3260,66 +9274,105 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                   video.width === undefined || video.height === undefined
                     ? undefined
                     : { width: video.width, height: video.height },
+                captions: captions.length ? captions : undefined,
+                presentation: parsed.presentation,
               }),
             };
           } else if (content.media !== undefined && content.media.length > 0) {
-            const blobs: JsonObject[] = [];
+            const items: JsonObject[] = [];
 
-            for (const media of content.media) {
+            for (const attachment of content.media) {
               const source = await readMedia(
-                media.source,
+                attachment.source,
                 fetcher,
                 context,
                 allowMediaHost,
-                media.mimeType,
+                attachment.mimeType,
               );
 
-              const blob = object(
-                await xrpc("com.atproto.repo.uploadBlob", context, {
-                  body: new Blob([source.bytes.slice()], {
-                    type: source.mimeType,
-                  }),
-                  headers: { "Content-Type": source.mimeType },
-                }),
-              );
-
-              blobs.push(object(blob["blob"]));
-            }
-
-            embed = {
-              $type: "app.bsky.embed.images",
-              images: blobs.map((blob, index) => ({
-                image: blob,
-                alt: content.media?.[index]?.altText ?? "",
+              items.push({
+                image: await uploadBytes(source.bytes, source.mimeType, context),
+                alt: attachment.altText ?? "",
                 ...definedFields({
                   aspectRatio:
-                    content.media?.[index]?.width === undefined
+                    attachment.width === undefined || attachment.height === undefined
                       ? undefined
-                      : {
-                          width: content.media[index]!.width!,
-                          height: content.media[index]!.height!,
-                        },
+                      : { width: attachment.width, height: attachment.height },
                 }),
-              })),
+              });
+            }
+
+            // Up to four images keep the widely rendered images embed; five to ten use a gallery.
+            media =
+              items.length <= MAX_IMAGES
+                ? { $type: "app.bsky.embed.images", images: items }
+                : {
+                    $type: "app.bsky.embed.gallery",
+                    items: items.map((item) => ({
+                      $type: "app.bsky.embed.gallery#image",
+                      ...item,
+                    })),
+                  };
+          } else if (content.link !== undefined) {
+            // The card uses only caller-supplied metadata; the SDK never fetches the page.
+            const thumb =
+              parsed.linkThumbnail === undefined ? undefined : blobJson(parsed.linkThumbnail);
+
+            media = {
+              $type: "app.bsky.embed.external",
+              external: {
+                uri: content.link.url,
+                title: content.link.title ?? "",
+                description: content.link.description ?? "",
+                ...definedFields({
+                  thumb,
+                  associatedRefs:
+                    parsed.linkAssociatedRefs === undefined
+                      ? undefined
+                      : parsed.linkAssociatedRefs.map((ref) => ({ uri: ref.uri, cid: ref.cid })),
+                }),
+              },
             };
           }
+
+          const quoted =
+            parsed.quote === undefined
+              ? undefined
+              : {
+                  $type: "app.bsky.embed.record",
+                  record: { uri: parsed.quote.uri, cid: parsed.quote.cid },
+                };
+
+          const embed =
+            quoted === undefined
+              ? media
+              : media === undefined
+                ? quoted
+                : { $type: "app.bsky.embed.recordWithMedia", record: quoted, media };
 
           const record = {
             $type: "app.bsky.feed.post",
             text,
             createdAt,
-            ...richText,
+            ...parsed.record,
             ...definedFields({ reply, embed }),
           };
 
-          const response = object(
-            await xrpc("com.atproto.repo.createRecord", context, {
-              body: JSON.stringify({ repo: auth.did, collection: "app.bsky.feed.post", record }),
-              headers: { "Content-Type": "application/json" },
-            }),
-          );
-
-          const created = postRef(response);
+          const created =
+            parsed.replyRules === undefined && !parsed.disableQuotes
+              ? postRef(
+                  object(
+                    await xrpc("com.atproto.repo.createRecord", context, {
+                      body: JSON.stringify({
+                        repo: auth.did,
+                        collection: "app.bsky.feed.post",
+                        record,
+                      }),
+                      headers: { "Content-Type": "application/json" },
+                    }),
+                  ),
+                )
+              : await createGatedPost(record, parsed, createdAt, context);
 
           const delivery = {
             kind: "delivery" as const,
@@ -3458,6 +9511,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           ["reposts", "repostCount"],
           ["replies", "replyCount"],
           ["quotes", "quoteCount"],
+          ["bookmarks", "bookmarkCount"],
         ] as const) {
           const count = record[field];
 
@@ -3525,4 +9579,993 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   });
 
   return adapter;
+}
+
+/** An app-password session from `com.atproto.server.createSession` or `refreshSession`. */
+export interface BlueskySession {
+  readonly did: string;
+  readonly handle: string;
+  /** Short-lived bearer token for `bluesky({ auth: { accessJwt } })`. Never log it. */
+  readonly accessJwt: string;
+  /** Longer-lived token that mints the next session. It rotates on every refresh. */
+  readonly refreshJwt: string;
+  readonly active?: boolean;
+  /** `takendown`, `suspended`, or `deactivated` when the account is not active. */
+  readonly status?: string;
+}
+
+interface SessionRequest {
+  readonly service: string;
+  readonly fetch?: typeof globalThis.fetch;
+  readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+function sessionFrom(value: JsonValue, operation: string): BlueskySession {
+  try {
+    const session = object(value);
+
+    const did = string(session["did"]);
+
+    const accessJwt = string(session["accessJwt"]);
+
+    const refreshJwt = string(session["refreshJwt"]);
+
+    if (!/^did:[a-z]+:[A-Za-z0-9._:%-]{1,2000}$/.test(did) || !accessJwt || !refreshJwt)
+      throw new Error("invalid session");
+
+    const active = session["active"];
+
+    return {
+      did,
+      handle: string(session["handle"]),
+      accessJwt,
+      refreshJwt,
+      ...definedFields({
+        active: isBoolean(active) ? active : undefined,
+        status: optionalString(session["status"]),
+      }),
+    };
+  } catch {
+    throw new SocialError({
+      code: "upstream_failure",
+      operation,
+      message: "Bluesky returned an invalid session.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  }
+}
+
+async function sessionCall(
+  request: SessionRequest,
+  method: "com.atproto.server.createSession" | "com.atproto.server.refreshSession",
+  init: { readonly headers: HeadersInit; readonly body?: string },
+): Promise<BlueskySession> {
+  const operation = `bluesky.${method}`;
+
+  const http = createHttp({
+    fetch: request.fetch ?? globalThis.fetch,
+    ...definedFields({ timeoutMs: request.timeoutMs }),
+  });
+
+  try {
+    return sessionFrom(
+      await http({
+        url: endpoint(request.service, method),
+        method: "POST",
+        headers: init.headers,
+        maxAttempts: 1,
+        ...definedFields({ body: init.body, signal: request.signal }),
+      }),
+      operation,
+    );
+  } catch (error) {
+    throw operationError(operation, error);
+  }
+}
+
+/**
+ * Signs in with an app password through `com.atproto.server.createSession`. Bluesky limits this
+ * to 30 calls per 5 minutes and 300 per day per account, so store the session and refresh it
+ * instead of signing in again.
+ */
+export async function createBlueskySession(
+  input: SessionRequest & {
+    /** Handle, DID, or email. */
+    readonly identifier: string;
+    readonly password: string;
+    /** Email sign-in code when the account has two-factor email enabled. */
+    readonly authFactorToken?: string;
+    /**
+     * Lets a taken-down account sign in so it can export its data. Without it the PDS rejects
+     * the login with `AccountTakedown`; with it the session reports `status: "takendown"`.
+     */
+    readonly allowTakendown?: boolean;
+  },
+): Promise<BlueskySession> {
+  if (!input.identifier.trim() || !input.password)
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "bluesky.com.atproto.server.createSession",
+      message: "An identifier and app password are required.",
+      retryDisposition: { kind: "never" },
+    });
+
+  return sessionCall(input, "com.atproto.server.createSession", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identifier: input.identifier.trim(),
+      password: input.password,
+      ...definedFields({
+        authFactorToken: input.authFactorToken,
+        allowTakendown: input.allowTakendown,
+      }),
+    }),
+  });
+}
+
+/**
+ * Mints a new session with `com.atproto.server.refreshSession`, authenticated by the refresh
+ * token. The old refresh token stops working, so save the returned one atomically. A lost
+ * response is `ambiguous_outcome`: the old token may already be spent.
+ */
+export async function refreshBlueskySession(
+  input: SessionRequest & { readonly refreshJwt: string },
+): Promise<BlueskySession> {
+  if (!input.refreshJwt)
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "bluesky.com.atproto.server.refreshSession",
+      message: "A refresh token is required.",
+      retryDisposition: { kind: "never" },
+    });
+
+  return sessionCall(input, "com.atproto.server.refreshSession", {
+    headers: { Authorization: `Bearer ${input.refreshJwt}` },
+  });
+}
+
+/**
+ * Signs an app-password session out with `com.atproto.server.deleteSession`, authenticated by
+ * the refresh token. Both tokens stop working. For OAuth sessions use
+ * `revokeBlueskyOAuthSession` from the server entry point instead.
+ */
+export async function deleteBlueskySession(
+  input: SessionRequest & { readonly refreshJwt: string },
+): Promise<void> {
+  if (!input.refreshJwt)
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "bluesky.com.atproto.server.deleteSession",
+      message: "A refresh token is required.",
+      retryDisposition: { kind: "never" },
+    });
+
+  await serverCall(input, "com.atproto.server.deleteSession", {
+    headers: { Authorization: `Bearer ${input.refreshJwt}` },
+  });
+}
+
+/** What a PDS accepts for sign-up (`com.atproto.server.describeServer`). No authentication. */
+export async function describeBlueskyServer(input: SessionRequest): Promise<{
+  readonly did: string;
+  readonly availableUserDomains: readonly string[];
+  readonly inviteCodeRequired?: boolean;
+  readonly phoneVerificationRequired?: boolean;
+  readonly links?: JsonObject;
+}> {
+  const operation = "bluesky.com.atproto.server.describeServer";
+
+  try {
+    const response = object(
+      await serverCall(input, "com.atproto.server.describeServer", {}, "GET"),
+    );
+
+    const invite = response["inviteCodeRequired"],
+      phone = response["phoneVerificationRequired"];
+
+    return {
+      did: string(response["did"]),
+      availableUserDomains: array(response["availableUserDomains"]).map((value) => string(value)),
+      ...definedFields({
+        inviteCodeRequired: isBoolean(invite) ? invite : undefined,
+        phoneVerificationRequired: isBoolean(phone) ? phone : undefined,
+        links: optionalObject(response["links"]),
+      }),
+    };
+  } catch (error) {
+    if (error instanceof SocialError) throw error;
+
+    throw new SocialError({
+      code: "upstream_failure",
+      operation,
+      message: "Bluesky returned an invalid server description.",
+    });
+  }
+}
+
+/**
+ * Creates an account with `com.atproto.server.createAccount` and returns its session. For a
+ * migration, pass the existing `did` and a `serviceAuthToken` from the old PDS's
+ * `native.getServiceAuth` (with `lxm: "com.atproto.server.createAccount"`); the account starts
+ * deactivated until the repository is imported and `activateAccount` is called.
+ */
+export async function createBlueskyAccount(
+  input: SessionRequest & {
+    readonly handle: string;
+    readonly email?: string;
+    readonly password?: string;
+    readonly inviteCode?: string;
+    readonly verificationCode?: string;
+    readonly verificationPhone?: string;
+    /** An existing DID to move to this PDS. */
+    readonly did?: string;
+    readonly recoveryKey?: string;
+    readonly plcOp?: JsonObject;
+    /** Bearer service-auth JWT that proves control of `did` during migration. */
+    readonly serviceAuthToken?: string;
+  },
+): Promise<BlueskySession> {
+  const operation = "bluesky.com.atproto.server.createAccount";
+
+  if (!input.handle.trim() || (input.did !== undefined && !DID.test(input.did)))
+    throw new SocialError({
+      code: "invalid_input",
+      operation,
+      message: "createAccount needs a handle and, when moving an account, a valid DID.",
+      retryDisposition: { kind: "never" },
+    });
+
+  return sessionFrom(
+    await serverCall(input, "com.atproto.server.createAccount", {
+      headers: {
+        "Content-Type": "application/json",
+        ...definedFields({
+          Authorization:
+            input.serviceAuthToken === undefined ? undefined : `Bearer ${input.serviceAuthToken}`,
+        }),
+      },
+      body: JSON.stringify({
+        handle: input.handle.trim(),
+        ...definedFields({
+          email: input.email,
+          password: input.password,
+          inviteCode: input.inviteCode,
+          verificationCode: input.verificationCode,
+          verificationPhone: input.verificationPhone,
+          did: input.did,
+          recoveryKey: input.recoveryKey,
+          plcOp: input.plcOp,
+        }),
+      }),
+    }),
+    operation,
+  );
+}
+
+/** Emails a password reset token (`com.atproto.server.requestPasswordReset`). */
+export async function requestBlueskyPasswordReset(
+  input: SessionRequest & { readonly email: string },
+): Promise<void> {
+  if (!/^[^\s@]+@[^\s@]+$/.test(input.email))
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "bluesky.com.atproto.server.requestPasswordReset",
+      message: "Provide an email address.",
+      retryDisposition: { kind: "never" },
+    });
+
+  await serverCall(input, "com.atproto.server.requestPasswordReset", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: input.email }),
+  });
+}
+
+/** Sets a new password with the emailed token (`com.atproto.server.resetPassword`). */
+export async function resetBlueskyPassword(
+  input: SessionRequest & { readonly token: string; readonly password: string },
+): Promise<void> {
+  if (!input.token || !input.password)
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "bluesky.com.atproto.server.resetPassword",
+      message: "A reset token and a new password are required.",
+      retryDisposition: { kind: "never" },
+    });
+
+  await serverCall(input, "com.atproto.server.resetPassword", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: input.token, password: input.password }),
+  });
+}
+
+/**
+ * Permanently deletes an account with `com.atproto.server.deleteAccount`, using the account
+ * password and the token from `native.requestAccountDelete`. This cannot be undone.
+ */
+export async function deleteBlueskyAccount(
+  input: SessionRequest & {
+    readonly did: string;
+    readonly password: string;
+    readonly token: string;
+  },
+): Promise<void> {
+  if (!DID.test(input.did) || !input.password || !input.token)
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "bluesky.com.atproto.server.deleteAccount",
+      message: "Account deletion needs the DID, the account password, and the emailed token.",
+      retryDisposition: { kind: "never" },
+    });
+
+  await serverCall(input, "com.atproto.server.deleteAccount", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ did: input.did, password: input.password, token: input.token }),
+  });
+}
+
+/** One XRPC call to a PDS outside an adapter, without retries. POST unless `GET` is asked. */
+async function serverCall(
+  request: SessionRequest,
+  method: string,
+  init: { readonly headers?: HeadersInit; readonly body?: string },
+  httpMethod: "GET" | "POST" = "POST",
+): Promise<JsonValue> {
+  const http = createHttp({
+    fetch: request.fetch ?? globalThis.fetch,
+    ...definedFields({ timeoutMs: request.timeoutMs }),
+  });
+
+  try {
+    return await http({
+      url: endpoint(request.service, method),
+      method: httpMethod,
+      maxAttempts: 1,
+      ...definedFields({ headers: init.headers, body: init.body, signal: request.signal }),
+    });
+  } catch (error) {
+    throw operationError(`bluesky.${method}`, error, httpMethod === "POST");
+  }
+}
+
+type JetstreamKind = "commit" | "identity" | "account" | "sync";
+
+/** Filters for a Jetstream subscription. Jetstream needs no authentication. */
+export interface BlueskyJetstreamInput {
+  /** Host name only. Defaults to `jetstream.us-east.bsky.network` (v2). */
+  readonly host?: string;
+  /** Jetstream protocol version. v2 is recommended; v1 is the legacy `/subscribe` API. */
+  readonly version?: 1 | 2;
+  /** Up to 100 collection NSIDs or `app.bsky.feed.*` namespace wildcards. */
+  readonly collections?: readonly string[];
+  /** Up to 10,000 repository DIDs. */
+  readonly dids?: readonly string[];
+  /** v2 only: event kinds to receive. Omit for all four. */
+  readonly kinds?: readonly JetstreamKind[];
+  /** v2: the last `seq` processed (inclusive) or a unix-microsecond time. v1: `time_us`. */
+  readonly cursor?: number;
+}
+
+/** The WebSocket URL and subprotocols to open; the SDK does not open the socket. */
+export interface BlueskyJetstreamSubscription {
+  readonly url: URL;
+  readonly protocols: readonly string[];
+}
+
+/**
+ * Builds a Jetstream WebSocket subscription. Jetstream decodes the relay firehose
+ * (`com.atproto.sync.subscribeRepos`) into JSON and filters it server-side. Open the socket
+ * with your runtime's WebSocket, then decode each frame with `parseBlueskyJetstreamEvent`.
+ */
+export function blueskyJetstreamSubscription(
+  input: BlueskyJetstreamInput = {},
+): BlueskyJetstreamSubscription {
+  const version = input.version ?? 2;
+
+  const host =
+    input.host ??
+    (version === 2 ? "jetstream.us-east.bsky.network" : "jetstream2.us-east.bsky.network");
+
+  const collections = input.collections ?? [];
+
+  const dids = input.dids ?? [];
+
+  const invalid = (message: string): never => {
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "bluesky.jetstream.subscribe",
+      message,
+      retryDisposition: { kind: "never" },
+    });
+  };
+
+  if (!/^[a-z0-9.-]+(:\d{1,5})?$/i.test(host)) invalid("Jetstream host must be a host name.");
+
+  if (
+    collections.length > 100 ||
+    collections.some((nsid) => !/^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z0-9-]+)+(\.\*)?$/.test(nsid))
+  )
+    invalid("Jetstream accepts up to 100 collection NSIDs or namespace wildcards.");
+
+  if (dids.length > 10_000 || dids.some((did) => !/^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(did)))
+    invalid("Jetstream accepts up to 10,000 DIDs.");
+
+  if (input.cursor !== undefined && (!Number.isSafeInteger(input.cursor) || input.cursor < 0))
+    invalid("Jetstream cursor must be a non-negative integer.");
+
+  if (version === 1 && input.kinds !== undefined)
+    invalid("Jetstream v1 has no kinds filter; use version 2.");
+
+  const v2 = version === 2;
+
+  const url = new URL(
+    v2 ? `wss://${host}/xrpc/network.bsky.jetstream.subscribeEvents` : `wss://${host}/subscribe`,
+  );
+
+  for (const nsid of collections)
+    url.searchParams.append(v2 ? "collections" : "wantedCollections", nsid);
+
+  for (const did of dids) url.searchParams.append(v2 ? "dids" : "wantedDids", did);
+
+  for (const kind of input.kinds ?? []) url.searchParams.append("kinds", kind);
+
+  if (input.cursor !== undefined) url.searchParams.set("cursor", String(input.cursor));
+
+  return { url, protocols: v2 ? ["xrpc.v1.json"] : [] };
+}
+
+/** A decoded Jetstream event. Commits carry the record already decoded from CBOR. */
+export type BlueskyJetstreamEvent =
+  | {
+      readonly kind: "commit";
+      readonly did: string;
+      /** v2 sequence number; pass the last one back as `cursor` to resume. */
+      readonly seq?: number;
+      /** v1 unix-microsecond timestamp. */
+      readonly timeUs?: number;
+      readonly operation: "create" | "update" | "delete";
+      readonly collection: string;
+      readonly rkey: string;
+      /** `at://<did>/<collection>/<rkey>`: a stable key for idempotent handling. */
+      readonly uri: string;
+      readonly rev?: string;
+      readonly cid?: string;
+      /** Absent on deletes. */
+      readonly record?: JsonObject;
+    }
+  | {
+      readonly kind: "identity" | "account" | "sync";
+      readonly did: string;
+      readonly seq?: number;
+      readonly timeUs?: number;
+      readonly payload: JsonObject;
+    };
+
+function isJetstreamKind(value: JsonValue | undefined): value is JetstreamKind {
+  return value === "commit" || value === "identity" || value === "account" || value === "sync";
+}
+
+function isCommitOperation(value: JsonValue | undefined): value is "create" | "update" | "delete" {
+  return value === "create" || value === "update" || value === "delete";
+}
+
+/**
+ * Decodes one Jetstream text frame (v2 envelope or v1 event). Returns `undefined` for frames
+ * that are not events, such as v2 info messages. Delivery is at-least-once: key on `uri`.
+ */
+export function parseBlueskyJetstreamEvent(frame: string): BlueskyJetstreamEvent | undefined {
+  const malformed = (): never => {
+    throw new SocialError({
+      code: "upstream_failure",
+      operation: "bluesky.jetstream.event",
+      message: "Jetstream sent a malformed event.",
+      retryDisposition: { kind: "never" },
+    });
+  };
+
+  let message: JsonObject;
+
+  try {
+    message = object(parseJson(frame));
+  } catch {
+    return malformed();
+  }
+
+  // v2 frames wrap the event in { $type: "message", payload: { $type: "...#commit", ... } }.
+  const v2 = message["$type"] !== undefined;
+
+  if (v2 && message["$type"] !== "message") return undefined;
+
+  const event = v2 ? optionalObject(message["payload"]) : message;
+
+  if (event === undefined) return malformed();
+
+  const kind = v2
+    ? optionalString(event["$type"])?.replace("network.bsky.jetstream.subscribeEvents#", "")
+    : event["kind"];
+
+  if (kind === undefined || !isJetstreamKind(kind)) return undefined;
+
+  const did = optionalString(event["did"]);
+
+  if (did === undefined) return malformed();
+
+  const position = definedFields({
+    seq: optionalNumber(event["seq"]),
+    timeUs: optionalNumber(event["time_us"]),
+  });
+
+  if (kind !== "commit") {
+    const payload = v2 ? event : optionalObject(event[kind]);
+
+    return payload === undefined ? malformed() : { kind, did, ...position, payload };
+  }
+
+  const commit = v2 ? event : optionalObject(event["commit"]);
+
+  if (commit === undefined) return malformed();
+
+  const operation = commit["operation"];
+
+  const collection = optionalString(commit["collection"]);
+
+  const rkey = optionalString(commit["rkey"]);
+
+  if (!isCommitOperation(operation) || collection === undefined || rkey === undefined)
+    return malformed();
+
+  return {
+    kind,
+    did,
+    ...position,
+    operation,
+    collection,
+    rkey,
+    uri: `at://${did}/${collection}/${rkey}`,
+    ...definedFields({
+      rev: optionalString(commit["rev"]),
+      cid: optionalString(commit["cid"]),
+      record: optionalObject(commit["record"]),
+    }),
+  };
+}
+
+const FEED_GENERATOR_URI =
+  /^at:\/\/did:[a-z]+:[A-Za-z0-9._:%-]+\/app\.bsky\.feed\.generator\/[A-Za-z0-9._~:-]{1,512}$/;
+
+function feedServerError(message: string): never {
+  throw new SocialError({
+    code: "invalid_input",
+    operation: "bluesky.feeds.server",
+    message,
+    retryDisposition: { kind: "never" },
+  });
+}
+
+/** What a feed generator service reports from `app.bsky.feed.describeFeedGenerator`. */
+export interface BlueskyFeedGeneratorDescriptionInput {
+  /** The service DID that every published `app.bsky.feed.generator` record names. */
+  readonly did: string;
+  /** AT-URIs of the `app.bsky.feed.generator` records this service serves. */
+  readonly feeds: readonly string[];
+  readonly links?: { readonly privacyPolicy?: string; readonly termsOfService?: string };
+}
+
+/**
+ * Builds the JSON body a feed generator returns from
+ * `GET /xrpc/app.bsky.feed.describeFeedGenerator`. The SDK runs no server; return this from
+ * your own route.
+ */
+export function blueskyFeedGeneratorDescription(
+  input: BlueskyFeedGeneratorDescriptionInput,
+): JsonObject {
+  if (!DID.test(input.did)) feedServerError("The feed generator DID is invalid.");
+
+  if (input.feeds.some((feed) => !FEED_GENERATOR_URI.test(feed)))
+    feedServerError("Each feed must be an app.bsky.feed.generator AT-URI.");
+
+  const links = definedFields({
+    privacyPolicy: input.links?.privacyPolicy,
+    termsOfService: input.links?.termsOfService,
+  });
+
+  return {
+    did: input.did,
+    feeds: input.feeds.map((uri) => ({ uri })),
+    ...definedFields({ links: Object.keys(links).length ? links : undefined }),
+  };
+}
+
+/** A validated `app.bsky.feed.getFeedSkeleton` request. */
+export interface BlueskyFeedSkeletonRequest {
+  readonly feed: string;
+  /** 1 to 100; Bluesky's default is 50. */
+  readonly limit: number;
+  readonly cursor?: string;
+}
+
+/**
+ * Parses the query of `GET /xrpc/app.bsky.feed.getFeedSkeleton`. It does not verify the
+ * requester's service-auth JWT (`Authorization: Bearer`); verify it yourself when the feed is
+ * personalized.
+ */
+export function parseBlueskyFeedSkeletonRequest(url: URL): BlueskyFeedSkeletonRequest {
+  if (blueskyFeedGeneratorMethod(url) !== "app.bsky.feed.getFeedSkeleton")
+    feedServerError("Not a getFeedSkeleton request.");
+
+  const feed = url.searchParams.get("feed") ?? "";
+
+  if (!FEED_GENERATOR_URI.test(feed)) feedServerError("feed must be a feed generator AT-URI.");
+
+  const rawLimit = url.searchParams.get("limit");
+
+  const limit = rawLimit === null ? 50 : Number(rawLimit);
+
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+    feedServerError("limit must be an integer from 1 to 100.");
+
+  const cursor = url.searchParams.get("cursor");
+
+  return { feed, limit, ...definedFields({ cursor: cursor || undefined }) };
+}
+
+/** One post in a feed skeleton (`app.bsky.feed.defs#skeletonFeedPost`). */
+export interface BlueskySkeletonItem {
+  readonly post: string;
+  /** Show the post as reposted by this repost record, or as pinned. */
+  readonly reason?: { readonly repost: string } | "pin";
+  /** Opaque context (up to 2000 characters) the client echoes back in sendInteractions. */
+  readonly feedContext?: string;
+}
+
+/** Builds the `app.bsky.feed.getFeedSkeleton` response body. */
+export function blueskyFeedSkeleton(input: {
+  readonly feed: readonly BlueskySkeletonItem[];
+  readonly cursor?: string;
+  /** Request ID (up to 100 characters) the client echoes back in sendInteractions. */
+  readonly reqId?: string;
+}): JsonObject {
+  if ((input.reqId?.length ?? 0) > 100) feedServerError("reqId is limited to 100 characters.");
+
+  return {
+    feed: input.feed.map((item) => {
+      if (!POST_URI.test(item.post)) feedServerError("Each skeleton post must be a post AT-URI.");
+
+      if ((item.feedContext?.length ?? 0) > 2000)
+        feedServerError("feedContext is limited to 2000 characters.");
+
+      if (
+        item.reason !== undefined &&
+        item.reason !== "pin" &&
+        !REPOST_URI.test(item.reason.repost)
+      )
+        feedServerError("A repost reason needs an app.bsky.feed.repost AT-URI.");
+
+      const reason =
+        item.reason === undefined
+          ? undefined
+          : item.reason === "pin"
+            ? { $type: "app.bsky.feed.defs#skeletonReasonPin" }
+            : { $type: "app.bsky.feed.defs#skeletonReasonRepost", repost: item.reason.repost };
+
+      return { post: item.post, ...definedFields({ reason, feedContext: item.feedContext }) };
+    }),
+    ...definedFields({ cursor: input.cursor, reqId: input.reqId }),
+  };
+}
+
+/** The XRPC methods a feed generator serves. */
+export type BlueskyFeedGeneratorMethod =
+  | "app.bsky.feed.describeFeedGenerator"
+  | "app.bsky.feed.getFeedSkeleton";
+
+/**
+ * Says which feed generator method a request path names, so one route can serve both
+ * `app.bsky.feed.describeFeedGenerator` and `app.bsky.feed.getFeedSkeleton`. Other paths return
+ * `undefined`; answer them with 404.
+ */
+export function blueskyFeedGeneratorMethod(url: URL): BlueskyFeedGeneratorMethod | undefined {
+  if (url.pathname === "/xrpc/app.bsky.feed.describeFeedGenerator")
+    return "app.bsky.feed.describeFeedGenerator";
+
+  if (url.pathname === "/xrpc/app.bsky.feed.getFeedSkeleton")
+    return "app.bsky.feed.getFeedSkeleton";
+
+  return undefined;
+}
+
+/** A label from a labeler's stream (`com.atproto.label.defs#label`). */
+export interface BlueskyStreamLabel {
+  readonly src: string;
+  readonly uri: string;
+  readonly cid?: string;
+  readonly val: string;
+  /** True when the label negates (removes) an earlier one. */
+  readonly neg?: boolean;
+  readonly cts: string;
+  readonly exp?: string;
+  readonly ver?: number;
+  /** The labeler's signature over the label. The SDK does not verify it. */
+  readonly sig?: Uint8Array;
+}
+
+export type BlueskyLabelStreamEvent =
+  | {
+      readonly kind: "labels";
+      readonly seq: number;
+      readonly labels: readonly BlueskyStreamLabel[];
+    }
+  | { readonly kind: "info"; readonly name: string; readonly message?: string }
+  | { readonly kind: "error"; readonly error: string; readonly message?: string };
+
+/**
+ * Builds the WebSocket URL for a labeler's `com.atproto.label.subscribeLabels` stream. The SDK
+ * opens no socket. Pass the last `seq` you processed as `cursor` to replay from there.
+ */
+export function blueskyLabelStreamUrl(input: {
+  /** The labeler service endpoint from its DID document, for example `https://mod.example`. */
+  readonly service: string;
+  readonly cursor?: number;
+}): URL {
+  const url = endpoint(input.service, "com.atproto.label.subscribeLabels");
+
+  url.protocol = "wss:";
+
+  if (input.cursor !== undefined) {
+    if (!Number.isSafeInteger(input.cursor) || input.cursor < 0)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "bluesky.labels.stream",
+        message: "cursor must be a non-negative integer sequence number.",
+        retryDisposition: { kind: "never" },
+      });
+
+    url.searchParams.set("cursor", String(input.cursor));
+  }
+
+  return url;
+}
+
+/** A CID link (DAG-CBOR tag 42). */
+class CborLink {
+  constructor(readonly bytes: Uint8Array) {}
+}
+
+type CborValue =
+  | null
+  | boolean
+  | number
+  | string
+  | Uint8Array
+  | CborLink
+  | readonly CborValue[]
+  | { readonly [key: string]: CborValue };
+
+function cborFail(): never {
+  throw new SocialError({
+    code: "upstream_failure",
+    operation: "bluesky.labels.stream",
+    message: "The label stream frame is not valid DAG-CBOR.",
+  });
+}
+
+interface CborDecoded {
+  readonly value: CborValue;
+  readonly next: number;
+}
+
+function isCborString(value: CborValue | undefined): value is string {
+  return typeof value === "string";
+}
+
+function isCborNumber(value: CborValue | undefined): value is number {
+  return typeof value === "number";
+}
+
+function isCborBoolean(value: CborValue | undefined): value is boolean {
+  return typeof value === "boolean";
+}
+
+/** Decodes one DAG-CBOR item starting at `offset`. Indefinite lengths are rejected. */
+function cborItem(bytes: Uint8Array, offset: number): CborDecoded {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  if (offset >= bytes.byteLength) cborFail();
+
+  const initial = bytes[offset] ?? cborFail();
+
+  const major = initial >> 5;
+
+  const info = initial & 0x1f;
+
+  let position = offset + 1;
+
+  const need = (count: number) => {
+    if (position + count > bytes.byteLength) cborFail();
+  };
+
+  let argument: number;
+
+  if (info < 24) argument = info;
+  else if (info === 24) {
+    need(1);
+    argument = view.getUint8(position);
+    position += 1;
+  } else if (info === 25) {
+    need(2);
+    argument = view.getUint16(position);
+    position += 2;
+  } else if (info === 26) {
+    need(4);
+    argument = view.getUint32(position);
+    position += 4;
+  } else if (info === 27) {
+    need(8);
+
+    const big = view.getBigUint64(position);
+
+    if (major !== 7 && big > BigInt(Number.MAX_SAFE_INTEGER)) cborFail();
+    argument = major === 7 ? 0 : Number(big);
+    position += 8;
+  } else cborFail();
+
+  switch (major) {
+    case 0:
+      return { value: argument, next: position };
+    case 1:
+      return { value: -1 - argument, next: position };
+    case 2:
+      need(argument);
+
+      return { value: bytes.slice(position, position + argument), next: position + argument };
+    case 3: {
+      need(argument);
+
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(
+        bytes.subarray(position, position + argument),
+      );
+
+      return { value: text, next: position + argument };
+    }
+
+    case 4: {
+      const items: CborValue[] = [];
+
+      for (let index = 0; index < argument; index++) {
+        const item = cborItem(bytes, position);
+        items.push(item.value);
+        position = item.next;
+      }
+
+      return { value: items, next: position };
+    }
+
+    case 5: {
+      const entries: Record<string, CborValue> = {};
+
+      for (let index = 0; index < argument; index++) {
+        const key = cborItem(bytes, position);
+
+        if (!isCborString(key.value)) cborFail();
+
+        const item = cborItem(bytes, key.next);
+        entries[key.value] = item.value;
+        position = item.next;
+      }
+
+      return { value: entries, next: position };
+    }
+
+    case 6: {
+      const tagged = cborItem(bytes, position);
+
+      if (argument !== 42 || !(tagged.value instanceof Uint8Array)) cborFail();
+
+      return { value: new CborLink(tagged.value), next: tagged.next };
+    }
+
+    default:
+      if (info === 20) return { value: false, next: position };
+
+      if (info === 21) return { value: true, next: position };
+
+      if (info === 22) return { value: null, next: position };
+
+      if (info === 27) return { value: view.getFloat64(offset + 1), next: position };
+
+      return cborFail();
+  }
+}
+
+function isCborMap(value: CborValue | undefined): value is { readonly [key: string]: CborValue } {
+  return (
+    value !== undefined &&
+    value !== null &&
+    !isCborString(value) &&
+    !isCborNumber(value) &&
+    !isCborBoolean(value) &&
+    !Array.isArray(value) &&
+    !(value instanceof Uint8Array) &&
+    !(value instanceof CborLink)
+  );
+}
+
+function cborText(map: { readonly [key: string]: CborValue }, key: string): string | undefined {
+  const value = map[key];
+
+  return isCborString(value) ? value : undefined;
+}
+
+function streamLabel(value: CborValue): BlueskyStreamLabel {
+  if (!isCborMap(value)) cborFail();
+
+  const src = cborText(value, "src"),
+    uri = cborText(value, "uri"),
+    val = cborText(value, "val"),
+    cts = cborText(value, "cts");
+
+  if (src === undefined || uri === undefined || val === undefined || cts === undefined) cborFail();
+
+  const neg = value["neg"],
+    ver = value["ver"],
+    sig = value["sig"];
+
+  return {
+    src,
+    uri,
+    val,
+    cts,
+    ...definedFields({
+      cid: cborText(value, "cid"),
+      exp: cborText(value, "exp"),
+      neg: isCborBoolean(neg) ? neg : undefined,
+      ver: isCborNumber(ver) ? ver : undefined,
+      sig: sig instanceof Uint8Array ? sig : undefined,
+    }),
+  };
+}
+
+/**
+ * Decodes one binary frame from `com.atproto.label.subscribeLabels`: a DAG-CBOR header
+ * (`op`, `t`) followed by the body. Returns `undefined` for message types this version does not
+ * know, so new event types can be skipped.
+ */
+export function parseBlueskyLabelFrame(frame: Uint8Array): BlueskyLabelStreamEvent | undefined {
+  const header = cborItem(frame, 0);
+
+  const body = cborItem(frame, header.next);
+
+  if (body.next !== frame.byteLength || !isCborMap(header.value) || !isCborMap(body.value))
+    cborFail();
+
+  const op = header.value["op"];
+
+  if (op === -1)
+    return {
+      kind: "error",
+      error: cborText(body.value, "error") ?? "Unknown",
+      ...definedFields({ message: cborText(body.value, "message") }),
+    };
+
+  if (op !== 1) cborFail();
+
+  const type = cborText(header.value, "t");
+
+  if (type === "#labels") {
+    const seq = body.value["seq"],
+      labels = body.value["labels"];
+
+    if (!isCborNumber(seq) || !Array.isArray(labels)) cborFail();
+
+    return { kind: "labels", seq, labels: labels.map(streamLabel) };
+  }
+
+  if (type === "#info")
+    return {
+      kind: "info",
+      name: cborText(body.value, "name") ?? cborFail(),
+      ...definedFields({ message: cborText(body.value, "message") }),
+    };
+
+  return undefined;
 }

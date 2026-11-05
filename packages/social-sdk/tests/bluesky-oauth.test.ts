@@ -22,6 +22,7 @@ import {
   blueskyOAuthTransport,
   parseBlueskyOAuthSession,
   refreshBlueskyOAuthSession,
+  revokeBlueskyOAuthSession,
   type BlueskyOAuthPublishedJwk,
   type BlueskyOAuthSession,
   type BlueskyOAuthSigningKey,
@@ -1979,4 +1980,62 @@ it("preserves the verified OAuth handle for authenticated account reads", async 
     "/xrpc/com.atproto.server.checkAccountStatus",
     "/xrpc/com.atproto.server.checkAccountStatus",
   ]);
+});
+
+describe("Bluesky OAuth sign-out", () => {
+  async function connected(revocation?: "ok") {
+    const mock = world(revocation === undefined ? {} : { revocation });
+    const saved: BlueskyOAuthSession[] = [];
+
+    const provider = blueskyOAuth({
+      clientId: CLIENT_ID,
+      ...offlineEgress,
+      fetch: mock.fetch,
+      plcDirectoryUrl: PLC,
+      sessionSink: { save: async ({ session }) => void saved.push(session) },
+    });
+
+    const started = await provider.start(startInput(DID));
+    await provider.complete({
+      callbackUrl: `${REDIRECT}?state=state-1&iss=${encodeURIComponent(ISSUER)}&code=code-1`,
+      attempt: attemptFor(started.providerState),
+    });
+    const session = saved[0];
+    assert.ok(session);
+
+    return {
+      mock,
+      session,
+      options: { clientId: CLIENT_ID, ...offlineEgress, fetch: mock.fetch, plcDirectoryUrl: PLC },
+    };
+  }
+
+  it("revokes the refresh token at the revocation endpoint with DPoP", async () => {
+    const { mock, session, options } = await connected("ok");
+
+    await revokeBlueskyOAuthSession(session, options);
+
+    const revoke = mock.requests.filter((request) => request.url.pathname === "/oauth/revoke");
+    assert.equal(revoke.length, 1);
+    assert.equal(revoke[0]?.method, "POST");
+    assert.equal(revoke[0]?.form.get("token"), session.refreshToken);
+    assert.equal(revoke[0]?.form.get("token_type_hint"), "refresh_token");
+    assert.equal(revoke[0]?.form.get("client_id"), CLIENT_ID);
+    assert.ok(revoke[0]?.dpop);
+  });
+
+  it("reports a server without a revocation endpoint as unsupported", async () => {
+    const { session, options } = await connected();
+
+    assert.equal(
+      await codeFor(revokeBlueskyOAuthSession(session, options)),
+      "unsupported_capability",
+    );
+    assert.equal(
+      await codeFor(
+        revokeBlueskyOAuthSession(session, { ...options, clientId: "https://other.test/c.json" }),
+      ),
+      "invalid_config",
+    );
+  });
 });

@@ -1045,6 +1045,8 @@ async function authorizationServerPost(input: {
   readonly nonce: string | undefined;
   readonly operation: string;
   readonly options: BlueskyOAuthClientOptions;
+  /** Accept an empty success body, as RFC 7009 revocation responses may be. */
+  readonly allowEmpty?: boolean;
 }): Promise<AuthorizationServerResponse> {
   const url = new URL(input.endpoint);
   let nonce = input.nonce;
@@ -1081,7 +1083,10 @@ async function authorizationServerPost(input: {
       oauthError(result.status, result.text, input.operation);
 
     return {
-      json: parseJson(result.text, input.operation),
+      json:
+        input.allowEmpty === true && !result.text.trim()
+          ? {}
+          : parseJson(result.text, input.operation),
       nonce,
       nonceReturned: next !== undefined && next !== "",
     };
@@ -1856,6 +1861,55 @@ export async function refreshBlueskyOAuthSession(
     ...definedFields({ refreshToken: token.refreshToken, expiresAt: token.expiresAt }),
     scopes: token.scopes,
   };
+}
+
+/**
+ * Signs a connected account out by revoking its grant at the authorization server's
+ * `revocation_endpoint` (RFC 7009). It revokes the refresh token, which ends the whole grant,
+ * or the access token when there is no refresh token. A DPoP nonce challenge is answered once.
+ * Delete the stored session afterwards whatever the outcome; tokens never appear in errors.
+ */
+export async function revokeBlueskyOAuthSession(
+  session: BlueskyOAuthSession,
+  options: BlueskyOAuthClientOptions,
+): Promise<void> {
+  const operation = "bluesky.oauth.revoke";
+  const current = parseBlueskyOAuthSession(session);
+  const authMethod = authMethodFor(options);
+
+  if (
+    options.clientId !== current.clientId ||
+    authMethod !== current.authMethod ||
+    options.clientKey?.kid !== current.clientKeyId
+  )
+    fail(
+      operation,
+      "Revocation must use the session's client ID and signing key",
+      "invalid_config",
+    );
+
+  const server = await authorizationServerMetadata(current.issuer, authMethod, options);
+
+  if (server.revocationEndpoint === undefined)
+    fail(
+      operation,
+      "The authorization server does not advertise a revocation endpoint",
+      "unsupported_capability",
+    );
+
+  await authorizationServerPost({
+    endpoint: server.revocationEndpoint,
+    issuer: current.issuer,
+    form:
+      current.refreshToken === undefined
+        ? { token: current.accessToken, token_type_hint: "access_token" }
+        : { token: current.refreshToken, token_type_hint: "refresh_token" },
+    dpopKey: current.dpopKey,
+    nonce: undefined,
+    operation,
+    options,
+    allowEmpty: true,
+  });
 }
 
 // Client metadata ---------------------------------------------------------------------

@@ -190,7 +190,52 @@ request the other chat methods separately, or use the transitional
 connection request, and inspect the returned scopes. The minimal posting example above
 does not authorize chat, deletion, video service authentication, or every native helper.
 
-As a separate credential-ready alternative, an access JWT from an app password still works:
+As a separate credential-ready alternative, an access JWT from an app password still works.
+`createBlueskySession({ service, identifier, password })` signs in with
+`com.atproto.server.createSession` and returns `{ did, handle, accessJwt, refreshJwt }`.
+Bluesky limits sign-in to 30 calls per 5 minutes and 300 per day per account
+([rate limits](https://bsky.network/docs/rate-limits/)), so store the session instead of
+signing in for each job. Access JWTs are short-lived: before or after one expires, call
+`refreshBlueskySession({ service, refreshJwt })`, which calls
+`com.atproto.server.refreshSession` with the refresh token. The refresh token rotates on
+every call, so save the returned session atomically. A lost refresh response is
+`ambiguous_outcome` because the old token may already be spent, and an expired one is
+`reconnect_required`. Neither helper logs tokens.
+
+A taken-down account normally cannot sign in. Pass `allowTakendown: true` to
+`createBlueskySession` so the PDS issues a session anyway, which lets the owner export their
+repository; the returned session then has `active: false` and `status: "takendown"`, and most
+writes still fail.
+
+To sign out, end the grant instead of only deleting your copy. For an app-password session,
+`deleteBlueskySession({ service, refreshJwt })` calls `com.atproto.server.deleteSession` with
+the refresh token, and both tokens stop working. For an OAuth session,
+`revokeBlueskyOAuthSession(session, options)` from `@opencoredev/social-sdk/server` revokes the
+refresh token (or the access token when there is none) at the authorization server's
+`revocation_endpoint`, with a DPoP proof. It fails with `unsupported_capability` when the server
+advertises no revocation endpoint. Delete the stored session either way.
+
+```ts
+import {
+  bluesky,
+  createBlueskySession,
+  refreshBlueskySession,
+} from "@opencoredev/social-sdk/bluesky";
+
+let session = await createBlueskySession({
+  service: "https://bsky.social",
+  identifier: process.env.BLUESKY_HANDLE!,
+  password: process.env.BLUESKY_APP_PASSWORD!,
+});
+// Later, when the access JWT has expired:
+session = await refreshBlueskySession({
+  service: "https://bsky.social",
+  refreshJwt: session.refreshJwt,
+});
+const adapter = bluesky({
+  auth: { service: "https://bsky.social", did: session.did, accessJwt: session.accessJwt },
+});
+```
 
 ```ts
 const social = createSocial({
@@ -234,22 +279,131 @@ const author = await native.getAuthorFeed({
 See the official [viewing feeds guide](https://docs.bsky.app/docs/tutorials/viewing-feeds) and
 the [`getTimeline` HTTP reference](https://docs.bsky.app/docs/api/app-bsky-feed-get-timeline).
 
+`getAuthorFeed` also takes the `posts_with_video` filter and `includePins: true`, which puts the
+actor's pinned post at the top of the first page. More feed reads:
+
+- `native.getListFeed({ account, listUri })` reads recent posts from a list's members
+  (`app.bsky.feed.getListFeed`).
+- `native.listFeeds({ account })` returns Bluesky's suggested feed generators
+  (`app.bsky.feed.getSuggestedFeeds`). `native.getActorFeeds({ account, actor })` lists the feeds
+  an actor created, and `native.getFeedGenerator({ account, feed })` and
+  `native.getFeedGenerators({ account, feeds })` return generator views; the single read also
+  reports `isOnline` and `isValid`.
+
+### Read posts and threads
+
+`native.getPost({ uri })` hydrates one post. `native.getPosts({ account, uris })` hydrates up to
+25 in one `app.bsky.feed.getPosts` call and returns the post views it found; missing or deleted
+posts are left out, so match results by `uri`.
+
+`native.getPostThread({ uri, depth, parentHeight })` calls `app.bsky.feed.getPostThread`.
+`depth` is how many reply levels to include (0 to 1000, Bluesky default 6) and `parentHeight` how
+many ancestors (0 to 1000, default 80). The normalized `social.comments.list(post)` reads the
+same thread view and returns its direct replies as comments, one page with no cursor; use the
+native read with `depth` for nested replies. `social.comments.reply(comment, { text })` publishes
+a reply post whose `reply.root` and `reply.parent` strong references come from the comment's
+post.
+
+`native.getPostThreadV2({ account, anchor, above, below, branchingFactor, sort })` calls
+`app.bsky.unspecced.getPostThreadV2`, the flat thread view Bluesky's app uses. `above` (default
+`true`) includes parents, `below` is reply depth (0 to 20, default 6), `branchingFactor` is
+replies per level (0 to 100, default 10), and `sort` is `newest`, `oldest` (default), or `top`.
+It returns `thread` as a list of items with a `depth`, plus `hasOtherReplies`; when that is true,
+`native.getPostThreadOtherV2({ account, anchor })` reads the hidden and other replies. Bluesky
+marks both endpoints unspecced and unstable, so their shapes may change.
+
+`native.getQuotes({ account, uri, cid })` lists posts that quote a post, and
+`native.getRepostedBy({ account, uri, cid })` lists the actors who reposted it. Both page with a
+cursor; `cid` narrows to one version of the record.
+
+### Post metrics
+
+`social.analytics.getPostMetrics(post)` reads the post view and reports `likeCount`,
+`repostCount`, `replyCount`, `quoteCount`, and `bookmarkCount` as the `likes`, `reposts`,
+`replies`, `quotes`, and `bookmarks` metrics (bookmarks map to the canonical `saves`). They are
+lifetime counts with unknown freshness. Bluesky has no impressions, reach, or view counts.
+
 ### Publish a text post
 
-The adapter enforces 300 graphemes and 3,000 UTF-8 bytes and creates rich-text URL facets automatically. Explicit `content.link` cards are rejected until an external-embed mapping is supported; put URLs in text to get link facets.
+The adapter enforces 300 graphemes and 3,000 UTF-8 bytes and creates rich-text facets automatically: a `app.bsky.richtext.facet#link` facet for each URL and a `app.bsky.richtext.facet#tag` facet for each hashtag. Facet offsets are UTF-8 byte offsets, as the [posts guide](https://bsky.network/docs/about-bluesky-content/posts/) requires.
 
 ```ts
 const result = await social.posts.publish({
   targets: [{ account }],
-  content: { text: "A Bluesky post with a link https://example.com" },
+  content: { text: "A Bluesky post with a link https://example.com #TypeScript" },
 });
 ```
 
+### Hashtags, tags, and content warnings
+
+Hashtags in the text become `facet#tag` facets with the same detection rules as Bluesky's own
+client: a `#` (or full-width `＃`) at the start or after whitespace, at least one character that is
+not a digit or punctuation, trailing punctuation dropped, and at most 64 characters. `#2026` is
+not a tag. A `#` inside a URL stays part of the link.
+
+`options.tags` adds up to 8 post-level hashtags to the record's `tags` field without showing them
+in the text. Each tag needs 1 to 64 graphemes, at most 640 bytes, and no spaces; a leading `#` is
+removed.
+
+`options.contentLabels` writes self-labels (content warnings) as a
+`com.atproto.label.defs#selfLabels` value on the post. Bluesky's app honours `porn`, `sexual`,
+`nudity`, and `graphic-media` on posts; other values are rejected before any request.
+
+```ts
+await social.posts.publish({
+  targets: [{ account, options: { tags: ["release", "sdk"], contentLabels: ["graphic-media"] } }],
+  content: { text: "Before and after photos #surgery" },
+});
+```
+
+### Link cards
+
+`content.link` becomes an `app.bsky.embed.external` card with the URL, `title`, and
+`description` you supply. The SDK does not fetch the page to fill them in, so missing fields are
+sent as empty strings. For a thumbnail, upload the image first with `native.uploadBlob` (an
+`image/*` blob of at most 1,000,000 bytes) and pass the returned reference as
+`options.linkThumbnail`. A post carries one media embed, so a link card cannot be combined with
+images or a video; put the URL in the text instead and it still gets a link facet.
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true })!;
+const thumb = await native.uploadBlob({ account, blob: thumbnailBlob, mimeType: "image/jpeg" });
+await social.posts.publish({
+  targets: [{ account, options: { linkThumbnail: thumb } }],
+  content: {
+    text: "New guide",
+    link: { url: "https://example.com/guide", title: "Guide", description: "How it works" },
+  },
+});
+```
+
+Some sites publish their content as AT Protocol records too (for example Standard.site
+documents). `native.getEmbedExternalView({ account, url, canonicalUri })` calls
+`app.bsky.embed.getEmbedExternalView`, which checks the record against the URL and returns
+enhanced card data (article, publication, gallery, or livestream) and `associatedRefs`. Pass
+those strongRefs as `options.linkAssociatedRefs` when you publish the card, and the SDK writes
+them to `external.associatedRefs` so clients can render the richer card. An empty response means
+the record could not be verified; publish a plain card and leave `linkAssociatedRefs` out.
+
+### Upload blobs
+
+`native.uploadBlob({ account, blob, mimeType })` calls `com.atproto.repo.uploadBlob` and returns
+the `{ $type: "blob", ref, mimeType, size }` reference that records embed. Use it for link-card
+thumbnails, video caption files, and profile avatars and banners (PNG or JPEG, at most
+1,000,000 bytes each). The PDS enforces size and type when a record references the blob, and
+deletes a blob that no record references within a few minutes, so upload just before the write.
+
 ### Publish with images
 
-Each image must be at most 2,000,000 bytes, with at most four images per post.
+Each image must be at most 2,000,000 bytes; [Media specifications](#media-specifications) lists every media limit. One to four images are sent as an
+`app.bsky.embed.images` embed. Five to ten images are sent as an `app.bsky.embed.gallery`
+embed, whose lexicon requires alt text and an aspect ratio on every item, so supply `width` and
+`height` for each image; the lexicon allows 20 items but asks clients to stop at 10. The gallery
+lexicon is newer than the images embed, and the AppView's published OpenAPI document does not
+list a gallery view yet, so clients that do not know it may not show the images. Use four or
+fewer for the widest support.
 Supply an `image/*` MIME type through `mimeType` or the Blob's type. Width and height
-are optional, but must be supplied together as positive integers. Streams need an
+are optional for one to four images, but must be supplied together as positive integers. Streams need an
 explicit MIME type and are bounded while read. Remote HTTPS images are denied by
 default; configure `allowMediaHost: host => host === "cdn.example.com"` on the adapter
 before using that exact host. The example uses a local Blob instead.
@@ -283,7 +437,143 @@ const options = {
 const result = await social.posts.publish({ targets: [{ account, options }], content });
 ```
 
-The emoji occupies four UTF-8 bytes, so the mention begins at byte five after the space. The DID must come from a trusted identity lookup; plain `@handle` text alone is not resolved into a mention. Supply at most 100 mention spans. Each span must start with `@` and fit within the UTF-8 text. Preparation rejects split character boundaries, overlapping mention/link spans, and malformed language tags. The managed adapters reject these options because they have no verified mapping for them.
+The emoji occupies four UTF-8 bytes, so the mention begins at byte five after the space. The DID must come from a trusted identity lookup; plain `@handle` text alone is not resolved into a mention. Supply at most 100 mention spans. Each span must start with `@` and fit within the UTF-8 text. Preparation rejects split character boundaries, overlapping mention/link spans, and malformed language tags. Through managed backends, [Zernio](/backends/zernio) maps `languages` (1 to 3 BCP-47 codes) to its `langs` field; Post for Me, PostFast, Postiz, and Buffer reject `languages` at preparation with `options.unmapped`. No managed adapter maps `mentions`, so all five reject it.
+
+### Quote posts
+
+Set `options.quote` to the quoted post's `{ uri, cid }` to publish a quote post with an
+`app.bsky.embed.record` embed. Because it goes through `social.posts.publish`, a quote keeps
+languages, mentions, hashtags, tags, self-labels, and reply controls. Add images, a video, or a
+link card to the same post and the embed becomes `app.bsky.embed.recordWithMedia`, which holds
+the quoted record and the media together.
+
+```ts
+await social.posts.publish({
+  targets: [{ account, options: { quote: { uri: quotedUri, cid: quotedCid }, languages: ["en"] } }],
+  content: { text: "This is the thread to read", media: [screenshot] },
+});
+```
+
+`native.quotePost({ account, post, text })` remains for a plain text quote with link facets
+only.
+
+### Threads
+
+Bluesky has no thread object: a self-thread is a reply chain where each post's `reply.root`
+is the first post and `reply.parent` is the previous one. `social.posts.publishSequence` with
+`replyToPrevious: true` publishes the items in order and builds those references from each
+published post. If one item fails, the later items on that account are not submitted, and the
+result lists what was published so you can resume.
+
+```ts
+const thread = await social.posts.publishSequence({
+  idempotencyKey: "launch-thread",
+  replyToPrevious: true,
+  items: [
+    { targets: [{ account }], content: { text: "1/3 We shipped the SDK" } },
+    { targets: [{ account }], content: { text: "2/3 Here is what changed" } },
+    { targets: [{ account }], content: { text: "3/3 Docs: https://social-sdk.dev" } },
+  ],
+});
+```
+
+Each post is a separate write. `com.atproto.repo.applyWrites` cannot chain a whole thread
+atomically, because a reply's strong reference needs the parent's CID, which the PDS computes.
+
+### Reply controls and quote controls
+
+`options.replyControls` limits who can reply to a root post. The adapter writes an
+`app.bsky.feed.threadgate` record with the same record key as the post. Rules are
+`{ kind: "mention" }`, `{ kind: "follower" }`, `{ kind: "following" }`, and
+`{ kind: "list", listUri }`, written as `threadgate#mentionRule`, `#followerRule`,
+`#followingRule`, and `#listRule`. Up to 5 rules combine: anyone matching one of them can reply.
+An empty array lets nobody reply. Reply controls are rejected on replies because a threadgate
+applies to the thread's root post.
+
+`options.disableQuotes: true` writes an `app.bsky.feed.postgate` record with an
+`app.bsky.feed.postgate#disableRule` embedding rule, so other posts cannot quote this one.
+
+When either option is set, the post and its gates go in one `com.atproto.repo.applyWrites`
+transaction: they are created together or not at all. The adapter generates the shared record
+key as a TID before the write.
+
+```ts
+await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: { replyControls: [{ kind: "following" }, { kind: "mention" }], disableQuotes: true },
+    },
+  ],
+  content: { text: "Replies limited to people I follow" },
+});
+```
+
+For posts that already exist, the native module edits the gates with compare-and-swap. Each
+call reads the current record and writes it back with its CID as `swapRecord`, so a concurrent
+change fails instead of being lost; a missing gate is created with the post's record key.
+
+- `native.setThreadgate({ account, postUri, allow })` replaces the reply rules. `allow: null`
+  reopens replies, and `[]` closes them. Hidden replies are kept.
+- `native.setQuotesDisabled({ account, postUri, disabled })` adds or removes the postgate
+  `disableRule`.
+- `native.detachQuote({ account, postUri, quoteUri, detached })` adds or removes a quoting post
+  in the postgate's `detachedEmbeddingUris` list (at most 50), which detaches your post from
+  someone else's quote of it.
+- `native.hideReply({ account, replyUri, hidden })` adds or removes a reply in the root post's
+  threadgate `hiddenReplies` list (at most 300). Only the root post's author can hide replies,
+  and creating a gate for this does not restrict who can reply.
+
+The posting account needs write access to `app.bsky.feed.threadgate` and
+`app.bsky.feed.postgate` (for OAuth, `repo:app.bsky.feed.threadgate` and
+`repo:app.bsky.feed.postgate`, or `transition:generic`). See the
+[thread gates guide](https://bsky.network/docs/about-bluesky-content/thread-gates/).
+
+### Batch writes
+
+`native.applyWrites({ account, writes, validate, swapCommit })` sends one
+`com.atproto.repo.applyWrites` transaction of `create`, `update`, and `delete` operations on the
+account's repository. Each record value needs a `$type` equal to its collection, and a batch
+holds 1 to 200 writes (the reference PDS limit). `swapCommit` makes the PDS reject the batch if
+the repository moved past that commit. The result returns the commit and one entry per write
+with its URI, CID, and validation status. Every write counts toward the PDS write limit of
+5,000 points per hour and 35,000 per day: 3 per create, 2 per update, 1 per delete
+([rate limits](https://bsky.network/docs/rate-limits/)).
+
+### Drafts and scheduling
+
+AT Protocol has no scheduled publishing. A record is visible as soon as it is written, and the
+post's `createdAt` is a timestamp the client declares; setting it in the future does not delay
+the post. A publish request with a `schedule` is rejected (see [Not supported](#not-supported)).
+Run scheduled posts from your own job runner.
+
+Bluesky does keep private server-side drafts through `app.bsky.draft.*`. `native.createDraft`,
+`native.listDrafts`, `native.updateDraft`, and `native.deleteDraft` call `createDraft`,
+`getDrafts`, `updateDraft`, and `deleteDraft`. A draft holds 1 to 100 posts (text up to 10,000
+bytes each), with optional languages, self-labels, a link URL, a quote, reply controls, and quote
+blocking that apply when it is published. Publishing a draft is your call: read it, then pass its
+posts to `posts.publish` or `publishSequence`.
+
+Drafts can keep images and video too, but Bluesky stores no media bytes with a draft: each item
+is a path on the device that saved it, which `deviceId` and `deviceName` identify. A draft post
+holds one kind: `images` (1 to 4, written as `embedImages`), `gallery` (1 to 20, written as
+`embedGallery`), or `video` (one, written as `embedVideos`, with up to 20 WebVTT `captions` stored
+as text, each up to 10,000 UTF-8 bytes). Each item has a `path` of up to 1,024 UTF-8 bytes and
+optional `alt` text of up to 2,000 graphemes. Upload the files only when the draft is published, from the device that has them.
+
+```ts
+const { id } = await native.createDraft({
+  account,
+  draft: { posts: [{ text: "Announcement for Monday" }], replyControls: [{ kind: "following" }] },
+});
+await native.createDraft({
+  account,
+  draft: {
+    deviceId: "laptop-1",
+    posts: [{ text: "Launch photos", images: [{ path: "/Users/me/launch.jpg", alt: "Stage" }] }],
+  },
+});
+```
 
 ### Like a post
 
@@ -306,7 +596,7 @@ const like = await adapter.native!.likePost({
 // belonging to the configured DID, not the target post URI.
 ```
 
-It creates an `app.bsky.feed.like` record in the acting account's repository and returns that record's URI/CID. Native calls bypass the client's tenant authorization and concurrency middleware; authorize the acting account before invoking them. Mutations use bounded transport and do not retry a lost response; reconcile uncertain acceptance before submitting again.
+It creates an `app.bsky.feed.like` record in the acting account's repository and returns that record's URI/CID. When the user found the post through someone's repost, pass that repost record as `via: { uri, cid }`. The like stores it as a `via` strongRef (an AT-URI plus CID), and Bluesky sends the reposter a `like-via-repost` notification (`likeViaRepost` in notification preferences). `via` must point at an `app.bsky.feed.repost` record; anything else is rejected before a request is sent. Native calls bypass the client's tenant authorization and concurrency middleware; authorize the acting account before invoking them. Mutations use bounded transport and do not retry a lost response; reconcile uncertain acceptance before submitting again.
 
 ### Read threads natively
 
@@ -324,6 +614,28 @@ inclusive `since` and exclusive `until`.
 The normalized search facade supports the provider's `recent` horizon. Bluesky does not define an
 `all` horizon for this endpoint, so `scope: "all"` is rejected before a request is sent.
 
+`native.searchPostsV2` calls `app.bsky.feed.searchPostsV2`, the structured search. Every list
+filter has an include form and an exclude form: `authors`/`excludeAuthors`,
+`mentions`/`excludeMentions`, `domains`/`excludeDomains`, `urls`/`excludeUrls`,
+`embeddedAtUris`/`excludeEmbeddedAtUris`, `hashtags`/`excludeHashtags` (a leading `#` is
+removed; 64 graphemes each), and `languages`/`excludeLanguages`. The flags `hasMedia`,
+`hasVideo`, `repliesOnly`, `excludeReplies` (not both), `following` (only accounts the viewer
+follows), and `allTime` (search beyond the recent window) narrow it further, and
+`replyParentUri` or `threadRootUri` restrict it to one conversation. `sort` is `recent` or
+`top`, `query` is optional when filters are set, and `queryLanguage` hints at `ja`, `zh`, `ko`,
+`th`, or `ar` text. Results include `hitsTotal` and `detectedQueryLanguages` when Bluesky returns
+them.
+
+```ts
+const page = await native.searchPostsV2({
+  account,
+  query: "release notes",
+  authors: ["alice.bsky.social"],
+  excludeReplies: true,
+  hasMedia: true,
+});
+```
+
 ### Read and change relationships
 
 The normalized graph facade maps to AT Protocol profile and graph procedures. Relationship pages use
@@ -338,6 +650,138 @@ await social.graph.follow(profile.ref);
 await social.graph.mute(profile.ref);
 ```
 
+Native graph calls add the provider options the facade does not model:
+
+- `native.getFollowers({ account, actor, sort })` and `native.getFollows` pass `sort`: `latest`
+  (newest first) or `top`. Omit it for the AppView default order.
+- `native.mute({ account, did, onlyReposts: true })` hides only that account's reposts, and
+  `onlyQuoteposts: true` hides only its quote posts. Set both to hide reposts and quote posts
+  while keeping the account's own posts, or omit both for a full mute. Each call replaces the
+  stored mute scope.
+- `native.follow({ account, did, via })` records the `app.bsky.graph.starterpack` record the
+  follow came from, so the pack's join statistics credit it. A new account that signed up
+  through a pack sets `joinedViaStarterPack` (the pack's AT-URI and CID) with
+  `native.editProfile({ account, changes: { joinedViaStarterPack: { uri, cid } } })`.
+
+```ts
+const top = await native.getFollowers({ account, actor: "alice.bsky.social", sort: "top" });
+await native.mute({ account, did: "did:plc:alice", onlyReposts: true });
+await native.follow({ account, did: "did:plc:alice", via: { uri: packUri, cid: packCid } });
+```
+
+### Profiles, suggestions, and relationships
+
+- `native.getProfiles({ account, actors })` returns detailed profile views for up to 25 DIDs or
+  handles (`app.bsky.actor.getProfiles`).
+- `native.resolveIdentity({ account, identifier })` resolves a handle or DID with
+  `com.atproto.identity.resolveIdentity`; the server verifies the handle and DID point at each
+  other and returns `{ did, handle, didDoc }`, with `handle.invalid` when they do not.
+  `native.resolveHandle({ account, handle })` returns just the DID
+  (`com.atproto.identity.resolveHandle`), and `native.resolveDid({ account, did })` returns the
+  DID document (`resolveDid`). These go through the connected PDS; the OAuth helper's own
+  resolution stays separate because it runs before any account is connected.
+- `native.describeRepo({ account, repo })` calls `com.atproto.repo.describeRepo` and returns
+  the repository's `did`, `handle`, `handleIsCorrect`, `collections` (the record types it
+  holds), and `didDoc`.
+- `native.getSuggestions({ account })` pages suggested follows (`app.bsky.actor.getSuggestions`),
+  and `native.getSuggestedFollowsByActor({ account, actor })` returns accounts similar to one
+  actor.
+- `native.getRelationships({ account, actor, others })` returns follow and block relationships
+  between `actor` (default: the connected account) and up to 30 others
+  (`app.bsky.graph.getRelationships`). `native.getKnownFollowers({ account, actor })` pages the
+  followers of `actor` whom the connected account also follows.
+- `native.getVerificationState({ account, actor })` decodes the profile view's `verification`
+  object: `verifiedStatus`, `trustedVerifierStatus`, and each verification's issuer, record URI,
+  and validity. Verifications are `app.bsky.graph.verification` records, and Bluesky counts one
+  only when a verifier it trusts issued it, so the SDK reads verification state and does not
+  issue verifications.
+
+### Reposts and bookmarks
+
+`native.repostPost({ account, post })` creates an `app.bsky.feed.repost` record and returns its
+URI and CID. Keep that URI: `native.unrepostPost({ account, repostUri })` (un-repost) deletes
+that record and accepts only repost URIs in the connected account's repository. The profile or
+post view's `viewer.repost` field also holds the URI. `repostPost` also takes `via`, the repost
+record the post was seen through, stored as a `via` strongRef so the original reposter gets a
+`repost-via-repost` notification (`repostViaRepost` in notification preferences).
+
+```ts
+const repost = await native.repostPost({ account, post: { uri, cid } });
+await native.unrepostPost({ account, repostUri: repost.uri });
+```
+
+Bookmarks are private to the account. `native.createBookmark({ account, post })`,
+`native.deleteBookmark({ account, uri })`, and `native.getBookmarks({ account })` call
+`app.bsky.bookmark.createBookmark`, `deleteBookmark`, and `getBookmarks`. Bluesky currently
+accepts post records only.
+
+### Thread mutes, list memberships, and starter packs
+
+`native.muteThread({ account, rootUri })` and `native.unmuteThread` stop or restore notifications
+from a thread and its replies. Mutes are private.
+
+`native.getListBlocks` and `native.getListMutes` page the moderation lists the account blocks or
+mutes. `native.getListsWithMembership({ account, actor, purposes })` returns the account's own
+curate and mod lists, each with `actor`'s list item if they are a member, which is how you show
+"add to list" state.
+
+Starter packs are `app.bsky.graph.starterpack` records that point at a reference list. Create the
+list with `native.createList({ purpose: "app.bsky.graph.defs#referencelist", ... })`, add members
+with `addListItem`, then call `native.createStarterPack({ account, name, listUri, description,
+feeds })` (name 1 to 50 graphemes, description up to 300, at most 3 feeds).
+`native.getStarterPack`, `getStarterPacks` (up to 25), `getActorStarterPacks`, and
+`searchStarterPacks` read them, and `deleteStarterPack` removes one.
+`native.searchStarterPacksV2({ account, query })` uses `app.bsky.graph.searchStarterPacksV2`
+and adds `hitsTotal`. `native.getStarterPacksWithMembership({ account, actor })` pages the
+account's own starter packs, each with `actor`'s list item when they are already in it
+(`app.bsky.graph.getStarterPacksWithMembership`), which is how you show "add to starter pack"
+state.
+
+### Trends and discovery
+
+Bluesky's discovery endpoints live under `app.bsky.unspecced`, which Bluesky documents as
+unstable, so their responses may change without notice. The SDK passes their views through.
+
+- `native.getTrends({ account, limit })` (`getTrends`, 1 to 25) and
+  `native.getTrendingTopics({ account, viewer, limit })` (`getTrendingTopics`, with `topics`
+  and `suggested` lists) read trending topics.
+- `native.getSuggestedUsers({ account, category, limit })` (1 to 50) suggests accounts,
+  optionally for a category. `native.getSuggestedFeeds` and `native.getSuggestedStarterPacks`
+  (1 to 25) suggest feeds and starter packs, and `native.getTaggedSuggestions` returns tagged
+  actor and feed suggestions.
+- `native.getPopularFeedGenerators({ account, query, limit, cursor })` pages popular feeds,
+  optionally matching `query`.
+
+### Feed feedback
+
+When a feed generator sets `acceptsInteractions`, clients can tell it what the user thought.
+`native.sendFeedInteractions({ account, feedServiceDid, feed, interactions })` calls
+`app.bsky.feed.sendInteractions` with the `atproto-proxy` header set to
+`<feedServiceDid>#bsky_fg`, which is how Bluesky's app routes the call to the generator. Take
+`feedServiceDid` from the generator view's `did`. Each interaction has an `event` such as
+`app.bsky.feed.defs#requestMore`, `#requestLess`, `#interactionSeen`, or `#clickthroughItem`,
+the post AT-URI as `item`, and the `feedContext` and `reqId` the feed returned, echoed back so
+the generator can match the signal to what it served.
+
+```ts
+await native.sendFeedInteractions({
+  account,
+  feedServiceDid: generator.did,
+  feed: generator.uri,
+  interactions: [{ item: postUri, event: "app.bsky.feed.defs#requestLess", feedContext }],
+});
+```
+
+### Age assurance
+
+Some regions require age assurance before certain content is shown.
+`native.getAgeAssuranceConfig({ account })` returns the per-region rules
+(`app.bsky.ageassurance.getConfig`), and `native.getAgeAssuranceState({ account, countryCode,
+regionCode })` returns the account's `state` (`status` and `access`) and `metadata`
+(`getState`). `native.beginAgeAssurance({ account, email, language, countryCode, regionCode })`
+calls `app.bsky.ageassurance.begin`, which emails the user a verification link and returns the
+new state. The email address is sent to Bluesky; the SDK does not log it.
+
 ### Search actors, likes, lists, and reports
 
 Use `native.searchActors` (SDK default 50) or `native.searchActorsTypeahead` (SDK default 8) for actor discovery. Likes use
@@ -348,13 +792,43 @@ creation and item changes use `app.bsky.graph.list` and `listitem` records. Read
 `native.unblockList` manage list blocks. List blocks are
 `app.bsky.graph.listblock` records that the adapter creates and removes with repository procedures.
 Moderation reports call `com.atproto.moderation.createReport` and require an authenticated
-moderation service.
+moderation service. `native.createModerationReport` takes an optional `modTool: { name, meta }`
+that tells moderators which tool filed the report: `name` identifies the tool (for example
+`"my-app/2.1"`) and `meta` holds any JSON context for tracing. An empty `name` is rejected.
+
+Labelers publish moderation labels. `native.getLabelerServices({ account, dids, detailed })` reads
+labeler service views through `app.bsky.labeler.getServices`; `detailed: true` adds each
+service's label definitions and policies. `native.queryLabels({ account, uriPatterns, sources })`
+calls `com.atproto.label.queryLabels` for labels on matching subjects. A pattern is a full AT-URI
+or a prefix ending in `*`, and pages hold up to 250 labels.
 
 ### Receive events
 
-Bluesky has no signed webhooks, so `webhooks.verify` is `unsupported-by-platform` and
-the adapter has no `webhooks` member. For the connected account's mention/reply inbox,
+Bluesky has no signed webhooks (see [Not supported](#not-supported)). For the connected account's mention/reply inbox,
 use `social.notifications.list(account)` and `social.notifications.markSeen(account)`.
+
+The native notification reads add the provider's filters:
+
+- `native.listNotifications({ account, reasons, priority, seenAt })` filters by reason (for
+  example `["mention", "reply", "quote"]`) and to priority accounts.
+- `native.getUnreadNotificationCount({ account })` returns the unread count from
+  `app.bsky.notification.getUnreadCount`.
+- `native.getNotificationPreferences({ account })` reads notification preferences per type, and
+  `native.putNotificationPreferences({ account, preferences })` changes only the types you pass
+  through `app.bsky.notification.putPreferencesV2` and returns the full result. Each type sets
+  `list` (in-app) and `push`; most also take `include: "all" | "follows"`, and chat takes
+  `include: "all" | "accepted"`.
+- `native.getGroupedNotifications({ account, feed, limit, cursor })` calls
+  `app.bsky.notification.getGroupedNotifications`, which Bluesky marks unstable. It returns
+  notifications already grouped the way the app shows them (likes, reposts, follows, likes and
+  reposts via a repost, replies, mentions, and more) in `groups`, with the referenced profiles
+  and posts in `relatedViews`. `feed` is `all` (default), `people-i-follow`, `conversations`,
+  `followers`, or `activity`, and `limit` is 1 to 50.
+- Activity subscriptions notify the account when someone posts or replies.
+  `native.listActivitySubscriptions({ account })` pages the accounts it is subscribed to, and
+  `native.putActivitySubscription({ account, subject, post, reply })` subscribes to a DID (both
+  flags `false` unsubscribes). Polling notifications for `subscribed-post` gives a pull-based
+  feed of those accounts' new posts.
 
 The relay firehose (`com.atproto.sync.subscribeRepos`) and Jetstream serve network
 indexing. Filtering a stream by the connected DID watches that account's authored
@@ -362,16 +836,70 @@ records, not mentions or replies written by others. Recipient matching requires 
 other authors' post records and inspecting their mentions and reply references. See
 [Consuming the firehose](https://bsky.network/docs/consuming-the-firehose).
 
+Jetstream decodes the firehose into JSON and filters it on the server. The SDK does not open
+sockets; it builds the subscription and decodes frames:
+
+- `blueskyJetstreamSubscription({ collections, dids, kinds, cursor })` returns the WebSocket
+  `url` and `protocols` for Jetstream v2 (`network.bsky.jetstream.subscribeEvents` on
+  `jetstream.us-east.bsky.network` by default). It accepts up to 100 collections (an NSID or an
+  `app.bsky.feed.*` wildcard) and 10,000 DIDs. `version: 1` builds the legacy `/subscribe` URL
+  with `wantedCollections` and `wantedDids` instead.
+- `parseBlueskyJetstreamEvent(frame)` decodes a v2 envelope or a v1 event into a typed commit
+  (`operation`, `collection`, `rkey`, `uri`, `record`) or an identity, account, or sync event.
+  Delivery is at least once, so key handlers on `uri`, and reconnect with the last `seq` as
+  `cursor`.
+
+```ts
+import {
+  blueskyJetstreamSubscription,
+  parseBlueskyJetstreamEvent,
+} from "@opencoredev/social-sdk/bluesky";
+
+const { url, protocols } = blueskyJetstreamSubscription({
+  collections: ["app.bsky.feed.post"],
+  kinds: ["commit"],
+});
+const socket = new WebSocket(url, [...protocols]);
+socket.onmessage = (frame) => {
+  const event = parseBlueskyJetstreamEvent(String(frame.data));
+  if (event?.kind === "commit" && event.operation === "create") console.log(event.uri);
+};
+```
+
 ## Native operations
 
-The typed native module covers reposts, quote posts, deletion, graph relationships,
-likes, actor search, lists, moderation reports, notifications, profiles, feeds, search,
-chat, and video processing helpers. Native calls require application authorization.
+The typed native module covers reposts, quote posts, deletion, thread and quote gates,
+batch writes, drafts, graph relationships, likes, bookmarks, actor search, lists, starter
+packs, labelers, moderation reports, notifications, profiles and live status, account
+preferences, feeds, search, chat, and video processing helpers. Native calls require
+application authorization.
+
+### Video captions and GIF presentation
+
+`options.videoCaptions` attaches up to 20 WebVTT caption tracks to a video post as
+`app.bsky.embed.video` `captions`. Upload each `.vtt` file first with
+`native.uploadBlob({ account, blob, mimeType: "text/vtt" })`; each must be at most 20,000 bytes.
+Pass `{ lang, file }` per track, where `lang` is a BCP 47 tag. `options.videoPresentation` sets
+the embed's `presentation` hint: `gif` asks clients to loop the clip like a GIF, `default` shows a
+normal player. Both options are rejected on posts without a video.
+
+```ts
+const en = await native.uploadBlob({ account, blob: englishVtt, mimeType: "text/vtt" });
+await social.posts.publish({
+  targets: [{ account, options: { videoCaptions: [{ lang: "en", file: en }] } }],
+  content: {
+    text: "With captions",
+    media: [{ kind: "video", source: { kind: "media-ref", ref } }],
+  },
+});
+```
 
 ### Upload and publish video
 
 `media.upload` accepts one non-empty MP4 Blob of at most 300,000,000 bytes and returns
-a processing-job reference. The application polls outside the SDK. Check
+a processing-job reference. Videos up to 50,000,000 bytes go up in one
+`app.bsky.video.uploadVideo` request; larger ones use the
+[multipart video upload](#multipart-video-upload). The application polls outside the SDK. Check
 `native.getVideoUploadLimits` explicitly if you need quota information; uploads do not
 perform automatic quota or email preflight. The service can require verified email and
 available daily allowance. The official Bluesky app currently limits clips to ten minutes;
@@ -414,6 +942,57 @@ Publish checks the job once more and creates the record only if the processed MP
 is ready. It never waits for processing or polls. Handle failed jobs explicitly before
 publishing.
 
+### Multipart video upload
+
+`native.uploadVideoMultipart` sends a video in parts, so a large file does not depend on one
+long request. It calls `app.bsky.video.startUpload` with the exact size, sends each part with
+`app.bsky.video.uploadPart` in order, one at a time, and then calls `app.bsky.video.finishUpload`.
+The service picks the part size; the last part carries the remainder. Like `uploadVideo`, it
+returns the processing job without waiting. Poll `getVideoJobStatus` with the returned `jobId`,
+which can differ from the upload job ID when the service recognizes a video it already has.
+
+Every multipart call carries a service token with the same scope as the single-request upload:
+audience is the account's PDS service DID (`pdsDid`, or read from the session's DID document),
+method is `com.atproto.repo.uploadBlob`, and it lasts 30 minutes. The SDK mints a new token
+before a part when the current one expires within a minute, and always mints one before
+finishing, because the video service keeps that token to store the processed blob on the PDS.
+This follows Bluesky's own app (`src/lib/media/video/multipart/` in
+[bluesky-social/social-app](https://github.com/bluesky-social/social-app/tree/837e026ccee249e1bc73ad4c336731838b05be50/src/lib/media/video/multipart),
+checked 2026-11-04).
+
+`durationMs`, `width`, and `height` are optional hints the service uses only to fail early. The
+SDK never retries a request and never aborts a session on its own. A failure after
+`startUpload` keeps the upload job ID in `error.details.uploadJobId`, and a part or finish
+request with a lost response is `ambiguous_outcome`. Resume with the individual steps, or
+release the reserved quota with `native.abortVideoUpload`:
+
+```ts
+import { SocialError } from "@opencoredev/social-sdk";
+
+try {
+  const job = await native.uploadVideoMultipart({ account, video: mp4, name: "clip.mp4" });
+  console.log("processing job", job.jobId);
+} catch (error) {
+  const jobId = error instanceof SocialError ? error.details?.["uploadJobId"] : undefined;
+  if (typeof jobId !== "string") throw error;
+  const status = await native.getVideoUploadStatus({ account, jobId });
+  if (status.state !== "created") throw error;
+  for (let partNumber = 1; partNumber <= status.partCount; partNumber++) {
+    if (status.receivedParts.includes(partNumber)) continue;
+    const start = (partNumber - 1) * status.partSizeBytes;
+    const part = mp4.slice(start, start + status.partSizeBytes);
+    await native.uploadVideoPart({ account, jobId, partNumber, part });
+  }
+  const job = await native.finishVideoUpload({ account, jobId });
+  console.log("processing job", job.jobId);
+}
+```
+
+`native.startVideoUpload` opens a session without sending bytes. `getVideoUploadStatus` reports
+`created`, `finishing`, `completed`, `failed`, `aborted`, or `expired`, with the received part
+numbers and, once completed, the processing job. `abortVideoUpload` works only while the session
+is `created`; a session that already ended reports its outcome instead.
+
 ### Delete a reply
 
 `native.deletePost({ account, post: { uri, cid }, context })` deletes a reply's native
@@ -425,31 +1004,391 @@ before any request is sent.
 
 ### Chat
 
-Use `native.listConversations`, `native.listMessages`, and `native.sendMessage`.
-There is no normalized `social.messages` facade. The adapter sends the
-`atproto-proxy: did:web:api.bsky.chat#bsky_chat` header through the PDS. OAuth needs
-separate chat permissions as described above; `transition:generic` excludes chat.
-Authorize the acting account in the application before every native call. Chat consent
-and provider moderation still apply; retain native references and reconcile outcomes.
+Chat calls go to the PDS with the `atproto-proxy: did:web:api.bsky.chat#bsky_chat` header,
+which forwards them to Bluesky's chat service. There is no normalized `social.messages`
+facade. OAuth needs separate chat permissions as described above; `transition:generic`
+excludes chat. Authorize the acting account in the application before every native call.
+Chat consent and provider moderation still apply; retain native references and reconcile
+outcomes.
 
-### Update the stored profile
+Reading:
 
-`native.updateProfile` replaces the entire `app.bsky.actor.profile/self` repository
-record. A partial display-name object can erase avatar, banner, and other fields.
-Fetch the stored record with authenticated `com.atproto.repo.getRecord`, preserve its
-fields and `$type`, merge your edits, then pass the complete record as `profile`.
-The public `native.getProfile` response is an AppView, not that record; its CDN image
-URLs are not upload blobs. The current profile helper has no compare-and-swap option,
-so concurrent updates require application coordination.
+- `native.listConversations({ account, kind, status, unreadOnly, lockStatus })` pages
+  `chat.bsky.convo.listConvos`, optionally only `direct` or `group` chats, `accepted` or
+  `request` status, unread ones, or groups by `lockStatus` (`unlocked`, `locked`, or
+  `locked-permanently`). `native.getConversation({ account, conversationId })` reads
+  one.
+- `native.listMessages({ account, conversationId })` pages `chat.bsky.convo.getMessages`.
+- `native.getChatLog({ account, cursor })` reads `chat.bsky.convo.getLog`: an event log of new
+  messages, deletions, reactions, read changes, and conversations starting or ending. Store the
+  returned cursor and pass it back to poll only what changed since.
+- `native.getUnreadConversationCounts({ account, includeGroupChats })` calls
+  `chat.bsky.convo.getUnreadCounts` and returns `unreadAcceptedConvos` and
+  `unreadRequestConvos`. The app notification unread count does not include chats.
+  `includeGroupChats` defaults to `true` on Bluesky's side.
+
+Starting and accepting conversations:
+
+- `native.getConvoForMembers({ account, members })` gets or creates the direct conversation
+  with up to 10 member DIDs, so you can message someone without an existing conversation ID.
+  `native.getConvoAvailability` checks first whether the members allow a chat, without creating
+  one.
+- Message requests from people the account does not follow arrive in the request inbox.
+  `native.listConvoRequests({ account })` pages them (Bluesky marks this endpoint unstable), and
+  `native.acceptConvo({ account, conversationId })` moves one to the accepted list.
+
+Sending:
+
+`native.sendMessage({ account, conversationId, text, mentions, embedPost })` sends one message with rich-text facets and an optional embed. Text is limited to 1,000 graphemes and 10,000 bytes. Links and hashtags in the text become facets automatically, `mentions` adds DID mentions at UTF-8 byte offsets as for posts, and `embedPost: { uri, cid }` shares a post as an `app.bsky.embed.record` embed. `embedJoinLink: code` instead shares a group chat join link as a `chat.bsky.embed.joinLink` card; a message carries one embed, so the two cannot be combined.
+`native.sendMessageBatch({ account, items })` sends up to 100 messages, to one or several
+conversations, in one `chat.bsky.convo.sendMessageBatch` call.
+
+```ts
+const { id } = await native.getConvoForMembers({ account, members: [bobDid] });
+await native.sendMessage({
+  account,
+  conversationId: id,
+  text: "Have you seen this?",
+  embedPost: { uri: postUri, cid: postCid },
+});
+```
+
+Managing conversations:
+
+- `native.addReaction` and `native.removeReaction` add or remove a single-emoji reaction on a
+  message. Both are idempotent.
+- `native.markConversationRead({ account, conversationId, messageId })` calls `updateRead`, and
+  `native.markAllConversationsRead({ account, status })` calls `updateAllRead` and returns how
+  many conversations changed.
+- `native.muteConversation` and `native.unmuteConversation` call `muteConvo` and `unmuteConvo`.
+- `native.leaveConversation` calls `leaveConvo`. Leaving a group removes the membership; leaving
+  a direct chat only hides it for this user.
+- `native.deleteMessageForSelf({ account, conversationId, messageId })` hides a message for this
+  user only. Other members still see it.
+
+Chat settings and account data:
+
+- Who may message the account is the `chat.bsky.actor.declaration` record described under
+  [Account declarations](#account-declarations) (`allowIncoming`, `allowGroupInvites`).
+- `native.getChatNotificationPreferences({ account })` and
+  `native.putChatNotificationPreferences({ account, chat, chatRequest })` call
+  `chat.bsky.notification.getPreferences` and `putPreferences`. These are the chat service's
+  own settings, separate from `app.bsky.notification` preferences. `chat` covers accepted
+  conversations and `chatRequest` covers message requests; each has `include` (`all` or
+  `follows`) and `push` (a boolean). Send one or both; the call returns the stored pair.
+- `native.exportChatAccountData({ account })` downloads the account's chat data from
+  `chat.bsky.actor.exportAccountData`. The service answers with JSON Lines, and the SDK returns
+  one object per line, reading at most 50 MB. `native.deleteChatAccount({ account })` calls
+  `chat.bsky.actor.deleteAccount`, which deletes the account's chat data and cannot be undone.
+
+### Group chats
+
+Bluesky's group chats are in beta: the `chat.bsky.group.*` endpoints are marked unstable while
+under active development, so their shapes may change. `native.createGroupChat({ account, name,
+members })` creates a group with up to 49 other member DIDs (name up to 1,280 bytes); it is not
+idempotent, so repeating it makes a second group. `native.renameGroupChat`,
+`native.addGroupChatMembers`, and `native.removeGroupChatMembers` call `editGroup`,
+`addMembers`, and `removeMembers`. Added members start in `request` status and must accept.
+
+Administration (owners and admins; other members get `InsufficientRole`):
+
+- `native.lockGroupChat({ account, conversationId })` calls `chat.bsky.convo.lockConvo` so
+  members cannot send messages, and `native.unlockGroupChat` calls `unlockConvo`. A group that
+  Bluesky moderation locked cannot be unlocked (`ConvoLockedByModeration`).
+- `native.getConvoMembers({ account, conversationId, limit, cursor })` pages members through
+  `chat.bsky.convo.getConvoMembers`.
+- `native.listMutualGroups({ account, subject })` pages the groups this account shares with
+  another DID (`chat.bsky.group.listMutualGroups`).
+
+Join links and join requests:
+
+- `native.createJoinLink({ account, conversationId, joinRule, requireApproval })` calls
+  `chat.bsky.group.createJoinLink`. `joinRule` is `anyone` or `followedByOwner`, and
+  `requireApproval: true` makes joins wait for an admin. A group has at most one enabled link
+  (`EnabledJoinLinkAlreadyExists`). `native.editJoinLink` changes the rule or approval setting,
+  and `native.disableJoinLink` and `native.enableJoinLink` switch the link off and on.
+- `native.getJoinLinkPreviews({ account, codes })` previews up to 50 codes; disabled and invalid
+  codes come back as `disabledJoinLinkPreviewView` and `invalidJoinLinkPreviewView`.
+- `native.requestJoinGroupChat({ account, code })` joins through a link and returns `status`:
+  `joined` (with the conversation) or `pending` when approval is required.
+  `native.withdrawJoinRequest` cancels a pending request.
+- Admins page pending requests with `native.listJoinRequests({ account, conversationId })`,
+  then call `native.approveJoinRequest` or `native.rejectJoinRequest` with the requester's DID
+  as `member`. `native.markJoinRequestsRead` calls `updateJoinRequestsRead`.
+
+```ts
+const link = await native.createJoinLink({
+  account,
+  conversationId: groupId,
+  joinRule: "followedByOwner",
+  requireApproval: true,
+});
+await native.sendMessage({
+  account,
+  conversationId: otherId,
+  text: "Join us",
+  embedJoinLink: String(link["code"]),
+});
+```
+
+### Edit the profile
+
+`native.editProfile({ account, changes })` changes only the fields you pass on the
+`app.bsky.actor.profile/self` record: `displayName` (up to 64 graphemes), `description` (256),
+`pronouns` (20), `website`, `avatar`, `banner`, and `pinnedPost`. `null` removes a field. It
+reads the stored record with `com.atproto.repo.getRecord`, merges the changes, and writes it back
+with the read CID as `swapRecord`, so a concurrent edit makes the write fail instead of being
+overwritten; read again and retry. An account without a profile record gets one created.
+Avatars and banners are PNG or JPEG blobs of at most 1,000,000 bytes; upload them first with
+`native.uploadBlob`.
+
+```ts
+const avatar = await native.uploadBlob({ account, blob: pngBlob, mimeType: "image/png" });
+await native.editProfile({ account, changes: { displayName: "Ada", avatar, description: null } });
+```
+
+To pin a post to the profile, call `native.pinPost({ account, post: { uri, cid } })`, which sets
+the profile's `pinnedPost` strong reference with the same compare-and-swap; `post: null` unpins.
+Only this account's own posts can be pinned. `getAuthorFeed({ includePins: true })` shows it.
+
+`native.updateProfile({ account, profile, swapRecord })` still replaces the entire record. A
+partial object erases the fields it leaves out, so pass the full stored record and its CID. The
+public `native.getProfile` response is an AppView, not that record; its CDN image URLs are not
+upload blobs.
+
+### Live status
+
+`native.setLiveStatus({ account, url, title, description, thumb, durationMinutes })` writes the
+`app.bsky.actor.status/self` record with status `app.bsky.actor.status#live` and an
+`app.bsky.embed.external` card for the stream URL. Bluesky shows a live badge on the avatar
+until `durationMinutes` pass; the lexicon requires at least 1 minute and leaves the maximum to
+each app. A new call replaces the current status, and `native.clearLiveStatus({ account })`
+deletes it. The thumbnail is an image blob from `native.uploadBlob`.
+
+### Account preferences
+
+`native.getPreferences({ account })` returns the private preference list from
+`app.bsky.actor.getPreferences`: saved and pinned feeds, muted words, content-label settings,
+thread and feed view settings, and more, each tagged with an `app.bsky.actor.defs#...` `$type`.
+`native.putPreferences({ account, preferences })` writes them with
+`app.bsky.actor.putPreferences`, which replaces the whole list. Read, change the entries you
+need, and write the full array back, or other settings are lost. For example, muted words live
+in the `app.bsky.actor.defs#mutedWordsPref` entry's `items`.
 
 `native.updateList` does use the fetched CID as `swapRecord`. Omitting `description`
 preserves it; an empty string clears it. Changed descriptions clear stale
 `descriptionFacets`.
 
+### Account declarations
+
+Bluesky keeps several account-wide choices as singleton records (record key `self`) in the
+account's own repository. The SDK reads them with `com.atproto.repo.getRecord` and writes them
+with `com.atproto.repo.putRecord`, so they need repository write permission for the collection.
+
+- `native.setNotificationDeclaration({ account, allowSubscriptions })` writes
+  `app.bsky.notification.declaration`. `allowSubscriptions` is `followers`, `mutuals`, or
+  `none` and controls who may subscribe to the account's new posts and replies.
+  `native.getNotificationDeclaration({ account, actor })` returns `undefined` when there is no
+  record, which Bluesky treats as `followers`.
+- `native.setChatDeclaration({ account, allowIncoming, allowGroupInvites })` writes
+  `chat.bsky.actor.declaration`. `allowIncoming` (who may start a direct chat) and
+  `allowGroupInvites` (who may add the account to group chats) each take `all`, `following`,
+  or `none`. `native.getChatDeclaration` reads it back. `native.getChatStatus({ account })`
+  calls `chat.bsky.actor.getStatus` through the chat proxy and returns `chatDisabled`,
+  `canCreateGroups`, and `groupMemberLimit`.
+- `native.setContentVisibility({ account, hideFromAlgorithmicRecommendations: true })` writes
+  `app.bsky.actor.contentVisibilityDeclaration`, a request that algorithmic feeds and
+  recommendations leave the account's posts out. It is a request to consumers, not access
+  control. `native.getContentVisibility` reads a missing record (`RecordNotFound`) as `false`, as the
+  lexicon requires; any other failed read is an error, not `false`.
+
+```ts
+await native.setNotificationDeclaration({ account, allowSubscriptions: "mutuals" });
+await native.setChatDeclaration({ account, allowIncoming: "following", allowGroupInvites: "none" });
+await native.setContentVisibility({ account, hideFromAlgorithmicRecommendations: true });
+```
+
+### Profile links and reference list opt-outs
+
+Profile links are `app.bsky.actor.link` records. `native.createProfileLink({ account, url,
+title, icon })` creates one: `url` must be https, `title` is up to 40 graphemes, and `icon` is a
+PNG, JPEG, or WebP blob of at most 100,000 bytes from `uploadBlob`. A link record alone is not
+shown; set which links appear, and in what order, with up to 10 references in the profile's
+`links` field. `native.deleteProfileLink({ account, uri })` deletes a link record.
+
+```ts
+const blog = await native.createProfileLink({ account, url: "https://example.com", title: "Blog" });
+await native.editProfile({ account, changes: { links: [blog] } });
+```
+
+A starter pack shows the members of a reference list. To ask to be left out of someone else's
+list, `native.optOutOfReferenceList({ account, listUri })` creates an
+`app.bsky.graph.referencelistoptout` record whose `subject` is the DID-based AT-URI of the
+`app.bsky.graph.list`. The AppView applies it only while the list's purpose is
+`app.bsky.graph.defs#referencelist`. `native.deleteReferenceListOptOut({ account, uri })`
+withdraws it.
+
+### Publish a custom feed
+
+A custom feed has two halves: a feed generator service you run, and an `app.bsky.feed.generator`
+record that announces it.
+
+`native.putFeedGenerator({ account, rkey, did, displayName, description, avatar,
+acceptsInteractions, contentMode })` creates or replaces the record. `rkey` becomes the last
+segment of the feed's AT-URI, `did` is the service DID (usually a `did:web`), `displayName` is 1
+to 24 graphemes and `description` up to 300 (links and hashtags in it become
+`descriptionFacets`). `acceptsInteractions: true` tells clients the generator accepts
+`app.bsky.feed.sendInteractions` feedback, and `contentMode` set to
+`app.bsky.feed.defs#contentModeVideo` marks a video feed. `native.deleteFeedGenerator({ account,
+uri })` removes it.
+
+The SDK runs no server, but it builds the two XRPC responses a generator serves:
+
+- `blueskyFeedGeneratorDescription({ did, feeds, links })` returns the body for
+  `GET /xrpc/app.bsky.feed.describeFeedGenerator`.
+- `parseBlueskyFeedSkeletonRequest(url)` validates a `GET /xrpc/app.bsky.feed.getFeedSkeleton`
+  request (`feed`, `limit` 1 to 100 with a default of 50, `cursor`), and
+  `blueskyFeedSkeleton({ feed, cursor, reqId })` builds its response. Each item has a `post`
+  AT-URI, an optional `reason` (`"pin"` or `{ repost }`), and an optional `feedContext` of up
+  to 2,000 characters that clients echo back with `sendInteractions`.
+
+`blueskyFeedGeneratorMethod(url)` tells you which of the two methods a request path names
+(`app.bsky.feed.describeFeedGenerator` or `app.bsky.feed.getFeedSkeleton`), or `undefined` for
+any other path, so one route can serve both. The parser does not verify the requesting user's
+service-auth JWT; verify it yourself before you personalize a feed.
+
+```ts
+import {
+  blueskyFeedGeneratorDescription,
+  blueskyFeedSkeleton,
+  parseBlueskyFeedSkeletonRequest,
+} from "@opencoredev/social-sdk/bluesky";
+
+// GET /xrpc/app.bsky.feed.getFeedSkeleton
+const { feed, limit, cursor } = parseBlueskyFeedSkeletonRequest(new URL(request.url));
+const posts = await myIndex.page(feed, limit, cursor);
+return Response.json(blueskyFeedSkeleton({ feed: posts.map((post) => ({ post })) }));
+```
+
+### Label stream
+
+Labelers publish labels in real time over `com.atproto.label.subscribeLabels`, a WebSocket of
+binary DAG-CBOR frames. `native.queryLabels` polls; the stream pushes. The SDK opens no socket:
+
+- `blueskyLabelStreamUrl({ service, cursor })` builds the `wss://` URL from the labeler's service
+  endpoint (from its DID document). Pass the last `seq` you processed as `cursor` to replay what
+  you missed.
+- `parseBlueskyLabelFrame(frame)` decodes one binary frame into `{ kind: "labels", seq, labels }`,
+  `{ kind: "info", name, message }` (for example `OutdatedCursor`), or
+  `{ kind: "error", error, message }` (for example `FutureCursor`). Unknown message types return
+  `undefined`. Each label has `src` (the labeler DID), `uri`, optional `cid`, `val`, `neg` (true
+  when it removes an earlier label), `cts`, optional `exp`, and the raw `sig` bytes. The SDK does
+  not verify label signatures; check `sig` against the labeler's `#atproto_label` key before you
+  trust a label from an untrusted relay.
+
+```ts
+import { blueskyLabelStreamUrl, parseBlueskyLabelFrame } from "@opencoredev/social-sdk/bluesky";
+
+const socket = new WebSocket(blueskyLabelStreamUrl({ service: labelerUrl, cursor: lastSeq }));
+socket.binaryType = "arraybuffer";
+socket.onmessage = (message) => {
+  const event = parseBlueskyLabelFrame(new Uint8Array(message.data));
+  if (event?.kind === "labels") lastSeq = event.seq;
+};
+```
+
+### Labeler declaration
+
+A labeler announces itself with an `app.bsky.labeler.service` record (record key `self`).
+`native.putLabelerService({ account, policies, reasonTypes, subjectTypes, subjectCollections })`
+creates or replaces it. `policies.labelValues` lists every label the labeler may emit, and
+`policies.labelValueDefinitions` defines custom labels: an `identifier` of lowercase letters and
+hyphens, `severity` (`inform`, `alert`, or `none`), `blurs` (`content`, `media`, or `none`), an
+optional `defaultSetting` (`ignore`, `warn`, or `hide`) and `adultOnly`, and at least one locale
+with a `name` (up to 64 graphemes) and `description`. Omitting `reasonTypes` or
+`subjectCollections` accepts every report reason or record type. The record only declares the
+labeler; you still run the labeling service itself.
+
+### Accounts, app passwords, and migration
+
+These wrap the PDS account procedures. Most need a full-scope session: an app-password session
+cannot manage app passwords, email, or account status.
+
+App passwords:
+
+- `native.createAppPassword({ account, name, privileged })` calls
+  `com.atproto.server.createAppPassword` and returns `{ name, password, createdAt }`. The password
+  is shown only once, so store it as a secret. `privileged: true` also allows chat.
+- `native.listAppPasswords({ account })` returns names and creation dates, never passwords, and
+  `native.revokeAppPassword({ account, name })` (`revokeAppPassword`) ends every session made
+  with it.
+
+Handle and identity:
+
+- `native.updateHandle({ account, handle })` calls `com.atproto.identity.updateHandle`. The new
+  handle must already resolve to the account's DID (DNS TXT record or
+  `/.well-known/atproto-did`) unless it is under one of the PDS's own domains.
+- `native.refreshIdentity({ account, identifier })` asks the service to re-resolve a handle or
+  DID right away after you change DNS or the handle.
+
+Account status and email:
+
+- `native.deactivateAccount({ account, deleteAfter })` calls
+  `com.atproto.server.deactivateAccount`. The account's content stops being served until
+  `native.activateAccount` (`activateAccount`); `deleteAfter` asks the PDS to delete it after that
+  time.
+- Deletion is two steps: `native.requestAccountDelete({ account })` emails a token, then
+  `deleteBlueskyAccount({ service, did, password, token })` calls
+  `com.atproto.server.deleteAccount`. It cannot be undone.
+- `native.requestEmailConfirmation` and `native.confirmEmail({ account, email, token })` confirm
+  the address. `native.requestEmailUpdate({ account })` returns `tokenRequired`, and
+  `native.updateEmail({ account, email, token, emailAuthFactor })` sets a new address and can
+  require an emailed sign-in code.
+- `requestBlueskyPasswordReset({ service, email })` and
+  `resetBlueskyPassword({ service, token, password })` reset a forgotten password without a
+  session.
+
+Account creation and account migration between PDS hosts:
+
+- `describeBlueskyServer({ service })` reads `com.atproto.server.describeServer`: the server's
+  DID, `availableUserDomains`, and whether an invite code or phone verification is required.
+- `createBlueskyAccount({ service, handle, email, password, inviteCode, ... })` calls
+  `com.atproto.server.createAccount` and returns a session.
+- To move an existing account to another PDS, run these steps in order. On the old PDS, mint a
+  token with `native.getServiceAuth({ account, aud: newPdsDid, lxm:
+"com.atproto.server.createAccount" })`, then call `createBlueskyAccount` on the new PDS with
+  the same `did` and that token as `serviceAuthToken`; the new account starts deactivated.
+  Download the repository CAR from the old PDS with `com.atproto.sync.getRepo` (a public
+  streaming download; see [Not supported](#not-supported)), import it with `native.importRepo({ account, car })`
+  on the new PDS (`com.atproto.repo.importRepo`; give large repositories a longer
+  `retryBudget.maxElapsedMs`), and copy each blob that `native.listMissingBlobs` reports with
+  `uploadBlob`. For a `did:plc`, read `native.getRecommendedDidCredentials` on the new PDS, call
+  `native.requestPlcOperationSignature` and `native.signPlcOperation` on the old one with the
+  emailed token, and `native.submitPlcOperation` on the new one. Finish with `activateAccount` on
+  the new PDS and `deactivateAccount` on the old one.
+
+### Contact import
+
+Bluesky can match the account's address book against other users who opted in, following its
+[contact import RFC](https://docs.bsky.app/blog/contact-import-rfc). The flow is privacy
+sensitive and opt-in, and Bluesky treats the endpoints as beta.
+
+1. `native.startPhoneVerification({ account, phone })` texts a code to the user's own number
+   (E.164, such as `+12125550123`).
+2. `native.verifyPhone({ account, phone, code })` returns a short-lived `token`.
+3. `native.importContacts({ account, token, contacts })` calls `app.bsky.contact.importContacts`
+   with up to 1,000 E.164 numbers and returns each matched profile with the `contactIndex` of the
+   number it matched.
+
+`native.getContactMatches` pages matches later, `native.dismissContactMatch({ account, subject })`
+hides one, `native.getContactSyncStatus` returns when contacts were last synced and how many
+matched, and `native.removeContactData` deletes the imported contacts and phone verification.
+Phone numbers are personal data: get the user's consent, send only what they chose to share, and
+never log them.
+
 ## Limits and requirements
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.
-- Published posts cannot be edited, so `posts.update` is declared `unsupported-by-platform`.
 - The built-in OAuth transport does not refresh tokens on its own. Refresh with `refreshBlueskyOAuthSession`, or let the official client's session handle it if you use that client.
 - If a token exchange or refresh returns a usable token but the response then fails validation (missing `DPoP-Nonce`, wrong `token_type`, missing `atproto` scope, bad `sub`) or identity verification fails, the helper tries once to revoke the new tokens at the authorization server's `revocation_endpoint`, when the server advertises one. It revokes the refresh token, or the access token if no refresh token was issued. This is a single best-effort request with no retry. A failed revocation is ignored, and the original error is thrown. If atomic session persistence rejects, the helper also attempts one revocation of the unsaved grant and rethrows the original storage failure, even if revocation fails. Disconnecting an account does not invoke this helper.
 - Handle, DID, PDS, and authorization server URLs come from documents other parties control, so every request passes an egress check first. Only HTTPS is allowed. `localhost` names, URLs with credentials, and IP-literal hosts in loopback, private, link-local, carrier-grade NAT, multicast, documentation, and other reserved IPv4 and IPv6 ranges are rejected with `unauthorized`, including IPv4-mapped IPv6 addresses. `blueskyOAuthTransport` applies the same check to the stored `pdsUrl`.
@@ -460,3 +1399,35 @@ preserves it; an empty string clears it. Changed descriptions clear stale
 - Public clients get sessions of about two weeks and must reconnect after that. Confidential clients can refresh for longer, as set by the authorization server.
 - OAuth account connectivity uses authenticated `com.atproto.server.checkAccountStatus`; public profile display does not establish credential validity. A 403 is `missing_permission`, while a 401 requires reconnecting. App-password policy and application account membership remain application responsibilities.
 - These are fixture-tested protocol operations, including the OAuth flow against mocked servers. No live account verification is recorded in this repository.
+
+### Media specifications
+
+`posts.publish` checks the media count, image MIME types and Blob sizes, and the width and height fields before it uploads anything. `media.upload` checks a video's type and size. The PDS checks blob types and sizes against the lexicon when a record references the blob, and the video service checks the video itself.
+
+| Media     | Requirement  | Bluesky limit                                                                                                               | Checked by the SDK before sending                                                                                                                 |
+| --------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Post      | Embeds       | One embed per post: images, a gallery, one video, or a link card                                                            | Yes: a video with other media fails as `media.mixed`, and documents fail as `media.unsupported_kind`.                                             |
+| Image     | Count        | Up to 4 in `app.bsky.embed.images`                                                                                          | Yes: one to four images use this embed.                                                                                                           |
+| Gallery   | Items        | `app.bsky.embed.gallery` allows 20; the lexicon asks clients to stop at 10. Every item needs alt text and an aspect ratio   | Yes: more than ten images fail as `media.too_many`, and five to ten need `width` and `height` on every image, else `media.aspect_ratio_required`. |
+| Image     | Format       | `image/*`                                                                                                                   | Declared MIME type must be `image/*`, else `media.mime_type`. Remote HTTPS images are refused unless `allowMediaHost` allows the host.            |
+| Image     | File size    | 2,000,000 bytes maximum, formerly 1,000,000                                                                                 | Yes: a Blob over 2,000,000 bytes fails as `media.too_large`. Streams and allowed remote images stop reading at the same limit.                    |
+| Image     | Aspect ratio | Optional on `app.bsky.embed.images`; required in a gallery                                                                  | `width` and `height` must be supplied together as positive integers, else `media.aspect_ratio`.                                                   |
+| Video     | Format       | `video/mp4`                                                                                                                 | `media.upload` requires one `video/mp4` Blob, else `invalid_input`.                                                                               |
+| Video     | File size    | 300,000,000 bytes maximum, formerly 100 MB                                                                                  | Yes: an empty file or one over 300,000,000 bytes fails as `invalid_input`.                                                                        |
+| Video     | Duration     | The lexicon sets none. The video service applies daily account limits and needs a verified email on Bluesky-hosted accounts | No. Read the limits with `native.getVideoUploadLimits`.                                                                                           |
+| Video     | Captions     | Up to 20 WebVTT (`text/vtt`) tracks, 20,000 bytes each                                                                      | Yes: `options.videoCaptions` rejects more than 20 tracks or a blob reference that is not `text/vtt` of at most 20,000 bytes.                      |
+| Link card | Thumbnail    | `image/*`, 1,000,000 bytes maximum                                                                                          | Yes: `options.linkThumbnail` must be an `image/*` blob reference of at most 1,000,000 bytes.                                                      |
+
+Sources: the [`app.bsky.embed.images`](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/embed/images.json), [`app.bsky.embed.gallery`](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/embed/gallery.json), [`app.bsky.embed.video`](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/embed/video.json), and [`app.bsky.embed.external`](https://github.com/bluesky-social/atproto/blob/main/packages/api/lexicons/app/bsky/embed/external.json) lexicons in the AT Protocol repository, and Bluesky's [Uploading Video](https://bsky.network/docs/about-bluesky-content/video) guide for account limits, checked 2026-11-04. Bluesky's [Posts in-depth](https://bsky.network/docs/about-bluesky-content/posts) guide still says 1,000,000 bytes per image in its prose; its sample code and the lexicon say 2,000,000.
+
+### Not supported
+
+- Push notifications: `app.bsky.notification.registerPush` and `unregisterPush` register a
+  device token with Bluesky's push service for a registered client `appId`. Push delivery runs
+  through that service for Bluesky's own apps, so a third-party server cannot use it; poll
+  `notifications.list` or `getUnreadNotificationCount` instead.
+- Scheduling: AT Protocol has no scheduled publishing. A record is visible as soon as it is written, and a future `createdAt` does not delay it, so `posts.schedule` is `unsupported-by-platform`.
+- Post edits: published posts cannot be edited, so `posts.update` is declared `unsupported-by-platform`.
+- Webhooks: Bluesky has no signed webhooks, so `webhooks.verify` is `unsupported-by-platform` and the adapter has no `webhooks` member. Use `social.notifications.list(account)` and `social.notifications.markSeen(account)` for the mention and reply inbox.
+- `com.atproto.sync.getRepo`: the public, streaming repository download used during account migration is not wrapped.
+- `app.bsky.contact.sendNotification`: a system endpoint that needs role authentication, so the SDK does not wrap it.
