@@ -1361,8 +1361,9 @@ Account creation and account migration between PDS hosts:
   the same `did` and that token as `serviceAuthToken`; the new account starts deactivated.
   Download the repository CAR from the old PDS with `com.atproto.sync.getRepo` (a public
   streaming download; see [Not supported](#not-supported)), import it with `native.importRepo({ account, car })`
-  on the new PDS (`com.atproto.repo.importRepo`; give large repositories a longer
-  `retryBudget.maxElapsedMs`), and copy each blob that `native.listMissingBlobs` reports with
+  on the new PDS (`com.atproto.repo.importRepo`; for a large repository raise both the
+  adapter's `timeoutMs` and the context's `retryBudget.maxElapsedMs`, since the shorter one stops
+  the request and the adapter default is 30 seconds), and copy each blob that `native.listMissingBlobs` reports with
   `uploadBlob`. For a `did:plc`, read `native.getRecommendedDidCredentials` on the new PDS, call
   `native.requestPlcOperationSignature` and `native.signPlcOperation` on the old one with the
   emailed token, and `native.submitPlcOperation` on the new one. Finish with `activateAccount` on

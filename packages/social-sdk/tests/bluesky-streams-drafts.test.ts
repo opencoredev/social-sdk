@@ -219,3 +219,10 @@ describe("Bluesky draft media", () => {
     assert.equal(calls.length, 1);
   });
 });
+
+it("rejects a label frame nested deeper than any label needs", () => {
+  const frame = new Uint8Array(20_001).fill(0x81);
+  frame[20_000] = 0x00;
+
+  assert.throws(() => parseBlueskyLabelFrame(frame), { code: "upstream_failure" });
+});

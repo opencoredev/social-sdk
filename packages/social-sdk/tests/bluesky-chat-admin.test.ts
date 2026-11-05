@@ -48,6 +48,26 @@ describe("Bluesky chat account data", () => {
     assert.equal(calls[1]?.raw, undefined);
   });
 
+  it("does not send an export whose signal was already aborted", async () => {
+    const { native, calls } = harness(() => json({}));
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(
+      native.exportChatAccountData({
+        account,
+        context: {
+          backendInstance: "default",
+          correlationId: "aborted-export",
+          retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+          signal: controller.signal,
+        },
+      }),
+      { code: "cancelled" },
+    );
+    assert.equal(calls.length, 0);
+  });
+
   it("maps a rejected export to a SocialError", async () => {
     const { native } = harness(() => json({ error: "AuthRequired" }, 401));
 

@@ -1414,8 +1414,9 @@ export interface BlueskyNative {
     readonly context?: AdapterOperationContext;
   }) => Promise<void>;
   /**
-   * Imports a repository CAR file with `com.atproto.repo.importRepo`. Large repositories need a
-   * `context` with a longer `retryBudget.maxElapsedMs` than the 30-second default.
+   * Imports a repository CAR file with `com.atproto.repo.importRepo`. Large repositories need both
+   * a longer adapter `timeoutMs` and a `context` with a longer `retryBudget.maxElapsedMs`; the
+   * shorter of the two stops the request, and the adapter default is 30 seconds.
    */
   readonly importRepo: (input: {
     readonly account: ConnectedAccountRef;
@@ -3610,6 +3611,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
     if (method.startsWith("chat.bsky."))
       headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
+
+    // A listener does not replay an earlier abort, so check before sending.
+    if (context.signal?.aborted)
+      throw new SocialError({
+        code: "cancelled",
+        operation,
+        message: "The request was cancelled before it was sent.",
+        retryDisposition: { kind: "never" },
+      });
 
     const controller = new AbortController();
 
@@ -10427,7 +10437,12 @@ function isCborBoolean(value: CborValue | undefined): value is boolean {
 }
 
 /** Decodes one DAG-CBOR item starting at `offset`. Indefinite lengths are rejected. */
-function cborItem(bytes: Uint8Array, offset: number): CborDecoded {
+/** Label frames are shallow; deeper nesting is malformed and would otherwise exhaust the stack. */
+const CBOR_MAX_DEPTH = 64;
+
+function cborItem(bytes: Uint8Array, offset: number, depth = 0): CborDecoded {
+  if (depth > CBOR_MAX_DEPTH) cborFail();
+
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
   if (offset >= bytes.byteLength) cborFail();
@@ -10492,7 +10507,7 @@ function cborItem(bytes: Uint8Array, offset: number): CborDecoded {
       const items: CborValue[] = [];
 
       for (let index = 0; index < argument; index++) {
-        const item = cborItem(bytes, position);
+        const item = cborItem(bytes, position, depth + 1);
         items.push(item.value);
         position = item.next;
       }
@@ -10504,11 +10519,11 @@ function cborItem(bytes: Uint8Array, offset: number): CborDecoded {
       const entries: Record<string, CborValue> = {};
 
       for (let index = 0; index < argument; index++) {
-        const key = cborItem(bytes, position);
+        const key = cborItem(bytes, position, depth + 1);
 
         if (!isCborString(key.value)) cborFail();
 
-        const item = cborItem(bytes, key.next);
+        const item = cborItem(bytes, key.next, depth + 1);
         entries[key.value] = item.value;
         position = item.next;
       }
@@ -10517,7 +10532,7 @@ function cborItem(bytes: Uint8Array, offset: number): CborDecoded {
     }
 
     case 6: {
-      const tagged = cborItem(bytes, position);
+      const tagged = cborItem(bytes, position, depth + 1);
 
       if (argument !== 42 || !(tagged.value instanceof Uint8Array)) cborFail();
 
