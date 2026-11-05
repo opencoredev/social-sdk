@@ -280,4 +280,35 @@ describe("facebook rate-limit usage headers", () => {
     assert.equal(parseFacebookRateLimitUsage(new Headers()), undefined);
     assert.equal(parseFacebookRateLimitUsage(new Headers({ "X-App-Usage": "{" })), undefined);
   });
+  it("contains a rejected async usage callback without delaying or failing the write", async () => {
+    const { calls, fetch } = fake([{ success: true }], {
+      "X-App-Usage": JSON.stringify({ call_count: 99 }),
+    });
+
+    let rejections = 0;
+
+    const onRejection = () => {
+      rejections += 1;
+    };
+
+    process.on("unhandledRejection", onRejection);
+
+    try {
+      const adapter = facebook({
+        auth: { pageId: "123", accessToken: "page-token" },
+        fetch,
+        onRateLimitUsage: async () => {
+          throw new Error("async observer failed");
+        },
+      });
+
+      await adapter.native?.setLike({ account: page, objectId: "123_1", liked: true, context });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(calls.length, 1);
+      assert.equal(rejections, 0);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
+  });
 });

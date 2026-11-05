@@ -1859,7 +1859,7 @@ function withAppSecretProof(
 /** Report usage headers from every response, then hand the response on unchanged. */
 function usageReportingFetch(
   base: typeof globalThis.fetch | undefined,
-  onUsage: ((usage: FacebookRateLimitUsage) => void) | undefined,
+  onUsage: ((usage: FacebookRateLimitUsage) => void | Promise<void>) | undefined,
 ): typeof globalThis.fetch | undefined {
   if (onUsage === undefined) return base;
 
@@ -1867,11 +1867,13 @@ function usageReportingFetch(
     const response = await (base ?? globalThis.fetch)(input, init);
     const usage = parseFacebookRateLimitUsage(response.headers);
 
+    // The callback is observational: neither a throw nor a rejected promise may change the
+    // request outcome, and the request does not wait for it.
     if (usage !== undefined)
       try {
-        onUsage(usage);
+        void Promise.resolve(onUsage(usage)).catch(() => undefined);
       } catch {
-        // The callback is observational; its failure must not change the request outcome.
+        // A synchronous throw is ignored the same way.
       }
 
     return response;

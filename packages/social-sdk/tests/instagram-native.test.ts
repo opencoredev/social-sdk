@@ -2007,3 +2007,47 @@ describe("Instagram webhooks and setup", () => {
 const fetchNever: typeof globalThis.fetch = async () => {
   throw new Error("unexpected request");
 };
+
+it("native Reel and carousel publishing reject managed-only options instead of dropping them", async () => {
+  let requests = 0;
+
+  const adapter = instagram({
+    auth: { accessToken: "fixture", accountId: "ig1" },
+    fetch: async () => {
+      requests += 1;
+
+      return Response.json({ id: "container" });
+    },
+  });
+
+  assert.ok(adapter.native);
+
+  const context: AdapterOperationContext = {
+    backendInstance: "default",
+    correlationId: "managed-only-options",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+  };
+
+  const account = connectedAccountRef({
+    backend: "default",
+    platform: "instagram",
+    accountId: "ig1",
+  });
+
+  await assert.rejects(
+    adapter.native.publishReel({
+      account,
+      videoUrl: "https://cdn.example/reel.mp4",
+      muteAudio: true,
+      context,
+    }),
+    { code: "invalid_input" },
+  );
+  await assert.rejects(
+    adapter.native.publishCarousel(account, ["c1", "c2"], "caption", context, {
+      commentsEnabled: false,
+    }),
+    { code: "invalid_input" },
+  );
+  assert.equal(requests, 0);
+});

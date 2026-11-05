@@ -202,30 +202,40 @@ const isGraduationStrategy = (value: JsonField): value is "MANUAL" | "SS_PERFORM
  * Decode normalized `options` for an Instagram target. Unknown keys are rejected so a
  * misspelled option never publishes silently without its field.
  */
+/** Option keys the direct Instagram adapter maps; managed-only keys such as `muteAudio` are not. */
+const instagramPublishOptionKeys = new Set([
+  "shareToFeed",
+  "coverUrl",
+  "thumbOffsetMs",
+  "audioName",
+  "trial",
+  "collaborators",
+  "userTags",
+  "locationId",
+  "isAiGenerated",
+  "isPaidPartnership",
+  "brandedContentSponsorIds",
+  "poll",
+  "commentPrompt",
+  "productTags",
+  "audioConfiguration",
+]);
+
+/** Rejects set option keys the direct adapter does not map, so none is dropped silently. */
+function rejectUnmappedInstagramOptions(
+  options: InstagramPublishOptions | JsonObject,
+  operation: string,
+): void {
+  for (const [key, value] of Object.entries(options))
+    if (value !== undefined && !instagramPublishOptionKeys.has(key))
+      invalidOption(operation, `Unknown Instagram publish option "${key}".`);
+}
+
 function decodeInstagramPublishOptions(
   raw: JsonObject,
   operation = "instagram.posts.publish",
 ): InstagramPublishOptions {
-  const known = new Set([
-    "shareToFeed",
-    "coverUrl",
-    "thumbOffsetMs",
-    "audioName",
-    "trial",
-    "collaborators",
-    "userTags",
-    "locationId",
-    "isAiGenerated",
-    "isPaidPartnership",
-    "brandedContentSponsorIds",
-    "poll",
-    "commentPrompt",
-    "productTags",
-    "audioConfiguration",
-  ]);
-
-  for (const key of Object.keys(raw))
-    if (!known.has(key)) invalidOption(operation, `Unknown Instagram publish option "${key}".`);
+  rejectUnmappedInstagramOptions(raw, operation);
 
   const field = (key: string): JsonField => raw[key];
   const result: { -readonly [K in keyof InstagramPublishOptions]: InstagramPublishOptions[K] } = {};
@@ -3649,6 +3659,7 @@ export function instagram(
         options: InstagramPublishOptions = {},
       ): Promise<DeliveryOutcome> {
         authorize(account, context);
+        rejectUnmappedInstagramOptions(options, "instagram.posts.publish");
 
         if (children.length < 2 || children.length > 20)
           invalidOption("instagram.posts.publish", "A carousel takes 2 to 20 child containers.");
@@ -4834,6 +4845,7 @@ export function instagram(
       },
       async publishReel({ account, videoUrl, caption, context, ...options }) {
         authorize(account, context);
+        rejectUnmappedInstagramOptions(options, "instagram.reels.publish");
 
         const fields = instagramContainerFields({
           options,
