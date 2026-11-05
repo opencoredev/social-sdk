@@ -20,7 +20,14 @@ import type {
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { HttpError } from "../transport/http.js";
-import { metaOAuthReconnect } from "../transport/provider-errors.js";
+import { metaOAuthReconnect, providerErrorDecoder } from "../transport/provider-errors.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 import { definedFields } from "../core/fields.js";
 import {
   normalizeComment,
@@ -1035,7 +1042,22 @@ export interface InstagramOptions {
   readonly webhookSecret?: string;
 }
 
+/**
+ * Host names for `native.request`: `graph` is `https://graph.instagram.com/v27.0` with Instagram
+ * Login or `https://graph.facebook.com/v27.0` with Facebook Login. `rupload` is
+ * `https://rupload.facebook.com` and needs Facebook Login.
+ */
+export type InstagramRawHost = "graph" | "rupload";
+
 export interface InstagramNative {
+  /**
+   * Sends one request to a Graph path the SDK does not wrap, with the account's access token (`OAuth` header on `rupload`).
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<InstagramRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly moderateComment: (input: {
     readonly account: ConnectedAccountRef;
     readonly commentId: string;
@@ -1803,6 +1825,27 @@ export function instagram(
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
   const workflows = options.workflowStore ?? new MemoryInstagramWorkflowStore();
+
+  const rawConfig: RawRequestConfig<InstagramRawHost> = {
+    hosts:
+      flavor === "facebook-login"
+        ? { graph: origin, rupload: "https://rupload.facebook.com" }
+        : { graph: origin },
+    defaultHost: "graph",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ host, headers }) => {
+      headers.set(
+        "Authorization",
+        `${host === "rupload" ? "OAuth" : "Bearer"} ${options.auth.accessToken}`,
+      );
+    },
+    reservedQuery: ["access_token", "appsecret_proof"],
+    // Graph's `?method=` override turns a GET into a write; see raw-request.ts.
+    methodOverrideQuery: ["method"],
+    decodeError: (body, status, { url, path }) =>
+      providerErrorDecoder(url.origin, path)(body, status),
+    mapError: metaOAuthReconnect,
+  };
 
   const validatedObject = (value: JsonField, operation: string): JsonObject => {
     try {
@@ -3018,6 +3061,12 @@ export function instagram(
           requiredScopes: messageScopes,
           notes: `Reads the conversation participants and sends to the single participant other than this account through POST /{ig-user-id}/messages${flavor === "facebook-login" ? " on graph.facebook.com, which needs a Unified Login (Business Integration System User) token" : ""}. Group, self-only, and unidentifiable conversations are rejected; use native.sendMessage with an explicit recipient ID for those.`,
         },
+        rawRequestCapability(
+          "instagram",
+          flavor === "facebook-login"
+            ? "graph.facebook.com and rupload.facebook.com"
+            : "graph.instagram.com",
+        ),
         webhookCapability(
           "instagram",
           "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
@@ -3523,6 +3572,11 @@ export function instagram(
       },
     },
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async moderateComment({ account, commentId, hidden, context }) {
         authorize(account, context);
 

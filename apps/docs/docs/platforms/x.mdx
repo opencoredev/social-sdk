@@ -1699,6 +1699,32 @@ for await (const event of native.complianceStream({
 }
 ```
 
+## Raw requests
+
+`native.request(input, context)` sends one request to an X API v2 endpoint the SDK does not wrap. It uses the user access token, or `appBearerToken` when no user token is configured, and checks `input.account` against the configured user and `context.backendInstance`.
+
+The only host is `api` (`https://api.x.com`), which also serves media upload. Paths include the version, such as `/2/users/me`.
+
+```ts
+// `native` is social.native("default", { acknowledgeUnsafe: true }); `account` is the
+// connected account and `context` an AdapterOperationContext for its backend instance.
+const response = await native.request(
+  {
+    account,
+    method: "GET",
+    path: `/2/users/${account.accountId}/followed_lists`,
+    query: { "list.fields": "follower_count,member_count" },
+  },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the host's base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, `?` or `#` in the path, and unknown host names. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError` mapped like the adapter's other calls.
+
+A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Like other native calls it skips the client's tenant authorization, so check the tenant's grant for the account first. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 :::warning

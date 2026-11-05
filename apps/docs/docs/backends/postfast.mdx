@@ -311,6 +311,26 @@ await adapter.native.assignInboxConversation(
 );
 ```
 
+## Raw requests
+
+`adapter.native.request(input, context)` sends one request to a PostFast endpoint the SDK does not wrap, with the `pf-api-key` header.
+
+The only host is `api` (`https://api.postfa.st`).
+
+```ts
+const native = postfast({ apiKey }).native;
+const response = await native.request(
+  { method: "GET", path: "/social-media/my-social-accounts" },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, and `?` or `#` in the path. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`, plus `pf-api-key`. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError`.
+
+The API key reaches the whole workspace, and the SDK cannot tell which accounts a raw path touches, so check the tenant's grants yourself before the call. A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 ### Not supported

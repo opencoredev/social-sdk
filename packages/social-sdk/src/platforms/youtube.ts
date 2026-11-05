@@ -29,6 +29,14 @@ import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { abortable, createHttp, HttpError, retryDelay } from "../transport/http.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
 import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
+import { providerErrorDecoder } from "../transport/provider-errors.js";
+import {
   array,
   isBoolean,
   isFiniteNumber,
@@ -62,7 +70,23 @@ export interface YouTubeOptions {
   readonly webhookSecret?: string;
 }
 
+/**
+ * Host names for `native.request`: `data` is `https://www.googleapis.com/youtube/v3`, `upload`
+ * is `https://www.googleapis.com/upload/youtube/v3`, `analytics` is
+ * `https://youtubeanalytics.googleapis.com/v2` and `reporting` is
+ * `https://youtubereporting.googleapis.com/v1`.
+ */
+export type YouTubeRawHost = "data" | "upload" | "analytics" | "reporting";
+
 export interface YouTubeNative {
+  /**
+   * Sends one request to a YouTube API path the SDK does not wrap, with the channel's OAuth token.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<YouTubeRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly resumeUpload: (
     session: YouTubeUploadSession,
     media: MediaAttachment,
@@ -1084,6 +1108,23 @@ export function youtube(
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
+  const rawConfig: RawRequestConfig<YouTubeRawHost> = {
+    hosts: {
+      data: "https://www.googleapis.com/youtube/v3",
+      upload: "https://www.googleapis.com/upload/youtube/v3",
+      analytics: "https://youtubeanalytics.googleapis.com/v2",
+      reporting: "https://youtubereporting.googleapis.com/v1",
+    },
+    defaultHost: "data",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ headers }) => {
+      headers.set("Authorization", `Bearer ${options.auth.accessToken}`);
+    },
+    reservedQuery: ["access_token"],
+    decodeError: (body, status, { url, path }) =>
+      providerErrorDecoder(url.origin, path)(body, status),
+  };
+
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
     context: AdapterOperationContext,
@@ -1632,6 +1673,10 @@ export function youtube(
       apiRevision: "YouTube Data API v3",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        rawRequestCapability(
+          "youtube",
+          "www.googleapis.com (YouTube Data and upload), youtubeanalytics.googleapis.com and youtubereporting.googleapis.com",
+        ),
         webhookCapability(
           "youtube",
           "Verifies the PubSubHubbub X-Hub-Signature for subscriptions created with hub.secret and decodes the Atom feed. Answer the GET verification with answerYouTubeWebhookChallenge.",
@@ -2743,6 +2788,11 @@ export function youtube(
       },
     },
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async resumeUpload(
         session: YouTubeUploadSession,
         media: MediaAttachment,

@@ -1824,6 +1824,14 @@ export function zernio(options: ManagedOptions) {
       capabilities: [
         ...capabilityManifest("zernio", "1.25.1", zernioOperations, linkedinDocumentFormats)
           .capabilities,
+        {
+          platform: "*",
+          operation: "raw.request",
+          availability: "available" as const,
+          surface: "native" as const,
+          notes:
+            "zernioNative(options).request sends one request to zernio.com/api with the API key. It never retries, adds idempotency keys or reconciles writes.",
+        },
         ...zernioRemovablePlatforms.map((platform) => {
           const declaration = {
             platform,

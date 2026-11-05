@@ -697,6 +697,32 @@ console.log(limit["data"]);
 
 `publishingLimit` returns a provider object with a `data` array, for example `{ data: [{ quota_usage: 3, config: { quota_total: 100, quota_duration: 86400 } }] }`. Read the returned `config.quota_total` and usage for the account’s current publishing allowance. The example is not a fixed SDK cap. `shareToFeed` in normalized publish options maps to `share_to_feed` on a single Reel or carousel parent, never on carousel children. Reel covers, thumbnail offsets, audio names, trial parameters, user tags, collaborators, location, and partnership labels are publish options; see [Publishing options](#publishing-options).
 
+## Raw requests
+
+`native.request(input, context)` sends one request to a Graph API endpoint the SDK does not wrap, with the account's access token as a bearer token (`Authorization: OAuth <token>` on `rupload`). It checks `input.account` against the configured account and `context.backendInstance` and maps Graph error code 190 to `reconnect_required`.
+
+Hosts: `graph` (the default) is `https://graph.instagram.com/v27.0` with Instagram Login or `https://graph.facebook.com/v27.0` with Facebook Login. `rupload` is `https://rupload.facebook.com` and is available only with Facebook Login. A `method` query parameter (Graph's method override, which turns a `GET` into a write) is rejected before any request; send the real HTTP method so a lost write response stays `ambiguous_outcome`.
+
+```ts
+// `native` is social.native("default", { acknowledgeUnsafe: true }); `account` is the
+// connected account and `context` an AdapterOperationContext for its backend instance.
+const response = await native.request(
+  {
+    account,
+    method: "GET",
+    path: `/${account.accountId}`,
+    query: { fields: "username,media_count" },
+  },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the host's base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, `?` or `#` in the path, and unknown host names. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`, plus the `access_token` and `appsecret_proof` query parameters. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError` mapped like the adapter's other calls.
+
+A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Like other native calls it skips the client's tenant authorization, so check the tenant's grant for the account first. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 - Normalized publishing needs media that is publicly reachable over HTTPS. With Facebook Login, native resumable uploads accept local video bytes; see [Upload local video](#upload-local-video). Media must meet Meta's specifications in [Media specifications](#media-specifications). The SDK does not read, resize, or transcode files. Unpublished containers expire after 24 hours.

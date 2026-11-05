@@ -1,4 +1,5 @@
 import { normalizeMetrics } from "../core/projections.js";
+import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
 
 export {
@@ -1554,10 +1555,9 @@ async function bytes(item: MediaAttachment, limit: number, signal?: AbortSignal)
  * immediately or at `schedule.at`. Media is uploaded to Postiz and referenced by ID and path.
  */
 export function postiz(options: PostizOptions) {
-  const request = managedHttp(baseUrl(options.baseUrl), options, (apiKey) => [
-    "Authorization",
-    apiKey,
-  ]);
+  const apiBase = baseUrl(options.baseUrl);
+
+  const request = managedHttp(apiBase, options, (apiKey) => ["Authorization", apiKey]);
 
   const store = options.mediaStore ?? new MemoryManagedMediaStore();
 
@@ -1950,7 +1950,11 @@ export function postiz(options: PostizOptions) {
     id: "postiz",
     capabilities: {
       ...manifest,
-      capabilities: [...manifest.capabilities, ...channelCapabilities()],
+      capabilities: [
+        ...manifest.capabilities,
+        rawRequestCapability("*", new URL(apiBase).host),
+        ...channelCapabilities(),
+      ],
     },
     media: {
       async upload(
@@ -2541,6 +2545,12 @@ export function postiz(options: PostizOptions) {
       },
     },
     native: {
+      /**
+       * Sends one request to a Postiz public API path the SDK does not wrap, with the API key in `Authorization`. Host `api` is the configured `baseUrl`, by default `https://api.postiz.com/public/v1`.
+       * The key is workspace-scoped, so the SDK cannot check which accounts the path touches.
+       * Raw requests never retry or reconcile; the caller owns any write it sends.
+       */
+      request: managedRawRequest(apiBase, options, (apiKey) => ["Authorization", apiKey]),
       /**
        * Create a Postiz OAuth link where someone connects a channel to your workspace. The
        * link is valid for one hour and needs no Postiz login.

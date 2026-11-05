@@ -33,6 +33,13 @@ import { httpsUrl } from "../transport/upload.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
 import { parseJson } from "../transport/json.js";
 import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
+import {
   array,
   isBoolean,
   isFiniteNumber,
@@ -279,7 +286,21 @@ export interface BlueskyApplyWritesResult {
   readonly results: readonly BlueskyWriteResult[];
 }
 
+/**
+ * Host names for `native.request`: `pds` is the configured PDS service origin (AppView methods
+ * proxy through it) and `video` is the video service, by default `https://video.bsky.app`.
+ */
+export type BlueskyRawHost = "pds" | "video";
+
 export interface BlueskyNative {
+  /**
+   * Sends one XRPC request the SDK does not wrap. `pds` uses the app-password JWT or the OAuth session's DPoP transport and adds the chat proxy header to `chat.bsky.*` methods; `video` takes `/xrpc/<nsid>` paths and sends a service token minted for that method.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<BlueskyRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly getPost: (input: {
     readonly uri: string;
     readonly context?: AdapterOperationContext;
@@ -3329,6 +3350,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     apiRevision: "AT Protocol XRPC 2026-09",
     runtime: ["node>=22.12", "bun"],
     capabilities: [
+      rawRequestCapability("bluesky", "the configured PDS and the Bluesky video service"),
       {
         operation: "webhooks.verify",
         platform: "bluesky",
@@ -4301,6 +4323,53 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       backendInstance: backend,
     };
 
+  const rawConfig = (): RawRequestConfig<BlueskyRawHost> => ({
+    hosts: { pds: endpoint(service, "_").origin, video: videoOrigin.href },
+    defaultHost: "pds",
+    fetch: (host) => {
+      const session = options.session;
+
+      if (host !== "pds" || session === undefined) return fetcher;
+
+      // The OAuth session signs each request with DPoP and resolves the path on its PDS.
+      return async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+
+        return session.fetchHandler(url.pathname + url.search, init);
+      };
+    },
+    authorize: async ({ host, path, headers }, context) => {
+      if (host === "video") {
+        const lxm = /^\/xrpc\/([A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+){2,})$/.exec(path)?.[1];
+
+        if (lxm === undefined)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "native.request",
+            message: "Bluesky video service raw requests use /xrpc/<nsid> paths.",
+          });
+
+        const token = await serviceToken(
+          `did:web:${videoOrigin.host.replace(":", "%3A")}`,
+          lxm,
+          undefined,
+          context,
+        );
+
+        headers.set("Authorization", `Bearer ${token}`);
+
+        return;
+      }
+
+      if (path.startsWith("/xrpc/chat.bsky.") && !headers.has("atproto-proxy"))
+        headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
+
+      if (options.session === undefined && auth.accessJwt !== undefined)
+        headers.set("Authorization", `Bearer ${auth.accessJwt}`);
+    },
+    decodeError: decodeXrpcError,
+  });
+
   const assertNativeAccount = (
     selected: ConnectedAccountRef,
     context: AdapterOperationContext,
@@ -4792,6 +4861,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     );
 
   const native: BlueskyNative = {
+    async request(input, context) {
+      assertNativeAccount(input.account, context, "native.request");
+
+      return rawProviderRequest(rawConfig(), input, context);
+    },
     async getPosts(input) {
       const operation = "bluesky.posts.hydrate";
 

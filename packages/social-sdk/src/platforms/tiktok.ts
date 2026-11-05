@@ -13,6 +13,13 @@ import type {
 } from "../core/types.js";
 import { profileRef } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 import { HttpError, abortable, readJson, retryDelay } from "../transport/http.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
 import {
@@ -130,7 +137,18 @@ export interface TikTokDataRequest {
   readonly categories: readonly string[];
 }
 
+/** Host names for `native.request`: `api` is `https://open.tiktokapis.com`. */
+export type TikTokRawHost = "api";
+
 export interface TikTokNative {
+  /**
+   * Sends one request to a TikTok API path the SDK does not wrap, with the creator's bearer token.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<TikTokRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   /**
    * Data Portability API (`POST /v2/user/data/add/`): ask TikTok to prepare an export of the
    * creator's data. Needs a matching `portability.*` scope and TikTok's approval.
@@ -563,6 +581,41 @@ export function tiktok(
 
   const data = (value: JsonField): JsonObject => object(checked(value)["data"]);
 
+  const rawConfig: RawRequestConfig<TikTokRawHost> = {
+    hosts: { api: "https://open.tiktokapis.com" },
+    defaultHost: "api",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ headers }) => {
+      headers.set("Authorization", `Bearer ${options.auth.accessToken}`);
+    },
+    // A rejection's `error.code` envelope maps like other TikTok calls; HTTP 429 keeps its delay.
+    mapError: (error, body) => {
+      if (
+        error.code === "ambiguous_outcome" ||
+        error.upstreamStatus === 429 ||
+        !isJsonObject(body) ||
+        !isJsonObject(body["error"])
+      )
+        return error;
+
+      try {
+        checked(body);
+      } catch (provider) {
+        if (provider instanceof SocialError)
+          return new SocialError({
+            ...provider.toJSON(),
+            operation: error.operation,
+            backend: error.backend,
+            correlationId: error.correlationId,
+            upstreamStatus: error.upstreamStatus,
+            cause: error,
+          });
+      }
+
+      return error;
+    },
+  };
+
   // Data Portability request IDs are int64. Only safe integers survive a JSON number round trip.
   const portabilityRequestId = (requestId: string): number => {
     const id = Number(requestId);
@@ -833,6 +886,7 @@ export function tiktok(
       apiRevision: "Content Posting API v2",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        rawRequestCapability("tiktok", "open.tiktokapis.com"),
         webhookCapability(
           "tiktok",
           "Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event.",
@@ -1593,6 +1647,11 @@ export function tiktok(
       },
     },
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       // Data Portability API, accessed 2026-11-04:
       // https://developers.tiktok.com/doc/data-portability-api-get-started
       async addDataRequest({ account, dataFormat, categories, context }) {

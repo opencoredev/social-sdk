@@ -23,6 +23,13 @@ import type {
   SearchPostsInput,
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 import { verifyXWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { providerErrorDecoder } from "../transport/provider-errors.js";
@@ -1135,7 +1142,18 @@ export interface XBotWithToken {
   readonly scopes?: readonly string[];
 }
 
+/** Host names for `native.request`: `api` is `https://api.x.com`, including media upload. */
+export type XRawHost = "api";
+
 export interface XNative {
+  /**
+   * Sends one request to an X API path the SDK does not wrap, with the user token, or the app bearer when no user token is configured.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<XRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly searchRecentPosts: (input: {
     readonly account: ConnectedAccountRef;
     readonly search: Omit<XSearchInput, "scope">;
@@ -4897,6 +4915,28 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
   let nativeAdapter: XNative;
 
+  const rawConfig: RawRequestConfig<XRawHost> = {
+    hosts: { api: "https://api.x.com" },
+    defaultHost: "api",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ headers }) => {
+      const token = options.auth.accessToken?.trim()
+        ? options.auth.accessToken
+        : options.appBearerToken;
+
+      if (!token?.trim())
+        throw new SocialError({
+          code: "missing_permission",
+          operation: "native.request",
+          message: "X raw requests need a user access token or appBearerToken.",
+        });
+
+      headers.set("Authorization", `Bearer ${token}`);
+    },
+    decodeError: (body, status, { path }) =>
+      providerErrorDecoder("https://api.x.com", path)(body, status),
+  };
+
   const adapter = defineAdapter({
     id: "x",
     capabilities: {
@@ -4905,6 +4945,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       apiRevision: "X API v2 / OpenAPI 2.169 (checked 2026-10-05)",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        rawRequestCapability("x", "api.x.com"),
         webhookCapability(
           "x",
           "Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge.",
@@ -6001,6 +6042,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       now,
     ),
     native: (nativeAdapter = {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async searchRecentPosts({ account, search, context }) {
         return searchPosts(account, { ...search, scope: "recent" }, context, search);
       },

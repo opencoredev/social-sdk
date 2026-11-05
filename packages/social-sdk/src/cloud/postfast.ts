@@ -1,4 +1,5 @@
 import { normalizeMetrics } from "../core/projections.js";
+import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
 
 export {
@@ -13,6 +14,7 @@ import type {
   AccountRecord,
   AdapterOperationContext,
   BackendPostRef,
+  CapabilityManifest,
   ConnectedAccountRef,
   DeliveryOutcome,
   DeliveryRef,
@@ -1141,33 +1143,40 @@ export function postfast(options: ManagedOptions) {
     return uploadBytes({ kind: "image", source: thumbnail, mimeType, filename: "cover" }, context);
   };
 
+  const withPostFastRawRequest = (manifest: CapabilityManifest): CapabilityManifest => ({
+    ...manifest,
+    capabilities: [...manifest.capabilities, rawRequestCapability("*", "api.postfa.st")],
+  });
+
   const adapter = defineAdapter({
     id: "postfast",
-    capabilities: capabilityManifest(
-      "postfast",
-      "REST API, docs fetched 2026-09-24",
-      [
-        "accounts.read",
-        "posts.publish",
-        "posts.schedule",
-        "posts.status",
-        "posts.list",
-        "posts.cancelScheduled",
-        "posts.deleteBackendRecord",
-        "analytics.read",
-        "analytics.account.read",
-        "media.upload",
-      ],
-      linkedinDocumentFormats,
-      (_platform, operation) =>
-        managedConstraints(
-          operation,
-          operation === "posts.publish" ? ["media-ref", "blob", "stream"] : undefined,
-        ),
-      {
-        facebook:
-          "PostFast's Facebook integration is Page-scoped; personal profiles are not supported.",
-      },
+    capabilities: withPostFastRawRequest(
+      capabilityManifest(
+        "postfast",
+        "REST API, docs fetched 2026-09-24",
+        [
+          "accounts.read",
+          "posts.publish",
+          "posts.schedule",
+          "posts.status",
+          "posts.list",
+          "posts.cancelScheduled",
+          "posts.deleteBackendRecord",
+          "analytics.read",
+          "analytics.account.read",
+          "media.upload",
+        ],
+        linkedinDocumentFormats,
+        (_platform, operation) =>
+          managedConstraints(
+            operation,
+            operation === "posts.publish" ? ["media-ref", "blob", "stream"] : undefined,
+          ),
+        {
+          facebook:
+            "PostFast's Facebook integration is Page-scoped; personal profiles are not supported.",
+        },
+      ),
     ),
     media: {
       async upload(
@@ -1493,6 +1502,15 @@ export function postfast(options: ManagedOptions) {
       },
     },
     native: {
+      /**
+       * Sends one request to a PostFast API path the SDK does not wrap, with the `pf-api-key` header. Host `api` is `https://api.postfa.st`.
+       * The key is workspace-scoped, so the SDK cannot check which accounts the path touches.
+       * Raw requests never retry or reconcile; the caller owns any write it sends.
+       */
+      request: managedRawRequest("https://api.postfa.st", options, (apiKey) => [
+        "pf-api-key",
+        apiKey,
+      ]),
       /** Create a hosted link where someone connects their social accounts to your workspace. */
       async createConnectLink(input: PostFastConnectLinkOptions, context: AdapterOperationContext) {
         for (const value of input.platforms ?? [])

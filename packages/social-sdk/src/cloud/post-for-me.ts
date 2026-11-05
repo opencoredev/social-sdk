@@ -1,4 +1,5 @@
 import { normalizeMetrics } from "../core/projections.js";
+import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
 import { managedLifecycle } from "./lifecycle.js";
 import { managedMedia } from "./media.js";
 
@@ -724,6 +725,7 @@ export function postForMe(options: ManagedOptions) {
       ...manifest,
       capabilities: [
         ...manifest.capabilities,
+        rawRequestCapability("*", "api.postforme.dev"),
         ...providerPlatforms["post-for-me"].map((platform) => ({
           platform,
           operation: "posts.update",
@@ -1116,6 +1118,12 @@ export function postForMe(options: ManagedOptions) {
       },
     },
     native: {
+      /**
+       * Sends one request to a Post for Me API path the SDK does not wrap, with the bearer API key. Host `api` is `https://api.postforme.dev`.
+       * The key is workspace-scoped, so the SDK cannot check which accounts the path touches.
+       * Raw requests never retry or reconcile; the caller owns any write it sends.
+       */
+      request: managedRawRequest("https://api.postforme.dev", options),
       async createConnection(input: PostForMeConnectionOptions, context: AdapterOperationContext) {
         platform(input.platform, options);
 

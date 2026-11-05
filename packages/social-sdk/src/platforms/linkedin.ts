@@ -42,6 +42,13 @@ import {
 import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { verifyLinkedInWebhook } from "../server/webhooks.js";
 import { directWebhooks } from "./webhook-adapter.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 
 /** LinkedIn documents "100MB"; the decimal reading is the conservative local bound. */
 const linkedInDocumentMaxBytes = 100_000_000;
@@ -267,7 +274,18 @@ export interface LinkedInPostChanges {
   readonly contentLandingPage?: string;
 }
 
+/** Host names for `native.request`: `api` is `https://api.linkedin.com`. */
+export type LinkedInRawHost = "api";
+
 export interface LinkedInNative {
+  /**
+   * Sends one request to a LinkedIn API path the SDK does not wrap, with the bearer token. `/rest/` paths also get `Linkedin-Version` and `X-Restli-Protocol-Version: 2.0.0` unless the caller sets them.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<LinkedInRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   /**
    * Lists organizations the authenticated member administers (approved `ADMINISTRATOR` roles).
    * Requires `rw_organization_admin` or `r_organization_admin`. Use the result to configure
@@ -1195,6 +1213,22 @@ export function linkedin(
   }
 
   const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
+
+  const rawConfig: RawRequestConfig<LinkedInRawHost> = {
+    hosts: { api: "https://api.linkedin.com" },
+    defaultHost: "api",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ path, headers }) => {
+      headers.set("Authorization", `Bearer ${options.auth.accessToken}`);
+
+      if (!path.startsWith("/rest/")) return;
+
+      if (!headers.has("Linkedin-Version")) headers.set("Linkedin-Version", options.apiVersion);
+
+      if (!headers.has("X-Restli-Protocol-Version"))
+        headers.set("X-Restli-Protocol-Version", "2.0.0");
+    },
+  };
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
@@ -3745,6 +3779,7 @@ export function linkedin(
       apiRevision: options.apiVersion,
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        rawRequestCapability("linkedin", "api.linkedin.com"),
         {
           platform: "linkedin",
           operation: "posts.publish",
@@ -4877,6 +4912,11 @@ export function linkedin(
       now,
     ),
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async listAdministeredOrganizations({ account, cursor, limit, role, state, context }) {
         authorize(account, context);
 

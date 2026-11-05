@@ -880,6 +880,33 @@ Every method takes `account` and `context`, and refuses an account that is not t
 
 `native.moderateComment` sends `is_hidden` to hide or unhide a comment, `native.deleteComment` deletes one and needs `pages_manage_engagement`, and `native.listCommentReplies` pages through a comment's replies with Graph cursors.
 
+## Raw requests
+
+`native.request(input, context)` sends one request to a Graph API endpoint the SDK does not wrap. It sends the Page access token as a bearer token and adds `appsecret_proof` when `appSecret` is configured; on `rupload` it sends `Authorization: OAuth <token>` instead. It checks `input.account` against the configured Page and `context.backendInstance`, maps Graph error code 190 to `reconnect_required`, and reports usage headers to `onRateLimitUsage` like other calls.
+
+Hosts: `graph` (the default) is `https://graph.facebook.com/v27.0`, `video` is `https://graph-video.facebook.com/v27.0`, and `rupload` is `https://rupload.facebook.com`. Paths on `graph` and `video` are below the pinned version. A `method` query parameter (Graph's method override, which turns a `GET` into a write) is rejected before any request; send the real HTTP method so a lost write response stays `ambiguous_outcome`.
+
+```ts
+// `native` is social.native("default", { acknowledgeUnsafe: true }); `account` is the
+// connected account and `context` an AdapterOperationContext for its backend instance.
+const response = await native.request(
+  {
+    account,
+    method: "GET",
+    path: `/${account.accountId}`,
+    query: { fields: "fan_count,followers_count" },
+    responseHeaders: ["x-business-use-case-usage"],
+  },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the host's base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, `?` or `#` in the path, and unknown host names. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`, plus the `access_token` and `appsecret_proof` query parameters. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError` mapped like the adapter's other calls.
+
+A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Like other native calls it skips the client's tenant authorization, so check the tenant's grant for the account first. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 - One Page per adapter instance. Create one adapter per Page and register each under its own backend key.

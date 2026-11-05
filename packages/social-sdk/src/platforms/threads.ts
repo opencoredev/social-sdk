@@ -21,7 +21,14 @@ import {
   type ThreadsTextStyle,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
-import { metaOAuthReconnect } from "../transport/provider-errors.js";
+import { metaOAuthReconnect, providerErrorDecoder } from "../transport/provider-errors.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { definedFields } from "../core/fields.js";
@@ -356,7 +363,18 @@ export interface ThreadsOEmbed {
   readonly width?: number;
 }
 
+/** Host names for `native.request`: `graph` is `https://graph.threads.net/<graphVersion>`. */
+export type ThreadsRawHost = "graph";
+
 export interface ThreadsNative {
+  /**
+   * Sends one request to a Threads Graph path the SDK does not wrap, with the user's access token.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<ThreadsRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   /**
    * Reads the authenticated profile's rolling quotas from `threads_publishing_limit`: posts
    * (`quota_usage`, 250), replies (`reply_quota_usage`, 1,000), and deletions
@@ -1259,6 +1277,21 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
   const account = accountRef(backend, auth.userId);
 
+  const rawConfig: RawRequestConfig<ThreadsRawHost> = {
+    hosts: { graph: `https://graph.threads.net/${version}` },
+    defaultHost: "graph",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ headers }) => {
+      headers.set("Authorization", `Bearer ${auth.accessToken}`);
+    },
+    reservedQuery: ["access_token", "appsecret_proof"],
+    // Graph's `?method=` override turns a GET into a write; see raw-request.ts.
+    methodOverrideQuery: ["method"],
+    decodeError: (body, status, { url, path }) =>
+      providerErrorDecoder(url.origin, path)(body, status),
+    mapError: metaOAuthReconnect,
+  };
+
   function fieldList(operation: string, fields: readonly string[] | undefined): string | undefined {
     if (fields === undefined) return undefined;
 
@@ -1786,6 +1819,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     runtime: ["node>=22.12", "bun"],
     capabilities: [
       { operation: "accounts.read", platform: "threads", availability: "available" },
+      rawRequestCapability("threads", "graph.threads.net"),
       webhookCapability(
         "threads",
         "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies (comment.received), mentions (mention.received), publish (post.published, with no owner ID), and delete (post.removed) deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
@@ -2023,6 +2057,14 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   };
 
   const native: ThreadsNative = {
+    async request(input, context) {
+      authorize(input.account, "native.request");
+
+      if (context.backendInstance !== backend)
+        fail("native.request", "The context belongs to another backend instance.", "unauthorized");
+
+      return rawProviderRequest(rawConfig, input, context);
+    },
     publishingLimit: async ({ account: selected, fields, context }) => {
       authorize(selected, "threads.publishing.limit.read");
 

@@ -81,7 +81,7 @@ export function retryDelay(value: string | null, now: number): number | undefine
   return Number.isFinite(timestamp) ? Math.max(0, timestamp - now) : undefined;
 }
 
-function requestId(headers: Headers): string | undefined {
+export function requestId(headers: Headers): string | undefined {
   for (const name of ["x-request-id", "x-fb-trace-id", "x-amzn-requestid", "x-amzn-trace-id"]) {
     const value = headers.get(name);
 
@@ -137,12 +137,13 @@ export async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promi
   }
 }
 
-export async function readJson(
+/** Reads a response body up to `limit` bytes; a larger body is cancelled and rejected. */
+export async function readBytes(
   response: Response,
   limit: number,
   signal?: AbortSignal,
-): Promise<JsonValue> {
-  if (response.status === 204 || !response.body) return null;
+): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array(0);
   const length = Number(response.headers.get("content-length"));
 
   if (Number.isFinite(length) && length > limit) {
@@ -189,6 +190,17 @@ export async function readJson(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
+  return bytes;
+}
+
+export async function readJson(
+  response: Response,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<JsonValue> {
+  if (response.status === 204 || !response.body) return null;
+  const bytes = await readBytes(response, limit, signal);
 
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);

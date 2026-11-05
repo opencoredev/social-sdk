@@ -1,4 +1,5 @@
 import { normalizeMetrics } from "../core/projections.js";
+import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
 import { createHash, randomBytes } from "node:crypto";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
@@ -2119,7 +2120,11 @@ export function buffer(options: BufferOptions) {
     id: "buffer",
     capabilities: {
       ...manifest,
-      capabilities: [...manifest.capabilities, ...substackCapabilities],
+      capabilities: [
+        ...manifest.capabilities,
+        rawRequestCapability("*", "api.buffer.com"),
+        ...substackCapabilities,
+      ],
     },
     accounts: {
       async list(input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
@@ -2679,6 +2684,12 @@ export function buffer(options: BufferOptions) {
       },
     },
     native: {
+      /**
+       * Sends one request to the Buffer API the SDK does not wrap, with the bearer API key. Host `api` is `https://api.buffer.com`; GraphQL goes to path `/` and reports errors in a 200 body.
+       * The key is workspace-scoped, so the SDK cannot check which accounts the path touches.
+       * Raw requests never retry or reconcile; the caller owns any write it sends.
+       */
+      request: managedRawRequest(apiOrigin, options),
       /**
        * `editPost`: change the text, custom time, draft state, or tags of a draft, scheduled, or
        * approval post. Fields you leave out keep their value.

@@ -42,6 +42,7 @@ import {
 import { zernioOutcome } from "./outcomes.js";
 import { httpsUrl } from "../transport/upload.js";
 import { zernioInternals, type ZernioSubmission } from "./zernio.js";
+import { managedRawRequest } from "../core/raw-request.js";
 
 export type { ZernioSubmission } from "./zernio.js";
 
@@ -1077,6 +1078,13 @@ export function zernioNative(options: ManagedOptions) {
     object(await discordRequest(...args));
 
   return {
+    /**
+     * Sends one request to a Zernio API path the SDK does not wrap, with the bearer API key. Host
+     * `api` is `https://zernio.com/api`. No `Idempotency-Key` is added. The key is
+     * workspace-scoped, so the SDK cannot check which accounts the path touches. Raw requests
+     * never retry or reconcile; the caller owns any write it sends.
+     */
+    request: managedRawRequest("https://zernio.com/api", options),
     async createConnection(input: ZernioConnectionOptions, context: AdapterOperationContext) {
       const slug = platform(input.platform, options);
 

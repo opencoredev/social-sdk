@@ -55,7 +55,14 @@ import {
 } from "../transport/validation.js";
 import { httpsUrl } from "../transport/upload.js";
 import { isJsonValue } from "../transport/json.js";
-import { metaOAuthReconnect } from "../transport/provider-errors.js";
+import { metaOAuthReconnect, providerErrorDecoder } from "../transport/provider-errors.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 import { verifyMetaWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 
@@ -808,7 +815,21 @@ export async function facebookAppSecretProof(
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Host names for `native.request`: `graph` is `https://graph.facebook.com/v27.0`, `video` is
+ * `https://graph-video.facebook.com/v27.0` and `rupload` is `https://rupload.facebook.com`.
+ */
+export type FacebookRawHost = "graph" | "video" | "rupload";
+
 export interface FacebookNative {
+  /**
+   * Sends one request to a Graph path the SDK does not wrap, with the Page token and `appsecret_proof` when `appSecret` is configured (`OAuth` header on `rupload`).
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<FacebookRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly deletePost: (input: {
     readonly account: ConnectedAccountRef;
     readonly postId: string;
@@ -2226,6 +2247,33 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
 
   const clock = () => options.clock?.() ?? new Date();
   const now = () => clock().toISOString();
+  let rawProof: Promise<string> | undefined;
+
+  const rawConfig: RawRequestConfig<FacebookRawHost> = {
+    hosts: { graph: graphOrigin, video: videoOrigin, rupload: "https://rupload.facebook.com" },
+    defaultHost: "graph",
+    fetch: () => http.fetch ?? globalThis.fetch,
+    authorize: async ({ host, url, headers }) => {
+      if (host === "rupload") {
+        headers.set("Authorization", `OAuth ${options.auth.accessToken}`);
+
+        return;
+      }
+
+      headers.set("Authorization", `Bearer ${options.auth.accessToken}`);
+
+      if (options.appSecret === undefined) return;
+
+      rawProof ??= facebookAppSecretProof(options.auth.accessToken, options.appSecret);
+      url.searchParams.set("appsecret_proof", await rawProof);
+    },
+    reservedQuery: ["access_token", "appsecret_proof"],
+    // Graph's `?method=` override turns a GET into a write; see raw-request.ts.
+    methodOverrideQuery: ["method"],
+    decodeError: (body, status, { url, path }) =>
+      providerErrorDecoder(url.origin, path)(body, status),
+    mapError: metaOAuthReconnect,
+  };
 
   const authorize = (
     ref: { readonly backend: string; readonly platform: string; readonly accountId: string },
@@ -6032,6 +6080,10 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
           notes:
             "Replies with messaging_type RESPONSE inside the 24-hour window to the conversation's one other participant. native.sendMessage adds UPDATE, the HUMAN_AGENT tag, and attachments; native.privateReply answers a comment.",
         },
+        rawRequestCapability(
+          "facebook",
+          "graph.facebook.com, graph-video.facebook.com and rupload.facebook.com",
+        ),
         webhookCapability(
           "facebook",
           "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=page deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
@@ -6242,6 +6294,11 @@ export function facebook(options: FacebookOptions): SocialAdapter<FacebookNative
       getReport,
     },
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
         await deleteObject(postId, context, "facebook.posts.delete");

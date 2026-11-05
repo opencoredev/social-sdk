@@ -295,6 +295,30 @@ const [limit] = await adapter.native.dailyPostingLimits([account], { at }, conte
 if (limit?.isAtLimit) throw new Error("This channel is at its daily posting limit.");
 ```
 
+## Raw requests
+
+`adapter.native.request(input, context)` sends one request to the Buffer API the SDK does not wrap, with the API key as a bearer token. GraphQL goes to path `/`. Buffer reports GraphQL errors in a 200 body, so check `errors` in the result yourself.
+
+The only host is `api` (`https://api.buffer.com`).
+
+```ts
+const native = buffer({ apiKey }).native;
+const response = await native.request(
+  {
+    method: "POST",
+    path: "/",
+    body: { kind: "json", value: { query: "query { account { id timezone } }" } },
+  },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, and `?` or `#` in the path. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError`.
+
+The API key reaches the whole workspace, and the SDK cannot tell which accounts a raw path touches, so check the tenant's grants yourself before the call. A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 ### Not supported

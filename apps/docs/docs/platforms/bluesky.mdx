@@ -1388,6 +1388,27 @@ matched, and `native.removeContactData` deletes the imported contacts and phone 
 Phone numbers are personal data: get the user's consent, send only what they chose to share, and
 never log them.
 
+## Raw requests
+
+`native.request(input, context)` sends one XRPC request the SDK does not wrap and checks `input.account` against the configured DID and `context.backendInstance`. On `pds` it uses the app-password `accessJwt`, or the OAuth session's DPoP transport when `session` is configured, and adds `atproto-proxy: did:web:api.bsky.chat#bsky_chat` to `chat.bsky.*` methods unless you set that header. AppView methods such as `app.bsky.*` reach the AppView through the PDS. On `video` it mints a service token for the method named in the path, with audience `did:web:<video host>`; upload videos with `native.uploadVideo`, which needs the PDS audience.
+
+Hosts: `pds` (the default) is the configured `auth.service` origin; `video` is `videoService`, by default `https://video.bsky.app`, and takes only `/xrpc/<nsid>` paths.
+
+```ts
+// `native` is social.native("default", { acknowledgeUnsafe: true }); `account` is the
+// connected account and `context` an AdapterOperationContext for its backend instance.
+const response = await native.request(
+  { account, method: "GET", path: "/xrpc/app.bsky.actor.getPreferences" },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the host's base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, `?` or `#` in the path, and unknown host names. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError` mapped like the adapter's other calls.
+
+A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Like other native calls it skips the client's tenant authorization, so check the tenant's grant for the account first. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 - The adapter returns the record URI/CID as the platform reference when creation succeeds. Network failures after submission are ambiguous; reconcile before retrying.
