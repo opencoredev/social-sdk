@@ -249,10 +249,28 @@ async function uploadRequest(
   }
 }
 
+/** videos.insert parts whose writable properties the upload metadata may carry. */
+const uploadParts = ["snippet", "status", "recordingDetails", "localizations"] as const;
+
 export async function beginYouTubeUpload(
-  input: { channelId: string; size: number; mimeType: string; metadata: JsonObject },
+  input: {
+    channelId: string;
+    size: number;
+    mimeType: string;
+    /** Resource body. Its top-level keys select the `part` parameter. */
+    metadata: JsonObject;
+    /** Sent as the `notifySubscribers` query parameter when set; YouTube defaults to true. */
+    notifySubscribers?: boolean;
+  },
   options: YouTubeUploadOptions,
 ): Promise<YouTubeUploadSession> {
+  const keys = Object.keys(input.metadata);
+
+  const selected = uploadParts.filter((part) => keys.includes(part));
+
+  // An empty body keeps the long-standing snippet,status selection.
+  const parts = keys.length === 0 ? ["snippet", "status"] : selected;
+
   if (
     !Number.isSafeInteger(input.size) ||
     input.size <= 0 ||
@@ -265,9 +283,20 @@ export async function beginYouTubeUpload(
       message: "Provide a positive video byte size no larger than 256 GiB and its video MIME type.",
     });
 
+  if (keys.length !== 0 && selected.length !== keys.length)
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "youtube.upload",
+      message:
+        "Upload metadata may contain only snippet, status, recordingDetails and localizations.",
+    });
+
+  const notify =
+    input.notifySubscribers === undefined ? "" : `&notifySubscribers=${input.notifySubscribers}`;
+
   const response = await uploadRequest(
     new URL(
-      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+      `https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=${parts.join(",")}${notify}`,
     ),
     {
       method: "POST",

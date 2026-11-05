@@ -396,7 +396,7 @@ it("TikTok SELF_ONLY completion is published even without a public post id", asy
   assert.equal(result.state, "accepted");
 });
 
-it("TikTok draft initialization skips creator info and uses the inbox endpoint", async () => {
+it("TikTok draft initialization skips creator info and uses the inbox endpoint [feature:tiktok.publish.video.inbox_upload]", async () => {
   const calls: string[] = [];
 
   const adapter = tiktok({
@@ -507,11 +507,7 @@ it("TikTok rejects Zernio-only photo options instead of silently ignoring them",
   const social = createSocial({ backend: adapter });
   const directBase: TikTokPublishOptions = { ...options, creatorInfo: creator };
 
-  for (const option of [
-    { description: "photo description" },
-    { mediaType: "photo" as const },
-    { autoAddMusic: true },
-  ]) {
+  for (const option of [{ description: "photo description" }, { mediaType: "photo" as const }]) {
     const preparation = social.posts.prepare({
       targets: [{ account, options: { ...directBase, ...option } }],
       content: {
@@ -1080,3 +1076,520 @@ for (const transport of ["custom", "default"]) {
     }
   });
 }
+
+const photoContent = (count: number, byteSize?: number) => ({
+  text: "photos",
+  media: Array.from({ length: count }, (_, index) => ({
+    kind: "image" as const,
+    mimeType: "image/jpeg",
+    ...definedFields({ byteSize }),
+    source: { kind: "https-url" as const, url: `https://media.example.test/${index}.jpg` },
+  })),
+});
+
+const creatorResponse = (extra: Record<string, JsonValue> = {}) =>
+  response({
+    creator_username: "demo",
+    creator_nickname: "Demo",
+    privacy_level_options: ["SELF_ONLY"],
+    comment_disabled: false,
+    duet_disabled: false,
+    stitch_disabled: false,
+    max_video_post_duration_sec: 60,
+    ...extra,
+  });
+
+it("TikTok sends video_cover_timestamp_ms in video Direct Post post_info", async () => {
+  const bodies: JsonValue[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: ["https://media.example.test"],
+    fetch: async (input, init) => {
+      if (String(input).includes("creator_info")) return creatorResponse();
+      bodies.push(JSON.parse(String(init?.body)));
+
+      return response({ publish_id: "cover1" });
+    },
+  });
+
+  const social = createSocial({ backend: adapter });
+  const base = request.targets[0];
+  assert.ok(base);
+
+  const result = await social.posts.publish({
+    ...request,
+    targets: [{ ...base, options: { ...base.options, videoCoverTimestampMs: 1500 } }],
+  });
+
+  assert.equal(result.outcomes[0]?.state, "accepted");
+  assert.deepEqual(bodies, [
+    {
+      post_info: {
+        title: "caption",
+        privacy_level: "SELF_ONLY",
+        disable_comment: true,
+        brand_content_toggle: false,
+        brand_organic_toggle: false,
+        disable_duet: true,
+        disable_stitch: true,
+        is_aigc: false,
+        video_cover_timestamp_ms: 1500,
+      },
+      source_info: { source: "PULL_FROM_URL", video_url: "https://media.example.test/video.mp4" },
+    },
+  ]);
+
+  // The video lasts 30 seconds, so a cover frame at 31 s, a fraction, a negative value,
+  // a photo post and an inbox draft are all rejected before any request.
+  const rejected: readonly TikTokPublishOptions[] = [
+    { ...options, creatorInfo: creator, videoCoverTimestampMs: 31_000 },
+    { ...options, creatorInfo: creator, videoCoverTimestampMs: 1.5 },
+    { ...options, creatorInfo: creator, videoCoverTimestampMs: -1 },
+    { ...options, draft: true, videoCoverTimestampMs: 1000 },
+  ];
+
+  for (const rejectedOptions of rejected) {
+    const preparation = social.posts.prepare({
+      ...request,
+      targets: [{ account, options: rejectedOptions }],
+    });
+
+    assert.equal(preparation.ok, false);
+  }
+
+  assert.equal(
+    social.posts.prepare({
+      targets: [
+        {
+          account,
+          options: {
+            ...options,
+            creatorInfo: creator,
+            photoCoverIndex: 0,
+            videoCoverTimestampMs: 0,
+          },
+        },
+      ],
+      content: photoContent(1),
+    }).ok,
+    false,
+  );
+});
+
+it("TikTok sends auto_add_music on photo Direct Post only [feature:tiktok.publish.photo.auto_add_music]", async () => {
+  const bodies: { post_info: Record<string, JsonValue>; post_mode: string }[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: ["https://media.example.test"],
+    fetch: async (input, init) => {
+      if (String(input).includes("creator_info")) return creatorResponse();
+      bodies.push(JSON.parse(String(init?.body)));
+
+      return response({ publish_id: "music1" });
+    },
+  });
+
+  const social = createSocial({ backend: adapter });
+
+  const result = await social.posts.publish({
+    targets: [
+      {
+        account,
+        options: { ...options, creatorInfo: creator, photoCoverIndex: 0, autoAddMusic: true },
+      },
+    ],
+    content: photoContent(2),
+  });
+
+  assert.equal(result.outcomes[0]?.state, "accepted");
+  assert.equal(bodies[0]?.post_mode, "DIRECT_POST");
+  assert.equal(bodies[0]?.post_info["auto_add_music"], true);
+
+  // Video posts and inbox drafts have no auto_add_music field, so the option is refused.
+  assert.equal(
+    social.posts.prepare({
+      ...request,
+      targets: [{ account, options: { ...options, creatorInfo: creator, autoAddMusic: true } }],
+    }).ok,
+    false,
+  );
+  assert.equal(
+    social.posts.prepare({
+      targets: [
+        { account, options: { ...options, draft: true, photoCoverIndex: 0, autoAddMusic: true } },
+      ],
+      content: photoContent(1),
+    }).ok,
+    false,
+  );
+});
+
+it("TikTok photo inbox drafts send MEDIA_UPLOAD without Direct Post fields [feature:tiktok.publish.photo.media_upload]", async () => {
+  const calls: { path: string; body: JsonValue }[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: ["https://media.example.test"],
+    fetch: async (input, init) => {
+      calls.push({ path: new URL(String(input)).pathname, body: JSON.parse(String(init?.body)) });
+
+      return response({ publish_id: "inbox-photo1" });
+    },
+  });
+
+  const result = await createSocial({ backend: adapter }).posts.publish({
+    targets: [
+      {
+        account,
+        options: { ...options, draft: true, photoCoverIndex: 1, title: "Draft title" },
+      },
+    ],
+    content: photoContent(2),
+  });
+
+  assert.equal(result.outcomes[0]?.state, "accepted");
+  // Inbox drafts skip creator_info and send only the text fields TikTok accepts for MEDIA_UPLOAD.
+  assert.deepEqual(calls, [
+    {
+      path: "/v2/post/publish/content/init/",
+      body: {
+        post_info: { title: "Draft title", description: "photos" },
+        source_info: {
+          source: "PULL_FROM_URL",
+          photo_cover_index: 1,
+          photo_images: ["https://media.example.test/0.jpg", "https://media.example.test/1.jpg"],
+        },
+        post_mode: "MEDIA_UPLOAD",
+        media_type: "PHOTO",
+        is_aigc: false,
+      },
+    },
+  ]);
+});
+
+it("TikTok creator info returns creator_avatar_url as avatarUrl", async () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    clock: () => new Date("2026-11-04T00:00:00Z"),
+    fetch: async () =>
+      creatorResponse({ creator_avatar_url: "https://p16.tiktokcdn.example/avatar.jpeg" }),
+  });
+
+  assert.ok(adapter.native);
+  const info = await adapter.native.creatorInfo(account, context);
+  assert.equal(info["avatarUrl"], "https://p16.tiktokcdn.example/avatar.jpeg");
+
+  const withoutAvatar = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async () => creatorResponse(),
+  });
+
+  assert.ok(withoutAvatar.native);
+  assert.equal((await withoutAvatar.native.creatorInfo(account, context))["avatarUrl"], null);
+});
+
+it("TikTok refuses photos over 20 MB before any request", () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: ["https://media.example.test"],
+  });
+
+  const social = createSocial({ backend: adapter });
+  const target = { account, options: { ...options, creatorInfo: creator, photoCoverIndex: 0 } };
+
+  assert.equal(
+    social.posts.prepare({ targets: [target], content: photoContent(1, 20 * 1024 * 1024) }).ok,
+    true,
+  );
+
+  const tooLarge = social.posts.prepare({
+    targets: [target],
+    content: photoContent(1, 20 * 1024 * 1024 + 1),
+  });
+
+  assert.equal(tooLarge.ok, false);
+
+  if (!tooLarge.ok) assert.ok(tooLarge.issues.some((issue) => issue.code === "tiktok.photo_size"));
+});
+
+it("TikTok keeps every post ID when one publish_id produced several posts", async () => {
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async () =>
+      new Response(
+        '{"error":{"code":"ok"},"data":{"status":"PUBLISH_COMPLETE","publicaly_available_post_id":[7290000000000000001,7290000000000000002]}}',
+      ),
+  });
+
+  assert.ok(adapter.posts?.getDelivery);
+
+  const result = await adapter.posts.getDelivery(
+    {
+      kind: "delivery",
+      version: 1,
+      backend: "default",
+      platform: "tiktok",
+      accountId: "creator1",
+      deliveryId: "inbox1",
+    },
+    context,
+  );
+
+  assert.equal(result.state, "accepted");
+
+  if (result.state === "accepted")
+    assert.deepEqual(result.postIds, ["7290000000000000001", "7290000000000000002"]);
+});
+
+it("TikTok getProfile reads user.info.basic fields including avatar_url and union_id", async () => {
+  const urls: URL[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async (input) => {
+      urls.push(new URL(String(input)));
+
+      return response({
+        user: {
+          open_id: "creator1",
+          union_id: "union-1",
+          avatar_url: "https://p16.tiktokcdn.example/avatar.jpeg",
+          avatar_url_100: "https://p16.tiktokcdn.example/avatar100.jpeg",
+          avatar_large_url: "https://p16.tiktokcdn.example/avatar-large.jpeg",
+          display_name: "Demo",
+        },
+      });
+    },
+  });
+
+  const profile = await createSocial({ backend: adapter }).graph.getProfile(account, {});
+
+  assert.equal(urls[0]?.pathname, "/v2/user/info/");
+  assert.equal(
+    urls[0]?.searchParams.get("fields"),
+    "open_id,union_id,avatar_url,avatar_url_100,avatar_large_url,display_name",
+  );
+  assert.deepEqual(profile, {
+    ref: {
+      kind: "profile",
+      version: 1,
+      backend: "default",
+      platform: "tiktok",
+      accountId: "creator1",
+      profileId: "creator1",
+    },
+    displayName: "Demo",
+    avatarUrl: "https://p16.tiktokcdn.example/avatar.jpeg",
+    native: {
+      open_id: "creator1",
+      union_id: "union-1",
+      avatar_url: "https://p16.tiktokcdn.example/avatar.jpeg",
+      avatar_url_100: "https://p16.tiktokcdn.example/avatar100.jpeg",
+      avatar_large_url: "https://p16.tiktokcdn.example/avatar-large.jpeg",
+      display_name: "Demo",
+    },
+  });
+
+  // The Display API reads only the authorized creator.
+  await assert.rejects(
+    createSocial({ backend: adapter }).graph.getProfile(account, { handle: "someone" }),
+    (error: Error) => error instanceof SocialError && error.code === "unauthorized",
+  );
+  assert.equal(urls.length, 1);
+});
+
+it("TikTok getProfile adds user.info.profile fields (bio_description, profile_deep_link) when granted", async () => {
+  let fields: string | null = null;
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    userInfoProfile: true,
+    fetch: async (input) => {
+      fields = new URL(String(input)).searchParams.get("fields");
+
+      return response({
+        user: {
+          open_id: "creator1",
+          display_name: "Demo",
+          username: "demo",
+          bio_description: "Short bio",
+          profile_deep_link: "https://www.tiktok.com/@demo",
+          is_verified: false,
+        },
+      });
+    },
+  });
+
+  const profile = await createSocial({ backend: adapter }).graph.getProfile(account, {
+    profileId: "creator1",
+  });
+
+  assert.equal(
+    fields,
+    "open_id,union_id,avatar_url,avatar_url_100,avatar_large_url,display_name,bio_description,profile_deep_link,is_verified,username",
+  );
+  assert.equal(profile.handle, "demo");
+  assert.equal(profile.bio, "Short bio");
+  assert.equal(profile.native?.["profile_deep_link"], "https://www.tiktok.com/@demo");
+  assert.equal(profile.native?.["is_verified"], false);
+});
+
+it("TikTok native userInfo requests only documented fields and checks the creator", async () => {
+  const requested: (string | null)[] = [];
+  let openId = "creator1";
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async (input) => {
+      requested.push(new URL(String(input)).searchParams.get("fields"));
+
+      return response({ user: { open_id: openId, union_id: "union-1", follower_count: 5 } });
+    },
+  });
+
+  assert.ok(adapter.native);
+  assert.deepEqual(
+    await adapter.native.userInfo({ account, fields: ["union_id", "follower_count"], context }),
+    { open_id: "creator1", union_id: "union-1", follower_count: 5 },
+  );
+  assert.deepEqual(requested, ["open_id,union_id,follower_count"]);
+
+  openId = "someone-else";
+  await assert.rejects(
+    adapter.native.userInfo({ account, fields: ["union_id"], context }),
+    (error: Error) => error instanceof SocialError && error.code === "unauthorized",
+  );
+});
+
+it("TikTok Data Portability add, check and cancel send the documented portability requests", async () => {
+  const calls: { path: string; fields: string | null; body: JsonValue }[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      calls.push({
+        path: url.pathname,
+        fields: url.searchParams.get("fields"),
+        body: JSON.parse(String(init?.body)),
+      });
+
+      if (url.pathname === "/v2/user/data/add/") return response({ request_id: 123451234512345 });
+
+      if (url.pathname === "/v2/user/data/check/")
+        return response({
+          request_id: 123451234512345,
+          status: "downloading",
+          apply_time: 1703186989,
+          collect_time: 1703187862,
+          data_format: "json",
+          category_selection_list: ["profile", "direct_message"],
+        });
+
+      return Response.json({ error: { code: "ok", message: "", log_id: "log" } });
+    },
+  });
+
+  assert.ok(adapter.native);
+
+  assert.deepEqual(
+    await adapter.native.addDataRequest({
+      account,
+      dataFormat: "json",
+      categories: ["profile", "direct_message"],
+      context,
+    }),
+    { requestId: "123451234512345" },
+  );
+  assert.deepEqual(
+    await adapter.native.checkDataRequest({ account, requestId: "123451234512345", context }),
+    {
+      requestId: "123451234512345",
+      state: "downloading",
+      providerStatus: "downloading",
+      categories: ["profile", "direct_message"],
+      appliedAt: "2023-12-21T19:29:49.000Z",
+      collectionStartedAt: "2023-12-21T19:44:22.000Z",
+      dataFormat: "json",
+    },
+  );
+  await adapter.native.cancelDataRequest({ account, requestId: "123451234512345", context });
+
+  assert.deepEqual(calls, [
+    {
+      path: "/v2/user/data/add/",
+      fields: "request_id",
+      body: { data_format: "json", category_selection_list: ["profile", "direct_message"] },
+    },
+    {
+      path: "/v2/user/data/check/",
+      fields: "request_id,status,apply_time,collect_time,data_format,category_selection_list",
+      body: { request_id: 123451234512345 },
+    },
+    { path: "/v2/user/data/cancel/", fields: null, body: { request_id: 123451234512345 } },
+  ]);
+
+  // Request IDs that cannot round-trip through a JSON number are refused before dispatch.
+  await assert.rejects(
+    adapter.native.cancelDataRequest({ account, requestId: "9007199254740993", context }),
+    (error: Error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+  assert.equal(calls.length, 3);
+});
+
+it("TikTok Data Portability download streams the zip and maps the portability error envelope", async () => {
+  const archive = new Uint8Array([0x50, 0x4b, 0x03, 0x04]);
+  let mode: "zip" | "error" = "zip";
+  const seen: { url: string; init: RequestInit | undefined }[] = [];
+
+  const adapter = tiktok({
+    auth: { accessToken: "test", openId: "creator1" },
+    verifiedMediaOrigins: [],
+    fetch: async (input, init) => {
+      seen.push({ url: String(input), init });
+
+      return mode === "zip"
+        ? new Response(archive, { headers: { "content-type": "application/zip" } })
+        : Response.json(
+            {
+              data: {},
+              error: { code: "invalid_params", message: "Incorrect `request_id`.", log_id: "l" },
+            },
+            { status: 400 },
+          );
+    },
+  });
+
+  assert.ok(adapter.native);
+
+  const stream = await adapter.native.downloadDataRequest({
+    account,
+    requestId: "123451234512345",
+    context,
+  });
+
+  assert.deepEqual(new Uint8Array(await new Response(stream).arrayBuffer()), archive);
+  assert.equal(seen[0]?.url, "https://open.tiktokapis.com/v2/user/data/download/");
+  assert.equal(seen[0]?.init?.method, "POST");
+  assert.equal(seen[0]?.init?.redirect, "manual");
+  assert.equal(new Headers(seen[0]?.init?.headers).get("authorization"), "Bearer test");
+  assert.equal(seen[0]?.init?.body, '{"request_id":123451234512345}');
+
+  mode = "error";
+  await assert.rejects(
+    adapter.native.downloadDataRequest({ account, requestId: "1", context }),
+    (error: Error) =>
+      error instanceof SocialError &&
+      error.code === "upstream_failure" &&
+      error.upstreamCode === "invalid_params",
+  );
+});

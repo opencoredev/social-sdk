@@ -25,8 +25,9 @@ The direct TikTok adapter accepts an existing access token and creator `openId`.
     Use `ConnectionManager` with `tiktokOAuth` to bind the callback to the authenticated tenant,
     show the discovered creator, and persist credentials through an encrypted `credentialSink`. Its
     default scopes are `user.info.basic` and `video.publish`, sent comma-delimited. Request
-    `video.upload` for inbox drafts, `video.list` for Display API reads and post metrics, and
-    `user.info.stats` for account statistics.
+    `video.upload` for inbox drafts, `video.list` for Display API reads and post metrics,
+    `user.info.profile` for bio, username and verification, and `user.info.stats` for account
+    statistics.
   </Step>
   <Step title="Verify media origins">
     For `PULL_FROM_URL`, verify each media domain or URL prefix with TikTok and list its HTTPS
@@ -60,7 +61,81 @@ const account = connectedAccountRef({
 });
 ```
 
-TikTok access tokens last 24 hours and refresh tokens last 365 days. `expiresAt` describes access-token expiry. Refresh with `refreshOAuthToken("tiktok", ...)` and persist the new access token and any rotated refresh token. The SDK does not store refresh-token expiry; track it in your application and reconnect the creator when refresh authorization expires. See [Token management](https://developers.tiktok.com/doc/oauth-user-access-token-management).
+TikTok currently documents access tokens as valid for 2 hours and refresh tokens for 180 days, but the lifetimes can change, so rely on each response's `expires_in` and `refresh_expires_in` (seconds) instead of fixed numbers. `expiresAt` is computed from `expires_in`, and `refreshExpiresAt` from `refresh_expires_in`, on both the authorization-code exchange and `refreshOAuthToken("tiktok", ...)`. Both are RFC 3339 instants, and `StoredCredential` accepts `refreshExpiresAt`, so the token set your `credentialSink` saves can be stored as is. Persist the new access token, refresh token and `refreshExpiresAt` after every refresh: each refresh returns a different `refresh_token`, and reusing a replaced one fails. Schedule a reconnect prompt before `refreshExpiresAt`: once the refresh token lapses, refreshing fails and the creator has to authorize again. See [Token management](https://developers.tiktok.com/doc/oauth-user-access-token-management).
+
+```ts
+const next = await refreshOAuthToken("tiktok", { clientId, clientSecret }, stored);
+
+await save({ ...next }); // accessToken, refreshToken, expiresAt, refreshExpiresAt
+if (next.refreshExpiresAt && Date.parse(next.refreshExpiresAt) - Date.now() < 7 * 86_400_000)
+  await askCreatorToReconnect();
+```
+
+### Desktop and CLI apps
+
+[Login Kit for Desktop](https://developers.tiktok.com/doc/login-kit-desktop) requires PKCE, and TikTok expects the `code_challenge` as the hex-encoded SHA-256 of the verifier rather than the base64url form other providers use. Pass `tiktokLoginKit: "desktop"` to `tiktokOAuth`: the authorization URL then carries the hex `code_challenge` with `code_challenge_method=S256`, and the token exchange sends the attempt's `code_verifier`. The redirect URI must be a loopback URL, `http://localhost:<port>/...` or `http://127.0.0.1:<port>/...` (HTTPS also works), with an explicit port and no query or fragment; other redirects are rejected before any request. In the developer portal you may register the port as `*` so your app can listen on any free port. Add the exact loopback callback to `ConnectionManager`'s redirect allowlist. The default, `"web"`, sends no PKCE parameters.
+
+```ts
+const provider = tiktokOAuth({
+  clientId,
+  clientSecret,
+  redirectUri: "http://127.0.0.1:3455/callback/",
+  credentialSink,
+  tiktokLoginKit: "desktop",
+});
+```
+
+### QR code login for TVs and kiosks
+
+[QR code authorization](https://developers.tiktok.com/doc/login-kit-qr-code-authorization) lets a creator authorize from the TikTok app on their phone when your surface cannot open a browser redirect. It needs the client secret, so run it on your server.
+
+1. `createTikTokQrCode(options, { scopes, state })` calls `POST /v2/oauth/get_qrcode/` with `client_key`, comma-separated `scope` and optional `state`. It returns TikTok's QR `token` and `scanQrCodeUrl`, the `scan_qrcode_url` with its `client_ticket` query parameter set to a random URL-safe ticket (pass `clientTicket` to choose your own, under 512 characters URL-encoded). Render `scanQrCodeUrl` as the QR code and keep the returned object for the whole flow.
+2. `checkTikTokQrCode(options, qr)` calls `POST /v2/oauth/check_qrcode/` with `client_key`, `client_secret` and the QR token, and returns the `status`: `new`, `scanned`, `confirmed`, `expired`, or `utilised`. Poll it on your own interval while the status is `new` or `scanned`; on `expired`, create a new QR code. As TikTok requires, any response that carries a `client_ticket` must echo yours, and a `confirmed` response must carry it and your `state`; otherwise the call throws `unauthorized` and the response is ignored. On `confirmed` it returns the authorization `code` (from `code`, or from the `redirect_uri` TikTok returns) and that `redirectUri` without its `code` and `state`.
+3. `exchangeTikTokQrCode(options, { code, redirectUri })` exchanges the code at `POST /v2/oauth/token/` and returns the token set, including `refreshExpiresAt`, with the creator's `openId`. TikTok requires `redirect_uri` to match your registered redirect URI; if the check response has none, set `options.redirectUri`.
+
+```ts
+import {
+  checkTikTokQrCode,
+  createTikTokQrCode,
+  exchangeTikTokQrCode,
+} from "@opencoredev/social-sdk/server";
+
+const options = { clientId, clientSecret, redirectUri };
+const qr = await createTikTokQrCode(options, { scopes: ["user.info.basic"], state });
+showQrCode(qr.scanQrCodeUrl);
+
+const check = await checkTikTokQrCode(options, qr); // call again until confirmed or expired
+if (check.status === "confirmed") {
+  const { token, openId } = await exchangeTikTokQrCode(options, check);
+  await saveCredential(openId, token);
+}
+```
+
+The QR flow does not go through `ConnectionManager`, so bind the result to the authenticated tenant yourself before saving it.
+
+### Connect a second creator in the same browser
+
+Login Kit skips the authorization page when the browser already has a valid TikTok session, which reconnects the signed-in account instead of letting the user pick another one. Pass `disableAutoAuth: true` to `tiktokOAuth` to send `disable_auto_auth=1`, which makes TikTok always show the authorization page. Without it, TikTok's default (`0`) applies. The option is TikTok-only; other OAuth providers reject it. See [Login Kit for Web](https://developers.tiktok.com/doc/login-kit-web).
+
+```ts
+const provider = tiktokOAuth({
+  clientId,
+  clientSecret,
+  redirectUri,
+  credentialSink,
+  disableAutoAuth: true,
+});
+```
+
+### Revoke a creator's token
+
+`revokeTikTokOAuthToken(options, token)` calls `POST /v2/oauth/revoke/` with your client key (`clientId`), `clientSecret`, and the creator's access token as a form body. TikTok answers success with an empty body and the function returns `"revoked"`, so it fits the `grants.revoke` hook of `createOAuthConnectHandlers`. An error body such as `invalid_request` throws `upstream_failure` with the code in `upstreamCode`. See [Revoke a user access token](https://developers.tiktok.com/doc/oauth-revoke-a-user-access-token).
+
+```ts
+import { revokeTikTokOAuthToken } from "@opencoredev/social-sdk/server";
+
+await revokeTikTokOAuthToken({ clientId, clientSecret }, { accessToken: stored.accessToken });
+```
 
 TikTok domain verification covers the verified domain; URL-prefix verification covers only that prefix. `verifiedMediaOrigins` checks origins only, so configuring an origin does not prove that every path is inside a verified prefix. Your application must enforce that narrower boundary. Pull URLs must not redirect and must remain accessible throughout TikTok's download, which can take up to one hour. See the [Media Transfer Guide](https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide).
 
@@ -82,9 +157,23 @@ const creatorInfo = await native.creatorInfo(account, {
 });
 ```
 
-The SDK returns `accountId`, `backend`, `fetchedAt`, `username`, `nickname`, `privacyLevels`, `commentDisabled`, `duetDisabled`, `stitchDisabled`, and `maxVideoDurationSeconds` (or `null` when absent). Keep this snapshot bound to the same account and backend.
+The SDK returns `accountId`, `backend`, `fetchedAt`, `username`, `nickname`, `avatarUrl`, `privacyLevels`, `commentDisabled`, `duetDisabled`, `stitchDisabled`, and `maxVideoDurationSeconds`. `avatarUrl` comes from `creator_avatar_url` so the preview can show which account will post; TikTok signs that URL for two hours, so query creator info again instead of storing it. `avatarUrl` and `maxVideoDurationSeconds` are `null` when TikTok omits them. Keep this snapshot bound to the same account and backend.
 
-When a restriction is disabled by TikTok, disable the corresponding interaction control and submit `true` for `disableComments`, `disableDuet`, or `disableStitch`. Duet and stitch apply only to videos. Check video duration against `maxVideoDurationSeconds`, show commercial-content disclosure prompts for `brandedContent` and `ownBrand`, and ask for the AI-content choice. Branded content cannot use `SELF_ONLY` for Direct Post. Present TikTok's Music Usage Confirmation and obtain the creator's explicit consent before transfer. The adapter refreshes creator information before Direct Post initialization; if privacy or interaction restrictions changed, refresh the preview and ask again.
+The creator-info query itself can refuse a creator who cannot post right now. TikTok returns `spam_risk_too_many_posts` (daily post cap reached), `spam_risk_user_banned_from_posting` (the creator is banned from posting), or `reached_active_user_cap` (your app's daily quota of active publishing creators is used up) from `creator_info/query` with HTTP 200. `native.creatorInfo` and Direct Post publishing throw a `SocialError` with that code in `upstreamCode` and a `never` retry disposition. TikTok's guidelines require you to stop the flow and tell the creator to try again later instead of showing the preview. See [Query Creator Info](https://developers.tiktok.com/doc/content-posting-api-reference-query-creator-info).
+
+When a restriction is disabled by TikTok, disable the corresponding interaction control and submit `true` for `disableComments`, `disableDuet`, or `disableStitch`. Duet and stitch apply only to videos. Check video duration against `maxVideoDurationSeconds`, show the commercial-content disclosure described below, and ask for the AI-content choice. Present TikTok's Music Usage Confirmation and obtain the creator's explicit consent before transfer. The adapter refreshes creator information before Direct Post initialization; if privacy or interaction restrictions changed, refresh the preview and ask again.
+
+#### Commercial content disclosure
+
+TikTok's [content sharing guidelines](https://developers.tiktok.com/doc/content-sharing-guidelines#required_ux_implementation_in_your_app) require a disclosure toggle, off by default, that asks whether the content promotes the creator, a brand, a product or a service. Turning it on shows two checkboxes that map to the SDK options:
+
+| Checkbox        | SDK option (wire field)                   | Label TikTok applies  | Declaration shown before posting                                                         |
+| --------------- | ----------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------- |
+| Your brand      | `ownBrand` (`brand_organic_toggle`)       | "Promotional content" | "By posting, you agree to TikTok's Music Usage Confirmation."                            |
+| Branded content | `brandedContent` (`brand_content_toggle`) | "Paid partnership"    | "By posting, you agree to TikTok's Branded Content Policy and Music Usage Confirmation." |
+| Both            | both `true`                               | "Paid partnership"    | The Branded Content Policy and Music Usage Confirmation declaration.                     |
+
+While the toggle is on and neither box is checked, keep the publish button disabled and tell the creator they must say whether the content promotes themselves, a third party, or both. Branded content can be public or friends-only, never private: disable the "Only me" choice while Branded content is checked. The adapter also rejects `brandedContent: true` with `SELF_ONLY` for Direct Post, both during preparation and before initialization.
 
 The following functions take validated choices from your application's submitted creator preview. They do not select privacy or enable interactions on the creator's behalf. Call them only after the preview, disclosure prompts, Music Usage Confirmation, and publish consent are complete.
 
@@ -107,6 +196,8 @@ type CreatorChoices = Required<
 
 Preparation requires explicit booleans for `aiGenerated` and `draft`, along with every interaction and disclosure choice. `draft: false` selects Direct Post; `draft: true` selects inbox delivery.
 
+`videoCoverTimestampMs` picks the cover frame and is sent as `post_info.video_cover_timestamp_ms`. It takes whole milliseconds from the start of the video, must fall within the known `durationSeconds`, and applies to video Direct Post only, because inbox video uploads send no `post_info`. Without it TikTok uses the first frame, and TikTok also falls back to the first frame for a value it considers invalid.
+
 ```ts
 async function publishVideo(choices: CreatorChoices) {
   return social.posts.publish({
@@ -124,6 +215,7 @@ async function publishVideo(choices: CreatorChoices) {
           consentGiven: true,
           creatorInfo,
           draft: false,
+          videoCoverTimestampMs: 2_000,
         },
       },
     ],
@@ -156,7 +248,9 @@ not for local video uploads.
 
 The adapter supports one video or 1–35 photos. `photoCoverIndex` selects the cover image by its zero-based index. Photo titles allow 90 UTF-16 code units and descriptions (`content.text`) allow 4,000; video captions allow 2,200.
 
-When using the Zernio backend, `TikTokPublishOptions.title` (90 code units), `description` (4,000 code units), `mediaType: "photo"`, and `autoAddMusic` configure photo posts. These options are photo-only and are rejected for video posts; `autoAddMusic` defaults to `false` when omitted.
+`autoAddMusic: true` asks TikTok to add recommended music to a photo Direct Post (`post_info.auto_add_music`). It defaults to `false`. The adapter rejects it for videos and for inbox drafts, because TikTok accepts `auto_add_music` only on photo Direct Post. Photo posts do not use `disableDuet` or `disableStitch`.
+
+When using the Zernio backend, `TikTokPublishOptions.title` (90 code units), `description` (4,000 code units), `mediaType: "photo"`, and `autoAddMusic` configure photo posts. `description` and `mediaType` are Zernio-only; the direct adapter uses `content.text` as the photo description and rejects both.
 
 ```ts
 async function publishPhotos(choices: CreatorChoices) {
@@ -226,11 +320,36 @@ async function sendVideoDraft(choices: CreatorChoices) {
 }
 ```
 
-Photo inbox delivery uses `draft: true` with the photo shape above, including `photoCoverIndex`. The adapter sends photo title and description with `MEDIA_UPLOAD`, but TikTok documents posting controls as Direct Post fields. Do not promise that inbox delivery applies them; the creator reviews and completes the post in TikTok.
+Photo inbox delivery uses `draft: true` with the photo shape above, including `photoCoverIndex`, and needs `video.upload`. The adapter sends `post_mode: "MEDIA_UPLOAD"` with only the photo `title` and `description` in `post_info`. TikTok documents `privacy_level`, `disable_comment`, `auto_add_music`, and the brand toggles as Direct Post fields, so the adapter leaves them out of inbox drafts; the creator chooses them in TikTok when completing the post. Photo inbox drafts need TikTok app version 31.8 or later on the creator's device. Older apps make initialization fail with `app_version_check_failed`, which the SDK reports as `upstream_failure` with that `upstreamCode`; ask the creator to update TikTok and try again. See [Photo Post](https://developers.tiktok.com/doc/content-posting-api-reference-photo-post).
 
 ### Reconcile the publish ID
 
-Initialization returns `accepted` with the `publish_id` in `outcome.delivery.deliveryId`. Reconcile through `posts.getDelivery`. Download/upload states remain `processing`; `SEND_TO_USER_INBOX` remains `accepted` and requires creator completion. `PUBLISH_COMPLETE` without exactly one public post ID also remains `accepted`, including private or non-public completion. Only a single public identity produces `published`. A confirmed failure is `failed`.
+Initialization returns `accepted` with the `publish_id` in `outcome.delivery.deliveryId`. Reconcile through `posts.getDelivery`. Download/upload states remain `processing`; `SEND_TO_USER_INBOX` remains `accepted` and requires creator completion. `PUBLISH_COMPLETE` without exactly one public post ID also remains `accepted`, both for private or non-public completion and for several posts (below). Only a single public identity produces `published`. A confirmed failure is `failed`.
+
+One inbox `publish_id` can produce several public posts, because TikTok returns `publicaly_available_post_id` as a list. When it lists more than one ID, `getDelivery` returns `accepted` with every ID in `postIds` (as decimal strings) rather than choosing one.
+
+A `FAILED` status carries TikTok's `fail_reason`, which becomes the outcome's `code`. The SDK sets the retry disposition from it:
+
+| `fail_reason`                                                                                               | Meaning                                                            | Retry disposition                                       |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------- |
+| `internal`                                                                                                  | TikTok server error                                                | `reconcile-first`                                       |
+| `video_pull_failed`, `photo_pull_failed`                                                                    | TikTok could not download the URL in time                          | `reconcile-first`; retry only if the URL is still valid |
+| `file_format_check_failed`, `duration_check_failed`, `frame_rate_check_failed`, `picture_size_check_failed` | The media breaks the [media specifications](#media-specifications) | `never`; fix the media                                  |
+| `publish_cancelled`                                                                                         | The developer cancelled the post                                   | `never`                                                 |
+| `auth_removed`                                                                                              | The creator revoked access during processing                       | `never`; reconnect first                                |
+| `spam_risk_too_many_posts`, `spam_risk_user_banned_from_posting`, `spam_risk_text`, `spam_risk`             | TikTok's spam checks blocked the post                              | `never`                                                 |
+
+A missing `fail_reason` becomes `upstream_failure`. See [Get Post Status](https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status).
+
+### Cancel a slow URL download
+
+`native.cancelPublish({ account, publishId, context })` calls `POST /v2/post/publish/cancel/` with the `publish_id` of a `PULL_FROM_URL` Direct Post or inbox upload that TikTok is still downloading. It needs `video.publish` or `video.upload`. Cancellation is best effort: TikTok cannot stop a download that is nearly finished or already in file processing, so a resolved call only means TikTok accepted the request. Keep polling `posts.getDelivery` until it reports `failed` with `publish_cancelled`, or a final success. A task that already reached a final state throws `upstream_failure` with `upstreamCode` `publish_not_cancellable`; other codes include `invalid_publish_id` and `token_not_authorized_for_specified_publish_id`. See the [Media Transfer Guide](https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide).
+
+```ts
+const native = social.native("default", { acknowledgeUnsafe: true });
+
+await native.cancelPublish({ account, publishId, context });
+```
 
 ```ts
 async function reconcile(result: Awaited<ReturnType<typeof publishVideo>>) {
@@ -247,7 +366,49 @@ async function reconcile(result: Awaited<ReturnType<typeof publishVideo>>) {
 
 Pass the app client secret as `webhookSecret`. `adapter.webhooks.verify` checks `TikTok-Signature` and rejects timestamps more than 300 seconds old; set `webhookToleranceSeconds` to change the window, because TikTok does not publish one.
 
-`post.publish.*` events decode to `publication.updated` and use `content.publish_id` as `backendRecordId`. Inspect `originalType` to distinguish the event, `content.reason` for a failure, and `content.post_id` for public availability. Legacy `video.*` events use `share_id` and are not assigned that backend record ID. `authorization.removed` decodes to `account.updated`. See [Process webhooks](/events) and TikTok's [Events guide](https://developers.tiktok.com/doc/webhooks-events).
+TikTok sends five Content Posting events, named `post.publish.*`. Each carries `publish_id` and `publish_type` in `content`, and the SDK uses `content.publish_id` as `backendRecordId`. `publish_type` is `INBOX_SHARE` for inbox uploads.
+
+| `originalType`                               | When TikTok sends it                                                                        | Extra `content` fields | SDK `type`            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------- | --------------------- |
+| `post.publish.failed`                        | Publishing failed                                                                           | `reason`               | `publication.updated` |
+| `post.publish.complete`                      | The creator posted the content; one `publish_id` can yield several posts                    | none                   | `publication.updated` |
+| `post.publish.inbox_delivered`               | The inbox notification for an upload reached the creator, so the draft is waiting in TikTok | none                   | `publication.updated` |
+| `post.publish.publicly_available`            | The post became publicly viewable                                                           | `post_id`              | `publication.updated` |
+| `post.publish.no_longer_publicaly_available` | The post stopped being publicly viewable                                                    | `post_id`              | `post.removed`        |
+
+Read `content.post_id` on the last two events to find the public post, and `content.reason` on a failure. TikTok spells the last event `no_longer_publicaly_available`, and the SDK matches that spelling. `post.removed` here means the post is no longer public: the creator may have deleted it or made it private, or moderation may have removed it. Legacy `video.*` events use `share_id` and are not assigned that backend record ID. See [Get Post Status](https://developers.tiktok.com/doc/content-posting-api-reference-get-video-status).
+
+`authorization.removed` decodes to `account.updated`. Read `content.reason` and mark the creator's connection revoked, then ask them to reconnect if they want to keep posting:
+
+| `reason` | Meaning                                                                           |
+| -------- | --------------------------------------------------------------------------------- |
+| `0`      | Unknown                                                                           |
+| `1`      | The user disconnected your app in TikTok                                          |
+| `2`      | The user's account was deleted                                                    |
+| `3`      | The user's age changed                                                            |
+| `4`      | The user's account was banned                                                     |
+| `5`      | The developer revoked authorization, for example through `revokeTikTokOAuthToken` |
+
+`portability.download.ready` (see [Data Portability](#data-portability)) decodes to `unknown` with its `originalType` and `content.request_id`. See [Process webhooks](/events) and TikTok's [Events guide](https://developers.tiktok.com/doc/webhooks-events).
+
+## Read the creator's profile
+
+`social.graph.getProfile(account, {})` reads the authorized creator through `GET /v2/user/info/`. TikTok's Display API reads only the user who granted the token, so the adapter refuses a `handle` or another `profileId` before any request.
+
+| Scope               | Fields                                                                                    | Where they land                                                             |
+| ------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `user.info.basic`   | `open_id`, `union_id`, `avatar_url`, `avatar_url_100`, `avatar_large_url`, `display_name` | `displayName`, `avatarUrl` (from `avatar_url`), and every field in `native` |
+| `user.info.profile` | `username`, `bio_description`, `profile_deep_link`, `is_verified`                         | `handle`, `bio`, and `native`                                               |
+| `user.info.stats`   | `follower_count`, `following_count`, `likes_count`, `video_count`                         | `social.analytics.getAccountMetrics`                                        |
+
+`union_id` identifies the same person across every app owned by your developer account, while `open_id` is specific to one app. Use `union_id` to link a creator who connected two of your apps. The `user.info.profile` fields need that scope, so the adapter asks for them only when you construct it with `userInfoProfile: true`; without the grant TikTok rejects the whole call for a missing scope.
+
+```ts
+const profile = await social.graph.getProfile(account, {});
+console.log(profile.displayName, profile.avatarUrl, profile.native?.["union_id"]);
+```
+
+For a custom field list, `native.userInfo({ account, fields, context })` requests exactly the fields you name, plus `open_id`, and checks that TikTok returned the connected creator. The exported `tiktokUserInfoFields` groups the field names by scope.
 
 ## Native operations and Display API reads
 
@@ -262,9 +423,108 @@ it is not a Research API declaration, and inbox drafts intentionally skip that p
 
 `cover_image_url` expires after six hours. Refresh it through `posts.get` instead of treating it as a permanent asset URL. Post metrics from `social.analytics.getPostMetrics` read like, comment, share, and view counts through the video-query endpoint and require `video.list`; account metrics require `user.info.stats`. A missing requested video is an error; absent individual metric fields stay absent.
 
-Polling is caller initiated and bounded; the SDK does not run background polling. Comments and direct messages remain platform limits for standard Content Posting and Display API apps.
+For the creator's own videos, `embed_html` and `embed_link` from the Display API provide embed markup. TikTok's oEmbed endpoint is listed under [Not supported](#not-supported).
+
+### Embed Player
+
+The [Embed Player](https://developers.tiktok.com/doc/embed-player) plays any public post in an iframe at `https://www.tiktok.com/player/v1/{post_id}` and needs no token. `tiktokEmbedPlayerUrl(postId, options)` builds that URL, sending each option you set as `1` or `0` and leaving the others at TikTok's default:
+
+| Option              | Query parameter       | Default | Effect                                                     |
+| ------------------- | --------------------- | ------- | ---------------------------------------------------------- |
+| `controls`          | `controls`            | on      | Off hides the progress bar and every control button        |
+| `progressBar`       | `progress_bar`        | on      | Progress bar (video)                                       |
+| `playButton`        | `play_button`         | on      | Play button (video)                                        |
+| `volumeControl`     | `volume_control`      | on      | Volume control                                             |
+| `fullscreenButton`  | `fullscreen_button`   | on      | Full-screen button                                         |
+| `timestamp`         | `timestamp`           | on      | Playback time and duration (video)                         |
+| `loop`              | `loop`                | off     | Loop playback (video)                                      |
+| `autoplay`          | `autoplay`            | off     | Start playing on load (video)                              |
+| `musicInfo`         | `music_info`          | off     | Show the sound's details                                   |
+| `description`       | `description`         | off     | Show the post's description                                |
+| `rel`               | `rel`                 | on      | On shows related videos; off shows the author's own videos |
+| `nativeContextMenu` | `native_context_menu` | on      | The browser's right-click menu                             |
+| `closedCaption`     | `closed_caption`      | on      | Closed captions (video)                                    |
+| `forceMuted`        | `force_muted`         | off     | Volume 0, and the viewer cannot change it                  |
+
+To control the player, post `tiktokPlayerMessage(command)` to the iframe. It builds TikTok's `{ type, value, "x-tiktok-player": true }` shape for `play`, `pause`, `mute`, `unMute`, `seekTo` (seconds) and `navigateTo` (image index, photo posts only). `parseTikTokPlayerEvent(event.data)` decodes the player's messages, `onPlayerReady`, `onStateChange` (-1 init, 0 ended, 1 playing, 2 paused, 3 buffering), `onCurrentTime`, `onMute`, `onVolumeChange`, `onImageChange` and `onPlayerError`, and returns `undefined` for anything else. Check that `event.origin` is `https://www.tiktok.com` first.
+
+```ts
+import {
+  parseTikTokPlayerEvent,
+  tiktokEmbedPlayerUrl,
+  tiktokPlayerMessage,
+} from "@opencoredev/social-sdk/tiktok";
+
+iframe.src = tiktokEmbedPlayerUrl(videoId, { musicInfo: true, description: true, rel: false });
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== "https://www.tiktok.com") return;
+  const playerEvent = parseTikTokPlayerEvent(event.data);
+  if (playerEvent?.type === "onPlayerReady")
+    iframe.contentWindow?.postMessage(
+      tiktokPlayerMessage({ type: "play" }),
+      "https://www.tiktok.com",
+    );
+});
+```
+
+Creator-profile embeds are listed under [Not supported](#not-supported).
+
+Polling is caller initiated and bounded; the SDK does not run background polling. Comments and direct messages remain platform limits for standard Content Posting and Display API apps. The only API route to a creator's direct messages is a [Data Portability](#data-portability) export, which is a one-off archive, not an inbox.
+
+## Data Portability
+
+TikTok's [Data Portability API](https://developers.tiktok.com/doc/data-portability-api-get-started) lets a creator export their own TikTok data, including direct messages, to your app. It needs TikTok's approval for the `portability.*` scopes on top of Login Kit. Each scope comes in a `.single` variant (one request) and an `.ongoing` variant (repeated requests):
+
+| Category               | Scope                                              |
+| ---------------------- | -------------------------------------------------- |
+| `profile`, `video`     | `portability.postsandprofile.single` or `.ongoing` |
+| `activity`             | `portability.activity.single` or `.ongoing`        |
+| `direct_message`       | `portability.directmessages.single` or `.ongoing`  |
+| `all_data`, or any mix | `portability.all.single` or `.ongoing`             |
+
+The native module wraps the four endpoints:
+
+- `native.addDataRequest({ account, dataFormat, categories, context })` calls `POST /v2/user/data/add/` with `data_format` (`"text"` or `"json"`) and `category_selection_list`, and returns `{ requestId }`.
+- `native.checkDataRequest({ account, requestId, context })` calls `POST /v2/user/data/check/` and returns `state` (`pending`, `downloading` when the archive is ready, `expired`, `cancelled`, or `unknown` for a new status, with the raw value in `providerStatus`), `appliedAt`, `collectionStartedAt`, `dataFormat`, and `categories`.
+- `native.cancelDataRequest({ account, requestId, context })` calls `POST /v2/user/data/cancel/`. With an `.ongoing` scope you can then make another request.
+- `native.downloadDataRequest({ account, requestId, context })` calls `POST /v2/user/data/download/` and returns the zip archive as a `ReadableStream<Uint8Array>` that you must consume or cancel. The retry budget covers only the wait for the response headers. Archives expire four days after they become ready.
+
+TikTok's `request_id` is a 64-bit integer. The SDK passes it as a decimal string and refuses IDs beyond `Number.MAX_SAFE_INTEGER`, which a JSON number cannot carry exactly. If TikTok accepts `addDataRequest` but returns no usable `request_id`, the call throws `ambiguous_outcome` with `retryDisposition: { kind: "reconcile-first" }`, because TikTok may already have created the export; check the creator's requests before you retry. Poll `checkDataRequest`, or wait for the `portability.download.ready` webhook, before downloading.
+
+```ts
+const { requestId } = await native.addDataRequest({
+  account,
+  dataFormat: "json",
+  categories: ["profile", "video"],
+  context: {
+    backendInstance: "default",
+    correlationId: "export",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 10_000 },
+  },
+});
+```
+
+Exported data includes private content such as direct messages. Store it with the same care as credentials and delete it when the creator's request is fulfilled.
 
 ## Limits and requirements
+
+### Media specifications
+
+| Media | Requirement | TikTok limit                                                                      | Checked by the SDK before sending                                                                                                                                                                                                                                        |
+| ----- | ----------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Video | Format      | MP4 (recommended), WebM, MOV                                                      | Declared MIME type: `video/mp4`, `video/quicktime` or `video/webm`, else `tiktok.mime`. Blob and stream videos must declare one; a URL video without a type is not checked. The file's bytes are not inspected.                                                          |
+| Video | Codec       | H.264 (recommended), H.265, VP8, VP9                                              | No, TikTok only (`file_format_check_failed`)                                                                                                                                                                                                                             |
+| Video | Frame rate  | 23 to 60 FPS                                                                      | No, TikTok only (`frame_rate_check_failed`)                                                                                                                                                                                                                              |
+| Video | Resolution  | 360 to 4,096 px in height and width                                               | No, TikTok only (`picture_size_check_failed`)                                                                                                                                                                                                                            |
+| Video | Duration    | Up to the creator's `maxVideoDurationSeconds`; the API accepts at most 10 minutes | Yes: a missing or non-positive `durationSeconds` fails as `tiktok.duration`, and a Direct Post longer than the creator's `maxVideoDurationSeconds` from creator info fails before upload. Drafts and the 10-minute API cap are left to TikTok (`duration_check_failed`). |
+| Video | File size   | 4 GB                                                                              | Blob and stream videos: 1 byte to 4 GiB, from the Blob's size or the stream's declared `byteSize`, else `tiktok.size`. URL videos: no, TikTok only.                                                                                                                      |
+| Photo | Format      | JPEG, WebP                                                                        | Declared MIME type: `image/jpeg` or `image/webp`, else `tiktok.mime`. Photos must be HTTPS URLs on a verified origin; a Blob or stream photo fails as `tiktok.source`.                                                                                                   |
+| Photo | Resolution  | At most 1080p                                                                     | No, TikTok only (`picture_size_check_failed`)                                                                                                                                                                                                                            |
+| Photo | File size   | 20 MB per photo                                                                   | Only when `byteSize` is set: above 20 MiB fails as `tiktok.photo_size`.                                                                                                                                                                                                  |
+| Post  | Items       | One video, or 1 to 35 photos                                                      | Yes: anything else, including a mix of photos and video, fails as `tiktok.media`.                                                                                                                                                                                        |
+
+Source: TikTok's [Media Transfer Guide](https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide). The SDK cannot read codecs, frame rate or pixel dimensions from a URL, so TikTok reports those problems after the request through `fail_reason`. Transcode to H.264 MP4 at 23 to 60 FPS and keep photos at 1080p or smaller to avoid them.
 
 Unaudited Direct Post clients can post only to private creator accounts with `SELF_ONLY` visibility and are limited to five users in a 24-hour period. Public posting requires TikTok's audit approval. The SDK does not claim approval or silently change privacy. Follow TikTok's [content sharing guidelines](https://developers.tiktok.com/doc/content-sharing-guidelines/) when building the creator preview.
 
@@ -272,6 +532,16 @@ Direct Post daily caps vary by creator and are typically about 15 posts per crea
 
 Provider codes include `rate_limit_exceeded`, `spam_risk_too_many_posts`, `spam_risk_too_many_pending_share`, `reached_active_user_cap`, and `unaudited_client_can_only_post_to_private_accounts`. The SDK preserves structured provider codes as `upstreamCode`; HTTP 429 stays `rate_limited` with its status and validated structured provider code, when present. Rate-limit errors expose a delay disposition bounded to 60 seconds, using `Retry-After` when available and 60 seconds otherwise. This disposition does not replay a write or start automatic polling.
 
-The adapter rejects missing consent, changed creator choices, unverified origins, unsupported schedules/replies/links, and unknown video duration. Published posts cannot be edited: the [Content Posting API](https://developers.tiktok.com/doc/content-posting-api-get-started) sets posting options only during initialization, so `posts.update` is `unsupported-by-platform`.
+The adapter rejects missing consent, changed creator choices, unverified origins, unsupported schedules/replies/links, and unknown video duration.
+
+### Not supported
+
+- Research API video query: searching public TikTok videos by keyword, hashtag, region, username or date exists only in the [Research API](https://developers.tiktok.com/products/research-api), which TikTok limits to approved non-profit academic researchers for non-commercial use. The SDK has no public video search.
+- Research API user data: public user info, followers, following, liked, pinned and reposted videos, playlists, and TikTok Shop data are also Research API-only and partner-gated.
+- Research Batch Compliance APIs: the `validation_task` endpoints (`POST /v2/research/validation_task/create/`, `validation_task_status/get/`, `validation_task/download/`) check whether stored Research API data is still public. They need a Research API client token with `research.data.basic`, so they are partner-gated with the rest of the Research API. See [Batch Compliance APIs](https://developers.tiktok.com/doc/batch-compliance-apis).
+- Client access tokens: TikTok issues a client access token (`grant_type=client_credentials`) for app-level calls, and only the Research and Commercial Content APIs use it. The SDK requests user tokens only.
+- Post edits: the [Content Posting API](https://developers.tiktok.com/doc/content-posting-api-get-started) sets posting options only during initialization, so `posts.update` is `unsupported-by-platform`.
+- oEmbed: TikTok's [oEmbed endpoint](https://developers.tiktok.com/doc/embed-videos) for embedding any public video is marked for deprecation in favor of the Embed Player, so the SDK does not wrap it.
+- Creator-profile embeds: they use a separate [Embed Creator Profiles](https://developers.tiktok.com/doc/embed-creator-profiles) snippet; the SDK has no builder for it.
 
 Keep tokens server-side and treat media URLs, creator data, and publish IDs as sensitive. Repository evidence is offline contract and mocked transport coverage; no TikTok app or creator account has been live-verified.

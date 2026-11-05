@@ -306,6 +306,11 @@ it("LinkedIn binds comment replies to their post before dispatching", async () =
         if (String(input).includes("/rest/posts/")) return Response.json({ author: auth.author });
 
         if (init?.method === "POST") {
+          // Rest.li 2.0 resource keys encode the composite URN parentheses as %28 and %29.
+          assert.equal(
+            String(input),
+            "https://api.linkedin.com/rest/socialActions/urn%3Ali%3Acomment%3A%28urn%3Ali%3Aactivity%3A456%2C789%29/comments",
+          );
           const body = JSON.parse(String(init.body));
           assert.equal(body.parentComment, comment.commentId);
           assert.equal(body.object, comment.postId);
