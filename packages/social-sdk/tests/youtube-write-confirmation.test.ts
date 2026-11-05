@@ -664,7 +664,7 @@ for (const write of writes) {
     });
 }
 
-/** The final upload chunk's answer is the created video, which must carry its ID and status. */
+/** The final upload chunk's answer is the created video: a non-empty ID, and a well-formed status when present. */
 const uploads: readonly { readonly answer: Answer; readonly confirmed: boolean }[] = [
   {
     answer: json("video", { id: "video1", status: { uploadStatus: "uploaded" } }),
@@ -674,7 +674,8 @@ const uploads: readonly { readonly answer: Answer; readonly confirmed: boolean }
   { answer: json("array", []), confirmed: false },
   { answer: json("empty object", {}), confirmed: false },
   { answer: json("numeric id", { id: 7, status: {} }), confirmed: false },
-  { answer: json("no status", { id: "video1" }), confirmed: false },
+  // A session opened with part=snippet answers without a status part; the ID alone confirms it.
+  { answer: json("no status part", { id: "video1" }), confirmed: true },
   { answer: json("null status", { id: "video1", status: null }), confirmed: false },
   {
     answer: json("numeric uploadStatus", { id: "video1", status: { uploadStatus: 7 } }),

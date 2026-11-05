@@ -343,8 +343,10 @@ function uploadedVideo(body: JsonField): JsonObject {
     video !== undefined &&
     isString(id) &&
     id.trim() !== "" &&
-    isJsonObject(status) &&
-    (status["uploadStatus"] === undefined || isString(status["uploadStatus"]))
+    // `status` is present only when the session requested that part (snippet-only uploads omit it).
+    (status === undefined ||
+      (isJsonObject(status) &&
+        (status["uploadStatus"] === undefined || isString(status["uploadStatus"]))))
   )
     return video;
 
