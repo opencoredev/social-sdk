@@ -396,7 +396,7 @@ it("TikTok SELF_ONLY completion is published even without a public post id", asy
   assert.equal(result.state, "accepted");
 });
 
-it("TikTok draft initialization skips creator info and uses the inbox endpoint", async () => {
+it("TikTok draft initialization skips creator info and uses the inbox endpoint [feature:tiktok.publish.video.inbox_upload]", async () => {
   const calls: string[] = [];
 
   const adapter = tiktok({
