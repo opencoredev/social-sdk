@@ -436,6 +436,7 @@ async function request(
   options.signal?.addEventListener("abort", onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let dispatched = false;
+  let answeredOk = false;
 
   try {
     // Race injected fetchers and response readers that ignore AbortSignal.
@@ -454,6 +455,8 @@ async function request(
       aborted,
     ]);
 
+    answeredOk = response.ok;
+
     return await Promise.race([
       body(
         response,
@@ -465,15 +468,18 @@ async function request(
       aborted,
     ]);
   } catch (error) {
-    if (error instanceof SocialError) throw error;
+    // A mutation that was sent and not definitely refused (an error status) may have been
+    // applied: its response was lost, unreadable, oversized or malformed.
+    const uncertain = mutation && dispatched && (answeredOk || !(error instanceof SocialError));
 
-    // The provider may have applied the mutation before the response was lost.
-    if (mutation && dispatched)
+    if (error instanceof SocialError && !uncertain) throw error;
+
+    if (uncertain)
       throw new SocialError({
         code: "ambiguous_outcome",
         operation,
         message:
-          "The OAuth provider response was lost after the request was sent; the change may have been applied. Check the grant before retrying.",
+          "The OAuth provider response to a sent change was lost or unreadable; the change may have been applied. Check the grant before retrying.",
         retryDisposition: { kind: "reconcile-first" },
         cause: error,
       });

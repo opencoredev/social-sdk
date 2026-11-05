@@ -178,6 +178,10 @@ export interface ManagedInstagramPublishOptions extends ManagedCommonPublishOpti
   readonly placement?: "feed" | "story" | "reels";
   /** Up to three public Business or Creator usernames. Not for Stories. */
   readonly collaborators?: readonly string[];
+  /**
+   * Tagged users. The direct Instagram adapter (`user_tags`) requires `x` and `y` and rejects
+   * `mediaIndex`; Zernio takes `mediaIndex` for carousel slides.
+   */
   readonly userTags?: readonly InstagramUserTagOption[];
   /** Numeric ID of a Facebook Page with location data. */
   readonly locationId?: string;

@@ -104,6 +104,19 @@ for (const [provider, revoke] of revocations) {
   });
 }
 
+it("revocation answered 200 with an unreadable body is an uncertain outcome", async () => {
+  const fetch: typeof globalThis.fetch = async () =>
+    new Response("not json", { status: 200, headers: { "content-type": "application/json" } });
+
+  await assert.rejects(
+    revokeXOAuthToken({ clientId: "fixture-client", fetch }, { token: "fixture-token" }),
+    (error: SocialError) =>
+      error instanceof SocialError &&
+      error.code === "ambiguous_outcome" &&
+      error.retryDisposition?.kind === "reconcile-first",
+  );
+});
+
 it("revocation rejected by the provider stays a definite failure", async () => {
   const fetch: typeof globalThis.fetch = async () =>
     Response.json({ error: "invalid_token" }, { status: 400 });

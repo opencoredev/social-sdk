@@ -203,7 +203,8 @@ export interface XMediaCallToActions {
 /**
  * Direct X publish options. Each maps to a `POST /2/tweets` body field; X decides
  * eligibility (Premium, Community membership, Super Follows, Ads API cards).
- * Managed backends accept only `replySettings`.
+ * Managed backends accept the fields of `ManagedXPublishOptions`; each comment there names the
+ * backends. The fields declared here are direct X only.
  */
 export interface XPublishOptions extends ManagedXPublishOptions {
   readonly replySettings?: "everyone" | "following" | "mentionedUsers" | "subscribers" | "verified";
@@ -357,7 +358,7 @@ export interface YouTubePublishOptions extends ManagedYouTubePublishOptions {
   readonly madeForKids: boolean;
   /** Managed PostFast only: publish as a YouTube Short. Defaults to `false`. */
   readonly isShort?: boolean;
-  /** Direct YouTube only: `snippet.tags`, at most 500 characters as YouTube counts them. */
+  /** `snippet.tags`, at most 500 characters as YouTube counts them. Managed backends also map it. */
   readonly tags?: readonly string[];
   /** Direct YouTube only: `snippet.defaultLanguage`, the BCP-47 language of title and description. */
   readonly defaultLanguage?: string;
@@ -371,11 +372,11 @@ export interface YouTubePublishOptions extends ManagedYouTubePublishOptions {
   readonly embeddable?: boolean;
   /** Direct YouTube only: `status.publicStatsViewable`. */
   readonly publicStatsViewable?: boolean;
-  /** Direct YouTube only: `status.containsSyntheticMedia`, the altered or synthetic content disclosure. */
+  /** `status.containsSyntheticMedia`, the altered or synthetic content disclosure. Managed backends also map it. */
   readonly containsSyntheticMedia?: boolean;
   /** Direct YouTube only: `recordingDetails.recordingDate`, an ISO 8601 timestamp. */
   readonly recordingDate?: string;
-  /** Direct YouTube only: the `notifySubscribers` query parameter. YouTube defaults to `true`. */
+  /** The `notifySubscribers` query parameter; YouTube defaults to `true`. Zernio also maps it. */
   readonly notifySubscribers?: boolean;
 }
 
@@ -447,8 +448,6 @@ export interface InstagramPublishOptions extends ManagedInstagramPublishOptions 
   readonly trial?: { readonly graduationStrategy: "MANUAL" | "SS_PERFORMANCE" };
   /** Image, Reel, or carousel parent: `collaborators`, up to 3 usernames. */
   readonly collaborators?: readonly string[];
-  /** Single image: `user_tags`, each with a username and x/y position. */
-  readonly userTags?: readonly InstagramUserTag[];
   /** Image, Reel, or carousel parent: `location_id`, a Facebook Page ID with location data. */
   readonly locationId?: string;
   /** Image, Reel, or carousel parent: `is_ai_generated`. Never on carousel children. */
