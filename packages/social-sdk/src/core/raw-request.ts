@@ -2,10 +2,12 @@ import { remainingBudget } from "../transport/budget.js";
 import {
   abortable,
   HttpError,
+  rateLimitResetDelay,
   readBytes,
   requestId,
   retryDelay,
   type HttpErrorData,
+  type HttpOptions,
 } from "../transport/http.js";
 import { parseJson, type JsonValue } from "../transport/json.js";
 import { httpSocialError, providerErrorDecoder } from "../transport/provider-errors.js";
@@ -139,6 +141,10 @@ export interface RawRequestConfig<THost extends string> {
   readonly mapError?: (error: SocialError, body: JsonValue | undefined) => SocialError;
   /** The adapter's configured transport deadline, when it has one. */
   readonly timeoutMs?: number;
+  /** The adapter's request diagnostics hook, called once after a dispatched attempt. */
+  readonly onRequest?: HttpOptions["onRequest"];
+  /** Clock for the diagnostics hook's elapsed time. Defaults to `Date.now`. */
+  readonly now?: () => number;
 }
 
 const operation = "native.request";
@@ -293,7 +299,12 @@ function decodeBody(
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    throw new HttpError("Upstream returned a body that is not UTF-8.", "invalid-response", true);
+    throw new HttpError(
+      "Upstream returned a body that is not UTF-8.",
+      "invalid-response",
+      true,
+      status,
+    );
   }
 
   if (responseType === "text") return text;
@@ -437,13 +448,17 @@ export async function rawProviderRequest<THost extends string>(
     Math.max(1, deadlineMs),
   );
 
+  const now = config.now ?? Date.now;
   let dispatched = false;
+  let started = 0;
+  let status: number | undefined;
   let errorBody: JsonValue | undefined;
 
   try {
     if (context.signal?.aborted)
       throw new HttpError("Request cancelled before dispatch.", "cancelled", false);
     dispatched = true;
+    started = now();
 
     const init: RequestInit = { method, headers, signal: controller.signal };
 
@@ -457,6 +472,7 @@ export async function rawProviderRequest<THost extends string>(
       () => undefined,
     );
     const response = await abortable(pending, controller.signal);
+    status = response.status;
 
     if (!response.ok) {
       try {
@@ -498,7 +514,8 @@ export async function rawProviderRequest<THost extends string>(
         "http",
         true,
         response.status,
-        retryDelay(response.headers.get("retry-after"), Date.now()),
+        retryDelay(response.headers.get("retry-after"), Date.now()) ??
+          rateLimitResetDelay(response.headers.get("x-rate-limit-reset"), Date.now()),
         requestId(response.headers),
         data,
       );
@@ -554,6 +571,25 @@ export async function rawProviderRequest<THost extends string>(
   } finally {
     clearTimeout(timer);
     context.signal?.removeEventListener("abort", abort);
+
+    if (dispatched && config.onRequest)
+      reportRequest(config.onRequest, method, status, now() - started);
+  }
+}
+
+/** Calls the application's diagnostics hook; it cannot change the outcome or leak a rejection. */
+function reportRequest(
+  onRequest: NonNullable<HttpOptions["onRequest"]>,
+  method: RawRequestMethod,
+  status: number | undefined,
+  elapsedMs: number,
+): void {
+  try {
+    const pending = onRequest({ method, attempt: 1, elapsedMs, ...definedFields({ status }) });
+
+    if (pending) void pending.catch(() => undefined);
+  } catch {
+    /* application-owned diagnostics */
   }
 }
 
@@ -564,6 +600,8 @@ export function managedRawRequest(
     readonly apiKey: string;
     readonly fetch?: typeof globalThis.fetch;
     readonly timeoutMs?: number;
+    readonly onRequest?: HttpOptions["onRequest"];
+    readonly now?: () => number;
   },
   authHeader: (apiKey: string) => readonly [name: string, value: string] = (apiKey) => [
     "Authorization",
@@ -582,7 +620,11 @@ export function managedRawRequest(
     reservedHeaders: [credentialHeader.toLowerCase()],
     decodeError: (body, status, dispatch) =>
       providerErrorDecoder(origin, dispatch.path)(body, status),
-    ...definedFields({ timeoutMs: options.timeoutMs }),
+    ...definedFields({
+      timeoutMs: options.timeoutMs,
+      onRequest: options.onRequest,
+      now: options.now,
+    }),
   };
 
   return (input: RawProviderRequest<"api">, context: AdapterOperationContext) =>

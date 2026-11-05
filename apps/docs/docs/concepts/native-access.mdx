@@ -37,7 +37,7 @@ Selected reactions also ship as credential-ready helpers importable straight fro
 
 When a provider ships an endpoint no typed method covers, call `request(input, context)` on the adapter's native module; for Zernio it is `zernioNative(options).request`. It sends one request to a path below one of the adapter's named hosts, such as Facebook's `graph`, `video` and `rupload`. The adapter adds its own credentials, checks the account, maps errors, and applies the elapsed budget and cancellation. The result has the status, selected headers and a JSON, text or bytes body.
 
-The adapter refuses absolute URLs, `..` segments, credential headers and redirects. Raw requests make one attempt with no idempotency key and no outcome record, so reconcile any write you send; an uncertain write rejects with `ambiguous_outcome`. Each provider page has a "Raw requests" section with its hosts and an example.
+The adapter refuses absolute URLs, `..` segments, credential headers and redirects. Raw requests make one attempt with no idempotency key and no outcome record, so reconcile any write you send; an uncertain write rejects with `ambiguous_outcome`. A rate-limited response reports the provider's wait from `Retry-After` or X's `x-rate-limit-reset`. Managed backends report each raw request to their `onRequest` hook. Each provider page has a "Raw requests" section with its hosts and an example.
 
 ```ts
 const response = await native.request(

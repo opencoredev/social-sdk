@@ -91,7 +91,8 @@ export function requestId(headers: Headers): string | undefined {
   return undefined;
 }
 
-function rateLimitResetDelay(value: string | null, now: number): number | undefined {
+/** Delay until an epoch-seconds reset header such as X's `x-rate-limit-reset`. */
+export function rateLimitResetDelay(value: string | null, now: number): number | undefined {
   if (value === null) return undefined;
   const seconds = Number(value);
 
