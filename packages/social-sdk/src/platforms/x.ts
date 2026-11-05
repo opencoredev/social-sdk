@@ -23,6 +23,13 @@ import type {
   SearchPostsInput,
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 import { verifyXWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
 import { providerErrorDecoder } from "../transport/provider-errors.js";
@@ -1135,7 +1142,18 @@ export interface XBotWithToken {
   readonly scopes?: readonly string[];
 }
 
+/** Host names for `native.request`: `api` is `https://api.x.com`, including media upload. */
+export type XRawHost = "api";
+
 export interface XNative {
+  /**
+   * Sends one request to an X API path the SDK does not wrap, with the user token, or the app bearer when no user token is configured.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<XRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly searchRecentPosts: (input: {
     readonly account: ConnectedAccountRef;
     readonly search: Omit<XSearchInput, "scope">;
@@ -2688,6 +2706,12 @@ export interface XNative {
   }) => Promise<void>;
 }
 
+/** A write's answer object and its `data` object, both checked to be objects. */
+interface XWriteAnswer {
+  readonly result: JsonObject;
+  readonly data: JsonObject;
+}
+
 export function x(options: XOptions): import("../core/adapter.js").SocialAdapter<XNative> {
   const request = managedHttp("https://api.x.com", {
     apiKey: options.auth.accessToken ?? "app-auth-placeholder",
@@ -2807,6 +2831,51 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "X did not confirm the requested change. Check provider state before retrying; a follow may still be pending.",
         retryDisposition: { kind: "reconcile-first" },
       });
+
+    return result;
+  }
+
+  /** X received the write, but its answer does not confirm it. */
+  function unconfirmed(operation: string): never {
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: "X did not confirm the change. Read the current state before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  }
+
+  /** The answer and its `data` object; any other shape leaves the write uncertain. */
+  function answerData(value: JsonValue, operation: string): XWriteAnswer {
+    if (!isJsonObject(value)) return unconfirmed(operation);
+
+    const data = value["data"];
+
+    if (!isJsonObject(data)) return unconfirmed(operation);
+
+    return { result: value, data };
+  }
+
+  /** A non-empty string from X's answer, or an uncertain outcome. */
+  function answerString(value: JsonField, operation: string, pattern?: RegExp): string {
+    if (!isString(value) || value === "" || (pattern !== undefined && !pattern.test(value)))
+      return unconfirmed(operation);
+
+    return value;
+  }
+
+  /** An optional field that, when X sends it, must be a non-empty string. */
+  function optionalAnswerString(value: JsonField, operation: string): string | undefined {
+    return value === undefined ? undefined : answerString(value, operation);
+  }
+
+  /** `POST /2/tweets` answers 201 with `data.id` and `data.text` (X OpenAPI 2.173 createPosts). */
+  function createdPost(value: JsonValue, operation: string): JsonObject {
+    const { result, data } = answerData(value, operation);
+
+    answerString(data["id"], operation, xIdPattern);
+
+    if (!isString(data["text"])) return unconfirmed(operation);
 
     return result;
   }
@@ -3884,12 +3953,15 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       });
 
     try {
-      object(
+      const { data } = answerData(
         await requireUserToken("media.metadata")("/2/media/metadata", context, {
           id: mediaId,
           metadata: { alt_text: { text: altText } },
         }),
+        "media.metadata",
       );
+
+      if (data["id"] !== mediaId) unconfirmed("media.metadata");
     } catch (error) {
       throw new SocialError({
         code:
@@ -3931,17 +4003,18 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   ): Promise<DeliveryOutcome> {
     authorize(account, context);
 
-    const result = object(
-      await requireUserToken("posts.publish")("/2/tweets", context, { text, ...extra }),
-    );
+    const result = await requireUserToken("posts.publish")("/2/tweets", context, {
+      text,
+      ...extra,
+    });
 
-    const data = result["data"] ? object(result["data"]) : {};
+    const data = isJsonObject(result) ? result["data"] : undefined;
 
-    const id = optionalString(data["id"]);
+    const id = isJsonObject(data) ? data["id"] : undefined;
 
     const base = { account, targetIndex, observedAt: now() };
 
-    if (!id)
+    if (!isString(id) || !xIdPattern.test(id))
       return {
         ...base,
         state: "unknown",
@@ -4272,33 +4345,55 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const decode = providerErrorDecoder("https://api.x.com", path);
 
-    try {
-      return object(
-        await http({
-          url: new URL(`https://api.x.com${path}`),
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${options.auth.accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-          maxAttempts: 1,
-          timeoutMs: remainingBudget(context),
-          decodeErrorBody: (value, status) => {
-            const refusal = status === 403 ? xDmRefusal(value) : undefined;
+    let answer: JsonValue;
 
-            return refusal === undefined
-              ? decode(value, status)
-              : { code: "x-dm-refused", dmRefusal: refusal };
-          },
-          ...definedFields({ signal: context.signal }),
-        }),
-      );
+    try {
+      answer = await http({
+        url: new URL(`https://api.x.com${path}`),
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${options.auth.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        maxAttempts: 1,
+        timeoutMs: remainingBudget(context),
+        decodeErrorBody: (value, status) => {
+          const refusal = status === 403 ? xDmRefusal(value) : undefined;
+
+          return refusal === undefined
+            ? decode(value, status)
+            : { code: "x-dm-refused", dmRefusal: refusal };
+        },
+        ...definedFields({ signal: context.signal }),
+      });
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
 
       throw dmHttpError(error, operation, context);
     }
+
+    // X answers 201 with `data.dm_conversation_id` and `data.dm_event_id` (OpenAPI 2.173).
+    const data = isJsonObject(answer) ? answer["data"] : undefined;
+
+    if (
+      !isJsonObject(answer) ||
+      !isJsonObject(data) ||
+      !isString(data["dm_conversation_id"]) ||
+      data["dm_conversation_id"] === "" ||
+      !isString(data["dm_event_id"]) ||
+      data["dm_event_id"] === ""
+    )
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        backend: context.backendInstance,
+        correlationId: context.correlationId,
+        message: "X did not confirm the Direct Message. Read the conversation before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+
+    return answer;
   }
 
   /** Reads one binary response into memory, refusing bodies larger than `maxBytes`. */
@@ -4393,12 +4488,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ? failure("cancelled", "X media download was cancelled.")
           : failure("timeout", "X media download exceeded its elapsed budget.");
 
+      // A fetch failure can name the requested URL, so it is not kept as the cause.
       throw new SocialError({
         code: "upstream_failure",
         operation,
         message: "X media download failed before a response arrived.",
         retryDisposition: { kind: "never" },
-        cause: error,
       });
     } finally {
       clearTimeout(timer);
@@ -4621,7 +4716,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       throw invalid(operation, "Bot display names are 1-50 characters.");
   };
 
-  const botWithToken = (value: JsonValue, operation: string): XBotWithToken => {
+  const botWithToken = (
+    value: JsonValue,
+    operation: string,
+    expectedId?: string,
+  ): XBotWithToken => {
     const data = isJsonObject(value) ? value["data"] : undefined;
 
     const row = isJsonObject(data) ? data : {};
@@ -4630,15 +4729,21 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const token = optionalString(row["token"]);
 
-    if (id === undefined || token === undefined)
+    const scopes = row["scopes"];
+
+    if (
+      !id ||
+      !token ||
+      (expectedId !== undefined && id !== expectedId) ||
+      (scopes !== undefined && (!isJsonArray(scopes) || !scopes.every(isString))) ||
+      (row["username"] !== undefined && !isString(row["username"]))
+    )
       throw new SocialError({
         code: "ambiguous_outcome",
         operation,
         message: "X did not return the bot token. Rotate the token before using the bot.",
         retryDisposition: { kind: "reconcile-first" },
       });
-
-    const scopes = row["scopes"];
 
     return {
       id,
@@ -4680,7 +4785,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
   const chatConversationId = (data: JsonObject, operation: string) => {
     const id = optionalString(data["conversation_id"]);
 
-    if (id === undefined)
+    if (!id)
       throw new SocialError({
         code: "ambiguous_outcome",
         operation,
@@ -4846,7 +4951,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     const status = optionalString(row["status"]);
 
-    if (id === undefined || status === undefined || (type !== "tweets" && type !== "users"))
+    if (!id || !status || (type !== "tweets" && type !== "users"))
       throw new SocialError({
         code: "upstream_failure",
         operation,
@@ -4897,6 +5002,28 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
   let nativeAdapter: XNative;
 
+  const rawConfig: RawRequestConfig<XRawHost> = {
+    hosts: { api: "https://api.x.com" },
+    defaultHost: "api",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ headers }) => {
+      const token = options.auth.accessToken?.trim()
+        ? options.auth.accessToken
+        : options.appBearerToken;
+
+      if (!token?.trim())
+        throw new SocialError({
+          code: "missing_permission",
+          operation: "native.request",
+          message: "X raw requests need a user access token or appBearerToken.",
+        });
+
+      headers.set("Authorization", `Bearer ${token}`);
+    },
+    decodeError: (body, status, { path }) =>
+      providerErrorDecoder("https://api.x.com", path)(body, status),
+  };
+
   const adapter = defineAdapter({
     id: "x",
     capabilities: {
@@ -4905,6 +5032,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       apiRevision: "X API v2 / OpenAPI 2.169 (checked 2026-10-05)",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        rawRequestCapability("x", "api.x.com"),
         webhookCapability(
           "x",
           "Verifies X-Twitter-Webhooks-Signature-OAuth2 or the legacy X-Twitter-Webhooks-Signature and decodes Account Activity deliveries. Answer the CRC GET with answerXWebhookChallenge.",
@@ -6001,6 +6129,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       now,
     ),
     native: (nativeAdapter = {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async searchRecentPosts({ account, search, context }) {
         return searchPosts(account, { ...search, scope: "recent" }, context, search);
       },
@@ -6027,11 +6160,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       quote: uncertainWrite("x.quote", async ({ account, text, quotedPostId, context }) => {
         authorize(account, context);
 
-        return object(
+        return createdPost(
           await requireUserToken("x.quote")("/2/tweets", context, {
             text,
             quote_tweet_id: quotedPostId,
           }),
+          "x.quote",
         );
       }),
       deletePost: uncertainWrite("x.deletePost", async ({ account, postId, context }) => {
@@ -6068,18 +6202,25 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               "Edited text is empty, exceeds X's weighted 280-character limit, or contains invalid characters.",
           });
 
-        const result = object(
-          await requireUserToken("x.updatePost")("/2/tweets", context, {
-            text,
-            edit_options: { previous_post_id: postId },
-          }),
-        );
+        const result = await requireUserToken("x.updatePost")("/2/tweets", context, {
+          text,
+          edit_options: { previous_post_id: postId },
+        });
 
-        const data = result["data"] === undefined ? {} : object(result["data"]);
+        const answer = isJsonObject(result) ? result["data"] : undefined;
 
-        const id = optionalString(data["id"]);
+        const data = isJsonObject(answer) ? answer : {};
 
-        if (!id)
+        const id = data["id"];
+
+        const history = data["edit_history_post_ids"] ?? data["edit_history_tweet_ids"];
+
+        if (
+          !isString(id) ||
+          !xIdPattern.test(id) ||
+          (data["text"] !== undefined && !isString(data["text"])) ||
+          (history !== undefined && (!isJsonArray(history) || !history.every(isString)))
+        )
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "posts.update",
@@ -6089,11 +6230,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             retryDisposition: { kind: "reconcile-first" },
           });
 
-        const history = data["edit_history_post_ids"] ?? data["edit_history_tweet_ids"];
-
-        const editHistoryPostIds = Array.isArray(history)
-          ? history.filter((entry): entry is string => typeof entry === "string")
-          : undefined;
+        const editHistoryPostIds = isJsonArray(history) ? history.filter(isString) : undefined;
 
         return {
           post: {
@@ -6156,11 +6293,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               message: "X polls require 2-4 options and a duration from 5 minutes to 7 days.",
             });
 
-          return object(
+          return createdPost(
             await requireUserToken("x.createPoll")("/2/tweets", context, {
               text,
               poll: { options: [...pollOptions], duration_minutes: durationMinutes },
             }),
+            "x.createPoll",
           );
         },
       ),
@@ -6251,12 +6389,22 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             });
 
           const bookmarked = (isJsonArray(data) ? data : []).flatMap((entry) => {
-            const row = object(entry);
+            const row = isJsonObject(entry) ? entry : {};
 
-            const id = optionalString(row["tweet_id"]);
+            const id = answerString(row["tweet_id"], operation, xIdPattern);
 
-            return row["bookmarked"] === true && id !== undefined ? [id] : [];
+            if (!isBoolean(row["bookmarked"])) return unconfirmed(operation);
+
+            return row["bookmarked"] ? [id] : [];
           });
+
+          // Without per-post errors, X reports every requested post in `data`.
+          const reported = (isJsonArray(data) ? data : []).flatMap((entry) =>
+            isJsonObject(entry) && isString(entry["tweet_id"]) ? [entry["tweet_id"]] : [],
+          );
+
+          if (errors.length === 0 && postIds.some((id) => !reported.includes(id)))
+            return unconfirmed(operation);
 
           return { bookmarked, errors };
         },
@@ -6457,14 +6605,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               { method: "PUT", headers, body: ids.join("\n"), redirect: "manual" },
               controller.signal,
             );
-          } catch (error) {
+          } catch {
+            // A fetch failure can name the signed upload URL, so it is not kept as the cause.
             throw new SocialError({
-              code: context.signal?.aborted ? "cancelled" : "ambiguous_outcome",
+              code: "ambiguous_outcome",
               operation,
               message:
                 "The compliance upload did not complete. Read the job status before retrying.",
               retryDisposition: { kind: "reconcile-first" },
-              cause: error,
             });
           } finally {
             clearTimeout(timer);
@@ -6479,6 +6627,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               code: "ambiguous_outcome",
               operation,
               message: `The compliance upload answered HTTP ${response.status}. Read the job status before replacing the job.`,
+              upstreamStatus: response.status,
+              retryDisposition: { kind: "reconcile-first" },
+            });
+
+          // The signed upload URL answers 200 OK; another success status does not confirm it.
+          if (response.ok && response.status !== 200)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message:
+                "The compliance upload was not confirmed. Read the job status before retrying.",
               upstreamStatus: response.status,
               retryDisposition: { kind: "reconcile-first" },
             });
@@ -6545,18 +6704,22 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           authorize(account, context);
           requireId(jobId, "jobId", "x.compliance.jobs.cancel");
 
-          return complianceJob(
-            object(
-              await appRequest()(
-                `/2/compliance/jobs/${jobId}`,
-                context,
-                undefined,
-                { "compliance_job.fields": complianceJobFields },
-                "DELETE",
-              ),
-            )["data"],
+          const answer = await appRequest()(
+            `/2/compliance/jobs/${jobId}`,
+            context,
+            undefined,
+            { "compliance_job.fields": complianceJobFields },
+            "DELETE",
+          );
+
+          const job = confirmedAnswer(
+            () => complianceJob(object(answer)["data"], "x.compliance.jobs.cancel"),
             "x.compliance.jobs.cancel",
           );
+
+          if (job.id !== jobId) return unconfirmed("x.compliance.jobs.cancel");
+
+          return job;
         },
       ),
       createCommunityNote: uncertainWrite(
@@ -6597,9 +6760,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             )["data"],
           );
 
-          const noteId = optionalString(data["id"]);
+          const noteId = data["id"];
 
-          if (noteId === undefined)
+          if (!isString(noteId) || noteId === "")
             throw new SocialError({
               code: "ambiguous_outcome",
               operation,
@@ -7032,14 +7195,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         const errors = result["errors"];
 
-        if (errors !== undefined && result["data"] === undefined) {
-          const detail =
-            array(errors)[0] === undefined
-              ? "X user was not found."
-              : (optionalString(object(array(errors)[0])["detail"]) ?? "X user was not found.");
-
-          throw new SocialError({ code: "not_found", operation: "profiles.read", message: detail });
-        }
+        // X's problem `detail` echoes the requested ID, so the message stays fixed.
+        if (errors !== undefined && result["data"] === undefined)
+          throw new SocialError({
+            code: "not_found",
+            operation: "profiles.read",
+            message: "X user was not found.",
+          });
 
         return result;
       },
@@ -7058,18 +7220,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ),
         );
 
-        if (result["errors"] !== undefined && result["data"] === undefined) {
-          const first = array(result["errors"])[0];
-
+        // X's problem `detail` echoes the requested username, so the message stays fixed.
+        if (result["errors"] !== undefined && result["data"] === undefined)
           throw new SocialError({
             code: "not_found",
             operation: "profiles.read",
-            message:
-              first === undefined
-                ? "X user was not found."
-                : (optionalString(object(first)["detail"]) ?? "X user was not found."),
+            message: "X user was not found.",
           });
-        }
 
         return result;
       },
@@ -7270,12 +7427,19 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         async ({ account, name, description, isPrivate, context }) => {
           authorize(account, context);
 
-          return object(
+          const { result, data } = answerData(
             await requireUserToken("x.createList")("/2/lists", context, {
               name,
               ...definedFields({ description, private: isPrivate }),
             }),
+            "x.createList",
           );
+
+          answerString(data["id"], "x.createList", xIdPattern);
+
+          if (!isString(data["name"])) return unconfirmed("x.createList");
+
+          return result;
         },
       ),
       updateList: uncertainWrite(
@@ -7283,7 +7447,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         async ({ account, listId, name, description, isPrivate, context }) => {
           authorize(account, context);
 
-          return object(
+          return confirmedWrite(
             await requireUserToken("x.updateList")(
               `/2/lists/${encodeURIComponent(listId)}`,
               context,
@@ -7293,18 +7457,26 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               {},
               "PUT",
             ),
+            "updated",
+            true,
+            "x.updateList",
           );
         },
       ),
       deleteList: uncertainWrite("x.deleteList", async ({ account, listId, context }) => {
         authorize(account, context);
 
-        await requireUserToken("x.deleteList")(
-          `/2/lists/${encodeURIComponent(listId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("x.deleteList")(
+            `/2/lists/${encodeURIComponent(listId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "deleted",
+          true,
+          "x.deleteList",
         );
       }),
       async getList({ account, listId, context }) {
@@ -7329,7 +7501,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         async ({ account, listId, userId, context }) => {
           authorize(account, context);
 
-          return object(
+          return confirmedWrite(
             await requireUserToken("x.addListMember")(
               `/2/lists/${encodeURIComponent(listId)}/members`,
               context,
@@ -7337,6 +7509,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 user_id: userId,
               },
             ),
+            "is_member",
+            true,
+            "x.addListMember",
           );
         },
       ),
@@ -7345,35 +7520,48 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         async ({ account, listId, userId, context }) => {
           authorize(account, context);
 
-          await requireUserToken("x.removeListMember")(
-            `/2/lists/${encodeURIComponent(listId)}/members/${encodeURIComponent(userId)}`,
-            context,
-            undefined,
-            {},
-            "DELETE",
+          confirmedWrite(
+            await requireUserToken("x.removeListMember")(
+              `/2/lists/${encodeURIComponent(listId)}/members/${encodeURIComponent(userId)}`,
+              context,
+              undefined,
+              {},
+              "DELETE",
+            ),
+            "is_member",
+            false,
+            "x.removeListMember",
           );
         },
       ),
       followList: uncertainWrite("x.followList", async ({ account, listId, context }) => {
         authorize(account, context);
 
-        return object(
+        return confirmedWrite(
           await requireUserToken("x.followList")(
             `/2/users/${encodeURIComponent(account.accountId)}/followed_lists`,
             context,
             { list_id: listId },
           ),
+          "following",
+          true,
+          "x.followList",
         );
       }),
       unfollowList: uncertainWrite("x.unfollowList", async ({ account, listId, context }) => {
         authorize(account, context);
 
-        await requireUserToken("x.unfollowList")(
-          `/2/users/${encodeURIComponent(account.accountId)}/followed_lists/${encodeURIComponent(listId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("x.unfollowList")(
+            `/2/users/${encodeURIComponent(account.accountId)}/followed_lists/${encodeURIComponent(listId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "following",
+          false,
+          "x.unfollowList",
         );
       }),
       async ownedLists({ account, cursor, limit, context }) {
@@ -7389,7 +7577,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       pinList: uncertainWrite("x.pinList", async ({ account, listId, context }) => {
         authorize(account, context);
 
-        return object(
+        return confirmedWrite(
           await requireUserToken("lists.pinned.write")(
             `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists`,
             context,
@@ -7397,17 +7585,25 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               list_id: listId,
             },
           ),
+          "pinned",
+          true,
+          "x.pinList",
         );
       }),
       unpinList: uncertainWrite("x.unpinList", async ({ account, listId, context }) => {
         authorize(account, context);
 
-        await requireUserToken("lists.pinned.write")(
-          `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists/${encodeURIComponent(listId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
+        confirmedWrite(
+          await requireUserToken("lists.pinned.write")(
+            `/2/users/${encodeURIComponent(account.accountId)}/pinned_lists/${encodeURIComponent(listId)}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          ),
+          "pinned",
+          false,
+          "x.unpinList",
         );
       }),
       async pinnedLists({ account, cursor, limit, context }) {
@@ -7547,7 +7743,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             dryRun ? { dry_run: "true" } : {},
           );
 
-          return parseRulesUpdate(object(result), dryRun);
+          return dryRun
+            ? parseRulesUpdate(result, dryRun)
+            : confirmedAnswer(() => parseRulesUpdate(result, dryRun), "x.addStreamRules");
         },
         { queryOnly: ({ dryRun }) => dryRun === true },
       ),
@@ -7564,7 +7762,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             dryRun ? { dry_run: "true" } : {},
           );
 
-          return parseRulesUpdate(object(result), dryRun);
+          return dryRun
+            ? parseRulesUpdate(result, dryRun)
+            : confirmedAnswer(() => parseRulesUpdate(result, dryRun), "x.deleteStreamRules");
         },
         { queryOnly: ({ dryRun }) => dryRun === true },
       ),
@@ -7630,11 +7830,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           );
 
           return dryRun
-            ? parseRulesUpdate(object(result), dryRun)
-            : confirmedAnswer(
-                () => parseRulesUpdate(object(result), dryRun),
-                "x.deleteAllStreamRules",
-              );
+            ? parseRulesUpdate(result, dryRun)
+            : confirmedAnswer(() => parseRulesUpdate(result, dryRun), "x.deleteAllStreamRules");
         },
         { queryOnly: ({ dryRun }) => dryRun === true },
       ),
@@ -7678,7 +7875,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             ? undefined
             : optionalBoolean(object(result["data"])["hidden"]);
 
-        if (state === undefined)
+        if (state !== hidden)
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "comments.moderate",
@@ -7686,7 +7883,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             retryDisposition: { kind: "reconcile-first" },
           });
 
-        return { hidden: state };
+        return { hidden };
       }),
       async getPosts({ account, postIds, fields, context }) {
         requireIds(postIds, "postIds", "x.posts.lookup");
@@ -8204,7 +8401,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               "languageCode must be two uppercase letters, such as EN.",
             );
 
-          const result = object(
+          const { data } = answerData(
             await requireUserToken("x.media.subtitles")("/2/media/subtitles", context, {
               id: videoMediaId,
               media_category: mediaCategory,
@@ -8214,9 +8411,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 ...definedFields({ display_name: displayName }),
               },
             }),
+            "x.media.subtitles",
           );
 
-          return result["data"] === undefined ? {} : object(result["data"]);
+          if (data["id"] !== undefined && data["id"] !== videoMediaId)
+            return unconfirmed("x.media.subtitles");
+
+          return data;
         },
       ),
       deleteSubtitles: uncertainWrite(
@@ -8574,10 +8775,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             results: (data["results"] === undefined ? [] : array(data["results"])).map((entry) => {
               const row = object(entry);
 
-              return {
-                uuid: string(row["uuid"]),
-                success: optionalBoolean(row["success"]) === true,
-              };
+              const success = row["success"];
+
+              if (success !== undefined && !isBoolean(success))
+                throw new HttpError(
+                  "X reported a connection result without a boolean.",
+                  "invalid-response",
+                  true,
+                );
+
+              return { uuid: string(row["uuid"]), success: success === true };
             }),
           };
         },
@@ -8698,7 +8905,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           if (filter.qualifiers !== undefined && Object.keys(filter.qualifiers).length > 8)
             throw invalid(operation, "X accepts at most 8 filter qualifiers.");
 
-          return object(
+          const created = answerData(
             await credentialRequest("user-or-app", operation)(
               "/2/activity/subscriptions",
               context,
@@ -8716,7 +8923,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 ...definedFields({ webhook_id: webhookId, tag, expires_at: expiresAt }),
               },
             ),
+            operation,
           );
+
+          const subscription = created.data["subscription"];
+
+          if (!isJsonObject(subscription)) return unconfirmed(operation);
+
+          answerString(subscription["subscription_id"], operation);
+
+          return created.result;
         },
       ),
       async listActivitySubscriptions({ account, userId, cursor, limit, context }) {
@@ -8749,7 +8965,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           if (tag === undefined && webhookId === undefined)
             throw invalid(operation, "Set tag or webhookId to update a subscription.");
 
-          return object(
+          const updated = answerData(
             await credentialRequest("user-or-app", operation)(
               `/2/activity/subscriptions/${subscriptionId}`,
               context,
@@ -8757,7 +8973,20 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               {},
               "PUT",
             ),
+            operation,
           );
+
+          const subscription = updated.data["subscription"];
+
+          if (
+            !isJsonObject(subscription) ||
+            subscription["subscription_id"] !== subscriptionId ||
+            (updated.data["total_subscriptions"] !== undefined &&
+              !isFiniteNumber(updated.data["total_subscriptions"]))
+          )
+            return unconfirmed(operation);
+
+          return updated.result;
         },
       ),
       deleteActivitySubscriptions: uncertainWrite(
@@ -8768,23 +8997,48 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
           const [single] = subscriptionIds;
 
-          return object(
-            subscriptionIds.length === 1 && single !== undefined
-              ? await credentialRequest("user-or-app", "x.activity.delete")(
-                  `/2/activity/subscriptions/${single}`,
-                  context,
-                  undefined,
-                  {},
-                  "DELETE",
-                )
-              : await appRequest()(
-                  "/2/activity/subscriptions",
-                  context,
-                  undefined,
-                  { ids: subscriptionIds.join(",") },
-                  "DELETE",
-                ),
+          if (subscriptionIds.length === 1 && single !== undefined)
+            return confirmedWrite(
+              await credentialRequest("user-or-app", "x.activity.delete")(
+                `/2/activity/subscriptions/${single}`,
+                context,
+                undefined,
+                {},
+                "DELETE",
+              ),
+              "deleted",
+              true,
+              "x.activity.delete",
+            );
+
+          // The bulk delete answers one `{ deleted, subscription_id }` row per subscription.
+          const result = await appRequest()(
+            "/2/activity/subscriptions",
+            context,
+            undefined,
+            { ids: subscriptionIds.join(",") },
+            "DELETE",
           );
+
+          const rows = isJsonObject(result) ? result["data"] : undefined;
+
+          if (
+            !isJsonObject(result) ||
+            !isJsonArray(rows) ||
+            rows.some(
+              (row) =>
+                !isJsonObject(row) ||
+                !isBoolean(row["deleted"]) ||
+                !isString(row["subscription_id"]) ||
+                !subscriptionIds.includes(row["subscription_id"]),
+            ) ||
+            subscriptionIds.some(
+              (id) => !rows.some((row) => isJsonObject(row) && row["subscription_id"] === id),
+            )
+          )
+            return unconfirmed("x.activity.delete");
+
+          return result;
         },
       ),
       createArticleDraft: uncertainWrite(
@@ -8819,7 +9073,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             )["data"],
           );
 
-          return { articleId: string(data["id"]), title: optionalString(data["title"]) ?? title };
+          if (!isString(data["title"])) return unconfirmed(operation);
+
+          return { articleId: answerString(data["id"], operation), title: data["title"] };
         },
       ),
       publishArticle: uncertainWrite(
@@ -8838,9 +9094,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
           const data = isJsonObject(result) ? result["data"] : undefined;
 
-          const postId = isJsonObject(data) ? optionalString(data["post_id"]) : undefined;
+          const postId = isJsonObject(data) ? data["post_id"] : undefined;
 
-          if (postId === undefined)
+          if (!isString(postId) || !xIdPattern.test(postId))
             throw new SocialError({
               code: "ambiguous_outcome",
               operation: "x.articles.publish",
@@ -9071,10 +9327,16 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           },
         });
 
+        if (chatConversationId(data, operation) !== group.conversationId)
+          return unconfirmed(operation);
+
         return {
-          conversationId: chatConversationId(data, operation),
+          conversationId: group.conversationId,
           ...definedFields({
-            keyChangeSequenceId: optionalString(data["conversation_key_change_sequence_id"]),
+            keyChangeSequenceId: optionalAnswerString(
+              data["conversation_key_change_sequence_id"],
+              operation,
+            ),
           }),
         };
       }),
@@ -9594,6 +9856,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             }),
           });
 
+          // X answers the resulting `blocking` and `detection` flags; each requested one must match.
+          for (const [field, requested] of [
+            ["blocking", blocking],
+            ["detection", detection],
+          ] as const)
+            if (
+              (data[field] !== undefined && !isBoolean(data[field])) ||
+              (requested !== undefined && data[field] !== requested)
+            )
+              return unconfirmed(operation);
+
           return definedFields({
             blocking: optionalBoolean(data["blocking"]),
             detection: optionalBoolean(data["detection"]),
@@ -9691,7 +9964,12 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             },
           });
 
-          return definedFields({ sequenceId: optionalString(data["sequence_id"]) });
+          if (data["conversation_id"] !== undefined && data["conversation_id"] !== conversationId)
+            return unconfirmed(operation);
+
+          return definedFields({
+            sequenceId: optionalAnswerString(data["sequence_id"], operation),
+          });
         },
       ),
       async chatPublicKeys({ account, userIds, context }) {
@@ -9752,9 +10030,9 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             body: { conversation_id: conversationId, total_bytes: media.size },
           });
 
-          const sessionId = optionalString(started["session_id"]);
+          const sessionId = optionalAnswerString(started["session_id"], operation);
 
-          const mediaHashKey = optionalString(started["media_hash_key"]);
+          const mediaHashKey = optionalAnswerString(started["media_hash_key"], operation);
 
           if (sessionId === undefined || !xIdPattern.test(sessionId) || mediaHashKey === undefined)
             throw new HttpError("X did not return a chat media session.", "invalid-response", true);
@@ -9923,7 +10201,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           if (title !== undefined && [...title].length > 100)
             throw invalid(operation, "Call titles are limited to 100 characters.");
 
-          return chatWrite({
+          const data = await chatWrite({
             account,
             context,
             operation,
@@ -9936,6 +10214,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               audio_only: audioOnly,
             }),
           });
+
+          // X answers 201 with the call's `data.id` (OpenAPI 2.173 createCall).
+          answerString(data["id"], operation);
+
+          return data;
         },
       ),
       async getCall({ account, callId, context }) {
@@ -9956,7 +10239,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
       joinCall: uncertainWrite("x.joinCall", async ({ account, callId, audio, context }) => {
         requireId(callId, "callId", "x.calls.join", callIdPattern);
 
-        return chatWrite({
+        const joined = await chatWrite({
           account,
           context,
           operation: "x.calls.join",
@@ -9975,6 +10258,11 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                   },
                 },
         });
+
+        // X answers with the joined `data.session_id` (OpenAPI 2.173 joinCall).
+        answerString(joined["session_id"], "x.calls.join");
+
+        return joined;
       }),
       leaveCall: uncertainWrite("x.leaveCall", async ({ account, callId, context }) => {
         requireId(callId, "callId", "x.calls.leave", callIdPattern);
@@ -10199,6 +10487,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               "POST",
             ),
             operation,
+            botId,
           );
         },
       ),
@@ -10247,7 +10536,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
           const created = optionalBoolean(data["created"]);
 
-          if (accountId === undefined || created === undefined)
+          if (!accountId || created === undefined)
             throw new SocialError({
               code: "ambiguous_outcome",
               operation,
@@ -10304,7 +10593,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "x.broadcasts.end",
         );
 
-        if (data["state"] !== "ENDED")
+        if (data["id"] !== broadcastId || data["state"] !== "ENDED")
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "x.broadcasts.end",
@@ -10577,7 +10866,14 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
           const shareUrl = optionalString(data["share_url"]);
 
-          if (!isJsonObject(data["broadcast"]) || shareUrl === undefined)
+          const created = data["broadcast"];
+
+          if (
+            !isJsonObject(created) ||
+            !isString(created["id"]) ||
+            !broadcastIdPattern.test(created["id"]) ||
+            !shareUrl
+          )
             throw new SocialError({
               code: "ambiguous_outcome",
               operation,
@@ -10585,7 +10881,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
               retryDisposition: { kind: "reconcile-first" },
             });
 
-          return { broadcast: data["broadcast"], shareUrl };
+          return { broadcast: created, shareUrl };
         },
       ),
       setUserBroadcastState: uncertainWrite(
@@ -10688,17 +10984,22 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
           if (!name.trim()) throw invalid("x.sources.user.create", "Give the source a name.");
 
-          return object(
-            (
-              await broadcastWrite(
-                `/2/users/${encodeURIComponent(account.accountId)}/sources`,
-                { name, ...definedFields({ region }) },
-                "POST",
-                context,
-                "x.sources.user.create",
-              )
-            )["source"],
-          );
+          const source = (
+            await broadcastWrite(
+              `/2/users/${encodeURIComponent(account.accountId)}/sources`,
+              { name, ...definedFields({ region }) },
+              "POST",
+              context,
+              "x.sources.user.create",
+            )
+          )["source"];
+
+          // X answers `data.source.id` (OpenAPI 2.173 createUserSource).
+          if (!isJsonObject(source)) return unconfirmed("x.sources.user.create");
+
+          answerString(source["id"], "x.sources.user.create");
+
+          return source;
         },
       ),
       renameUserStreamSource: uncertainWrite(
@@ -10709,17 +11010,20 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
           if (!name.trim()) throw invalid("x.sources.user.rename", "Give the source a name.");
 
-          return object(
-            (
-              await broadcastWrite(
-                `/2/users/${encodeURIComponent(account.accountId)}/sources/${sourceId}`,
-                { name },
-                "PUT",
-                context,
-                "x.sources.user.rename",
-              )
-            )["source"],
-          );
+          const source = (
+            await broadcastWrite(
+              `/2/users/${encodeURIComponent(account.accountId)}/sources/${sourceId}`,
+              { name },
+              "PUT",
+              context,
+              "x.sources.user.rename",
+            )
+          )["source"];
+
+          if (!isJsonObject(source) || source["id"] !== sourceId)
+            return unconfirmed("x.sources.user.rename");
+
+          return source;
         },
       ),
       deleteUserStreamSource: uncertainWrite(
@@ -10805,10 +11109,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           );
 
           // X's CreateSourceResponseData requires both; without them the source cannot be used.
-          if (
-            optionalString(source["id"]) === undefined ||
-            optionalString(source["stream_key"]) === undefined
-          )
+          if (!optionalString(source["id"]) || !optionalString(source["stream_key"]))
             throw new SocialError({
               code: "ambiguous_outcome",
               operation: "x.sources.create",
@@ -10884,7 +11185,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
           const timestamp = optionalString(data["timestamp"]);
 
-          if (data["success"] !== true || timestamp === undefined)
+          if (data["success"] !== true || !timestamp)
             throw new SocialError({
               code: "ambiguous_outcome",
               operation,
@@ -10938,7 +11239,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                 "x.broadcasts.moderators",
               );
 
-          return array(data["moderator_user_ids"]).map(string);
+          // X answers the moderator list after the change, which must reflect it.
+          const moderators = array(data["moderator_user_ids"]).map(string);
+
+          if (moderators.includes(userId) !== moderator)
+            return unconfirmed("x.broadcasts.moderators");
+
+          return moderators;
         },
       ),
       setChatMute: uncertainWrite(

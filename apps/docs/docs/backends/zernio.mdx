@@ -410,6 +410,8 @@ Message items include attachment metadata (`id`, `type`) but not the media URL, 
 | `ice-breakers`          | Facebook or Instagram | `messenger-ice-breakers` or `instagram-ice-breakers` | `iceBreakers`: up to 4 `{ question, payload }` questions (questions up to 80 characters). Facebook groups them per `locale`, one `default`; Instagram takes one list without a locale. |
 | `telegram-commands`     | Telegram              | `telegram-commands`                                  | `commands`: up to 100 `{ command, description }`, commands of 1 to 32 lowercase letters, digits or `_` without the slash.                                                              |
 
+Zernio documents these writes as an HTTP 200 with no body or with `{ success: true }`. `setBotSetting` and `deleteBotSetting` resolve on a 200 with an empty body, `{}` or `{ success: true }`; any other status or body is `ambiguous_outcome`, so read the setting back before retrying.
+
 ### Mentions and reviews
 
 `listMentions({ account })` reads mentions of a LinkedIn organization, Instagram account or Facebook Page from `GET /v1/inbox/mentions`. `listReviews({ account, hasReply? })` reads Facebook Page recommendations and Google Business Profile reviews, with rating, text and any reply; `replyToReview` posts or replaces your reply and `deleteReviewReply` removes it.
@@ -580,7 +582,7 @@ const { url } = await native.createConnection(
 
 ### Connect a Discord channel
 
-`connectDiscord({ guildId, channelIds, profileId, redirectUrl? })` finishes a Discord connect with `POST /v1/connect/discord`, binding 1 to 25 channels of the server (numeric snowflake IDs) to a profile. Each channel becomes its own connected account; Zernio confirms with an empty response, so list accounts afterwards to read them.
+`connectDiscord({ guildId, channelIds, profileId, redirectUrl? })` finishes a Discord connect with `POST /v1/connect/discord`, binding 1 to 25 channels of the server (numeric snowflake IDs) to a profile. Each channel becomes its own connected account; Zernio confirms with an HTTP 200 and an empty response, so list accounts afterwards to read them. Any other status or a body other than `{}` or `{ success: true }` is `ambiguous_outcome`.
 
 ### Bring your own OAuth app
 
@@ -687,6 +689,23 @@ TikTok requires apps to show the creator's privacy options before posting. `crea
 
 Uploaded Zernio media refs expire locally after seven days. This SDK reuse limit is not a claim about the provider's public URL lifetime. Caller-owned HTTPS URLs do not receive this upload expiry. Configure `MemoryManagedMediaStore` or a persistent `ManagedMediaStore` from the backend subpath when references must survive adapter reconstruction.
 
+## Raw requests
+
+`zernioNative(options).request(input, context)` sends one request to a Zernio endpoint the SDK does not wrap, with the API key as a bearer token. It does not add the `Idempotency-Key` header that post creation uses.
+
+The only host is `api` (`https://zernio.com/api`). Paths include the version, such as `/v1/accounts`.
+
+```ts
+// `native` is zernioNative(options); `context` is an AdapterOperationContext.
+const response = await native.request({ method: "GET", path: "/v1/accounts" }, context);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, and `?` or `#` in the path. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError`.
+
+The API key reaches the whole workspace, and the SDK cannot tell which accounts a raw path touches, so check the tenant's grants yourself before the call. A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 ### Not supported
@@ -695,3 +714,7 @@ Uploaded Zernio media refs expire locally after seven days. This SDK reuse limit
 - A combined internal and external post feed: `posts.list` reads synced platform posts only (`source=external`).
 - Publishing to WhatsApp: WhatsApp accounts are listed but not published to, because Zernio's WhatsApp surface is messaging.
 - Headless selection steps: choosing a Facebook Page (`select-page`), a LinkedIn organization, a Pinterest board or a Google Business location carries the temporary OAuth token from Zernio's redirect, so these steps are not wrapped.
+- Inbox message changes: editing or deleting a sent message (`PATCH` and `DELETE /v1/inbox/conversations/{id}/messages/{messageId}`), message reactions (`POST` and `DELETE .../messages/{messageId}/reactions`) and typing indicators (`POST .../typing`) are not wrapped yet. Send them with `request` and reconcile the conversation afterwards.
+- Pinning a published post (`POST /v1/posts/{id}/pin` and `/unpin`), queue slot management (`/v1/queue/slots`), webhook log redelivery (`POST /v1/webhooks/logs/redeliver`), direct and prepared media uploads (`/v1/media/upload-direct`, `/v1/media/prepare`; publishing uploads through `/v1/media/presign`), and account extras (`business-partners`, `gmb-locations/assign`, `hubspot-settings`, `slack-settings`) are not wrapped yet; use `request`.
+- Credential and invite connects other than Bluesky and Discord (Telegram, Slack, WhatsApp, Shopify, Webflow, WordPress, ad accounts, `platform-invites`), connected-app revocation and API key management: these change workspace access rather than social content, so the SDK leaves them to `request`.
+- Zernio products outside social publishing and engagement: ads (campaigns, accounts, creatives, audiences, rules, targeting, insights, conversions, lead forms, tracking tags), commerce and product catalogs, WhatsApp, SMS, RCS, iMessage, voice and phone numbers, branded calling, the business agent, creator campaigns, workflows, sequences, broadcasts, contacts and custom fields, comment automations, calendars, blogs, files, email and treasury. Zernio's [API reference](https://zernio.com/openapi.yaml) documents them; call them with `request`.

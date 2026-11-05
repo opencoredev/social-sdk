@@ -397,7 +397,14 @@ it("creates nested replies, rejects bad mentions locally, and reports a missing 
 });
 
 it("edits a comment with message.$set and the organization actor", async () => {
-  const { calls, native: api } = native(organizationUrn, () => Response.json({}));
+  // The edit answers with the edited comment.
+  const { calls, native: api } = native(organizationUrn, () =>
+    Response.json({
+      id: "70172482676457473",
+      message: { attributes: [], text: "Updated" },
+      object: "urn:li:activity:6912417282191147008",
+    }),
+  );
 
   await api.editComment({
     account: organization,

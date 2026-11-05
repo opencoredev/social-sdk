@@ -50,6 +50,16 @@ export interface HttpRequest {
   timeoutMs?: number;
 }
 
+/**
+ * A successful answer with its HTTP status, for writes whose documented success is a status
+ * code such as 204 rather than a body. `headers` holds only the requested `responseHeaders`.
+ */
+export interface HttpExchange {
+  readonly status: number;
+  readonly body: JsonValue;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
 export class HttpError extends Error {
   override readonly name = "HttpError";
   constructor(
@@ -81,7 +91,7 @@ export function retryDelay(value: string | null, now: number): number | undefine
   return Number.isFinite(timestamp) ? Math.max(0, timestamp - now) : undefined;
 }
 
-function requestId(headers: Headers): string | undefined {
+export function requestId(headers: Headers): string | undefined {
   for (const name of ["x-request-id", "x-fb-trace-id", "x-amzn-requestid", "x-amzn-trace-id"]) {
     const value = headers.get(name);
 
@@ -91,7 +101,8 @@ function requestId(headers: Headers): string | undefined {
   return undefined;
 }
 
-function rateLimitResetDelay(value: string | null, now: number): number | undefined {
+/** Delay until an epoch-seconds reset header such as X's `x-rate-limit-reset`. */
+export function rateLimitResetDelay(value: string | null, now: number): number | undefined {
   if (value === null) return undefined;
   const seconds = Number(value);
 
@@ -137,12 +148,13 @@ export async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promi
   }
 }
 
-export async function readJson(
+/** Reads a response body up to `limit` bytes; a larger body is cancelled and rejected. */
+export async function readBytes(
   response: Response,
   limit: number,
   signal?: AbortSignal,
-): Promise<JsonValue> {
-  if (response.status === 204 || !response.body) return null;
+): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array(0);
   const length = Number(response.headers.get("content-length"));
 
   if (Number.isFinite(length) && length > limit) {
@@ -190,6 +202,17 @@ export async function readJson(
     offset += chunk.byteLength;
   }
 
+  return bytes;
+}
+
+export async function readJson(
+  response: Response,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<JsonValue> {
+  if (response.status === 204 || !response.body) return null;
+  const bytes = await readBytes(response, limit, signal);
+
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 
@@ -226,7 +249,7 @@ export function createHttp(options: HttpOptions = {}) {
   const now = options.now ?? Date.now;
   const random = options.random ?? Math.random;
 
-  return async function request(input: HttpRequest): Promise<JsonValue> {
+  const exchange = async (input: HttpRequest): Promise<HttpExchange> => {
     const deadlineMs = Math.min(timeoutMs, input.timeoutMs ?? timeoutMs);
 
     if (!Number.isFinite(deadlineMs) || deadlineMs <= 0)
@@ -307,16 +330,15 @@ export function createHttp(options: HttpOptions = {}) {
             const body =
               method === "HEAD" ? null : await readJson(response, maxBytes, controller.signal);
 
-            if (!input.responseHeaders) return body;
             const headers: Record<string, string> = {};
 
-            for (const name of input.responseHeaders) {
+            for (const name of input.responseHeaders ?? []) {
               const value = response.headers.get(name);
 
               if (value !== null) headers[name.toLowerCase()] = value;
             }
 
-            return { body, headers };
+            return { status: response.status, body, headers };
           }
 
           const currentTime = now();
@@ -433,4 +455,13 @@ export function createHttp(options: HttpOptions = {}) {
       input.signal?.removeEventListener("abort", abort);
     }
   };
+
+  /** The parsed body, or `{ body, headers }` when `responseHeaders` is requested. */
+  const request = async (input: HttpRequest): Promise<JsonValue> => {
+    const answer = await exchange(input);
+
+    return input.responseHeaders ? { body: answer.body, headers: answer.headers } : answer.body;
+  };
+
+  return Object.assign(request, { exchange });
 }

@@ -263,7 +263,8 @@ test("Bluesky list updates clear stale facets and compare the fetched CID", asyn
               avatar: { ref: { $link: "blob" } },
             },
           })
-        : ((written = body(init)), json({})),
+        : ((written = body(init)),
+          json({ uri: "at://did:plc:test/app.bsky.graph.list/l", cid: "bafyreinewlist" })),
   });
 
   assert.ok(adapter.native);

@@ -17,7 +17,7 @@ import type {
   PlatformPostRef,
   PreparedPublishTarget,
 } from "../core/types.js";
-import { createHttp, HttpError } from "../transport/http.js";
+import { createHttp, HttpError, type HttpExchange } from "../transport/http.js";
 import {
   array,
   isFiniteNumber,
@@ -42,6 +42,13 @@ import {
 import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { verifyLinkedInWebhook } from "../server/webhooks.js";
 import { directWebhooks } from "./webhook-adapter.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 
 /** LinkedIn documents "100MB"; the decimal reading is the conservative local bound. */
 const linkedInDocumentMaxBytes = 100_000_000;
@@ -267,7 +274,18 @@ export interface LinkedInPostChanges {
   readonly contentLandingPage?: string;
 }
 
+/** Host names for `native.request`: `api` is `https://api.linkedin.com`. */
+export type LinkedInRawHost = "api";
+
 export interface LinkedInNative {
+  /**
+   * Sends one request to a LinkedIn API path the SDK does not wrap, with the bearer token. `/rest/` paths also get `Linkedin-Version` and `X-Restli-Protocol-Version: 2.0.0` unless the caller sets them.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<LinkedInRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   /**
    * Lists organizations the authenticated member administers (approved `ADMINISTRATOR` roles).
    * Requires `rw_organization_admin` or `r_organization_admin`. Use the result to configure
@@ -1196,6 +1214,22 @@ export function linkedin(
 
   const http = createHttp(options.fetch ? { fetch: options.fetch } : {});
 
+  const rawConfig: RawRequestConfig<LinkedInRawHost> = {
+    hosts: { api: "https://api.linkedin.com" },
+    defaultHost: "api",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ path, headers }) => {
+      headers.set("Authorization", `Bearer ${options.auth.accessToken}`);
+
+      if (!path.startsWith("/rest/")) return;
+
+      if (!headers.has("Linkedin-Version")) headers.set("Linkedin-Version", options.apiVersion);
+
+      if (!headers.has("X-Restli-Protocol-Version"))
+        headers.set("X-Restli-Protocol-Version", "2.0.0");
+    },
+  };
+
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
   const escapeCommentary = (text: string) => text.replace(/[|{}@()[\]<>#\\*_~]/g, "\\$&");
@@ -1541,16 +1575,17 @@ export function linkedin(
       });
   };
 
-  async function request(
+  /** Send one request and keep the success status, for writes documented by a status code. */
+  async function exchange(
     path: string,
     context: AdapterOperationContext,
     body?: JsonObject,
     selectedHeaders?: readonly string[],
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = body === undefined ? "GET" : "POST",
     extraHeaders?: HeadersInit,
-  ) {
+  ): Promise<HttpExchange> {
     try {
-      return await http({
+      return await http.exchange({
         timeoutMs: remainingBudget(context),
         url: new URL(`https://api.linkedin.com${path}`),
         headers: path.startsWith("/v2/")
@@ -1604,6 +1639,65 @@ export function linkedin(
             : { kind: "never" },
       });
     }
+  }
+
+  /** The parsed body, or `{ body, headers }` when response headers are selected. */
+  async function request(...args: Parameters<typeof exchange>) {
+    const answer = await exchange(...args);
+
+    return args[3] ? { body: answer.body, headers: answer.headers } : answer.body;
+  }
+
+  /** A dispatched write whose success answer cannot prove the change: reconcile before retrying. */
+  function unconfirmed(operation: string, message: string): SocialError {
+    return new SocialError({
+      code: "ambiguous_outcome",
+      operation,
+      message: `${message} Reconcile before retrying.`,
+      retryDisposition: { kind: "reconcile-first" },
+    });
+  }
+
+  /**
+   * Confirm a write by its documented success status. Any other success answer cannot prove
+   * the change; HTTP error statuses keep their classification in `exchange`.
+   */
+  function confirmedStatus(
+    answer: HttpExchange,
+    statuses: readonly number[],
+    operation: string,
+  ): HttpExchange {
+    if (statuses.includes(answer.status)) return answer;
+
+    throw unconfirmed(
+      operation,
+      `LinkedIn answered HTTP ${answer.status}, not the documented success.`,
+    );
+  }
+
+  /**
+   * Confirm a write whose page documents no status by Rest.li's success statuses with an empty
+   * body. Source: https://linkedin.github.io/rest.li/spec/protocol
+   */
+  function confirmedEmpty(answer: HttpExchange, operation: string): void {
+    if ([200, 201, 204].includes(answer.status) && answer.body === null) return;
+
+    throw unconfirmed(operation, "LinkedIn answered the write with an unexpected body or status.");
+  }
+
+  /**
+   * The `urn:li:share` or `urn:li:ugcPost` a Posts API create returns in `x-restli-id`, which is
+   * the documented proof of the create, as in `publishTarget`.
+   */
+  function createdPostUrn(answer: HttpExchange, operation: string): string {
+    const id = answer.headers["x-restli-id"];
+
+    if (id !== undefined && linkedInPostUrn.test(id)) return id;
+
+    throw unconfirmed(
+      operation,
+      "LinkedIn accepted the post without a valid post URN in x-restli-id.",
+    );
   }
 
   async function readPost(ref: PlatformPostRef, context: AdapterOperationContext) {
@@ -3745,6 +3839,7 @@ export function linkedin(
       apiRevision: options.apiVersion,
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        rawRequestCapability("linkedin", "api.linkedin.com"),
         {
           platform: "linkedin",
           operation: "posts.publish",
@@ -4598,12 +4693,18 @@ export function linkedin(
       async removeFromPlatform(ref: PlatformPostRef, context: AdapterOperationContext) {
         authorize(ref, context);
 
-        await request(
-          `/rest/posts/${encodeURIComponent(ref.postId)}`,
-          context,
-          undefined,
-          undefined,
-          "DELETE",
+        // Posts API delete answers 204 No Content.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10
+        confirmedStatus(
+          await exchange(
+            `/rest/posts/${encodeURIComponent(ref.postId)}`,
+            context,
+            undefined,
+            undefined,
+            "DELETE",
+          ),
+          [204],
+          "posts.delete",
         );
       },
     },
@@ -4727,25 +4828,30 @@ export function linkedin(
             message: "Comment parent object does not match the supplied post.",
           });
 
-        const response = object(
-          await request(`/rest/socialActions/${restliEncode(ref.commentId)}/comments`, context, {
+        const answer = await request(
+          `/rest/socialActions/${restliEncode(ref.commentId)}/comments`,
+          context,
+          {
             actor: ref.accountId,
             message: { text: content.text },
             object: ref.postId,
             parentComment: ref.commentId,
-          }),
+          },
         );
 
-        const commentId = optionalString(response["commentUrn"]);
+        // The reply was sent, so a body without a usable comment URN leaves it uncertain.
+        const commentId = confirmedWrite(
+          "comments.write",
+          "LinkedIn accepted the comment without returning its composite URN.",
+          () => {
+            const urn = optionalString(object(answer)["commentUrn"]);
 
-        if (!commentId)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "comments.write",
-            message:
-              "LinkedIn accepted the comment without returning its composite URN. Reconcile before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
+            if (urn === undefined || !linkedInCommentUrn.test(urn))
+              throw new TypeError("The reply response has no valid commentUrn.");
+
+            return urn;
+          },
+        );
 
         return { ...ref, commentId };
       },
@@ -4877,6 +4983,11 @@ export function linkedin(
       now,
     ),
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async listAdministeredOrganizations({ account, cursor, limit, role, state, context }) {
         authorize(account, context);
 
@@ -5082,36 +5193,36 @@ export function linkedin(
               "A LinkedIn poll needs a question of 1 to 140 characters, 2 to 4 options of 1 to 30 characters, a documented duration, and commentary of at most 3,000 characters.",
           });
 
-        const result = object(
-          await request(
-            "/rest/posts",
-            context,
-            {
-              author: account.accountId,
-              commentary: escapeCommentary(text),
-              visibility: "PUBLIC",
-              distribution: {
-                feedDistribution: "MAIN_FEED",
-                targetEntities: [],
-                thirdPartyDistributionChannels: [],
-              },
-              lifecycleState: "PUBLISHED",
-              isReshareDisabledByAuthor: false,
-              content: {
-                poll: {
-                  question,
-                  options: pollOptions.map((option) => ({ text: option })),
-                  settings: { duration },
-                },
+        const answer = await exchange(
+          "/rest/posts",
+          context,
+          {
+            author: account.accountId,
+            commentary: escapeCommentary(text),
+            visibility: "PUBLIC",
+            distribution: {
+              feedDistribution: "MAIN_FEED",
+              targetEntities: [],
+              thirdPartyDistributionChannels: [],
+            },
+            lifecycleState: "PUBLISHED",
+            isReshareDisabledByAuthor: false,
+            content: {
+              poll: {
+                question,
+                options: pollOptions.map((option) => ({ text: option })),
+                settings: { duration },
               },
             },
-            ["x-restli-id"],
-          ),
+          },
+          ["x-restli-id"],
         );
 
-        const id = optionalString(object(result["headers"])["x-restli-id"]);
+        // A Posts API create answers 201 with the post URN in x-restli-id.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10
+        const id = createdPostUrn(answer, "polls.create");
 
-        return id === undefined ? result : { ...result, id };
+        return { body: answer.body, headers: answer.headers, id };
       },
       async react({ account, postId, reaction, context }) {
         authorize(account, context);
@@ -5124,10 +5235,30 @@ export function linkedin(
             message: `LinkedIn reactionType must be one of ${linkedInReactionTypes.join(", ")}.`,
           });
 
-        await request(`/rest/reactions?actor=${encodeURIComponent(account.accountId)}`, context, {
-          root: postId,
-          reactionType: reaction,
-        });
+        // Create answers 201 Created with the reaction, whose reactionType is the one requested.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api?view=li-lms-2026-10
+        const created = confirmedStatus(
+          await exchange(
+            `/rest/reactions?actor=${encodeURIComponent(account.accountId)}`,
+            context,
+            {
+              root: postId,
+              reactionType: reaction,
+            },
+          ),
+          [201],
+          "reactions.write",
+        ).body;
+
+        if (
+          !isJsonObject(created) ||
+          !isString(created["id"]) ||
+          !created["id"].startsWith("urn:li:reaction:(") ||
+          created["reactionType"] !== reaction ||
+          !isString(created["root"]) ||
+          created["root"] === ""
+        )
+          throw unconfirmed("reactions.write", "LinkedIn did not return the created reaction.");
       },
       async reshare({ account, postId, text = "", context }) {
         authorize(account, context);
@@ -5140,30 +5271,30 @@ export function linkedin(
               "Reshare a urn:li:share or urn:li:ugcPost post with commentary of at most 3,000 characters.",
           });
 
-        const result = object(
-          await request(
-            "/rest/posts",
-            context,
-            {
-              author: account.accountId,
-              commentary: escapeCommentary(text),
-              visibility: "PUBLIC",
-              distribution: {
-                feedDistribution: "MAIN_FEED",
-                targetEntities: [],
-                thirdPartyDistributionChannels: [],
-              },
-              lifecycleState: "PUBLISHED",
-              isReshareDisabledByAuthor: false,
-              reshareContext: { parent: postId },
+        const answer = await exchange(
+          "/rest/posts",
+          context,
+          {
+            author: account.accountId,
+            commentary: escapeCommentary(text),
+            visibility: "PUBLIC",
+            distribution: {
+              feedDistribution: "MAIN_FEED",
+              targetEntities: [],
+              thirdPartyDistributionChannels: [],
             },
-            ["x-restli-id"],
-          ),
+            lifecycleState: "PUBLISHED",
+            isReshareDisabledByAuthor: false,
+            reshareContext: { parent: postId },
+          },
+          ["x-restli-id"],
         );
 
-        const id = optionalString(object(result["headers"])["x-restli-id"]);
+        // A Posts API create answers 201 with the post URN in x-restli-id.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10
+        const id = createdPostUrn(answer, "reshares.write");
 
-        return id === undefined ? result : { ...result, id };
+        return { body: answer.body, headers: answer.headers, id };
       },
       async updatePost({ account, postId, body, changes, context }) {
         authorize(account, context);
@@ -5220,8 +5351,10 @@ export function linkedin(
             message: "Provide typed changes or a raw body.",
           });
 
-        return object(
-          await request(
+        // Posts API partial update answers 204 No Content.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10
+        const updated = confirmedStatus(
+          await exchange(
             `/rest/posts/${encodeURIComponent(postId)}`,
             context,
             { patch },
@@ -5229,17 +5362,27 @@ export function linkedin(
             "POST",
             { "X-RestLi-Method": "PARTIAL_UPDATE" },
           ),
+          [204],
+          "posts.update",
         );
+
+        return { body: updated.body, headers: updated.headers };
       },
       async deletePost({ account, postId, context }) {
         authorize(account, context);
 
-        await request(
-          `/rest/posts/${encodeURIComponent(postId)}`,
-          context,
-          undefined,
-          undefined,
-          "DELETE",
+        // Posts API delete answers 204 No Content.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10
+        confirmedStatus(
+          await exchange(
+            `/rest/posts/${encodeURIComponent(postId)}`,
+            context,
+            undefined,
+            undefined,
+            "DELETE",
+          ),
+          [204],
+          "posts.delete",
         );
       },
       async deleteComment({ account, postId, commentId, context }) {
@@ -5263,12 +5406,16 @@ export function linkedin(
           ? `?actor=${encodeURIComponent(options.auth.author)}`
           : "";
 
-        await request(
-          `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[1]}${actor}`,
-          context,
-          undefined,
-          undefined,
-          "DELETE",
+        // The Comments API page documents no delete status; Rest.li answers with an empty body.
+        confirmedEmpty(
+          await exchange(
+            `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[1]}${actor}`,
+            context,
+            undefined,
+            undefined,
+            "DELETE",
+          ),
+          "comments.delete",
         );
       },
       async organizationAnalytics({ account, query, context }) {
@@ -6354,14 +6501,33 @@ export function linkedin(
         );
 
         // LinkedIn received the create; an answer without a readable event ID leaves it uncertain.
+        // Create answers 201 Created with the event, whose id identifies it; x-restli-id, when
+        // sent, must name the same event. A body that is not an object, a body id of the wrong
+        // type, or no ID at all cannot confirm the create.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/event-management/events?view=li-lms-2026-10
         return confirmedWrite("events.write", "LinkedIn did not confirm the event.", () => {
           const result = object(created);
           const header = optionalString(optionalObject(result["headers"])?.["x-restli-id"]);
+          const body = result["body"];
+
+          if (body !== null && !isJsonObject(body))
+            throw new TypeError("The event create response body is not an event.");
+
+          const bodyId = body?.["id"];
+          const fromBody = longId(bodyId);
 
           const fromHeader =
             header === undefined ? undefined : longId(header.replace(/^urn:li:event:/, ""));
 
-          return decodeEvent(optionalObject(result["body"]) ?? {}, fromHeader);
+          if (
+            (bodyId !== undefined && fromBody === undefined) ||
+            (header !== undefined && fromHeader === undefined) ||
+            (fromBody !== undefined && fromHeader !== undefined && fromBody !== fromHeader) ||
+            (fromBody ?? fromHeader) === undefined
+          )
+            throw new TypeError("The event create response has no consistent event ID.");
+
+          return decodeEvent(body ?? {}, fromHeader);
         });
       },
       async getEvent({ account, event, context }) {
@@ -6430,9 +6596,15 @@ export function linkedin(
           type,
         });
 
-        await request(path, context, { patch }, undefined, "POST", {
-          "X-RestLi-Method": "PARTIAL_UPDATE",
-        });
+        // Events API partial update answers 200 OK.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/event-management/events?view=li-lms-2026-10
+        confirmedStatus(
+          await exchange(path, context, { patch }, undefined, "POST", {
+            "X-RestLi-Method": "PARTIAL_UPDATE",
+          }),
+          [200],
+          "events.write",
+        );
       },
       async listEvents({
         account,
@@ -6622,31 +6794,28 @@ export function linkedin(
               "Post an event with its urn:li:event or urn:li:liveVideo reference and at most 3,000 characters of commentary.",
           });
 
-        // Posts API ReferenceContent (Events API "Post an Event", li-lms-2026-10).
-        const result = object(
-          await request(
-            "/rest/posts",
-            context,
-            {
-              author: account.accountId,
-              commentary: escapeCommentary(text),
-              visibility: "PUBLIC",
-              distribution: {
-                feedDistribution: "MAIN_FEED",
-                targetEntities: [],
-                thirdPartyDistributionChannels: [],
-              },
-              content: { reference: { id: reference } },
-              lifecycleState: "PUBLISHED",
-              isReshareDisabledByAuthor: false,
+        // Posts API ReferenceContent (Events API "Post an Event", li-lms-2026-10): 201 Created
+        // with the post URN in x-restli-id.
+        const answer = await exchange(
+          "/rest/posts",
+          context,
+          {
+            author: account.accountId,
+            commentary: escapeCommentary(text),
+            visibility: "PUBLIC",
+            distribution: {
+              feedDistribution: "MAIN_FEED",
+              targetEntities: [],
+              thirdPartyDistributionChannels: [],
             },
-            ["x-restli-id"],
-          ),
+            content: { reference: { id: reference } },
+            lifecycleState: "PUBLISHED",
+            isReshareDisabledByAuthor: false,
+          },
+          ["x-restli-id"],
         );
 
-        return definedFields({
-          postId: optionalString(optionalObject(result["headers"])?.["x-restli-id"]),
-        });
+        return { postId: createdPostUrn(answer, "events.post") };
       },
       async setCommentsState({ account, postId, state, context }) {
         authorize(account, context);
@@ -6658,13 +6827,19 @@ export function linkedin(
             message: "Set commentsState OPEN or CLOSED on a urn:li:share or urn:li:ugcPost post.",
           });
 
-        await request(
-          `/rest/socialMetadata/${restliEncode(postId)}?actor=${restliEncode(account.accountId)}`,
-          context,
-          { patch: { $set: { commentsState: state } } },
-          undefined,
-          "POST",
-          { "X-RestLi-Method": "PARTIAL_UPDATE" },
+        // Social Metadata answers 202 Accepted for a comments-state change.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/social-metadata-api?view=li-lms-2026-10
+        confirmedStatus(
+          await exchange(
+            `/rest/socialMetadata/${restliEncode(postId)}?actor=${restliEncode(account.accountId)}`,
+            context,
+            { patch: { $set: { commentsState: state } } },
+            undefined,
+            "POST",
+            { "X-RestLi-Method": "PARTIAL_UPDATE" },
+          ),
+          [202],
+          "comments.state.write",
         );
       },
       async listReactions({
@@ -6711,12 +6886,18 @@ export function linkedin(
             message: "Delete a reaction on a share, ugcPost or comment URN.",
           });
 
-        await request(
-          `/rest/reactions/(actor:${restliEncode(account.accountId)},entity:${restliEncode(entity)})`,
-          context,
-          undefined,
-          undefined,
-          "DELETE",
+        // Reactions API delete answers 204 No Content.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/reactions-api?view=li-lms-2026-10
+        confirmedStatus(
+          await exchange(
+            `/rest/reactions/(actor:${restliEncode(account.accountId)},entity:${restliEncode(entity)})`,
+            context,
+            undefined,
+            undefined,
+            "DELETE",
+          ),
+          [204],
+          "reactions.delete",
         );
       },
       async listCommentReplies({ account, postId, commentId, cursor, limit, context }) {
@@ -6799,24 +6980,27 @@ export function linkedin(
           body,
         );
 
-        const response = confirmedWrite(
+        // The created comment carries its composite commentUrn and its ID, which is the URN's
+        // last component. Both are checked, as comments.reply does.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10
+        return confirmedWrite(
           "comments.write",
-          "LinkedIn did not return a readable comment.",
-          () => object(answer),
+          "LinkedIn accepted the comment without returning a valid composite URN.",
+          () => {
+            const decoded = object(answer);
+            const commentUrn = decoded["commentUrn"];
+            const id = decoded["id"];
+            const parts = isString(commentUrn) ? linkedInCommentUrn.exec(commentUrn) : null;
+
+            if (!isString(commentUrn) || !parts)
+              throw new TypeError("The comment response has no valid commentUrn.");
+
+            if (id !== undefined && (!isString(id) || id !== parts[2]))
+              throw new TypeError("The comment response ID does not match its commentUrn.");
+
+            return { commentUrn, ...definedFields({ id }) };
+          },
         );
-
-        const commentUrn = optionalString(response["commentUrn"]);
-
-        if (!commentUrn)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "comments.write",
-            message:
-              "LinkedIn accepted the comment without returning its composite URN. Reconcile before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        return { commentUrn, ...definedFields({ id: optionalString(response["id"]) }) };
       },
       async listOrganizationNotifications({ account, context, ...filters }) {
         organizationOnly(account, context, "notifications.read");
@@ -6847,12 +7031,16 @@ export function linkedin(
             message: "The LinkedIn webhook must be an absolute HTTPS URL.",
           });
 
-        await request(
-          subscriptionPath(account, developerApplication, member),
-          context,
-          { webhook },
-          undefined,
-          "PUT",
+        // The page documents no status for this upsert; Rest.li answers with an empty body.
+        confirmedEmpty(
+          await exchange(
+            subscriptionPath(account, developerApplication, member),
+            context,
+            { webhook },
+            undefined,
+            "PUT",
+          ),
+          "webhooks.subscriptions.write",
         );
       },
       async listOrganizationNotificationSubscriptions({ account, context }) {
@@ -6896,12 +7084,18 @@ export function linkedin(
       }) {
         organizationOnly(account, context, "webhooks.subscriptions.write");
 
-        await request(
-          subscriptionPath(account, developerApplication, member),
-          context,
-          undefined,
-          undefined,
-          "DELETE",
+        // Removing a subscription answers 200 OK.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications?view=li-lms-2026-10
+        confirmedStatus(
+          await exchange(
+            subscriptionPath(account, developerApplication, member),
+            context,
+            undefined,
+            undefined,
+            "DELETE",
+          ),
+          [200],
+          "webhooks.subscriptions.write",
         );
       },
       async editComment({ account, postId, commentId, text, mentions, context }) {
@@ -6919,7 +7113,9 @@ export function linkedin(
           });
 
         // Only message.text and message.attributes can change; empty attributes clear old mentions.
-        await request(
+        // An edit answers with the edited comment, whose id is the edited comment's ID.
+        // https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10
+        const edited = await request(
           `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[2]}${organizationActor()}`,
           context,
           { patch: { message: { $set: { text, attributes: attributes ?? [] } } } },
@@ -6927,6 +7123,9 @@ export function linkedin(
           "POST",
           { "X-RestLi-Method": "PARTIAL_UPDATE" },
         );
+
+        if (!isJsonObject(edited) || edited["id"] !== match[2] || !isJsonObject(edited["message"]))
+          throw unconfirmed("comments.edit", "LinkedIn did not return the edited comment.");
       },
     },
   });

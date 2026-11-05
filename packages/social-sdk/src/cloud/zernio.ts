@@ -1746,6 +1746,7 @@ export const zernioInternals = {
   inboxFields,
   invalid,
   unconfirmed,
+  deliveryOutcome: zernioOutcome,
   editablePlatforms: zernioEditablePlatforms,
   hidePlatforms: zernioHidePlatforms,
   commentDeletePlatforms: zernioCommentDeletePlatforms,
@@ -1824,6 +1825,14 @@ export function zernio(options: ManagedOptions) {
       capabilities: [
         ...capabilityManifest("zernio", "1.25.1", zernioOperations, linkedinDocumentFormats)
           .capabilities,
+        {
+          platform: "*",
+          operation: "raw.request",
+          availability: "available" as const,
+          surface: "native" as const,
+          notes:
+            "zernioNative(options).request sends one request to zernio.com/api with the API key. It never retries, adds idempotency keys or reconciles writes.",
+        },
         ...zernioRemovablePlatforms.map((platform) => {
           const declaration = {
             platform,
@@ -2429,9 +2438,17 @@ export function zernio(options: ManagedOptions) {
             const result = object(body);
 
             if (result["success"] !== true) unconfirmed("messages.write");
-            const messageId = optionalString(object(result["data"])["messageId"]);
+            const raw = object(result["data"])["messageId"];
 
-            return { state: "sent", ...definedFields({ messageId: messageId || undefined }) };
+            // A present message ID must be a non-empty string; anything else is malformed.
+            const messageId =
+              raw === undefined
+                ? undefined
+                : isString(raw) && raw.length > 0
+                  ? raw
+                  : unconfirmed("messages.write");
+
+            return { state: "sent", ...definedFields({ messageId }) };
           },
         );
       },

@@ -1,4 +1,5 @@
 import { normalizeMetrics } from "../core/projections.js";
+import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
 import { MemoryManagedMediaStore, storedMedia, type ManagedMediaRecord } from "./media.js";
 
 export {
@@ -13,6 +14,7 @@ import type {
   AccountRecord,
   AdapterOperationContext,
   BackendPostRef,
+  CapabilityManifest,
   ConnectedAccountRef,
   DeliveryOutcome,
   DeliveryRef,
@@ -31,6 +33,7 @@ import type {
   ScheduledJobRef,
 } from "../core/types.js";
 import { definedFields } from "../core/fields.js";
+import { HttpError } from "../transport/http.js";
 import { remainingBudget } from "../transport/budget.js";
 import { httpsUrl, upload } from "../transport/upload.js";
 import {
@@ -491,6 +494,11 @@ const reject = (operation: string, message: string): never => {
   throw new SocialError({ code: "invalid_input", operation, message });
 };
 
+/** A PostFast record ID as it comes back in an answer: a non-empty string without whitespace. */
+function isPostFastId(value: JsonField): value is string {
+  return isString(value) && value !== "" && value.length <= 256 && !/\s/.test(value);
+}
+
 /** The response did not show the requested inbox change; the write may or may not have landed. */
 const unconfirmed = (change: string): never => {
   throw new SocialError({
@@ -535,8 +543,7 @@ function sentInboxItem(value: JsonValue, change: string): JsonObject {
 
   if (
     !isJsonObject(value) ||
-    !isString(value["id"]) ||
-    !value["id"] ||
+    !isPostFastId(value["id"]) ||
     value["direction"] !== "OUTBOUND" ||
     !(
       delivery === undefined ||
@@ -1080,7 +1087,8 @@ export function postfast(options: ManagedOptions) {
       (reply) => array(object(reply)["postIds"]),
     );
 
-    const id = ids.length === 1 && isString(ids[0]) ? ids[0] : undefined;
+    const first = ids[0];
+    const id = ids.length === 1 && isPostFastId(first) ? first : undefined;
 
     if (!id)
       return {
@@ -1141,33 +1149,40 @@ export function postfast(options: ManagedOptions) {
     return uploadBytes({ kind: "image", source: thumbnail, mimeType, filename: "cover" }, context);
   };
 
+  const withPostFastRawRequest = (manifest: CapabilityManifest): CapabilityManifest => ({
+    ...manifest,
+    capabilities: [...manifest.capabilities, rawRequestCapability("*", "api.postfa.st")],
+  });
+
   const adapter = defineAdapter({
     id: "postfast",
-    capabilities: capabilityManifest(
-      "postfast",
-      "REST API, docs fetched 2026-09-24",
-      [
-        "accounts.read",
-        "posts.publish",
-        "posts.schedule",
-        "posts.status",
-        "posts.list",
-        "posts.cancelScheduled",
-        "posts.deleteBackendRecord",
-        "analytics.read",
-        "analytics.account.read",
-        "media.upload",
-      ],
-      linkedinDocumentFormats,
-      (_platform, operation) =>
-        managedConstraints(
-          operation,
-          operation === "posts.publish" ? ["media-ref", "blob", "stream"] : undefined,
-        ),
-      {
-        facebook:
-          "PostFast's Facebook integration is Page-scoped; personal profiles are not supported.",
-      },
+    capabilities: withPostFastRawRequest(
+      capabilityManifest(
+        "postfast",
+        "REST API, docs fetched 2026-09-24",
+        [
+          "accounts.read",
+          "posts.publish",
+          "posts.schedule",
+          "posts.status",
+          "posts.list",
+          "posts.cancelScheduled",
+          "posts.deleteBackendRecord",
+          "analytics.read",
+          "analytics.account.read",
+          "media.upload",
+        ],
+        linkedinDocumentFormats,
+        (_platform, operation) =>
+          managedConstraints(
+            operation,
+            operation === "posts.publish" ? ["media-ref", "blob", "stream"] : undefined,
+          ),
+        {
+          facebook:
+            "PostFast's Facebook integration is Page-scoped; personal profiles are not supported.",
+        },
+      ),
     ),
     media: {
       async upload(
@@ -1493,6 +1508,15 @@ export function postfast(options: ManagedOptions) {
       },
     },
     native: {
+      /**
+       * Sends one request to a PostFast API path the SDK does not wrap, with the `pf-api-key` header. Host `api` is `https://api.postfa.st`.
+       * The key is workspace-scoped, so the SDK cannot check which accounts the path touches.
+       * Raw requests never retry or reconcile; the caller owns any write it sends.
+       */
+      request: managedRawRequest("https://api.postfa.st", options, (apiKey) => [
+        "pf-api-key",
+        apiKey,
+      ]),
       /** Create a hosted link where someone connects their social accounts to your workspace. */
       async createConnectLink(input: PostFastConnectLinkOptions, context: AdapterOperationContext) {
         for (const value of input.platforms ?? [])
@@ -1553,10 +1577,24 @@ export function postfast(options: ManagedOptions) {
           request("/social-posts/bulk-delete", context, { ids: [...input.ids] }),
           (reply) => {
             const result = object(reply);
+            const requested = new Set(input.ids);
+
+            // Every listed ID must be one this call asked to delete; anything else is unreadable.
+            const listed = (value: JsonField): string[] =>
+              array(value).map((id) => {
+                if (!isString(id) || !requested.has(id))
+                  throw new HttpError(
+                    "PostFast listed a post this call did not delete.",
+                    "invalid-response",
+                    true,
+                  );
+
+                return id;
+              });
 
             return {
-              deletedIds: array(result["deletedIds"]).filter(isString),
-              notFoundIds: array(result["notFoundIds"]).filter(isString),
+              deletedIds: listed(result["deletedIds"]),
+              notFoundIds: listed(result["notFoundIds"]),
             };
           },
         );
@@ -1840,7 +1878,7 @@ export function postfast(options: ManagedOptions) {
         // The moderation was dispatched; a body that is not the item cannot confirm it.
         const item = isJsonObject(response) ? inboxItem(response) : undefined;
 
-        if (item === undefined || item["state"] !== expected)
+        if (item === undefined || item["id"] !== input.itemId || item["state"] !== expected)
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "comments.moderate",
@@ -1862,8 +1900,16 @@ export function postfast(options: ManagedOptions) {
             context,
             {},
           ),
-          // The answer is the Conversation; without its unread count it confirms nothing.
-          (reply) => ({ unreadCount: number(object(reply)["unreadCount"]) }),
+          // The answer is the Conversation; only this conversation at zero unread confirms it.
+          (reply) => {
+            const conversation = object(reply);
+            const unreadCount = number(conversation["unreadCount"]);
+
+            if (conversation["id"] !== input.conversationId || unreadCount !== 0)
+              unconfirmed("read state");
+
+            return { unreadCount };
+          },
         );
       },
       /**
@@ -1885,7 +1931,8 @@ export function postfast(options: ManagedOptions) {
 
         const conversation = inboxConversation(response);
 
-        if (conversation["status"] !== input.status) unconfirmed("triage state");
+        if (conversation["id"] !== input.conversationId || conversation["status"] !== input.status)
+          unconfirmed("triage state");
 
         return conversation;
       },
@@ -1912,7 +1959,11 @@ export function postfast(options: ManagedOptions) {
 
         const conversation = inboxConversation(response);
 
-        if (conversation["assignedToUserId"] !== input.assigneeUserId) unconfirmed("assignment");
+        if (
+          conversation["id"] !== input.conversationId ||
+          conversation["assignedToUserId"] !== input.assigneeUserId
+        )
+          unconfirmed("assignment");
 
         return conversation;
       },

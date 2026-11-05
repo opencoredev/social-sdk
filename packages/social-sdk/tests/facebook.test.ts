@@ -480,9 +480,10 @@ describe("facebook pages adapter", () => {
       context,
     });
 
-    // The container exists, so the refusal is an outcome that keeps its delivery.
-    assert.equal(outcome.state, "failed");
-    assert.equal(outcome.state === "failed" ? outcome.code : undefined, "upstream_failure");
+    // The container exists and its start answer is malformed, so the outcome is uncertain and
+    // keeps its delivery for reconciliation.
+    assert.equal(outcome.state, "unknown");
+    assert.equal(outcome.state === "unknown" ? outcome.reason : undefined, "ambiguous-submission");
     assert.equal(outcome.delivery?.deliveryId, "reel1");
     assert.equal(calls.length, 1);
   });
@@ -805,11 +806,12 @@ describe("facebook pages adapter", () => {
         await createSocial({ backend: bad.adapter, clock }).posts.publish(reelRequest)
       ).outcomes[0];
 
-      assert.equal(outcome?.state, "failed", String(upload_url));
+      assert.equal(outcome?.state, "unknown", String(upload_url));
       assert.equal(outcome?.delivery?.deliveryId, "reel8");
-      assert.deepEqual(outcome?.state === "failed" ? outcome.retryDisposition : undefined, {
-        kind: "reconcile-first",
-      });
+      assert.equal(
+        outcome?.state === "unknown" ? outcome.reason : undefined,
+        "ambiguous-submission",
+      );
       // Nothing is sent to a host outside rupload.facebook.com.
       assert.equal(bad.urls.length, 1);
     }

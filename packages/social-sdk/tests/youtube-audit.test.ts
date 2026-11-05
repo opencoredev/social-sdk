@@ -4,6 +4,7 @@ import { createSocial, connectedAccountRef, type AdapterOperationContext } from 
 import { youtube } from "../src/platforms/youtube.js";
 import { definedFields } from "../src/core/fields.js";
 import { beginYouTubeUpload } from "../src/platforms/youtube-upload.js";
+import { isString, object } from "../src/transport/validation.js";
 
 const context = (): AdapterOperationContext => ({
   backendInstance: "default",
@@ -61,6 +62,15 @@ it("YouTube live chat, channel sections, and activity natives use documented rou
       });
 
       if (init?.method === "DELETE") return new Response(null, { status: 204 });
+
+      // A write answers with the written resource, which carries its ID; an update answers
+      // with the resource it addressed.
+      if (init?.method === "POST" || init?.method === "PUT") {
+        const sent = init.body ? object(JSON.parse(String(init.body))) : {};
+        const id = init.method === "PUT" && isString(sent["id"]) ? sent["id"] : "written1";
+
+        return Response.json({ id, snippet: { liveChatId: "chat1" } });
+      }
 
       if (url.pathname === "/youtube/v3/liveChat/messages")
         return Response.json({ items: [{ id: "message1", snippet: { liveChatId: "chat1" } }] });
@@ -711,7 +721,7 @@ it("live broadcast writes and reads include contentDetails", async () => {
         "snippet,status,contentDetails",
       );
 
-      return Response.json({});
+      return Response.json({ id: "broadcast1" });
     },
   });
 
@@ -797,7 +807,7 @@ it("subscription insert requires a channel and sends no list filters", async () 
         snippet: { resourceId: { kind: "youtube#channel", channelId: "target" } },
       });
 
-      return Response.json({});
+      return Response.json({ id: "subscription1" });
     },
   });
 

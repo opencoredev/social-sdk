@@ -1,4 +1,5 @@
 import { normalizeMetrics } from "../core/projections.js";
+import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
 import { createHash, randomBytes } from "node:crypto";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
@@ -765,6 +766,19 @@ export interface BufferPostEdit {
   readonly draftId?: string;
 }
 
+/** The `BufferPostEdit` fields `editPost` sends; any other key is rejected before the request. */
+const bufferPostEditFields: ReadonlySet<string> = new Set(
+  Object.keys({
+    text: true,
+    at: true,
+    saveToDraft: true,
+    tagIds: true,
+    approvalChange: true,
+    aiAssisted: true,
+    draftId: true,
+  } satisfies Record<keyof BufferPostEdit, true>),
+);
+
 /** A file or link attached to a Buffer idea. */
 export interface BufferIdeaMedia {
   /** Public HTTPS URL. */
@@ -1201,9 +1215,12 @@ function postRecordId(ref: BufferPostRef): string {
   }
 }
 
+function isBufferId(value: JsonField): value is string {
+  return isString(value) && value !== "" && value.length <= 256 && !/[\s@]/.test(value);
+}
+
 function bufferId(value: string, operation: string, label: string): string {
-  if (!value || value !== value.trim() || value.length > 256 || /[\s@]/.test(value))
-    reject(operation, `Use a Buffer ${label} identifier.`);
+  if (!isBufferId(value)) reject(operation, `Use a Buffer ${label} identifier.`);
 
   return value;
 }
@@ -1428,11 +1445,109 @@ export async function refreshBufferToken(
   return requestToken(body, options, operation);
 }
 
+/** The GraphQL `extensions.code`, kept only when it looks like a machine code, never prose. */
 function graphqlCode(error: JsonValue): string | undefined {
   if (!isJsonObject(error)) return undefined;
   const extensions = error["extensions"];
+  const code = isJsonObject(extensions) ? optionalString(extensions["code"]) : undefined;
 
-  return isJsonObject(extensions) ? optionalString(extensions["code"]) : undefined;
+  return code !== undefined && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : undefined;
+}
+
+// Buffer's error prose is free text that can echo post content or signed media URLs, so
+// public errors carry these SDK-authored messages and validated machine codes only.
+const graphqlMessages = {
+  rate_limited: "Buffer rate limited the request.",
+  reconnect_required: "Buffer rejected the credential. Reconnect the account.",
+  missing_permission: "Buffer does not allow this credential to make the request.",
+  not_found: "Buffer could not find the requested resource.",
+  ambiguous_outcome: "Buffer did not confirm the mutation. Reconcile before retrying.",
+  upstream_failure: "Buffer returned a GraphQL error.",
+} as const satisfies Partial<Record<SocialErrorCode, string>>;
+
+/**
+ * A Buffer mutation payload that states an error instead of the changed resource. Returns
+ * undefined when the payload states nothing. Only the recognized `__typename` survives.
+ */
+function payloadRejection(input: {
+  readonly result: JsonObject;
+  readonly operation: string;
+  readonly context: AdapterOperationContext;
+  readonly kind: "query" | "mutation";
+}): SocialError | undefined {
+  const { result, operation, context, kind } = input;
+
+  const typename = result["__typename"];
+
+  // Every MutationError member carries the `__typename` the selection asks for; a payload with a
+  // message but no type name is not a documented error answer.
+  if (!isString(result["message"]) || !isString(typename) || typename === "") return undefined;
+
+  const base = {
+    operation,
+    backend: context.backendInstance,
+    correlationId: context.correlationId,
+  };
+
+  switch (typename) {
+    case "UnauthorizedError":
+      return new SocialError({
+        ...base,
+        code: "missing_permission",
+        upstreamCode: typename,
+        message: "Buffer does not allow this credential to make the change.",
+        retryDisposition: { kind: "never" },
+      });
+    case "NotFoundError":
+      return new SocialError({
+        ...base,
+        code: "not_found",
+        upstreamCode: typename,
+        message: "Buffer could not find the resource this change addresses.",
+        retryDisposition: { kind: "never" },
+      });
+    case "LimitReachedError":
+      return new SocialError({
+        ...base,
+        code: "billing_required",
+        upstreamCode: typename,
+        message: "The Buffer organization reached a plan limit for this change.",
+        retryDisposition: { kind: "never" },
+      });
+    case "UnexpectedError":
+      return kind === "mutation"
+        ? new SocialError({
+            ...base,
+            code: "ambiguous_outcome",
+            upstreamCode: typename,
+            message:
+              "Buffer reported an unexpected error after the change was sent. Reconcile before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          })
+        : new SocialError({
+            ...base,
+            code: "upstream_failure",
+            upstreamCode: typename,
+            message: "Buffer reported an unexpected error.",
+            retryDisposition: { kind: "never" },
+          });
+    case "InvalidInputError":
+      return new SocialError({
+        ...base,
+        code: "invalid_input",
+        upstreamCode: typename,
+        message: "Buffer rejected the request input.",
+        retryDisposition: { kind: "never" },
+      });
+    default:
+      // A stated error without a recognized type is still a definite rejection.
+      return new SocialError({
+        ...base,
+        code: "invalid_input",
+        message: "Buffer rejected the request.",
+        retryDisposition: { kind: "never" },
+      });
+  }
 }
 
 function transportError(
@@ -1446,8 +1561,11 @@ function transportError(
     error.dispatched &&
     (error.kind !== "http" || (error.status !== undefined && error.status >= 500));
 
-  const code: SocialErrorCode =
-    error.status === 429
+  // A dispatched mutation that timed out, was cancelled, or lost its answer may have landed,
+  // so uncertainty wins over the transport reason. Only HTTP 5xx counts among statuses.
+  const code: SocialErrorCode = ambiguous
+    ? "ambiguous_outcome"
+    : error.status === 429
       ? "rate_limited"
       : error.kind === "cancelled"
         ? "cancelled"
@@ -1459,11 +1577,9 @@ function transportError(
               ? "missing_permission"
               : error.status === 404
                 ? "not_found"
-                : ambiguous
-                  ? "ambiguous_outcome"
-                  : error.kind === "invalid-input"
-                    ? "invalid_input"
-                    : "upstream_failure";
+                : error.kind === "invalid-input"
+                  ? "invalid_input"
+                  : "upstream_failure";
 
   return new SocialError({
     code,
@@ -1488,6 +1604,17 @@ function transportError(
   });
 }
 
+/** GraphQL error codes that show Buffer refused a request rather than failing while running it. */
+const rejectionCodes = new Set([
+  "RATE_LIMIT_EXCEEDED",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "BAD_USER_INPUT",
+  "GRAPHQL_PARSE_FAILED",
+  "GRAPHQL_VALIDATION_FAILED",
+]);
+
 function graphqlFailure(
   errors: readonly JsonValue[],
   operation: string,
@@ -1497,22 +1624,25 @@ function graphqlFailure(
   const first = errors[0];
   const upstreamCode = first === undefined ? undefined : graphqlCode(first);
 
-  const message =
-    first !== undefined && isJsonObject(first)
-      ? (optionalString(first["message"]) ?? "Buffer returned a GraphQL error.")
-      : "Buffer returned a GraphQL error.";
+  const definite = (error: JsonValue) => {
+    const errorCode = graphqlCode(error);
 
-  const code: SocialErrorCode =
-    upstreamCode === "RATE_LIMIT_EXCEEDED"
-      ? "rate_limited"
-      : upstreamCode === "UNAUTHORIZED"
-        ? "reconnect_required"
-        : upstreamCode === "FORBIDDEN"
-          ? "missing_permission"
-          : upstreamCode === "NOT_FOUND"
-            ? "not_found"
-            : kind === "mutation" && upstreamCode === "UNEXPECTED"
-              ? "ambiguous_outcome"
+    return errorCode !== undefined && rejectionCodes.has(errorCode);
+  };
+
+  // A mutation that was sent is rejected only when every error carries a code that shows
+  // Buffer refused it. An execution error, an unknown code or none leaves it uncertain.
+  const code: keyof typeof graphqlMessages =
+    kind === "mutation" && (errors.length === 0 || !errors.every(definite))
+      ? "ambiguous_outcome"
+      : upstreamCode === "RATE_LIMIT_EXCEEDED"
+        ? "rate_limited"
+        : upstreamCode === "UNAUTHORIZED"
+          ? "reconnect_required"
+          : upstreamCode === "FORBIDDEN"
+            ? "missing_permission"
+            : upstreamCode === "NOT_FOUND"
+              ? "not_found"
               : "upstream_failure";
 
   return new SocialError({
@@ -1520,7 +1650,7 @@ function graphqlFailure(
     operation,
     backend: context.backendInstance,
     correlationId: context.correlationId,
-    message,
+    message: graphqlMessages[code],
     ...definedFields({
       upstreamCode,
       retryDisposition:
@@ -1761,7 +1891,11 @@ export function buffer(options: BufferOptions) {
     return found;
   };
 
-  const postRow = (value: JsonField, operation: string): JsonObject => {
+  const postRow = (
+    value: JsonField,
+    operation: string,
+    context: AdapterOperationContext,
+  ): JsonObject => {
     if (value === null || value === undefined)
       throw new SocialError({
         code: "not_found",
@@ -1773,13 +1907,14 @@ export function buffer(options: BufferOptions) {
 
     if (optionalString(row["id"])) return row;
 
-    const message = optionalString(row["message"]);
-
-    throw new SocialError({
-      code: message ? "invalid_input" : "upstream_failure",
-      operation,
-      message: message ?? "Buffer returned an unreadable post payload.",
-    });
+    throw (
+      payloadRejection({ result: row, operation, context, kind: "query" }) ??
+      new SocialError({
+        code: "upstream_failure",
+        operation,
+        message: "Buffer returned an unreadable post payload.",
+      })
+    );
   };
 
   const readPost = async (
@@ -1806,7 +1941,7 @@ export function buffer(options: BufferOptions) {
       "query",
     );
 
-    const row = postRow(data["post"], operation);
+    const row = postRow(data["post"], operation, context);
 
     if (row["channelId"] !== ref.accountId)
       throw new SocialError({
@@ -1958,21 +2093,18 @@ export function buffer(options: BufferOptions) {
         };
       }
 
-      case "error": {
-        const error = isJsonObject(row["error"]) ? row["error"] : undefined;
-        const reason = optionalString(error?.["message"]);
-        const help = optionalString(error?.["supportUrl"]);
-
+      case "error":
+        // Buffer's `error.message`, `supportUrl` and `rawError` are free text that can echo post
+        // content or signed media URLs, so the outcome keeps a fixed message. An authorized
+        // `posts.get` or `native.listPosts` read returns the post's `error` as data.
         return {
           ...base,
           state: "failed",
           code: "upstream_failure",
-          message: reason
-            ? `Buffer reports that this post failed: ${reason}${help ? ` (help: ${help})` : ""}`
-            : "Buffer reports that this post failed. Inspect the channel connection and the post in Buffer.",
+          message:
+            "Buffer reports that this post failed. Inspect the channel connection and the post in Buffer.",
           retryDisposition: { kind: "never" },
         };
-      }
 
       default:
         return {
@@ -2034,6 +2166,7 @@ export function buffer(options: BufferOptions) {
               id
             }
             ... on MutationError {
+              __typename
               message
             }
           }
@@ -2046,14 +2179,9 @@ export function buffer(options: BufferOptions) {
 
         if (result["id"] === id) return;
 
-        const message = optionalString(result["message"]);
+        const rejection = payloadRejection({ result, operation, context, kind: "mutation" });
 
-        if (message)
-          throw new SocialError({
-            code: "invalid_input",
-            operation,
-            message,
-          });
+        if (rejection) throw rejection;
 
         throw new SocialError({
           code: "ambiguous_outcome",
@@ -2119,7 +2247,11 @@ export function buffer(options: BufferOptions) {
     id: "buffer",
     capabilities: {
       ...manifest,
-      capabilities: [...manifest.capabilities, ...substackCapabilities],
+      capabilities: [
+        ...manifest.capabilities,
+        rawRequestCapability("*", "api.buffer.com"),
+        ...substackCapabilities,
+      ],
     },
     accounts: {
       async list(input: { cursor?: string; limit?: number }, context: AdapterOperationContext) {
@@ -2456,6 +2588,7 @@ export function buffer(options: BufferOptions) {
                 }
               }
               ... on MutationError {
+                __typename
                 message
               }
             }
@@ -2466,16 +2599,20 @@ export function buffer(options: BufferOptions) {
             const result = object(data["createPost"]);
 
             if (isJsonObject(result["post"]))
-              return outcome(object(result["post"]), target.account, target.targetIndex);
+              return outcome(
+                confirmedPost(result["post"], target.account),
+                target.account,
+                target.targetIndex,
+              );
 
-            const message = optionalString(result["message"]);
+            const rejection = payloadRejection({
+              result,
+              operation: "posts.publish",
+              context,
+              kind: "mutation",
+            });
 
-            if (message)
-              throw new SocialError({
-                code: "invalid_input",
-                operation: "posts.publish",
-                message,
-              });
+            if (rejection) throw rejection;
 
             throw new SocialError({
               code: "ambiguous_outcome",
@@ -2680,6 +2817,12 @@ export function buffer(options: BufferOptions) {
     },
     native: {
       /**
+       * Sends one request to the Buffer API the SDK does not wrap, with the bearer API key. Host `api` is `https://api.buffer.com`; GraphQL goes to path `/` and reports errors in a 200 body.
+       * The key is workspace-scoped, so the SDK cannot check which accounts the path touches.
+       * Raw requests never retry or reconcile; the caller owns any write it sends.
+       */
+      request: managedRawRequest(apiOrigin, options),
+      /**
        * `editPost`: change the text, custom time, draft state, or tags of a draft, scheduled, or
        * approval post. Fields you leave out keep their value.
        */
@@ -2688,6 +2831,14 @@ export function buffer(options: BufferOptions) {
         edit: BufferPostEdit,
         context: AdapterOperationContext,
       ): Promise<DeliveryOutcome> {
+        // A field this method does not send, such as `assets` or `metadata`, must not be dropped
+        // silently: the edit would resolve while the post kept its old media or settings.
+        if (Object.keys(edit).some((key) => !bufferPostEditFields.has(key)))
+          reject(
+            "posts.update",
+            "editPost changes text, at, saveToDraft, tagIds, approvalChange, aiAssisted, and draftId only. Use a raw editPost request for assets or metadata.",
+          );
+
         const row = await readPost(postRecordId(ref), ref, context, "posts.update");
 
         if (!["draft", "scheduled", "needs_approval"].includes(String(row["status"])))
@@ -2737,6 +2888,7 @@ export function buffer(options: BufferOptions) {
                 }
               }
               ... on MutationError {
+                __typename
                 message
               }
             }
@@ -2744,7 +2896,7 @@ export function buffer(options: BufferOptions) {
           { input },
           context,
           (data) => {
-            return actionOutcome(object(data["editPost"]), ref, "posts.update");
+            return actionOutcome(object(data["editPost"]), ref, input.id, "posts.update", context);
           },
         );
       },
@@ -2939,6 +3091,7 @@ export function buffer(options: BufferOptions) {
                 }
               }
               ... on MutationError {
+                __typename
                 message
               }
             }
@@ -2946,7 +3099,13 @@ export function buffer(options: BufferOptions) {
           { input: { id: string(row["id"]), position } },
           context,
           (data) => {
-            return actionOutcome(object(data["movePostInQueue"]), ref, "posts.schedule");
+            return actionOutcome(
+              object(data["movePostInQueue"]),
+              ref,
+              string(row["id"]),
+              "posts.schedule",
+              context,
+            );
           },
         );
       },
@@ -3100,15 +3259,19 @@ export function buffer(options: BufferOptions) {
                   }
                 }
                 ... on InvalidInputError {
+                  __typename
                   message
                 }
                 ... on UnauthorizedError {
+                  __typename
                   message
                 }
                 ... on LimitReachedError {
+                  __typename
                   message
                 }
                 ... on UnexpectedError {
+                  __typename
                   message
                 }
               }
@@ -3141,13 +3304,16 @@ export function buffer(options: BufferOptions) {
             // The mutation was dispatched; anything short of an idea ID or a stated error is uncertain.
             const result = optionalObject(data["createIdea"]) ?? {};
             const idea = optionalObject(result["idea"]);
-            const id = idea === undefined ? undefined : optionalString(idea["id"]);
+            const id = idea?.["id"];
 
-            if (id) return { id };
+            if (isBufferId(id)) return { id };
 
-            const message = idea === undefined ? optionalString(result["message"]) : undefined;
+            const rejection =
+              idea === undefined
+                ? payloadRejection({ result, operation, context, kind: "mutation" })
+                : undefined;
 
-            if (message) throw new SocialError({ code: "invalid_input", operation, message });
+            if (rejection) throw rejection;
 
             throw new SocialError({
               code: "ambiguous_outcome",
@@ -3831,30 +3997,55 @@ export function buffer(options: BufferOptions) {
     },
   });
 
+  /**
+   * The post a `PostActionSuccess` returned, checked against what the mutation addressed: a Buffer
+   * post ID (equal to the edited post's ID on edits), a `PostStatus` string, and, when present,
+   * the target channel. Anything else leaves the change unconfirmed.
+   */
+  function confirmedPost(
+    value: JsonField,
+    account: ConnectedAccountRef,
+    expectedId?: string,
+  ): JsonObject {
+    const post = object(value);
+    const id = post["id"];
+    const channel = post["channelId"];
+
+    if (
+      !isBufferId(id) ||
+      (expectedId !== undefined && id !== expectedId) ||
+      !isString(post["status"]) ||
+      post["status"] === "" ||
+      (channel !== undefined && channel !== account.accountId)
+    )
+      throw new HttpError("Buffer did not return the changed post.", "invalid-response", true);
+
+    return post;
+  }
+
   /** The outcome of a post mutation that returns the post or a MutationError. */
   function actionOutcome(
     result: JsonObject,
     ref: BufferPostRef,
+    expectedId: string,
     operation: string,
+    context: AdapterOperationContext,
   ): DeliveryOutcome {
     const post = result["post"];
 
-    if (isJsonObject(post))
-      return outcome(
-        post,
-        {
-          kind: "connected-account",
-          version: 1,
-          backend: ref.backend,
-          platform: ref.platform,
-          accountId: ref.accountId,
-        },
-        0,
-      );
+    const account: ConnectedAccountRef = {
+      kind: "connected-account",
+      version: 1,
+      backend: ref.backend,
+      platform: ref.platform,
+      accountId: ref.accountId,
+    };
 
-    const message = optionalString(result["message"]);
+    if (isJsonObject(post)) return outcome(confirmedPost(post, account, expectedId), account, 0);
 
-    if (message) throw new SocialError({ code: "invalid_input", operation, message });
+    const rejection = payloadRejection({ result, operation, context, kind: "mutation" });
+
+    if (rejection) throw rejection;
 
     throw new SocialError({
       code: "ambiguous_outcome",

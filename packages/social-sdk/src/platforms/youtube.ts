@@ -21,13 +21,27 @@ import type {
   ScheduledJobRef,
   SearchPostsInput,
 } from "../core/types.js";
-import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
+import { managedHttp, managedHttpExchange, optionsObject, publicFields } from "../cloud/common.js";
 import { normalizeComment, normalizeMetrics } from "../core/projections.js";
 import { definedFields } from "../core/fields.js";
 import { verifyYouTubeWebhook } from "../server/webhooks.js";
 import { directWebhooks, webhookCapability } from "./webhook-adapter.js";
-import { abortable, createHttp, HttpError, retryDelay } from "../transport/http.js";
+import {
+  abortable,
+  createHttp,
+  HttpError,
+  retryDelay,
+  type HttpExchange,
+} from "../transport/http.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
+import { providerErrorDecoder } from "../transport/provider-errors.js";
 import {
   array,
   isBoolean,
@@ -62,7 +76,23 @@ export interface YouTubeOptions {
   readonly webhookSecret?: string;
 }
 
+/**
+ * Host names for `native.request`: `data` is `https://www.googleapis.com/youtube/v3`, `upload`
+ * is `https://www.googleapis.com/upload/youtube/v3`, `analytics` is
+ * `https://youtubeanalytics.googleapis.com/v2` and `reporting` is
+ * `https://youtubereporting.googleapis.com/v1`.
+ */
+export type YouTubeRawHost = "data" | "upload" | "analytics" | "reporting";
+
 export interface YouTubeNative {
+  /**
+   * Sends one request to a YouTube API path the SDK does not wrap, with the channel's OAuth token.
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<YouTubeRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly resumeUpload: (
     session: YouTubeUploadSession,
     media: MediaAttachment,
@@ -99,6 +129,12 @@ export interface YouTubeNative {
     readonly mine?: boolean;
     readonly pageToken?: string;
     readonly maxResults?: number;
+    /** For `list`: the parts to return. Defaults to snippet, status and contentDetails. */
+    readonly parts?: readonly YouTubePlaylistPart[];
+    /**
+     * For `insert` and `update`: a playlist resource. Writable parts are snippet, status and
+     * localizations; localizations need snippet.defaultLanguage in the same body.
+     */
     readonly body?: JsonObject;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
@@ -691,6 +727,54 @@ const channelParts = [
 
 export type YouTubeChannelPart = (typeof channelParts)[number];
 
+const playlistParts = [
+  "contentDetails",
+  "id",
+  "localizations",
+  "player",
+  "snippet",
+  "status",
+] as const;
+
+export type YouTubePlaylistPart = (typeof playlistParts)[number];
+
+/**
+ * Check a playlist write's localizations: a non-empty map of BCP-47 tags to `{ title,
+ * description? }` strings, with snippet.defaultLanguage set in the same body.
+ * Source, accessed 2026-11-05: https://developers.google.com/youtube/v3/docs/playlists/insert
+ */
+function checkPlaylistLocalizations(body: JsonObject | undefined, operation: string): void {
+  const localizations = body?.["localizations"];
+
+  if (localizations === undefined) return;
+
+  const valid =
+    isJsonObject(localizations) &&
+    Object.keys(localizations).length > 0 &&
+    Object.entries(localizations).every(
+      ([language, entry]) =>
+        languageTag.test(language) &&
+        isJsonObject(entry) &&
+        Object.keys(entry).length > 0 &&
+        Object.entries(entry).every(
+          ([key, value]) => (key === "title" || key === "description") && isString(value),
+        ),
+    );
+
+  if (!valid)
+    throw invalidInput(
+      operation,
+      "localizations must map BCP-47 tags to { title?, description? } strings.",
+    );
+
+  const snippet = body?.["snippet"];
+
+  const defaultLanguage = isJsonObject(snippet) ? snippet["defaultLanguage"] : undefined;
+
+  if (!isString(defaultLanguage) || !languageTag.test(defaultLanguage))
+    throw invalidInput(operation, "Set snippet.defaultLanguage before writing localizations.");
+}
+
 function isOneOf<T extends string>(allowed: readonly T[], value: string): value is T {
   return allowed.some((candidate) => candidate === value);
 }
@@ -819,6 +903,16 @@ function abuseReportBody(report: YouTubeAbuseReport): JsonObject {
     }),
   };
 }
+
+// liveBroadcasts.transition returns the broadcast, whose status.lifeCycleStatus is the
+// requested state or its starting step. Source:
+// https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status.lifeCycleStatus
+// (accessed 2026-11-05).
+const transitionStates = {
+  testing: ["testStarting", "testing"],
+  live: ["liveStarting", "live"],
+  complete: ["complete"],
+} as const satisfies Record<"testing" | "live" | "complete", readonly string[]>;
 
 const metresPerUnit = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
 
@@ -1077,12 +1171,45 @@ export function youtube(
     ...definedFields({ fetch: options.fetch }),
   });
 
+  // The same three hosts, keeping the success status for writes documented by a status code.
+  const exchange = managedHttpExchange("https://www.googleapis.com", {
+    apiKey: options.auth.accessToken,
+    ...definedFields({ fetch: options.fetch }),
+  });
+
+  const analyticsExchange = managedHttpExchange("https://youtubeanalytics.googleapis.com", {
+    apiKey: options.auth.accessToken,
+    ...definedFields({ fetch: options.fetch }),
+  });
+
+  const reportingExchange = managedHttpExchange("https://youtubereporting.googleapis.com", {
+    apiKey: options.auth.accessToken,
+    ...definedFields({ fetch: options.fetch }),
+  });
+
   const binaryRequest = createHttp({
     ...definedFields({ fetch: options.fetch }),
     timeoutMs: 30_000,
   });
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
+
+  const rawConfig: RawRequestConfig<YouTubeRawHost> = {
+    hosts: {
+      data: "https://www.googleapis.com/youtube/v3",
+      upload: "https://www.googleapis.com/upload/youtube/v3",
+      analytics: "https://youtubeanalytics.googleapis.com/v2",
+      reporting: "https://youtubereporting.googleapis.com/v1",
+    },
+    defaultHost: "data",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ headers }) => {
+      headers.set("Authorization", `Bearer ${options.auth.accessToken}`);
+    },
+    reservedQuery: ["access_token"],
+    decodeError: (body, status, { url, path }) =>
+      providerErrorDecoder(url.origin, path)(body, status),
+  };
 
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
@@ -1295,7 +1422,7 @@ export function youtube(
     return media.source.blob;
   };
 
-  /** Upload bytes and return the decoded response, which is `null` for a 204. */
+  /** Upload bytes and return the success status with the decoded body, `null` for a 204. */
   const binarySend = async (
     path: string,
     context: AdapterOperationContext,
@@ -1303,13 +1430,13 @@ export function youtube(
     query: Record<string, string>,
     method: "POST" | "PUT" = "POST",
     contentType?: string,
-  ): Promise<JsonValue> => {
+  ): Promise<HttpExchange> => {
     const url = new URL(`https://www.googleapis.com${path}`);
 
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
 
     try {
-      const result = await binaryRequest({
+      const result = await binaryRequest.exchange({
         url,
         method,
         body,
@@ -1366,8 +1493,62 @@ export function youtube(
     throw uncertainWrite(operation);
   };
 
+  /** The non-empty string ID a created or replaced resource must carry to confirm the write. */
+  const writtenId = (resource: JsonObject, operation: string): string => {
+    const id = resource["id"];
+
+    if (isString(id) && id.trim() !== "") return id;
+
+    throw uncertainWrite(operation);
+  };
+
+  /**
+   * Decode a resource write's success response, which must be the resource with its ID, since
+   * the caller needs that ID to read or reconcile what was written.
+   */
+  const writtenResource = (value: JsonValue, operation: string): JsonObject => {
+    const resource = writtenObject(value, operation);
+
+    writtenId(resource, operation);
+
+    return resource;
+  };
+
+  /**
+   * Decode the response of a write that addressed one existing resource: it must be that
+   * resource, so a body without the addressed ID cannot confirm the change.
+   */
+  const writtenResourceFor = (value: JsonValue, operation: string, id: string): JsonObject => {
+    const resource = writtenResource(value, operation);
+
+    if (resource["id"] !== id) throw uncertainWrite(operation);
+
+    return resource;
+  };
+
+  /**
+   * Confirm a write whose documented success is HTTP 204 No Content. Any other success answer,
+   * such as a 200 with a JSON `null`, cannot prove the change, so it is reconcile-first.
+   */
+  const noContent = (answer: HttpExchange, operation: string): void => {
+    if (answer.status !== 204) throw uncertainWrite(operation);
+  };
+
+  /**
+   * Confirm a write whose documented success is an empty body: Google's empty message `{}`, or
+   * a 204 with no body. A JSON `null` or any other body cannot prove the change.
+   * Source: https://developers.google.com/youtube/reporting/v1/reference/rest/v1/jobs/delete
+   */
+  const emptyAnswer = (answer: HttpExchange, operation: string): void => {
+    const { status, body } = answer;
+
+    if (status === 204 || (isJsonObject(body) && Object.keys(body).length === 0)) return;
+
+    throw uncertainWrite(operation);
+  };
+
   const binaryJson = async (...args: Parameters<typeof binarySend>): Promise<JsonObject> =>
-    writtenObject(await binarySend(...args), args[0]);
+    writtenObject((await binarySend(...args)).body, args[0]);
 
   /**
    * Check an image upload against a method's documented MIME types and byte limit, then return
@@ -1632,6 +1813,10 @@ export function youtube(
       apiRevision: "YouTube Data API v3",
       runtime: ["node22", "node24", "bun"],
       capabilities: [
+        rawRequestCapability(
+          "youtube",
+          "www.googleapis.com (YouTube Data and upload), youtubeanalytics.googleapis.com and youtubereporting.googleapis.com",
+        ),
         webhookCapability(
           "youtube",
           "Verifies the PubSubHubbub X-Hub-Signature for subscriptions created with hub.secret and decodes the Atom feed. Answer the GET verification with answerYouTubeWebhookChallenge.",
@@ -2377,7 +2562,9 @@ export function youtube(
           "/youtube/v3/videos",
         );
 
-        const written = result["status"] === undefined ? undefined : object(result["status"]);
+        // A malformed status leaves the change unconfirmed, so it falls through to reconcile-first.
+        const writtenStatus = result["status"];
+        const written = isJsonObject(writtenStatus) ? writtenStatus : undefined;
 
         if (
           result["id"] !== ref.jobId ||
@@ -2408,7 +2595,10 @@ export function youtube(
 
         await get(ref, context);
 
-        await request("/youtube/v3/videos", context, undefined, { id: ref.postId }, "DELETE");
+        noContent(
+          await exchange("/youtube/v3/videos", context, undefined, { id: ref.postId }, "DELETE"),
+          "/youtube/v3/videos",
+        );
       },
     },
     search: {
@@ -2730,19 +2920,25 @@ export function youtube(
             message: "YouTube comment does not belong to the supplied video.",
           });
 
-        const result = object(
+        const result = writtenObject(
           await request(
             "/youtube/v3/comments",
             context,
             { snippet: { parentId: ref.commentId, textOriginal: content.text } },
             { part: "snippet" },
           ),
+          "/youtube/v3/comments",
         );
 
-        return { ...ref, commentId: string(result["id"]) };
+        return { ...ref, commentId: writtenId(result, "/youtube/v3/comments") };
       },
     },
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async resumeUpload(
         session: YouTubeUploadSession,
         media: MediaAttachment,
@@ -2784,7 +2980,7 @@ export function youtube(
       async setThumbnail({ videoId, thumbnail, context }) {
         nativeAuthorize(context);
 
-        return binaryJson(
+        const result = await binaryJson(
           "/upload/youtube/v3/thumbnails/set",
           context,
           mediaBlob(thumbnail),
@@ -2792,6 +2988,14 @@ export function youtube(
           "POST",
           thumbnail.mimeType ?? "application/octet-stream",
         );
+
+        // thumbnails.set answers with the thumbnail set it stored; an empty body confirms nothing.
+        const items = result["items"];
+
+        if (!isJsonArray(items) || items.length === 0 || !items.every(isJsonObject))
+          throw uncertainWrite("/upload/youtube/v3/thumbnails/set");
+
+        return result;
       },
       async captions({ action, videoId, captionId, caption, body, format, tlang, context }) {
         nativeAuthorize(context);
@@ -2889,14 +3093,23 @@ export function youtube(
               message: "captionId or body.id is required.",
             });
 
+          // An update must answer with the caption it addressed.
+          const updatedId = action === "update" ? optionalString(metadata["id"]) : undefined;
+
           if (action === "update" && !caption)
-            return binaryJson(
+            return writtenResourceFor(
+              (
+                await binarySend(
+                  "/youtube/v3/captions",
+                  context,
+                  JSON.stringify(metadata),
+                  { part },
+                  "PUT",
+                  "application/json",
+                )
+              ).body,
               "/youtube/v3/captions",
-              context,
-              JSON.stringify(metadata),
-              { part },
-              "PUT",
-              "application/json",
+              updatedId ?? "",
             );
 
           if (!caption)
@@ -2919,7 +3132,7 @@ export function youtube(
             `\r\n--${boundary}--\r\n`,
           ]);
 
-          return binaryJson(
+          const uploaded = await binarySend(
             "/upload/youtube/v3/captions",
             context,
             encoded,
@@ -2927,6 +3140,10 @@ export function youtube(
             action === "update" ? "PUT" : "POST",
             `multipart/related; boundary=${boundary}`,
           );
+
+          return updatedId === undefined
+            ? writtenResource(uploaded.body, "/upload/youtube/v3/captions")
+            : writtenResourceFor(uploaded.body, "/upload/youtube/v3/captions", updatedId);
         }
 
         if (action === "delete") {
@@ -2937,12 +3154,15 @@ export function youtube(
               message: "captionId is required.",
             });
 
-          await request(
+          noContent(
+            await exchange(
+              "/youtube/v3/captions",
+              context,
+              undefined,
+              { id: captionId ?? "" },
+              "DELETE",
+            ),
             "/youtube/v3/captions",
-            context,
-            undefined,
-            { id: captionId ?? "" },
-            "DELETE",
           );
 
           return {};
@@ -2965,10 +3185,14 @@ export function youtube(
         mine,
         pageToken,
         maxResults,
+        parts,
         body,
         context,
       }) {
         nativeAuthorize(context);
+
+        if (action === "insert" || action === "update")
+          checkPlaylistLocalizations(body, `playlists.${action}`);
 
         const method =
           action === "list"
@@ -2987,12 +3211,15 @@ export function youtube(
           });
 
         if (action === "delete") {
-          await request(
+          noContent(
+            await exchange(
+              "/youtube/v3/playlists",
+              context,
+              undefined,
+              { id: playlistId ?? "" },
+              method,
+            ),
             "/youtube/v3/playlists",
-            context,
-            undefined,
-            { id: playlistId ?? "" },
-            method,
           );
 
           return {};
@@ -3007,8 +3234,12 @@ export function youtube(
           {
             part:
               action === "list"
-                ? "snippet,status,contentDetails"
-                : writeParts(body, ["snippet", "status"], "playlists"),
+                ? partList(
+                    parts ?? ["snippet", "status", "contentDetails"],
+                    playlistParts,
+                    "playlists.list",
+                  )
+                : writeParts(body, ["snippet", "status", "localizations"], "playlists"),
             ...definedFields(
               action === "list"
                 ? {
@@ -3026,7 +3257,11 @@ export function youtube(
           method,
         );
 
-        return method === "GET" ? object(result) : writtenObject(result, "/youtube/v3/playlists");
+        if (method === "GET") return object(result);
+
+        return action === "update" && playlistId
+          ? writtenResourceFor(result, "/youtube/v3/playlists", playlistId)
+          : writtenResource(result, "/youtube/v3/playlists");
       },
       async playlistItems({ action, playlistId, playlistItemId, body, pageToken, context }) {
         nativeAuthorize(context);
@@ -3055,12 +3290,15 @@ export function youtube(
               message: "playlistItemId is required.",
             });
 
-          await request(
+          noContent(
+            await exchange(
+              "/youtube/v3/playlistItems",
+              context,
+              undefined,
+              { id: playlistItemId },
+              method,
+            ),
             "/youtube/v3/playlistItems",
-            context,
-            undefined,
-            { id: playlistItemId },
-            method,
           );
 
           return {};
@@ -3094,9 +3332,11 @@ export function youtube(
           method,
         );
 
-        return method === "GET"
-          ? object(result)
-          : writtenObject(result, "/youtube/v3/playlistItems");
+        if (method === "GET") return object(result);
+
+        return action === "update" && playlistItemId
+          ? writtenResourceFor(result, "/youtube/v3/playlistItems", playlistItemId)
+          : writtenResource(result, "/youtube/v3/playlistItems");
       },
       async updateVideo({ videoId, body, context }) {
         nativeAuthorize(context);
@@ -3256,9 +3496,10 @@ export function youtube(
 
         const part = ["snippet", "status", ...extraParts].join(",");
 
-        return writtenObject(
+        return writtenResourceFor(
           await request("/youtube/v3/videos", context, merged, { part }, "PUT"),
           "/youtube/v3/videos",
+          videoId,
         );
       },
       async updateProfile({ part, value, context }) {
@@ -3356,7 +3597,7 @@ export function youtube(
             ? brandingNext(isJsonObject(channelPatch) ? channelPatch : {})
             : merge(channel["localizations"], value);
 
-        return writtenObject(
+        return writtenResourceFor(
           await request(
             "/youtube/v3/channels",
             context,
@@ -3365,6 +3606,7 @@ export function youtube(
             "PUT",
           ),
           "/youtube/v3/channels",
+          options.auth.channelId,
         );
       },
       async deleteVideo({ videoId, context }) {
@@ -3388,17 +3630,23 @@ export function youtube(
           },
           context,
         );
-        await request("/youtube/v3/videos", context, undefined, { id: videoId }, "DELETE");
+        noContent(
+          await exchange("/youtube/v3/videos", context, undefined, { id: videoId }, "DELETE"),
+          "/youtube/v3/videos",
+        );
       },
       async rateVideo({ videoId, rating, context }) {
         nativeAuthorize(context);
 
-        await request(
+        noContent(
+          await exchange(
+            "/youtube/v3/videos/rate",
+            context,
+            undefined,
+            { id: videoId, rating },
+            "POST",
+          ),
           "/youtube/v3/videos/rate",
-          context,
-          undefined,
-          { id: videoId, rating },
-          "POST",
         );
       },
       async getRating({ videoIds, context }) {
@@ -3472,12 +3720,15 @@ export function youtube(
             : undefined;
 
         if (action === "delete") {
-          await request(
+          noContent(
+            await exchange(
+              "/youtube/v3/subscriptions",
+              context,
+              undefined,
+              { id: subscriptionId ?? "" },
+              method,
+            ),
             "/youtube/v3/subscriptions",
-            context,
-            undefined,
-            { id: subscriptionId ?? "" },
-            method,
           );
 
           return {};
@@ -3517,7 +3768,7 @@ export function youtube(
 
         return method === "GET"
           ? object(result)
-          : writtenObject(result, "/youtube/v3/subscriptions");
+          : writtenResource(result, "/youtube/v3/subscriptions");
       },
       async search({
         q,
@@ -3692,31 +3943,37 @@ export function youtube(
           });
 
         if (action === "setModerationStatus") {
-          await request(
+          noContent(
+            await exchange(
+              "/youtube/v3/comments/setModerationStatus",
+              context,
+              undefined,
+              {
+                id: commentId,
+                moderationStatus:
+                  moderationStatus ??
+                  (() => {
+                    throw new SocialError({
+                      code: "invalid_input",
+                      operation: "comments.moderate",
+                      message: "moderationStatus is required.",
+                    });
+                  })(),
+                ...definedFields({ banAuthor: banAuthor ? "true" : undefined }),
+              },
+              "POST",
+            ),
             "/youtube/v3/comments/setModerationStatus",
-            context,
-            undefined,
-            {
-              id: commentId,
-              moderationStatus:
-                moderationStatus ??
-                (() => {
-                  throw new SocialError({
-                    code: "invalid_input",
-                    operation: "comments.moderate",
-                    message: "moderationStatus is required.",
-                  });
-                })(),
-              ...definedFields({ banAuthor: banAuthor ? "true" : undefined }),
-            },
-            "POST",
           );
 
           return;
         }
 
         if (action === "delete") {
-          await request("/youtube/v3/comments", context, undefined, { id: commentId }, "DELETE");
+          noContent(
+            await exchange("/youtube/v3/comments", context, undefined, { id: commentId }, "DELETE"),
+            "/youtube/v3/comments",
+          );
 
           return;
         }
@@ -3728,7 +3985,7 @@ export function youtube(
             message: "Provide a comment body whose id, if present, matches commentId.",
           });
 
-        return writtenObject(
+        return writtenResourceFor(
           await request(
             "/youtube/v3/comments",
             context,
@@ -3737,6 +3994,7 @@ export function youtube(
             "PUT",
           ),
           "/youtube/v3/comments",
+          commentId,
         );
       },
       async deleteComment({ account, commentId, context }) {
@@ -3750,7 +4008,10 @@ export function youtube(
             message: "commentId is required.",
           });
 
-        await request("/youtube/v3/comments", context, undefined, { id: commentId }, "DELETE");
+        noContent(
+          await exchange("/youtube/v3/comments", context, undefined, { id: commentId }, "DELETE"),
+          "/youtube/v3/comments",
+        );
       },
       async heldComments({ moderationStatus, pageToken, maxResults, context }) {
         nativeAuthorize(context);
@@ -3805,7 +4066,10 @@ export function youtube(
         if (action === "delete") {
           if (!id?.trim()) throw invalidInput(operation, "id is required for delete.");
 
-          await request("/youtube/v3/liveBroadcasts", context, undefined, { id }, "DELETE");
+          noContent(
+            await exchange("/youtube/v3/liveBroadcasts", context, undefined, { id }, "DELETE"),
+            "/youtube/v3/liveBroadcasts",
+          );
 
           return {};
         }
@@ -3816,7 +4080,7 @@ export function youtube(
           // liveBroadcasts.update deletes omitted mutable properties of each written part.
           const resource = writeResource(body, id, operation);
 
-          return writtenObject(
+          return writtenResourceFor(
             await request(
               "/youtube/v3/liveBroadcasts",
               context,
@@ -3831,13 +4095,17 @@ export function youtube(
               "PUT",
             ),
             "/youtube/v3/liveBroadcasts",
+            id,
           );
         }
 
         if (action === "bind") {
           if (!id?.trim()) throw invalidInput(operation, "id is required for bind.");
 
-          return writtenObject(
+          const stream = nonEmpty(streamId?.trim());
+          const bindOperation = "/youtube/v3/liveBroadcasts/bind";
+
+          const bound = writtenResourceFor(
             await request(
               "/youtube/v3/liveBroadcasts/bind",
               context,
@@ -3845,12 +4113,32 @@ export function youtube(
               {
                 id,
                 part: "id,snippet,contentDetails,status",
-                ...definedFields({ streamId: nonEmpty(streamId?.trim()) }),
+                ...definedFields({ streamId: stream }),
               },
               "POST",
             ),
-            "/youtube/v3/liveBroadcasts/bind",
+            bindOperation,
+            id,
           );
+
+          // The broadcast must report the stream it now uses, or no stream after an unbind. A
+          // present contentDetails part that is not an object cannot show either, so it stays
+          // uncertain rather than reading as "no stream".
+          // https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#contentDetails.boundStreamId
+          const details = bound["contentDetails"];
+
+          if (details !== undefined && !isJsonObject(details)) throw uncertainWrite(bindOperation);
+
+          const boundStreamId = details?.["boundStreamId"];
+
+          if (
+            stream === undefined
+              ? boundStreamId !== undefined && boundStreamId !== null && boundStreamId !== ""
+              : boundStreamId !== stream
+          )
+            throw uncertainWrite(bindOperation);
+
+          return bound;
         }
 
         if (action === "cuepoint") {
@@ -3872,7 +4160,7 @@ export function youtube(
               "cuepoint needs a positive integer durationSecs and at most one of insertionOffsetTimeMs and walltimeMs.",
             );
 
-          return writtenObject(
+          return writtenResource(
             await request(
               "/youtube/v3/liveBroadcasts/cuepoint",
               context,
@@ -3929,7 +4217,9 @@ export function youtube(
               message: "id and broadcastStatus are required.",
             });
 
-          return writtenObject(
+          const transitionOperation = "/youtube/v3/liveBroadcasts/transition";
+
+          const transitioned = writtenResourceFor(
             await request(
               "/youtube/v3/liveBroadcasts/transition",
               context,
@@ -3937,11 +4227,23 @@ export function youtube(
               { part: "snippet,status", id, broadcastStatus },
               "POST",
             ),
-            "/youtube/v3/liveBroadcasts/transition",
+            transitionOperation,
+            id,
           );
+
+          // YouTube may still report the intermediate starting state of the requested transition.
+          const lifeCycleStatus = optionalObject(transitioned["status"])?.["lifeCycleStatus"];
+
+          if (
+            !isString(lifeCycleStatus) ||
+            !transitionStates[broadcastStatus].some((state) => state === lifeCycleStatus)
+          )
+            throw uncertainWrite(transitionOperation);
+
+          return transitioned;
         }
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/liveBroadcasts",
             context,
@@ -3976,7 +4278,7 @@ export function youtube(
           if (!id) throw invalidInput("live.chat.messages", "messageId of the poll is required.");
 
           // Closing is the only documented transition; part=snippet returns the final tallies.
-          return writtenObject(
+          return writtenResourceFor(
             await request(
               "/youtube/v3/liveChat/messages/transition",
               context,
@@ -3985,6 +4287,7 @@ export function youtube(
               "POST",
             ),
             "/youtube/v3/liveChat/messages/transition",
+            id,
           );
         }
 
@@ -4032,7 +4335,10 @@ export function youtube(
               operation: "live.chat.messages",
               message: "messageId is required.",
             });
-          await request("/youtube/v3/liveChat/messages", context, undefined, { id }, "DELETE");
+          noContent(
+            await exchange("/youtube/v3/liveChat/messages", context, undefined, { id }, "DELETE"),
+            "/youtube/v3/liveChat/messages",
+          );
 
           return;
         }
@@ -4052,7 +4358,7 @@ export function youtube(
             message: "liveChatId must match body.snippet.liveChatId.",
           });
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/liveChat/messages",
             context,
@@ -4148,7 +4454,10 @@ export function youtube(
               message: "moderatorId is required.",
             });
           await assertLiveChatModerator(chatId, id, context, "live.chat.moderators");
-          await request("/youtube/v3/liveChat/moderators", context, undefined, { id }, "DELETE");
+          noContent(
+            await exchange("/youtube/v3/liveChat/moderators", context, undefined, { id }, "DELETE"),
+            "/youtube/v3/liveChat/moderators",
+          );
 
           return;
         }
@@ -4168,7 +4477,7 @@ export function youtube(
             message: "liveChatId must match body.snippet.liveChatId.",
           });
 
-        return writtenObject(
+        return writtenResource(
           await request(
             "/youtube/v3/liveChat/moderators",
             context,
@@ -4190,7 +4499,10 @@ export function youtube(
               operation: "live.chat.bans",
               message: "banId is required.",
             });
-          await request("/youtube/v3/liveChat/bans", context, undefined, { id }, "DELETE");
+          noContent(
+            await exchange("/youtube/v3/liveChat/bans", context, undefined, { id }, "DELETE"),
+            "/youtube/v3/liveChat/bans",
+          );
 
           return;
         }
@@ -4203,7 +4515,7 @@ export function youtube(
           });
         bodyLiveChatId(body, "live.chat.bans");
 
-        return writtenObject(
+        return writtenResource(
           await request("/youtube/v3/liveChat/bans", context, body, { part: "snippet" }, "POST"),
           "/youtube/v3/liveChat/bans",
         );
@@ -4269,7 +4581,10 @@ export function youtube(
               message: "channelSectionId is required.",
             });
           await assertChannelSection(id, context);
-          await request("/youtube/v3/channelSections", context, undefined, { id }, "DELETE");
+          noContent(
+            await exchange("/youtube/v3/channelSections", context, undefined, { id }, "DELETE"),
+            "/youtube/v3/channelSections",
+          );
 
           return;
         }
@@ -4306,16 +4621,17 @@ export function youtube(
           await assertChannelSection(id, context);
         }
 
-        return writtenObject(
-          await request(
-            "/youtube/v3/channelSections",
-            context,
-            resource,
-            { part },
-            action === "insert" ? "POST" : "PUT",
-          ),
+        const section = await request(
           "/youtube/v3/channelSections",
+          context,
+          resource,
+          { part },
+          action === "insert" ? "POST" : "PUT",
         );
+
+        return action === "update" && id
+          ? writtenResourceFor(section, "/youtube/v3/channelSections", id)
+          : writtenResource(section, "/youtube/v3/channelSections");
       },
       async uploadChannelBanner({ image, context }) {
         nativeAuthorize(context);
@@ -4342,12 +4658,15 @@ export function youtube(
         const operation = `watermarks.${input.action}`;
 
         if (input.action === "unset") {
-          await request(
+          noContent(
+            await exchange(
+              "/youtube/v3/watermarks/unset",
+              input.context,
+              undefined,
+              { channelId: options.auth.channelId },
+              "POST",
+            ),
             "/youtube/v3/watermarks/unset",
-            input.context,
-            undefined,
-            { channelId: options.auth.channelId },
-            "POST",
           );
 
           return;
@@ -4380,13 +4699,18 @@ export function youtube(
           mimeType,
         );
 
-        await binarySend(
+        // watermarks.set answers 204 No Content.
+        // Source: https://developers.google.com/youtube/v3/docs/watermarks/set
+        noContent(
+          await binarySend(
+            "/upload/youtube/v3/watermarks/set",
+            input.context,
+            upload.body,
+            { channelId: options.auth.channelId, uploadType: "multipart" },
+            "POST",
+            upload.contentType,
+          ),
           "/upload/youtube/v3/watermarks/set",
-          input.context,
-          upload.body,
-          { channelId: options.auth.channelId, uploadType: "multipart" },
-          "POST",
-          upload.contentType,
         );
       },
       async playlistImages(input) {
@@ -4415,7 +4739,16 @@ export function youtube(
 
           if (!id) throw invalidInput(operation, "playlistImageId is required.");
 
-          await request("/youtube/v3/playlistImages", input.context, undefined, { id }, "DELETE");
+          noContent(
+            await exchange(
+              "/youtube/v3/playlistImages",
+              input.context,
+              undefined,
+              { id },
+              "DELETE",
+            ),
+            "/youtube/v3/playlistImages",
+          );
 
           return {};
         }
@@ -4435,7 +4768,7 @@ export function youtube(
           mimeType,
         );
 
-        return binaryJson(
+        const written = await binarySend(
           "/upload/youtube/v3/playlistImages",
           input.context,
           upload.body,
@@ -4443,6 +4776,14 @@ export function youtube(
           input.action === "update" ? "PUT" : "POST",
           upload.contentType,
         );
+
+        return input.action === "update"
+          ? writtenResourceFor(
+              written.body,
+              "/upload/youtube/v3/playlistImages",
+              input.playlistImageId,
+            )
+          : writtenResource(written.body, "/upload/youtube/v3/playlistImages");
       },
       async members({
         mode,
@@ -4501,7 +4842,10 @@ export function youtube(
 
           if (!id) throw invalidInput(operation, "groupId is required.");
 
-          await analyticsRequest("/v2/groups", input.context, undefined, { id }, "DELETE");
+          noContent(
+            await analyticsExchange("/v2/groups", input.context, undefined, { id }, "DELETE"),
+            "/v2/groups",
+          );
 
           return {};
         }
@@ -4511,7 +4855,7 @@ export function youtube(
         if (input.action === "update") {
           if (!input.groupId.trim()) throw invalidInput(operation, "groupId is required.");
 
-          return writtenObject(
+          return writtenResourceFor(
             await analyticsRequest(
               "/v2/groups",
               input.context,
@@ -4520,6 +4864,7 @@ export function youtube(
               "PUT",
             ),
             "/v2/groups",
+            input.groupId,
           );
         }
 
@@ -4529,7 +4874,7 @@ export function youtube(
             "itemType must be youtube#channel, youtube#playlist, or youtube#video.",
           );
 
-        return writtenObject(
+        return writtenResource(
           await analyticsRequest(
             "/v2/groups",
             input.context,
@@ -4550,7 +4895,10 @@ export function youtube(
 
           if (!id) throw invalidInput(operation, "groupItemId is required.");
 
-          await analyticsRequest("/v2/groupItems", input.context, undefined, { id }, "DELETE");
+          noContent(
+            await analyticsExchange("/v2/groupItems", input.context, undefined, { id }, "DELETE"),
+            "/v2/groupItems",
+          );
 
           return {};
         }
@@ -4572,7 +4920,7 @@ export function youtube(
             "resource needs a kind of youtube#channel, youtube#playlist, or youtube#video and an id.",
           );
 
-        const inserted = await analyticsRequest(
+        const inserted = await analyticsExchange(
           "/v2/groupItems",
           input.context,
           { groupId, resource: { kind, id } },
@@ -4581,11 +4929,12 @@ export function youtube(
         );
 
         // Google answers 204 No Content when the item was already in the group; that is success.
+        // Only that status means so: any other answer must be the inserted groupItem resource.
         // Source, accessed 2026-11-04:
         // https://developers.google.com/youtube/analytics/reference/groupItems/insert#response
-        return inserted === null
+        return inserted.status === 204
           ? { alreadyInGroup: true }
-          : writtenObject(inserted, "/v2/groupItems");
+          : writtenResource(inserted.body, "/v2/groupItems");
       },
       async reportTypes({ includeSystemManaged, pageSize, pageToken, context }) {
         nativeAuthorize(context);
@@ -4627,7 +4976,7 @@ export function youtube(
               "reportTypeId and a name of 1 to 100 characters are required.",
             );
 
-          return writtenObject(
+          return writtenResource(
             await reportingRequest(
               "/v1/jobs",
               input.context,
@@ -4644,7 +4993,10 @@ export function youtube(
         const path = `/v1/jobs/${encodeURIComponent(input.jobId)}`;
 
         if (input.action === "delete") {
-          await reportingRequest(path, input.context, undefined, {}, "DELETE");
+          emptyAnswer(
+            await reportingExchange(path, input.context, undefined, {}, "DELETE"),
+            "/v1/jobs",
+          );
 
           return {};
         }
@@ -4734,7 +5086,10 @@ export function youtube(
         if (action === "delete") {
           if (!id) throw invalidInput(operation, "streamId is required for delete.");
 
-          await request("/youtube/v3/liveStreams", context, undefined, { id }, "DELETE");
+          noContent(
+            await exchange("/youtube/v3/liveStreams", context, undefined, { id }, "DELETE"),
+            "/youtube/v3/liveStreams",
+          );
 
           return {};
         }
@@ -4762,16 +5117,17 @@ export function youtube(
             "Insert needs snippet.title (1 to 128 characters) and cdn.ingestionType, cdn.resolution and cdn.frameRate.",
           );
 
-        return writtenObject(
-          await request(
-            "/youtube/v3/liveStreams",
-            context,
-            resource,
-            { part: writeParts(resource, ["snippet", "cdn", "contentDetails"], operation) },
-            action === "insert" ? "POST" : "PUT",
-          ),
+        const stream = await request(
           "/youtube/v3/liveStreams",
+          context,
+          resource,
+          { part: writeParts(resource, ["snippet", "cdn", "contentDetails"], operation) },
+          action === "insert" ? "POST" : "PUT",
         );
+
+        return action === "update" && id
+          ? writtenResourceFor(stream, "/youtube/v3/liveStreams", id)
+          : writtenResource(stream, "/youtube/v3/liveStreams");
       },
       async superChatEvents({ hl, pageToken, maxResults, context }) {
         nativeAuthorize(context);
@@ -4950,20 +5306,23 @@ export function youtube(
         if (!videoId.trim() || !reasonId.trim())
           throw invalidInput("videos.reportAbuse", "videoId and reasonId are required.");
 
-        await request(
+        noContent(
+          await exchange(
+            "/youtube/v3/videos/reportAbuse",
+            context,
+            {
+              videoId,
+              reasonId,
+              ...definedFields({
+                secondaryReasonId: nonEmpty(secondaryReasonId),
+                comments: nonEmpty(comments),
+                language: nonEmpty(language),
+              }),
+            },
+            {},
+            "POST",
+          ),
           "/youtube/v3/videos/reportAbuse",
-          context,
-          {
-            videoId,
-            reasonId,
-            ...definedFields({
-              secondaryReasonId: nonEmpty(secondaryReasonId),
-              comments: nonEmpty(comments),
-              language: nonEmpty(language),
-            }),
-          },
-          {},
-          "POST",
         );
       },
       async commentThreads(input) {
@@ -4975,7 +5334,7 @@ export function youtube(
           if (!input.videoId.trim() || !input.text.trim())
             throw invalidInput(operation, "videoId and non-empty text are required.");
 
-          return writtenObject(
+          return writtenResource(
             await request(
               "/youtube/v3/commentThreads",
               input.context,
@@ -5066,7 +5425,7 @@ export function youtube(
 
         const body = abuseReportBody(report);
 
-        return writtenObject(
+        const result = writtenObject(
           await request(
             "/youtube/v3/abuseReports",
             context,
@@ -5076,6 +5435,11 @@ export function youtube(
           ),
           "/youtube/v3/abuseReports",
         );
+
+        // An abuse report has no ID; the stored report must at least name its subject.
+        if (!isJsonObject(result["subject"])) throw uncertainWrite("/youtube/v3/abuseReports");
+
+        return result;
       },
       async commentReplies({ parentId, textFormat, pageToken, maxResults, context }) {
         nativeAuthorize(context);

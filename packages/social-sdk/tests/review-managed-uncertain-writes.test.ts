@@ -82,7 +82,15 @@ it("Post for Me deleteAccount keeps a malformed success response uncertain witho
 });
 
 it("Buffer createIdea keeps a malformed IdeaResponse uncertain and still reports stated errors", async () => {
-  for (const createIdea of [null, [], "idea", { idea: {} }, { idea: { id: 7 } }, { idea: null }]) {
+  for (const createIdea of [
+    null,
+    [],
+    "idea",
+    { idea: {} },
+    { idea: { id: 7 } },
+    { idea: null },
+    { message: "Text is too long" },
+  ]) {
     const { calls, fetch } = answering({ data: { createIdea } });
     const adapter = buffer({ apiKey: "fixture-key", organizationId: "org_example", fetch });
 
@@ -101,7 +109,11 @@ it("Buffer createIdea keeps a malformed IdeaResponse uncertain and still reports
     { id: "idea_1" },
   );
 
-  const refused = answering({ data: { createIdea: { message: "Text is too long" } } });
+  // A stated error carries the `__typename` the selection asks for; an unrecognized type stays
+  // a definite rejection, while a bare message without one is unconfirmed.
+  const refused = answering({
+    data: { createIdea: { __typename: "ValidationError", message: "Text is too long" } },
+  });
 
   await assert.rejects(
     buffer({
@@ -112,7 +124,8 @@ it("Buffer createIdea keeps a malformed IdeaResponse uncertain and still reports
     (error: SocialError) => {
       assert.ok(error instanceof SocialError);
       assert.equal(error.code, "invalid_input");
-      assert.equal(error.message, "Text is too long");
+      // Buffer's prose can echo post content, so the SDK never copies it into errors.
+      assert.equal(error.message, "Buffer rejected the request.");
 
       return true;
     },

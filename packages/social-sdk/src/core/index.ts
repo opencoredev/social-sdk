@@ -16,4 +16,16 @@ export * from "./types.js";
 
 export type * from "./publish-options.js";
 
+export type {
+  AccountRawProviderRequest,
+  RawBytesResponse,
+  RawJsonResponse,
+  RawProviderRequest,
+  RawProviderResponse,
+  RawRequestBody,
+  RawRequestMethod,
+  RawResponseType,
+  RawTextResponse,
+} from "./raw-request.js";
+
 export { iterateItems, type IterationOptions } from "./pagination.js";

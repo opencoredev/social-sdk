@@ -234,13 +234,14 @@ it("Postiz lists one customer's posts with the customer filter [feature:postiz.r
   );
 });
 
-it("Postiz carries the platform's failure reason on a failed delivery", async () => {
+it("Postiz keeps the platform's failure prose out of a failed delivery", async () => {
   const { adapter } = fakePostiz(row({ state: "ERROR", error: "Account banned from posting" }));
   const outcome = await adapter.posts.getDelivery(delivery, context);
 
   assert.equal(outcome.state, "failed");
   assert.equal(
     outcome.state === "failed" ? outcome.message : undefined,
-    "Postiz reports that this post failed: Account banned from posting",
+    "Postiz reports that this post failed. Inspect the post and channel in Postiz.",
   );
+  assert.doesNotMatch(JSON.stringify(outcome), /Account banned/);
 });

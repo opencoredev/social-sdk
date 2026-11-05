@@ -717,7 +717,13 @@ it("liveBroadcasts updates and deletes a broadcast [feature:youtube.live.broadca
 });
 
 it("liveBroadcasts binds to a stream with /liveBroadcasts/bind and inserts an ad cuepoint", async () => {
-  const { calls, native } = nativeFor(() => Response.json({ id: "b1" }));
+  const { calls, native } = nativeFor((call) =>
+    Response.json(
+      call.url.searchParams.get("streamId") === "s1"
+        ? { id: "b1", contentDetails: { boundStreamId: "s1" } }
+        : { id: "b1" },
+    ),
+  );
 
   await native.liveBroadcasts({ action: "bind", id: "b1", streamId: "s1", context: context() });
   await native.liveBroadcasts({ action: "bind", id: "b1", context: context() });

@@ -20,7 +20,14 @@ import type {
 } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { HttpError } from "../transport/http.js";
-import { metaOAuthReconnect } from "../transport/provider-errors.js";
+import { metaOAuthReconnect, providerErrorDecoder } from "../transport/provider-errors.js";
+import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
 import { definedFields } from "../core/fields.js";
 import {
   normalizeComment,
@@ -62,7 +69,7 @@ function publishIssueMessage(value: string, path: string): string {
     case "PROMPT_CREATION_FAILURE":
       return "Instagram published the media without its comment prompt.";
     default:
-      return `Instagram published the media but reported ${path} ${value}.`;
+      return `Instagram published the media but reported a ${path} issue.`;
   }
 }
 
@@ -77,9 +84,12 @@ function publishIssues(result: JsonObject): readonly PreparationIssue[] {
   const issues: PreparationIssue[] = [];
 
   for (const path of ["config_issue", "caption_add_on_attachment_status"] as const) {
-    const value = result[path];
+    const raw = result[path];
 
-    if (!isString(value) || value.length === 0) continue;
+    if (raw === undefined || raw === null || raw === "") continue;
+
+    // Only an uppercase machine code is kept; any other value is reported without its text.
+    const value = isString(raw) && /^[A-Z][A-Z0-9_]{0,63}$/.test(raw) ? raw : "UNRECOGNIZED_ISSUE";
 
     issues.push({
       code: value,
@@ -903,9 +913,19 @@ function sentMessage(value: JsonValue): InstagramSentMessage {
 
   const recipientId = value["recipient_id"];
 
+  // A present recipient that is not a non-empty string is a malformed answer.
+  if (recipientId !== undefined && (!isString(recipientId) || recipientId.length === 0))
+    throw new SocialError({
+      code: "ambiguous_outcome",
+      operation: messageOperation,
+      message:
+        "Instagram returned a malformed recipient for the send. Read the conversation before retrying.",
+      retryDisposition: { kind: "reconcile-first" },
+    });
+
   return {
     messageId,
-    ...definedFields({ recipientId: optionalString(recipientId) }),
+    ...definedFields({ recipientId }),
   };
 }
 
@@ -1035,7 +1055,22 @@ export interface InstagramOptions {
   readonly webhookSecret?: string;
 }
 
+/**
+ * Host names for `native.request`: `graph` is `https://graph.instagram.com/v27.0` with Instagram
+ * Login or `https://graph.facebook.com/v27.0` with Facebook Login. `rupload` is
+ * `https://rupload.facebook.com` and needs Facebook Login.
+ */
+export type InstagramRawHost = "graph" | "rupload";
+
 export interface InstagramNative {
+  /**
+   * Sends one request to a Graph path the SDK does not wrap, with the account's access token (`OAuth` header on `rupload`).
+   * Raw requests never retry or reconcile; the caller owns any write it sends.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<InstagramRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly moderateComment: (input: {
     readonly account: ConnectedAccountRef;
     readonly commentId: string;
@@ -1803,6 +1838,29 @@ export function instagram(
 
   const now = () => (options.clock?.() ?? new Date()).toISOString();
   const workflows = options.workflowStore ?? new MemoryInstagramWorkflowStore();
+
+  const rawConfig: RawRequestConfig<InstagramRawHost> = {
+    hosts:
+      flavor === "facebook-login"
+        ? { graph: origin, rupload: "https://rupload.facebook.com" }
+        : { graph: origin },
+    defaultHost: "graph",
+    fetch: () => options.fetch ?? globalThis.fetch,
+    authorize: ({ host, headers }) => {
+      headers.set(
+        "Authorization",
+        `${host === "rupload" ? "OAuth" : "Bearer"} ${options.auth.accessToken}`,
+      );
+    },
+    reservedQuery: ["access_token", "appsecret_proof"],
+    // Graph's `?method=` override turns a GET into a write; see raw-request.ts.
+    methodOverrideQuery: ["method"],
+    // Graph read-after-write: a failed `fields` read-back still leaves the write applied.
+    readAfterWriteQuery: ["fields"],
+    decodeError: (body, status, { url, path }) =>
+      providerErrorDecoder(url.origin, path)(body, status),
+    mapError: metaOAuthReconnect,
+  };
 
   const validatedObject = (value: JsonField, operation: string): JsonObject => {
     try {
@@ -2665,6 +2723,24 @@ export function instagram(
       });
   };
 
+  /**
+   * Meta documents no body for reactions and sender actions. A JSON object answer is accepted,
+   * and a `recipient_id` it carries must be the addressed recipient; anything else after the
+   * send leaves the result unknown.
+   */
+  const senderActionAnswer = (recipientId: string, result: JsonValue): void => {
+    const recipient = isJsonObject(result) ? result["recipient_id"] : undefined;
+
+    if (!isJsonObject(result) || (recipient !== undefined && recipient !== recipientId))
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation: messageOperation,
+        message:
+          "Instagram did not confirm the sender action. Read the conversation before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+  };
+
   const sendMessage = async ({
     account,
     recipientId,
@@ -2702,6 +2778,9 @@ export function instagram(
 
     // A send without a message ID may still have been delivered.
     writeId(result, "message_id", "instagram.messages.write");
+
+    if (result["recipient_id"] !== undefined)
+      writeId(result, "recipient_id", "instagram.messages.write");
 
     return result;
   };
@@ -3018,6 +3097,12 @@ export function instagram(
           requiredScopes: messageScopes,
           notes: `Reads the conversation participants and sends to the single participant other than this account through POST /{ig-user-id}/messages${flavor === "facebook-login" ? " on graph.facebook.com, which needs a Unified Login (Business Integration System User) token" : ""}. Group, self-only, and unidentifiable conversations are rejected; use native.sendMessage with an explicit recipient ID for those.`,
         },
+        rawRequestCapability(
+          "instagram",
+          flavor === "facebook-login"
+            ? "graph.facebook.com and rupload.facebook.com"
+            : "graph.instagram.com",
+        ),
         webhookCapability(
           "instagram",
           "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
@@ -3523,6 +3608,11 @@ export function instagram(
       },
     },
     native: {
+      async request(input, context) {
+        authorize(input.account, context);
+
+        return rawProviderRequest(rawConfig, input, context);
+      },
       async moderateComment({ account, commentId, hidden, context }) {
         authorize(account, context);
 
@@ -3857,6 +3947,19 @@ export function instagram(
         let status: number;
         let parsed: JsonValue | undefined;
 
+        // Cancelled before anything was sent: nothing reached Meta, so this is a plain
+        // cancellation, not an uncertain upload.
+        if (context.signal?.aborted === true) {
+          clearTimeout(timer);
+
+          throw new SocialError({
+            code: "cancelled",
+            operation: "instagram.media.upload",
+            message: "The Instagram video upload was cancelled before it was sent.",
+            retryDisposition: { kind: "never" },
+          });
+        }
+
         try {
           const response = await fetchWithoutRedirects(options.fetch ?? globalThis.fetch, uri, {
             method: "POST",
@@ -3867,14 +3970,14 @@ export function instagram(
 
           status = response.status;
           parsed = parseUploadResponse(await response.text());
-        } catch (cause) {
+        } catch {
+          // The fetch error can carry the upload URL, so it is not kept as the cause.
           throw new SocialError({
             code: "ambiguous_outcome",
             operation: "instagram.media.upload",
             message:
               "The Instagram video upload did not return a readable response. Read getUploadStatus and resume from bytes_transferred.",
             retryDisposition: { kind: "reconcile-first" },
-            cause,
           });
         } finally {
           clearTimeout(timer);
@@ -3893,19 +3996,24 @@ export function instagram(
             code: "ambiguous_outcome",
             operation: "instagram.media.upload",
             message: `Instagram did not confirm the video upload (HTTP ${status}). Read getUploadStatus and resume from bytes_transferred.`,
+            upstreamStatus: status,
             retryDisposition: { kind: "reconcile-first" },
           });
 
+        const type = debug?.["type"];
+
+        // `debug_info.message` is provider prose and may echo request values, so it never reaches
+        // the error; only a machine-readable `type` is kept.
         throw new SocialError({
           code: "upstream_failure",
           operation: "instagram.media.upload",
-          message:
-            optionalString(debug?.["message"]) ??
-            `Instagram did not confirm the video upload (HTTP ${status}).`,
+          message: `Instagram refused the video upload (HTTP ${status}). Read getUploadStatus before resuming.`,
+          upstreamStatus: status,
           retryDisposition:
             debug?.["retriable"] === true ? { kind: "reconcile-first" } : { kind: "never" },
           ...definedFields({
-            details: definedFields({ type: optionalString(debug?.["type"]) }),
+            details:
+              isString(type) && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(type) ? { type } : undefined,
           }),
         });
       },
@@ -4212,7 +4320,17 @@ export function instagram(
           "instagram.events.write",
         );
 
-        return { id: writeId(result, "id", "instagram.events.write") };
+        // Meta answers an update with the event's ID; any other ID does not confirm this event.
+        // https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/upcoming-events
+        if (writeId(result, "id", "instagram.events.write") !== eventId)
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "instagram.events.write",
+            message: "Instagram did not confirm the event update. Read the event before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        return { id: eventId };
       },
       async listRecentlySearchedHashtags({ account, limit, cursor, context }) {
         authorize(account, context);
@@ -4337,23 +4455,29 @@ export function instagram(
       async reactToMessage({ account, recipientId, messageId, reaction, context }) {
         authorize(account, context);
 
-        await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
-          recipient: { id: recipientId },
-          sender_action: "react",
-          payload: {
-            message_id: nonEmptyText(messageId, messageOperation, "messageId"),
-            reaction: nonEmptyText(reaction, messageOperation, "reaction"),
-          },
-        });
+        senderActionAnswer(
+          recipientId,
+          await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
+            recipient: { id: recipientId },
+            sender_action: "react",
+            payload: {
+              message_id: nonEmptyText(messageId, messageOperation, "messageId"),
+              reaction: nonEmptyText(reaction, messageOperation, "reaction"),
+            },
+          }),
+        );
       },
       async removeReaction({ account, recipientId, messageId, context }) {
         authorize(account, context);
 
-        await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
-          recipient: { id: recipientId },
-          sender_action: "unreact",
-          payload: { message_id: nonEmptyText(messageId, messageOperation, "messageId") },
-        });
+        senderActionAnswer(
+          recipientId,
+          await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
+            recipient: { id: recipientId },
+            sender_action: "unreact",
+            payload: { message_id: nonEmptyText(messageId, messageOperation, "messageId") },
+          }),
+        );
       },
       async sendSenderAction({ account, recipientId, action, context }) {
         authorize(account, context);
@@ -4361,10 +4485,13 @@ export function instagram(
         if (!["typing_on", "typing_off", "mark_seen"].includes(action))
           invalidOption(messageOperation, "action must be typing_on, typing_off, or mark_seen.");
 
-        await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
-          recipient: { id: nonEmptyText(recipientId, messageOperation, "recipientId") },
-          sender_action: action,
-        });
+        senderActionAnswer(
+          recipientId,
+          await request(`/${encodeURIComponent(account.accountId)}/messages`, context, {
+            recipient: { id: nonEmptyText(recipientId, messageOperation, "recipientId") },
+            sender_action: action,
+          }),
+        );
       },
       async getIceBreakers({ account, context }) {
         authorize(account, context);
@@ -4811,8 +4938,9 @@ export function instagram(
           updated_tags,
         });
 
-        // Meta documents a bare boolean; Graph also wraps booleans as `{ success }`.
-        const confirmed = result === true || (isJsonObject(result) && result["success"] === true);
+        // Meta documents `{ "success": true }` (Graph v26.0, checked 2026-11-05):
+        // https://developers.facebook.com/documentation/instagram-platform/instagram-graph-api/reference/ig-media/product_tags
+        const confirmed = isJsonObject(result) && result["success"] === true;
 
         if (!confirmed)
           throw new SocialError({

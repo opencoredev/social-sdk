@@ -250,14 +250,21 @@ it("creates, lists, validates, replays and deletes /2/webhooks configs [feature:
 });
 
 it("manages X Activity API subscriptions on /2/activity/subscriptions [feature:x.webhooks.xaa]", async () => {
-  const subscription = { subscription: { id: "500", event_type: "post.reply.create" } };
+  const subscription = {
+    subscription: { subscription_id: "500", event_type: "post.reply.create" },
+  };
 
   const { native, seen } = fake({
     "POST /2/activity/subscriptions": { data: subscription },
     "GET /2/activity/subscriptions": { data: [{ id: "500" }] },
     "PUT /2/activity/subscriptions/500": { data: subscription },
     "DELETE /2/activity/subscriptions/500": { data: { deleted: true } },
-    "DELETE /2/activity/subscriptions": { data: [{ subscription_id: "500", deleted: true }] },
+    "DELETE /2/activity/subscriptions": {
+      data: [
+        { subscription_id: "500", deleted: true },
+        { subscription_id: "501", deleted: true },
+      ],
+    },
   });
 
   assert.deepEqual(

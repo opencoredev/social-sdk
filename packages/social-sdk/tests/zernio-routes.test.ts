@@ -170,7 +170,10 @@ it("lists and sets publish destinations: pinterest-boards, youtube-playlists, gm
     "POST /v1/accounts/pin1/pinterest-boards": {
       board: { id: "b2", name: "New", privacy: "SECRET", url: "https://pinterest.com/b2" },
     },
-    "PUT /v1/accounts/pin1/pinterest-boards": { message: "ok" },
+    "PUT /v1/accounts/pin1/pinterest-boards": {
+      message: "ok",
+      account: { _id: "pin1", platform: "pinterest" },
+    },
     "GET /v1/accounts/yt1/youtube-playlists": {
       playlists: [{ id: "PL1", title: "Talks", privacy: "public", itemCount: 4 }],
       defaultPlaylistId: "PL1",
@@ -1146,6 +1149,7 @@ it("manages a Google Business listing: gmb-location-details, attributes, service
       attributes: [{ name: "attributes/has_wheelchair_accessible_entrance", values: [true] }],
     },
     "PUT /v1/accounts/gbp1/gmb-attributes": {
+      success: true,
       attributes: [{ name: "attributes/has_wifi", values: [true] }],
     },
     "GET /v1/accounts/gbp1/gmb-attribute-metadata": {
@@ -1157,7 +1161,10 @@ it("manages a Google Business listing: gmb-location-details, attributes, service
     },
     "PUT /v1/accounts/gbp1/gmb-services": { success: true, services: [] },
     "GET /v1/accounts/gbp1/gmb-food-menus": { menus: [{ labels: [{ displayName: "Lunch" }] }] },
-    "PUT /v1/accounts/gbp1/gmb-food-menus": { menus: [{ labels: [{ displayName: "Dinner" }] }] },
+    "PUT /v1/accounts/gbp1/gmb-food-menus": {
+      success: true,
+      menus: [{ labels: [{ displayName: "Dinner" }] }],
+    },
     "GET /v1/accounts/gbp1/gmb-place-actions": {
       placeActionLinks: [
         { name: "pa/1", uri: "https://book.example.com", placeActionType: "APPOINTMENT" },
@@ -1202,9 +1209,11 @@ it("manages a Google Business listing: gmb-location-details, attributes, service
       options: [{ verificationMethod: "SMS", phoneNumber: "+1555" }],
     },
     "POST /v1/accounts/gbp1/gmb-verifications": {
+      success: true,
       verification: { name: "v/1", method: "SMS", state: "PENDING" },
     },
     "POST /v1/accounts/gbp1/gmb-verifications/v%2F1/complete": {
+      success: true,
       verification: { name: "v/1", method: "SMS", state: "COMPLETED" },
     },
   });

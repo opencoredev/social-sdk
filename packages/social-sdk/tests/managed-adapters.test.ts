@@ -106,6 +106,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "posts.deleteBackendRecord",
         "analytics.read",
         "analytics.report.read",
+        "raw.request",
       ],
     ],
     [
@@ -124,6 +125,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "media.upload",
         "webhooks.verify",
         "posts.update",
+        "raw.request",
       ],
     ],
     [
@@ -140,6 +142,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "analytics.read",
         "analytics.account.read",
         "media.upload",
+        "raw.request",
       ],
     ],
     [
@@ -156,6 +159,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "analytics.read",
         "analytics.account.read",
         "media.upload",
+        "raw.request",
       ],
     ],
     [
@@ -190,6 +194,7 @@ it("managed capability manifests match the implemented backend surfaces", () => 
         "comments.write",
         "messages.read",
         "messages.write",
+        "raw.request",
       ],
     ],
   ] as const;

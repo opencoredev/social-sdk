@@ -36,7 +36,7 @@ it("X image publishing uses OAuth2 v2 media upload and preserves reply settings"
         assert.deepEqual(body.media, { media_ids: ["media1"] });
         assert.equal(body.reply_settings, "following");
 
-        return Response.json({ data: { id: "post1" } });
+        return Response.json({ data: { id: "1001", text: "Image" } });
       },
     }),
   });
@@ -355,6 +355,21 @@ it("X native pinned lists, conversation DMs, and group DMs use v2 endpoints", as
           method: init?.method ?? "GET",
           body: String(init?.body ?? ""),
         });
+
+        const path = new URL(String(input)).pathname;
+        const method = init?.method ?? "GET";
+
+        // Each write gets its documented confirmation (X OpenAPI 2.173).
+        if (path === "/2/users/u1/pinned_lists" && method === "POST")
+          return Response.json({ data: { pinned: true } });
+
+        if (method === "DELETE") return Response.json({ data: { pinned: false } });
+
+        if (path.startsWith("/2/dm_conversations"))
+          return Response.json(
+            { data: { dm_conversation_id: "c1", dm_event_id: "e1" } },
+            { status: 201 },
+          );
 
         return Response.json({ data: [{ id: "l1" }], meta: { next_token: "next" } });
       },

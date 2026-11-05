@@ -1093,7 +1093,9 @@ export const tiktokOAuth = (options: OAuthProviderOptions) => oauthProvider("tik
 /**
  * Revoke a TikTok user access token with `POST /v2/oauth/revoke/`, sending the app's client key
  * (`clientId`), client secret and the token as a form. TikTok answers success with an empty body.
- * Returns `"revoked"`, so it can back `OAuthConnectHandlersOptions.grants.revoke`.
+ * Returns `"revoked"` only for that empty body (or `{}`), so it can back
+ * `OAuthConnectHandlersOptions.grants.revoke`. A documented OAuth error body is a definite
+ * `upstream_failure`; any other 2xx answer is `ambiguous_outcome` with `reconcile-first`.
  * A response lost after the request is sent throws `ambiguous_outcome` with `reconcile-first`:
  * the grant may already be revoked.
  * Source, accessed 2026-11-04: https://developers.tiktok.com/doc/oauth-revoke-a-user-access-token
@@ -1130,23 +1132,28 @@ export async function revokeTikTokOAuthToken(
     true,
   );
 
+  // TikTok documents success as an empty body, read here as `{}`.
+  if (Object.keys(result).length === 0) return "revoked";
+
+  // A documented OAuth error body (`error`, `error_description`, `log_id`) refuses the revocation.
+  // Only a machine-code `error` is kept; the description is provider prose and is dropped.
   const error = result["error"];
 
-  const providerCode = isString(error)
-    ? error
-    : isJsonObject(error) && isString(error["code"]) && error["code"] !== "ok"
-      ? error["code"]
-      : undefined;
-
-  if (providerCode !== undefined && providerCode !== "")
+  if (isString(error) && error !== "")
     throw new SocialError({
       code: "upstream_failure",
       operation,
       message: "TikTok did not revoke the access token",
-      upstreamCode: providerCode,
+      ...definedFields({ upstreamCode: /^[a-z_]{1,64}$/.test(error) ? error : undefined }),
     });
 
-  return "revoked";
+  // Any other answer after dispatch does not say whether the grant was revoked.
+  throw new SocialError({
+    code: "ambiguous_outcome",
+    operation,
+    message: "TikTok did not confirm the revocation. Check the grant before retrying.",
+    retryDisposition: { kind: "reconcile-first" },
+  });
 }
 
 /** Status values of `POST /v2/oauth/check_qrcode/`. `utilised` appears in TikTok's examples. */

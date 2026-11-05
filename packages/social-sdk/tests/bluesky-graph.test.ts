@@ -219,6 +219,13 @@ it("creates, reads, changes, and deletes Bluesky lists", async () => {
         value: { $type: "app.bsky.graph.list", name: "Old", purpose: "curatelist" },
       });
 
+    // putRecord answers the record it replaced (com.atproto.repo.putRecord output).
+    if (url.pathname.endsWith("putRecord"))
+      return response({
+        uri: `at://did:plc:test/${String(body?.["collection"])}/${String(body?.["rkey"])}`,
+        cid: "bafyreiputcid",
+      });
+
     if (url.pathname.endsWith("getList")) return response({ list: { name: "Friends" }, items: [] });
 
     if (url.pathname.endsWith("getLists")) return response({ lists: [], cursor: "lists-next" });
@@ -281,7 +288,14 @@ it("pages list-block records before unblocking and creates moderation reports", 
       });
     }
 
-    if (url.pathname.endsWith("createReport")) return response({ id: 42, reasonType: "spam" });
+    if (url.pathname.endsWith("createReport"))
+      return response({
+        id: 42,
+        reasonType: "com.atproto.moderation.defs#reasonSpam",
+        subject: { $type: "com.atproto.admin.defs#repoRef", did: "did:plc:spam" },
+        reportedBy: "did:plc:test",
+        createdAt: "2026-11-05T00:00:00.000Z",
+      });
 
     return response({});
   });
@@ -334,7 +348,10 @@ it("deletes a platform post through posts.removeFromPlatform and accepts empty n
       ...definedFields({ body: requestBody(init?.body) }),
     });
 
-    return new Response(null, { status: 200 });
+    // deleteRecord declares an output (`{ commit? }`); the mute procedures declare none.
+    return new URL(String(input)).pathname.endsWith("deleteRecord")
+      ? Response.json({})
+      : new Response(null, { status: 200 });
   });
 
   const post: PlatformPostRef<"bluesky"> = {

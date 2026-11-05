@@ -464,7 +464,7 @@ it("X attaches image alt text through media metadata before creating the post", 
       ? Response.json({ data: { id: "media1" } })
       : url.pathname === "/2/media/metadata"
         ? Response.json({ data: { id: "media1" } })
-        : Response.json({ data: { id: "post1", text: "Image" } }),
+        : Response.json({ data: { id: "1001", text: "Image" } }),
   );
 
   const adapter = x({ auth: { userId: "u1", accessToken: "token" }, fetch });

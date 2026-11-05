@@ -267,7 +267,7 @@ A feed video goes to `graph-video.facebook.com/{page-id}/videos` from a hosted U
 
 Custom thumbnails apply to Page videos only. To set a custom cover on a Page video, pass the image as a `Blob` in the attachment's `thumbnail`. It is sent as the `thumb` part, which turns the request into a multipart upload. Reels do not accept a thumbnail through this adapter.
 
-A Reel uses Meta's three-phase Reels API (`/{page-id}/video_reels`) and needs a video that meets the Reel rows in [Media specifications](#media-specifications): either a hosted 9:16 MP4 at a public HTTPS URL or the same video as a `Blob`. A hosted video is fetched by Facebook through the `file_url` header; a `Blob` is uploaded to `rupload.facebook.com` as the request body with `offset: 0` and `file_size` headers. Videos and Reels return `processing` with a delivery reference, because Facebook processes video after upload. If a Reel upload fails after Facebook has created the Reel, the outcome still carries that delivery reference: `unknown` when the request timed out or its result is unclear, otherwise `failed` with retry disposition `reconcile-first`. Check it with `getDelivery` before publishing again.
+A Reel uses Meta's three-phase Reels API (`/{page-id}/video_reels`) and needs a video that meets the Reel rows in [Media specifications](#media-specifications): either a hosted 9:16 MP4 at a public HTTPS URL or the same video as a `Blob`. A hosted video is fetched by Facebook through the `file_url` header; a `Blob` is uploaded to `rupload.facebook.com` as the request body with `offset: 0` and `file_size` headers. Videos and Reels return `processing` with a delivery reference, because Facebook processes video after upload. If a Reel upload fails after Facebook has created the Reel, the outcome still carries that delivery reference: `unknown` when the request timed out, its result is unclear, or Facebook's answer was malformed (such as an upload URL outside `rupload.facebook.com`, which is never contacted), otherwise `failed` with retry disposition `reconcile-first`. A chunked video upload whose transfer answer does not move the offset forward is `unknown` the same way. Check it with `getDelivery` before publishing again.
 
 Reel options:
 
@@ -362,9 +362,15 @@ await social.posts.removeFromPlatform(platformPostRef);
 await native.updatePost({ account, postId: "PAGE_ID_POST_ID", message: "Updated text", context });
 await native.updatePost({ account, postId: "PAGE_ID_POST_ID", pinned: true, context });
 await native.updatePost({ account, postId: "PAGE_ID_POST_ID", isAiGenerated: true, context });
+await native.updatePost({
+  account,
+  postId: "PAGE_ID_POST_ID",
+  scheduleAt: "2026-12-01T09:00:00Z",
+  context,
+});
 ```
 
-`updatePost` sends `POST /{post-id}` with any of `message`, `is_pinned`, `is_hidden`, and `is_ai_generated`. `isAiGenerated: true` adds Meta's AI-generated label to the post, `false` removes it, and leaving it out keeps the current label; Meta added this to post edits in Graph API v27.0. Pin a post to put it at the top of the Page; hide one to remove it from the Page's timeline without deleting it. Meta lets an app edit a post's message only when that app created the post. The call fails as `ambiguous_outcome` if Facebook does not return `success: true`, so read the post before retrying.
+`updatePost` sends `POST /{post-id}` with any of `message`, `is_pinned`, `is_hidden`, `is_ai_generated`, and `scheduled_publish_time`. `scheduleAt` moves a scheduled, unpublished post to a new time, 10 minutes to 30 days ahead like a new schedule; a time outside that window is rejected before the request. `isAiGenerated: true` adds Meta's AI-generated label to the post, `false` removes it, and leaving it out keeps the current label; Meta added this to post edits in Graph API v27.0. Pin a post to put it at the top of the Page; hide one to remove it from the Page's timeline without deleting it. Meta lets an app edit a post's message only when that app created the post. The call fails as `ambiguous_outcome` if Facebook does not return `success: true`, so read the post before retrying.
 
 ### Scheduled, tagged, and visitor posts, and Page photos
 
@@ -579,7 +585,7 @@ const playlists = await native.listVideoLists({ account, context });
 | `listPageRoles`              | `GET /{page-id}/roles`                        | List Page roles: each person's Page-scoped `id`, `name`, and `tasks`. Needs `MANAGE`.                                                                                                                                                                                                             |
 | `respondToChangeProposal`    | `POST /{proposal-id}`                         | Accept or reject proposed Page changes with `accept`. The ID comes from a `page_change_proposal` webhook (`value.id`) or a `page_upcoming_change` webhook (`proposal.id`).                                                                                                                        |
 | `listRatings`                | `GET /{page-id}/ratings`                      | Ratings and reviews: `created_time`, `recommendation_type` (`positive` or `negative`), `review_text`, `has_rating`, and `has_review`. Reviewer identities are dropped. Needs `pages_read_user_content`.                                                                                           |
-| `blockUser`                  | `POST /{page-id}/blocked`                     | Block a person from the Page by Page-scoped ID. Fails as `ambiguous_outcome` unless Facebook confirms it.                                                                                                                                                                                         |
+| `blockUser`                  | `POST /{page-id}/blocked`                     | Block a person from the Page by Page-scoped ID. Fails as `ambiguous_outcome` unless Facebook maps that ID to `true`.                                                                                                                                                                              |
 | `searchPages`                | `GET /pages/search`                           | Pages Search by name, returning `id`, `name`, `link`, `verification_status`, and `location`. Use it to find a `place` ID. Needs the Page Public Metadata Access feature.                                                                                                                          |
 | `listBlockedUsers`           | `GET /{page-id}/blocked`                      | People blocked from the Page, with their Page-scoped `id` and `name`.                                                                                                                                                                                                                             |
 | `unblockUser`                | `DELETE /{page-id}/blocked`                   | Unblock a person by Page-scoped ID (sent as `user`). Fails as `ambiguous_outcome` unless Facebook returns `success: true`.                                                                                                                                                                        |
@@ -691,7 +697,7 @@ await native.sendSenderAction({
 
 When the person taps a text quick reply, the `messages` webhook carries the button title as text and your payload in `message.quick_reply.payload`; for `user_email` and `user_phone_number` the payload is the address or number. Read it from the decoded event's `data`.
 
-`native.sendSenderAction` sends a `sender_action` to `POST /{page-id}/messages` with only the recipient, as Meta requires. `typing_on` and `typing_off` show or hide the typing indicator (they accept a `personaId`), and `mark_seen` marks the person's last message as seen. `react` sets an emoji `reaction` on one message by `messageId`, a repeat call changes it, and `unreact` removes it. Send typing indicators in separate requests from the message that follows.
+`native.sendSenderAction` sends a `sender_action` to `POST /{page-id}/messages` with only the recipient, as Meta requires. `typing_on` and `typing_off` show or hide the typing indicator (they accept a `personaId`), and `mark_seen` marks the person's last message as seen. `react` sets an emoji `reaction` on one message by `messageId`, a repeat call changes it, and `unreact` removes it. Send typing indicators in separate requests from the message that follows. Meta answers a sender action with the recipient's ID; any other answer is `ambiguous_outcome`.
 
 Personas let a human agent or bot speak inside the Page's conversation with their own name and picture. `native.createPersona` posts `name` (at most 50 characters) and `profile_picture_url` to `POST /{page-id}/personas`, which downloads the image (at most 8 MB). `native.listPersonas` pages through `GET /{page-id}/personas`, and `native.deletePersona` sends `DELETE /{persona-id}`. Deletion is soft: earlier messages keep the persona's name, but it cannot send new ones.
 
@@ -880,6 +886,35 @@ Every method takes `account` and `context`, and refuses an account that is not t
 
 `native.moderateComment` sends `is_hidden` to hide or unhide a comment, `native.deleteComment` deletes one and needs `pages_manage_engagement`, and `native.listCommentReplies` pages through a comment's replies with Graph cursors.
 
+## Raw requests
+
+`native.request(input, context)` sends one request to a Graph API endpoint the SDK does not wrap. It sends the Page access token as a bearer token and adds `appsecret_proof` when `appSecret` is configured; on `rupload` it sends `Authorization: OAuth <token>` instead. It checks `input.account` against the configured Page and `context.backendInstance`, maps Graph error code 190 to `reconnect_required`, and reports usage headers to `onRateLimitUsage` like other calls.
+
+Hosts: `graph` (the default) is `https://graph.facebook.com/v27.0`, `video` is `https://graph-video.facebook.com/v27.0`, and `rupload` is `https://rupload.facebook.com`. Paths on `graph` and `video` are below the pinned version. A `method` query parameter (Graph's method override, which turns a `GET` into a write) is rejected before any request; send the real HTTP method so a lost write response stays `ambiguous_outcome`.
+
+```ts
+// `native` is social.native("default", { acknowledgeUnsafe: true }); `account` is the
+// connected account and `context` an AdapterOperationContext for its backend instance.
+const response = await native.request(
+  {
+    account,
+    method: "GET",
+    path: `/${account.accountId}`,
+    query: { fields: "fan_count,followers_count" },
+    responseHeaders: ["x-business-use-case-usage"],
+  },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the host's base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, `?` or `#` in the path, and unknown host names. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`, plus the `access_token` and `appsecret_proof` query parameters. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError` mapped like the adapter's other calls.
+
+A write that also asks for `fields` uses Graph's read-after-write: Graph applies the write, then returns a standard error if the read-back fails. Such a write rejects with `ambiguous_outcome` and `reconcile-first` on any 4xx except 401, 403, 429 or error code 190, so reconcile it before you send it again.
+
+A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Like other native calls it skips the client's tenant authorization, so check the tenant's grant for the account first. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 - One Page per adapter instance. Create one adapter per Page and register each under its own backend key.
@@ -918,6 +953,9 @@ Sources: Meta's [Page photos reference](https://developers.facebook.com/docs/gra
 ### Not supported
 
 - Editing published posts through the normalized `posts.update` is not implemented; use `native.updatePost`.
+- Other Page post update fields: Meta's [Page Post reference](https://developers.facebook.com/docs/graph-api/reference/page-post/#Updating) also lists `attached_media`, `is_published`, `place`, `backdated_time`, `feed_story_visibility`, `timeline_visibility`, and commerce fields. `updatePost` does not send them: Meta does not say whether `attached_media` replaces or adds to a post's photos, and publishing a scheduled post early or moving it in time are not wrapped beyond `scheduleAt`. Send them with `native.request` (`POST /{post-id}`) and read the post back.
+- Editing a photo's caption or alt text, or creating an album: the [Photo reference](https://developers.facebook.com/docs/graph-api/reference/photo/) and the [Page albums reference](https://developers.facebook.com/docs/graph-api/reference/page/albums/) say "You can't perform this operation on this endpoint."
+- Editing a Page video's title or description after upload: the current [Video reference](https://developers.facebook.com/docs/graph-api/reference/video/) documents no update parameters, so the SDK sends none. `native.request` can call `POST /{video-id}` if Meta supports it for your app.
 - Messenger generic, button, and media templates are not implemented; utility templates are.
 - Live Video API features beyond those listed above, such as live comments moderation and Live Online Events, are not implemented.
 - Marketing messages and recurring notifications (`notification_messages_token` opt-ins): Meta deprecated Messenger marketing messages on February 10, 2026, and they are unavailable to new integrations.

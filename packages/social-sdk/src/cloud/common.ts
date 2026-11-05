@@ -16,8 +16,8 @@ import type {
   PreparationIssue,
   PreparedPublishTarget,
 } from "../core/types.js";
-import { createHttp, HttpError, type HttpOptions } from "../transport/http.js";
-import { providerErrorDecoder } from "../transport/provider-errors.js";
+import { createHttp, HttpError, type HttpExchange, type HttpOptions } from "../transport/http.js";
+import { httpSocialError, providerErrorDecoder } from "../transport/provider-errors.js";
 import { isJsonValue } from "../transport/json.js";
 import { httpsUrl, upload } from "../transport/upload.js";
 import { definedFields } from "../core/fields.js";
@@ -201,7 +201,11 @@ export type ManagedAuthHeader = (apiKey: string) => readonly [name: string, valu
 
 const bearer: ManagedAuthHeader = (apiKey) => ["Authorization", `Bearer ${apiKey}`];
 
-export function managedHttp(
+/**
+ * Like `managedHttp`, but each call resolves to the success status and body, for writes whose
+ * documented success is a status code such as 204 rather than a resource.
+ */
+export function managedHttpExchange(
   origin: string,
   options: ManagedOptions,
   authHeader: ManagedAuthHeader = bearer,
@@ -222,7 +226,7 @@ export function managedHttp(
     query: Readonly<Record<string, string | readonly string[]>> = {},
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = body === undefined ? "GET" : "POST",
     extraHeaders: Readonly<Record<string, string>> = {},
-  ): Promise<JsonValue> => {
+  ): Promise<HttpExchange> => {
     const url = new URL(origin + path);
 
     for (const [key, value] of Object.entries(query))
@@ -246,7 +250,7 @@ export function managedHttp(
       headers.set("Idempotency-Key", context.targetIdempotencyKey);
 
     try {
-      return await http({
+      return await http.exchange({
         url,
         decodeErrorBody: providerErrorDecoder(origin, path),
         headers,
@@ -261,73 +265,20 @@ export function managedHttp(
     } catch (error) {
       if (!(error instanceof HttpError)) throw error;
 
-      const ambiguous =
-        method !== "GET" &&
-        error.dispatched &&
-        (error.kind !== "http" || (error.status !== undefined && error.status >= 500));
-
-      const providerCode = error.data?.code;
-      const existingPostId = error.data?.existingPostId;
-
-      throw new SocialError({
-        code:
-          providerCode === "idempotency_conflict"
-            ? "idempotency_conflict"
-            : providerCode === "usage-capped"
-              ? "billing_required"
-              : providerCode === "quotaExceeded"
-                ? "rate_limited"
-                : providerCode === "media-duration-exceeded"
-                  ? "media_error"
-                  : ambiguous
-                    ? "ambiguous_outcome"
-                    : error.status === 429
-                      ? "rate_limited"
-                      : error.kind === "cancelled"
-                        ? "cancelled"
-                        : error.kind === "timeout"
-                          ? "timeout"
-                          : error.status === 401
-                            ? "reconnect_required"
-                            : error.status === 403
-                              ? "missing_permission"
-                              : error.status === 402
-                                ? "billing_required"
-                                : error.status === 404
-                                  ? "not_found"
-                                  : error.status === 410
-                                    ? "gone"
-                                    : error.kind === "invalid-input"
-                                      ? "invalid_input"
-                                      : "upstream_failure",
-        operation: path,
-        backend: context.backendInstance,
-        correlationId: context.correlationId,
-        message: error.message,
-        ...definedFields({
-          upstreamStatus: error.status,
-          upstreamCode: providerCode,
-          details: existingPostId === undefined ? undefined : { existingPostId },
-        }),
-        retryDisposition:
-          providerCode === "idempotency_conflict" && existingPostId !== undefined
-            ? { kind: "reconcile-first" }
-            : providerCode === "idempotency_conflict" && error.retryAfterMs !== undefined
-              ? { kind: "after-delay", delayMs: error.retryAfterMs }
-              : providerCode === "idempotency_conflict"
-                ? { kind: "reconcile-first" }
-                : providerCode !== undefined
-                  ? { kind: "never" }
-                  : ambiguous
-                    ? { kind: "reconcile-first" }
-                    : error.status === 401
-                      ? { kind: "after-reconnect" }
-                      : error.status === 429 && error.retryAfterMs !== undefined
-                        ? { kind: "after-delay", delayMs: error.retryAfterMs }
-                        : { kind: "never" },
-      });
+      throw httpSocialError(error, path, method, context);
     }
   };
+}
+
+export function managedHttp(
+  origin: string,
+  options: ManagedOptions,
+  authHeader: ManagedAuthHeader = bearer,
+) {
+  const exchange = managedHttpExchange(origin, options, authHeader);
+
+  return async (...args: Parameters<typeof exchange>): Promise<JsonValue> =>
+    (await exchange(...args)).body;
 }
 
 /**

@@ -383,7 +383,7 @@ it("accepts one media-only conversation message and validates attachments locall
       calls++;
       assert.deepEqual(JSON.parse(String(init?.body)), { attachments: [{ media_id: "123" }] });
 
-      return Response.json({ data: { dm_event_id: "3" } });
+      return Response.json({ data: { dm_conversation_id: "3", dm_event_id: "4" } });
     },
   });
 

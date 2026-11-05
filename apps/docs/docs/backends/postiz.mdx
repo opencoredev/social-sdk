@@ -183,7 +183,7 @@ const result = await social.posts.publish(
 );
 ```
 
-Postiz queues every post and a worker posts it when it is due. A confirmed queued row with a future time returns `scheduled`; a due queued row returns `processing`. If creation returns an ID but the follow-up read fails, the outcome is `accepted` with a delivery reference and no invented queue state, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed`, and its message carries the platform's reason from the post's `error` field, such as "Account banned from posting". When Postiz has no reason, look at the post and channel in Postiz.
+Postiz queues every post and a worker posts it when it is due. A confirmed queued row with a future time returns `scheduled`; a due queued row returns `processing`. If creation returns an ID but the follow-up read fails, the outcome is `accepted` with a delivery reference and no invented queue state, so read it again with `getDelivery` to see `published` or `failed`. When Postiz reports `ERROR`, the outcome is `failed` with a fixed message. The platform's reason stays out of the message, because it is free text that can repeat post content or media URLs; `native.listPosts` returns it as the post's `error` field, so check the tenant's grant before you show it.
 
 The delivery, job, and record IDs have the form `<postiz post id>@<publish time>`. Postiz lists posts only by publish date, so the adapter keeps the time in the ID to find the post again. Store the IDs as opaque strings. If someone moves the post in Postiz by more than a day, the adapter can no longer find it, and reads, cancellation, and analytics fail with `not_found`. Manage a moved post in Postiz.
 
@@ -518,10 +518,28 @@ const posts = await adapter.native.listPosts(
 );
 ```
 
+## Raw requests
+
+`adapter.native.request(input, context)` sends one request to a Postiz public API endpoint the SDK does not wrap, with the API key in the `Authorization` header.
+
+The only host is `api`: the configured `baseUrl`, by default `https://api.postiz.com/public/v1`. Paths are below it, such as `/integrations`.
+
+```ts
+const native = postiz({ apiKey }).native;
+const response = await native.request({ method: "GET", path: "/integrations" }, context);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, and `?` or `#` in the path. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError`.
+
+The API key reaches the whole workspace, and the SDK cannot tell which accounts a raw path touches, so check the tenant's grants yourself before the call. A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Prefer a typed method when one exists.
+
 ## Limits and requirements
 
 ### Not supported
 
+- Deleting a whole group: Postiz's [Delete Post by Group](https://docs.postiz.com/public-api/posts/delete-by-group) (`DELETE /posts/group/:group`) removes every post in a group at once. The adapter does not wrap it, for the same reason it refuses group deletes below: it cannot show that a group holds only posts you mean to remove. Send it as a [raw request](#raw-requests) if you own the whole group.
 - Removing a published post: cancelling and deleting change only the Postiz record, so neither removes a post that already published.
 - Cancelling or deleting other posts: the adapter refuses a post it did not create or edit, such as one created in the Postiz dashboard or through another API client, and a post edited in the Postiz dashboard since, because Postiz deletes the whole group and the adapter cannot show the group holds only that post. It also refuses when the read after a create failed, because the identifier then has no group.
 

@@ -525,6 +525,31 @@ await native.playlistItems({
 
 Moving an item requires a playlist with manual ordering and the **playlist-item ID** returned by `playlistItems.list`; a video ID identifies the video and a playlist ID identifies its container. A snippet-only move leaves `contentDetails.note` untouched. If you write `contentDetails`, resend any note or other writable fields you want to keep.
 
+### Localize playlist titles
+
+`native.playlists` writes the [`localizations`](https://developers.google.com/youtube/v3/docs/playlists/insert) part on insert and update: a map from a BCP-47 language tag to a translated `title` and `description`. Set `snippet.defaultLanguage` in the same body, naming the language of the playlist's own title and description; without it the adapter rejects the write with `invalid_input` before any request. An update replaces each part you send, so resend every language you want to keep in `localizations`, and the complete `snippet` (title, description and `defaultLanguage`) with it.
+
+```ts
+await native.playlists({
+  action: "insert",
+  body: {
+    snippet: { title: "Releases", description: "Release videos", defaultLanguage: "en" },
+    localizations: { fr: { title: "Versions", description: "Vidéos des versions" } },
+  },
+  context,
+});
+await native.playlists({
+  action: "list",
+  playlistId: "PL...",
+  parts: ["snippet", "localizations"],
+  context,
+});
+```
+
+Lists return snippet, status and contentDetails unless you pass `parts`, drawn from `contentDetails`, `id`, `localizations`, `player`, `snippet` and `status`. Request `localizations` to read the translations back.
+
+Every playlist, playlist item, subscription, channel section, live broadcast, live stream, live chat message, moderator and ban write, caption and playlist image upload, comment thread, Analytics group and group item, and Reporting job create must answer with the written resource and its non-empty `id`. A success response without one raises `ambiguous_outcome` with `reconcile-first`, because Google may have created the resource; list it before retrying. An Analytics group item that Google answers with `204 No Content` still returns `{ alreadyInGroup: true }`. Writes to an existing resource must return that resource: video, channel, and comment updates, ad cuepoints, and poll closure need the addressed `id`; `liveBroadcasts` `bind` also needs `contentDetails.boundStreamId` to match `streamId` (or be absent after an unbind), and `transition` needs `status.lifeCycleStatus` to be the requested state or its starting step (`testStarting`, `liveStarting`). A thumbnail set needs its `items`, and an abuse report its `subject`. Anything less raises `ambiguous_outcome` with `reconcile-first`.
+
 ### Search and Analytics
 
 Normalized `social.search.posts(account, { query, startTime, endTime })` maps the ISO date bounds to `publishedAfter` and `publishedBefore`, with `type=video`. Only the `recent` scope is accepted and pages contain at most 50 items. Use `native.search` for `channelId`, `order`, or a different result type.
@@ -811,6 +836,33 @@ while (!offline) {
 #### Polls
 
 Polls are created by inserting a `pollEvent` message body. To end one, `native.liveChatMessages({ action: "closePoll", messageId })` calls [`liveChatMessages.transition`](https://developers.google.com/youtube/v3/live/docs/liveChatMessages/transition) (`POST /youtube/v3/liveChat/messages/transition`) with `status=closed` and `part=snippet`, and returns the closed poll message with its final tallies. Closing is the only transition YouTube offers. It costs 20 units and needs the `youtube` or `youtube.force-ssl` scope; a message that cannot be closed returns 403 `modificationNotAllowed`. These methods preserve upstream response bodies and do not claim normalized message or moderation semantics. To receive messages without polling, use [streamed live chat](#streamed-live-chat).
+
+## Raw requests
+
+`native.request(input, context)` sends one request to a YouTube API endpoint the SDK does not wrap, with the channel's OAuth token. It checks `input.account` against the configured channel and `context.backendInstance` and maps a `quotaExceeded` 403 to `rate_limited`.
+
+Hosts: `data` (the default) is `https://www.googleapis.com/youtube/v3`, `upload` is `https://www.googleapis.com/upload/youtube/v3`, `analytics` is `https://youtubeanalytics.googleapis.com/v2`, and `reporting` is `https://youtubereporting.googleapis.com/v1`.
+
+```ts
+// `native` is social.native("default", { acknowledgeUnsafe: true }); `account` is the
+// connected account and `context` an AdapterOperationContext for its backend instance.
+const response = await native.request(
+  {
+    account,
+    host: "data",
+    method: "GET",
+    path: "/i18nLanguages",
+    query: { part: "snippet", hl: "en" },
+  },
+  context,
+);
+
+if (response.responseType === "json") console.log(response.status, response.body);
+```
+
+`path` is relative to the host's base URL and starts with `/`; put parameters in `query`. Before any request, the adapter rejects absolute URLs, `//` paths, `..` segments, encoded separators, `?` or `#` in the path, and unknown host names. It also rejects credential and framing headers such as `Authorization`, `Cookie` and `Content-Type`, plus the `access_token` query parameter. It does not follow redirects. A body has a `kind` of `json`, `text`, `bytes`, `form` or `urlencoded`, and its kind sets `Content-Type`; `text` and `bytes` also take a `contentType`. Set `responseType` to `"text"` or `"bytes"` for a body that is not JSON. Response bodies are capped at 2 MiB, and `maxResponseBytes` raises the cap to at most 16 MiB. The result has `status`, `responseType`, `body` and lowercase `headers`. Name extra headers in `responseHeaders`; `set-cookie` is never returned. A non-2xx response rejects with a `SocialError` mapped like the adapter's other calls.
+
+A raw request makes one attempt. It adds no idempotency key and records no outcome, so you reconcile the writes you send. A write rejects with `ambiguous_outcome` when it fails without a definitive answer: a timeout, a cancellation after dispatch, a 5xx, or a 2xx body that cannot be decoded. Like other native calls it skips the client's tenant authorization, so check the tenant's grant for the account first. Prefer a typed method when one exists.
 
 ## Limits and requirements
 

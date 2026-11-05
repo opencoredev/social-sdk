@@ -2683,6 +2683,13 @@
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
         },
         {
+          "platform": "*",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "zernioNative(options).request sends one request to zernio.com/api with the API key. It never retries, adds idempotency keys or reconciles writes."
+        },
+        {
           "platform": "x",
           "operation": "posts.removeFromPlatform",
           "availability": "available"
@@ -4678,6 +4685,13 @@
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
         },
         {
+          "platform": "*",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to api.postforme.dev with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
+        {
           "platform": "x",
           "operation": "posts.update",
           "availability": "available",
@@ -6487,6 +6501,13 @@
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "*",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to api.postfa.st with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
         }
       ]
     }
@@ -8967,6 +8988,13 @@
             ]
           },
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
+        },
+        {
+          "platform": "*",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to api.postiz.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
         },
         {
           "platform": "slack",
@@ -12788,6 +12816,13 @@
           "notes": "Contract implementation; live account verification and provider/platform eligibility are separate."
         },
         {
+          "platform": "*",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to api.buffer.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
+        {
           "platform": "substack",
           "operation": "accounts.read",
           "availability": "available",
@@ -12956,6 +12991,13 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "bluesky",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to the configured PDS and the Bluesky video service with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends. A configured OAuth session may still replay an explicit DPoP nonce challenge or refresh its own credentials."
+        },
         {
           "operation": "webhooks.verify",
           "platform": "bluesky",
@@ -13301,6 +13343,13 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "x",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to api.x.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
         {
           "platform": "x",
           "operation": "webhooks.verify",
@@ -14223,6 +14272,13 @@
         },
         {
           "platform": "threads",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to graph.threads.net with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
+        {
+          "platform": "threads",
           "operation": "webhooks.verify",
           "availability": "available",
           "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies (comment.received), mentions (mention.received), publish (post.published, with no owner ID), and delete (post.removed) deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
@@ -14532,6 +14588,13 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "youtube",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to www.googleapis.com (YouTube Data and upload), youtubeanalytics.googleapis.com and youtubereporting.googleapis.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
         {
           "platform": "youtube",
           "operation": "webhooks.verify",
@@ -14999,6 +15062,13 @@
       "capabilities": [
         {
           "platform": "tiktok",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to open.tiktokapis.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
+        {
+          "platform": "tiktok",
           "operation": "webhooks.verify",
           "availability": "available",
           "notes": "Verifies TikTok-Signature (HMAC-SHA256 over timestamp and raw body) with the client secret and a 300 second default timestamp window, then decodes the event."
@@ -15398,6 +15468,13 @@
         },
         {
           "platform": "instagram",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to graph.instagram.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
+        {
+          "platform": "instagram",
           "operation": "webhooks.verify",
           "availability": "available",
           "notes": "Verifies Meta X-Hub-Signature-256 with the app secret and decodes object=instagram deliveries. Answer the GET handshake with answerMetaWebhookChallenge."
@@ -15433,6 +15510,13 @@
         "bun"
       ],
       "capabilities": [
+        {
+          "platform": "linkedin",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to api.linkedin.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
+        },
         {
           "platform": "linkedin",
           "operation": "posts.publish",
@@ -16186,6 +16270,13 @@
             "pages_read_engagement"
           ],
           "notes": "Replies with messaging_type RESPONSE inside the 24-hour window to the conversation's one other participant. native.sendMessage adds UPDATE, the HUMAN_AGENT tag, and attachments; native.privateReply answers a comment."
+        },
+        {
+          "platform": "facebook",
+          "operation": "raw.request",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.request sends one request to graph.facebook.com, graph-video.facebook.com and rupload.facebook.com with the adapter's own credentials. It never retries, adds idempotency keys or reconciles writes; the caller owns any write it sends."
         },
         {
           "platform": "facebook",

@@ -33,9 +33,17 @@ import { httpsUrl } from "../transport/upload.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
 import { parseJson } from "../transport/json.js";
 import {
+  rawProviderRequest,
+  rawRequestCapability,
+  type AccountRawProviderRequest,
+  type RawProviderResponse,
+  type RawRequestConfig,
+} from "../core/raw-request.js";
+import {
   array,
   isBoolean,
   isFiniteNumber,
+  isJsonArray,
   isJsonObject,
   isString,
   number,
@@ -279,7 +287,21 @@ export interface BlueskyApplyWritesResult {
   readonly results: readonly BlueskyWriteResult[];
 }
 
+/**
+ * Host names for `native.request`: `pds` is the configured PDS service origin (AppView methods
+ * proxy through it) and `video` is the video service, by default `https://video.bsky.app`.
+ */
+export type BlueskyRawHost = "pds" | "video";
+
 export interface BlueskyNative {
+  /**
+   * Sends one XRPC request the SDK does not wrap. `pds` uses the app-password JWT or the OAuth session's DPoP transport and adds the chat proxy header to `chat.bsky.*` methods; `video` takes `/xrpc/<nsid>` paths and sends a service token minted for that method.
+   * The raw layer never retries or reconciles; the caller owns any write it sends. A configured OAuth session may still replay an explicit DPoP nonce challenge or refresh its own credentials.
+   */
+  readonly request: (
+    input: AccountRawProviderRequest<BlueskyRawHost>,
+    context: AdapterOperationContext,
+  ) => Promise<RawProviderResponse>;
   readonly getPost: (input: {
     readonly uri: string;
     readonly context?: AdapterOperationContext;
@@ -1840,13 +1862,116 @@ function operationError(operation: string, cause: unknown, mutation = true): Soc
     });
   }
 
+  // A raw fetch failure can name the request URL and its query values, so it is not kept.
   return new SocialError({
     code: "upstream_failure",
     operation,
     message: "Bluesky request failed.",
     retryDisposition: { kind: "reconcile-first" },
-    cause,
   });
+}
+
+/**
+ * Procedures whose lexicon declares no output. XRPC reports success as HTTP 200
+ * (https://atproto.com/specs/xrpc), so that status is the confirmation. Lexicons read from
+ * https://github.com/bluesky-social/atproto/tree/31eb9a09d3c2192b9c4324ca82a959e34b3f421d/lexicons
+ * and packages/api/lexicons at the same commit (2026-11-05).
+ */
+const NO_OUTPUT_PROCEDURES: ReadonlySet<string> = new Set([
+  "app.bsky.actor.putPreferences",
+  "app.bsky.bookmark.createBookmark",
+  "app.bsky.bookmark.deleteBookmark",
+  "app.bsky.draft.deleteDraft",
+  "app.bsky.draft.updateDraft",
+  "app.bsky.graph.muteActor",
+  "app.bsky.graph.muteActorList",
+  "app.bsky.graph.muteThread",
+  "app.bsky.graph.unmuteActor",
+  "app.bsky.graph.unmuteActorList",
+  "app.bsky.graph.unmuteThread",
+  "app.bsky.notification.updateSeen",
+  "com.atproto.identity.requestPlcOperationSignature",
+  "com.atproto.identity.submitPlcOperation",
+  "com.atproto.identity.updateHandle",
+  "com.atproto.repo.importRepo",
+  "com.atproto.server.activateAccount",
+  "com.atproto.server.confirmEmail",
+  "com.atproto.server.deactivateAccount",
+  "com.atproto.server.deleteAccount",
+  "com.atproto.server.deleteSession",
+  "com.atproto.server.requestAccountDelete",
+  "com.atproto.server.requestEmailConfirmation",
+  "com.atproto.server.requestPasswordReset",
+  "com.atproto.server.resetPassword",
+  "com.atproto.server.revokeAppPassword",
+  "com.atproto.server.updateEmail",
+]);
+
+/** Procedures whose lexicon output is an empty JSON object: HTTP 200 with an object body. */
+const EMPTY_OBJECT_PROCEDURES: ReadonlySet<string> = new Set([
+  "app.bsky.contact.dismissMatch",
+  "app.bsky.contact.removeData",
+  "app.bsky.contact.startPhoneVerification",
+  "app.bsky.feed.sendInteractions",
+  "chat.bsky.actor.deleteAccount",
+  "chat.bsky.group.rejectJoinRequest",
+  "chat.bsky.group.updateJoinRequestsRead",
+  "chat.bsky.group.withdrawJoinRequest",
+]);
+
+/** A non-empty string from an answer. */
+function isText(value: JsonField): value is string {
+  return isString(value) && value !== "";
+}
+
+/** `commitMeta` is `{ cid, rev }` (com.atproto.repo.defs); the field itself is optional. */
+function isCommitMeta(value: JsonField): boolean {
+  return (
+    value === undefined || (isJsonObject(value) && isCid(value["cid"]) && isText(value["rev"]))
+  );
+}
+
+function isCid(value: JsonField): value is string {
+  return isString(value) && value !== "";
+}
+
+/**
+ * Whether a successful XRPC procedure answer is the documented confirmation of the write it
+ * answers. `request` is the JSON input the adapter sent, used to bind a written record's URI to
+ * the repository, collection, and record key it addressed. Procedures with richer outputs are
+ * decoded where they are called.
+ */
+function confirmsProcedure(method: string, request: JsonValue, status: number, body: JsonValue) {
+  if (status !== 200) return false;
+
+  if (NO_OUTPUT_PROCEDURES.has(method)) return true;
+
+  if (EMPTY_OBJECT_PROCEDURES.has(method)) return isJsonObject(body);
+
+  if (method === "com.atproto.repo.deleteRecord")
+    return isJsonObject(body) && isCommitMeta(body["commit"]);
+
+  if (method !== "com.atproto.repo.createRecord" && method !== "com.atproto.repo.putRecord")
+    return true;
+
+  // createRecord and putRecord output `{ uri, cid, commit?, validationStatus? }`.
+  if (!isJsonObject(body) || !isJsonObject(request)) return false;
+
+  const { repo, collection, rkey } = request;
+
+  const uri = body["uri"];
+
+  const prefix = isString(repo) && isString(collection) ? `at://${repo}/${collection}/` : undefined;
+
+  return (
+    prefix !== undefined &&
+    isString(uri) &&
+    uri.startsWith(prefix) &&
+    (isString(rkey) ? uri === prefix + rkey : RKEY.test(uri.slice(prefix.length))) &&
+    isCid(body["cid"]) &&
+    isCommitMeta(body["commit"]) &&
+    (body["validationStatus"] === undefined || isString(body["validationStatus"]))
+  );
 }
 
 function postRef(value: JsonField): BlueskyPostRef {
@@ -1866,7 +1991,7 @@ function writtenRef(value: JsonField, operation: string): BlueskyPostRef {
 
   const cid = optionalString(record["cid"]);
 
-  if (!uri || !cid)
+  if (!uri || !isCid(cid))
     throw new SocialError({
       code: "ambiguous_outcome",
       operation,
@@ -3329,6 +3454,11 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     apiRevision: "AT Protocol XRPC 2026-09",
     runtime: ["node>=22.12", "bun"],
     capabilities: [
+      rawRequestCapability(
+        "bluesky",
+        "the configured PDS and the Bluesky video service",
+        "A configured OAuth session may still replay an explicit DPoP nonce challenge or refresh its own credentials.",
+      ),
       {
         operation: "webhooks.verify",
         platform: "bluesky",
@@ -3574,7 +3704,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       if (method.startsWith("chat.bsky.") && !headers.has("atproto-proxy"))
         headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
 
-      return await requestHttp({
+      const answer = await requestHttp.exchange({
         url: endpoint(service, method),
         timeoutMs: remainingBudget(context),
         method: httpMethod,
@@ -3590,6 +3720,24 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           init.maxAttempts ??
           (httpMethod === "GET" ? Math.min(context.retryBudget.maxAttempts, 3) : 1),
       });
+
+      if (
+        httpMethod === "POST" &&
+        !confirmsProcedure(
+          method,
+          isJsonBody(init.body) ? parseJson(init.body) : null,
+          answer.status,
+          answer.body,
+        )
+      )
+        throw new SocialError({
+          code: "ambiguous_outcome",
+          operation: `bluesky.${method}`,
+          message: "Bluesky received the write but did not confirm it. Reconcile before retrying.",
+          retryDisposition: { kind: "reconcile-first" },
+        });
+
+      return answer.body;
     } catch (error) {
       if (sessionError !== undefined) throw sessionError;
       throw operationError(`bluesky.${method}`, error, httpMethod === "POST");
@@ -3796,18 +3944,46 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const commit = response["commit"] === undefined ? undefined : object(response["commit"]);
 
-      const results = array(response["results"] ?? []).map((value, index): BlueskyWriteResult => {
+      const listed = response["results"] === undefined ? undefined : array(response["results"]);
+
+      // `results` is optional, but when present it answers each write in order: a create or
+      // update result names the written record (`uri`, `cid`), a delete result is empty.
+      if (listed !== undefined && listed.length !== writes.length)
+        throw new HttpError("applyWrites answered a different batch.", "invalid-response", true);
+
+      const results = (listed ?? []).map((value, index): BlueskyWriteResult => {
         const result = object(value);
 
-        const action = writes[index]?.action ?? "create";
+        const write = writes[index];
 
-        const status = optionalString(result["validationStatus"]);
+        const action = write?.action ?? "create";
+
+        const status = result["validationStatus"];
+
+        if (status !== undefined && !isString(status))
+          throw new HttpError("applyWrites returned an invalid status.", "invalid-response", true);
+
+        if (action === "delete") return { action };
+
+        const uri = result["uri"];
+
+        const prefix = `at://${auth.did}/${write?.collection ?? ""}/`;
+
+        if (
+          !isString(uri) ||
+          !uri.startsWith(prefix) ||
+          (write?.rkey !== undefined
+            ? uri !== prefix + write.rkey
+            : !RKEY.test(uri.slice(prefix.length))) ||
+          !isText(result["cid"])
+        )
+          throw new HttpError("applyWrites returned an invalid record.", "invalid-response", true);
 
         return {
           action,
+          uri,
+          cid: result["cid"],
           ...definedFields({
-            uri: optionalString(result["uri"]),
-            cid: optionalString(result["cid"]),
             validationStatus: status === "valid" || status === "unknown" ? status : undefined,
           }),
         };
@@ -4301,6 +4477,54 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       backendInstance: backend,
     };
 
+  const rawConfig = (): RawRequestConfig<BlueskyRawHost> => ({
+    hosts: { pds: endpoint(service, "_").origin, video: videoOrigin.href },
+    defaultHost: "pds",
+    fetch: (host) => {
+      const session = options.session;
+
+      if (host !== "pds" || session === undefined) return fetcher;
+
+      // The OAuth session signs each request with DPoP and resolves the path on its PDS.
+      return async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+
+        return session.fetchHandler(url.pathname + url.search, init);
+      };
+    },
+    authorize: async ({ host, path, headers }, context) => {
+      if (host === "video") {
+        const lxm = /^\/xrpc\/([A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+){2,})$/.exec(path)?.[1];
+
+        if (lxm === undefined)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "native.request",
+            message: "Bluesky video service raw requests use /xrpc/<nsid> paths.",
+          });
+
+        const token = await serviceToken(
+          `did:web:${videoOrigin.host.replace(":", "%3A")}`,
+          lxm,
+          undefined,
+          context,
+        );
+
+        headers.set("Authorization", `Bearer ${token}`);
+
+        return;
+      }
+
+      if (path.startsWith("/xrpc/chat.bsky.") && !headers.has("atproto-proxy"))
+        headers.set("atproto-proxy", "did:web:api.bsky.chat#bsky_chat");
+
+      if (options.session === undefined && auth.accessJwt !== undefined)
+        headers.set("Authorization", `Bearer ${auth.accessJwt}`);
+    },
+    decodeError: decodeXrpcError,
+    ...definedFields({ timeoutMs: options.timeoutMs }),
+  });
+
   const assertNativeAccount = (
     selected: ConnectedAccountRef,
     context: AdapterOperationContext,
@@ -4525,10 +4749,24 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       method,
       operation,
       { convoId: convoId(input.conversationId, operation) },
-      (response) => object(response["convo"]),
+      (response) => convoView(response["convo"], input.conversationId),
     );
 
-  const joinLink = (response: JsonObject): JsonObject => object(response["joinLink"]);
+  /** A `joinLinkView`: `code`, `enabledStatus`, `requireApproval`, `joinRule`, `createdAt`. */
+  const joinLink = (response: JsonObject): JsonObject => {
+    const link = object(response["joinLink"]);
+
+    if (
+      !isText(link["code"]) ||
+      !isText(link["enabledStatus"]) ||
+      !isBoolean(link["requireApproval"]) ||
+      !isText(link["joinRule"]) ||
+      !isText(link["createdAt"])
+    )
+      throw new HttpError("Bluesky returned an invalid join link.", "invalid-response", true);
+
+    return link;
+  };
 
   const joinRule = (value: string, operation: string): string => {
     if (value !== "anyone" && value !== "followedByOwner")
@@ -4754,8 +4992,48 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         messageId: convoId(input.messageId, operation),
         value: input.value,
       },
-      (response) => object(response["message"]),
+      (response) => messageView(response["message"], { expectedId: input.messageId }),
     );
+  };
+
+  /**
+   * A `convoView` (chat.bsky.convo.defs): `id`, `rev`, `members`, `muted`, and `unreadCount` are
+   * required. When the write addressed a conversation, the view must be that conversation.
+   */
+  const convoView = (value: JsonField, expectedId?: string): JsonObject => {
+    const convo = object(value);
+
+    if (
+      !isText(convo["id"]) ||
+      (expectedId !== undefined && convo["id"] !== expectedId) ||
+      !isText(convo["rev"]) ||
+      !isJsonArray(convo["members"]) ||
+      !isBoolean(convo["muted"]) ||
+      !isFiniteNumber(convo["unreadCount"])
+    )
+      throw new HttpError("Bluesky returned an invalid conversation.", "invalid-response", true);
+
+    return convo;
+  };
+
+  /** A `messageView` or `deletedMessageView`: `id`, `rev`, `sender`, and `sentAt` are required. */
+  const messageView = (
+    value: JsonField,
+    options: { readonly expectedId?: string; readonly deleted?: true } = {},
+  ): JsonObject => {
+    const message = object(value);
+
+    if (
+      !isText(message["id"]) ||
+      (options.expectedId !== undefined && message["id"] !== options.expectedId) ||
+      !isText(message["rev"]) ||
+      !isJsonObject(message["sender"]) ||
+      !isText(message["sentAt"]) ||
+      (options.deleted === undefined && !isString(message["text"]))
+    )
+      throw new HttpError("Bluesky returned an invalid chat message.", "invalid-response", true);
+
+    return message;
   };
 
   const convoAction = async (
@@ -4771,7 +5049,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       {
         convoId: convoId(input.conversationId, operation),
       },
-      (response) => object(response["convo"]),
+      (response) => convoView(response["convo"], input.conversationId),
     );
 
   const groupMembers = async (
@@ -4788,10 +5066,15 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         convoId: convoId(input.conversationId, operation),
         members: memberDids(input.members, 49, operation),
       },
-      (response) => object(response["convo"]),
+      (response) => convoView(response["convo"], input.conversationId),
     );
 
   const native: BlueskyNative = {
+    async request(input, context) {
+      assertNativeAccount(input.account, context, "native.request");
+
+      return rawProviderRequest(rawConfig(), input, context);
+    },
     async getPosts(input) {
       const operation = "bluesky.posts.hydrate";
 
@@ -5281,7 +5564,8 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           retryDisposition: { kind: "never" },
         });
 
-      return procedure(
+      // The output is `{ subject, activitySubscription? }` for the subject that changed.
+      return decodedProcedure(
         input.account,
         input.context,
         "app.bsky.notification.putActivitySubscription",
@@ -5289,6 +5573,20 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         {
           subject: input.subject,
           activitySubscription: { post: input.post, reply: input.reply },
+        },
+        (response) => {
+          const subscription = response["activitySubscription"];
+
+          if (
+            response["subject"] !== input.subject ||
+            (subscription !== undefined &&
+              (!isJsonObject(subscription) ||
+                !isBoolean(subscription["post"]) ||
+                !isBoolean(subscription["reply"])))
+          )
+            throw new HttpError("Bluesky returned another subscription.", "invalid-response", true);
+
+          return response;
         },
       );
     },
@@ -6526,8 +6824,24 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         }),
       };
 
-      return object(
+      // The output repeats the report with its `id`, `reasonType`, `subject`, `reportedBy`, and
+      // `createdAt` (com.atproto.moderation.createReport).
+      return decodeWrite(
         await xrpc("com.atproto.moderation.createReport", context, { body: JSON.stringify(body) }),
+        "bluesky.moderation.report",
+        (report) => {
+          if (
+            !isFiniteNumber(report["id"]) ||
+            !Number.isSafeInteger(report["id"]) ||
+            !isText(report["reasonType"]) ||
+            !isJsonObject(report["subject"]) ||
+            report["reportedBy"] !== auth.did ||
+            !isText(report["createdAt"])
+          )
+            throw new HttpError("Bluesky returned an invalid report.", "invalid-response", true);
+
+          return report;
+        },
       );
     },
     async listNotifications(input) {
@@ -7146,16 +7460,17 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       );
     },
     async sendMessage(input) {
-      const context = nativeContext(input.context, "bluesky.chat.send");
-      assertNativeAccount(input.account, context, "bluesky.chat.send");
-
-      return object(
-        await xrpc("chat.bsky.convo.sendMessage", context, {
-          body: JSON.stringify({
-            convoId: convoId(input.conversationId, "bluesky.chat.send"),
-            message: messageJson(input),
-          }),
-        }),
+      // The output is the sent `messageView`.
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "chat.bsky.convo.sendMessage",
+        "bluesky.chat.send",
+        {
+          convoId: convoId(input.conversationId, "bluesky.chat.send"),
+          message: messageJson(input),
+        },
+        (response) => messageView(response),
       );
     },
     async sendMessageBatch(input) {
@@ -7181,7 +7496,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         "chat.bsky.convo.sendMessageBatch",
         operation,
         { items },
-        (response) => array(response["items"]).map((value) => object(value)),
+        (response) => {
+          const sent = array(response["items"]).map((value) => messageView(value));
+
+          if (sent.length !== items.length)
+            throw new HttpError("Bluesky answered a different batch.", "invalid-response", true);
+
+          return sent;
+        },
       );
     },
     async getConvoForMembers(input) {
@@ -7248,15 +7570,22 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     async acceptConvo(input) {
       const operation = "bluesky.chat.accept";
 
-      const response = await procedure(
+      // The output is `{ rev? }`.
+      return decodedProcedure(
         input.account,
         input.context,
         "chat.bsky.convo.acceptConvo",
         operation,
         { convoId: convoId(input.conversationId, operation) },
-      );
+        (response) => {
+          const rev = response["rev"];
 
-      return definedFields({ rev: optionalString(response["rev"]) });
+          if (rev !== undefined && !isText(rev))
+            throw new HttpError("Bluesky returned an invalid rev.", "invalid-response", true);
+
+          return definedFields({ rev });
+        },
+      );
     },
     async addReaction(input) {
       return reaction("chat.bsky.convo.addReaction", input);
@@ -7276,7 +7605,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           convoId: convoId(input.conversationId, operation),
           ...definedFields({ messageId: input.messageId }),
         },
-        (response) => object(response["convo"]),
+        (response) => convoView(response["convo"], input.conversationId),
       );
     },
     async markAllConversationsRead(input) {
@@ -7288,7 +7617,14 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         "chat.bsky.convo.updateAllRead",
         operation,
         definedFields({ status: input.status }),
-        (response) => number(response["updatedCount"]),
+        (response) => {
+          const updated = number(response["updatedCount"]);
+
+          if (!Number.isSafeInteger(updated) || updated < 0)
+            throw new HttpError("Bluesky returned an invalid count.", "invalid-response", true);
+
+          return updated;
+        },
       );
     },
     async muteConversation(input) {
@@ -7306,13 +7642,20 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         "chat.bsky.convo.leaveConvo",
         operation,
         { convoId: convoId(input.conversationId, operation) },
-        (response) => ({ rev: string(response["rev"]) }),
+        // The output is `{ convoId, rev }`.
+        (response) => {
+          if (response["convoId"] !== input.conversationId)
+            throw new HttpError("Bluesky left a different conversation.", "invalid-response", true);
+
+          return { rev: string(response["rev"]) };
+        },
       );
     },
     async deleteMessageForSelf(input) {
       const operation = "bluesky.chat.deleteForSelf";
 
-      return procedure(
+      // The output is the `deletedMessageView` of the message.
+      return decodedProcedure(
         input.account,
         input.context,
         "chat.bsky.convo.deleteMessageForSelf",
@@ -7321,6 +7664,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           convoId: convoId(input.conversationId, operation),
           messageId: convoId(input.messageId, operation),
         },
+        (response) => messageView(response, { expectedId: input.messageId, deleted: true }),
       );
     },
     async getChatLog(input) {
@@ -7349,7 +7693,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           name: groupName(input.name, operation),
           members: memberDids(input.members, 49, operation),
         },
-        (response) => object(response["convo"]),
+        (response) => convoView(response["convo"]),
       );
     },
     async renameGroupChat(input) {
@@ -7364,7 +7708,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           convoId: convoId(input.conversationId, operation),
           name: groupName(input.name, operation),
         },
-        (response) => object(response["convo"]),
+        (response) => convoView(response["convo"], input.conversationId),
       );
     },
     async addGroupChatMembers(input) {
@@ -7607,10 +7951,24 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         "chat.bsky.group.requestJoin",
         operation,
         { code: convoId(input.code, operation) },
-        (result) => ({
-          status: string(result["status"]),
-          ...definedFields({ convo: optionalObject(result["convo"]) }),
-        }),
+        // The output is `{ status: "joined" | "pending", convo? }`.
+        (result) => {
+          const status = result["status"];
+
+          if (status !== "joined" && status !== "pending")
+            throw new HttpError(
+              "Bluesky returned an invalid join status.",
+              "invalid-response",
+              true,
+            );
+
+          return {
+            status,
+            ...definedFields({
+              convo: result["convo"] === undefined ? undefined : convoView(result["convo"]),
+            }),
+          };
+        },
       );
     },
     async withdrawJoinRequest(input) {
@@ -7648,7 +8006,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           convoId: convoId(input.conversationId, operation),
           member: memberDid(input.member, operation),
         },
-        (response) => object(response["convo"]),
+        (response) => convoView(response["convo"], input.conversationId),
       );
     },
     async rejectJoinRequest(input) {
@@ -8084,12 +8442,33 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           retryDisposition: { kind: "never" },
         });
 
-      return procedure(input.account, input.context, "app.bsky.ageassurance.begin", operation, {
-        email: input.email,
-        language: input.language,
-        countryCode: countryCode(input.countryCode, operation),
-        ...definedFields({ regionCode: input.regionCode }),
-      });
+      return decodedProcedure(
+        input.account,
+        input.context,
+        "app.bsky.ageassurance.begin",
+        operation,
+        {
+          email: input.email,
+          language: input.language,
+          countryCode: countryCode(input.countryCode, operation),
+          ...definedFields({ regionCode: input.regionCode }),
+        },
+        // The output is the account's age assurance `state`: `status` and `access` are required.
+        (state) => {
+          if (
+            !isText(state["status"]) ||
+            !isText(state["access"]) ||
+            (state["lastInitiatedAt"] !== undefined && !isString(state["lastInitiatedAt"]))
+          )
+            throw new HttpError(
+              "Bluesky returned an invalid age assurance state.",
+              "invalid-response",
+              true,
+            );
+
+          return state;
+        },
+      );
     },
     async resolveHandle(input) {
       const operation = "bluesky.identity.resolveHandle";
@@ -8179,6 +8558,13 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         { name, ...definedFields({ privileged: input.privileged }) },
         (created) => {
           const privileged = created["privileged"];
+
+          if (privileged !== undefined && !isBoolean(privileged))
+            throw new HttpError(
+              "Bluesky returned an invalid app password.",
+              "invalid-response",
+              true,
+            );
 
           return {
             name: string(created["name"]),
@@ -9698,19 +10084,23 @@ function sessionFrom(value: JsonValue, operation: string): BlueskySession {
 
     const active = session["active"];
 
+    const status = session["status"];
+
+    if ((active !== undefined && !isBoolean(active)) || (status !== undefined && !isString(status)))
+      throw new Error("invalid session");
+
     return {
       did,
       handle: string(session["handle"]),
       accessJwt,
       refreshJwt,
-      ...definedFields({
-        active: isBoolean(active) ? active : undefined,
-        status: optionalString(session["status"]),
-      }),
+      ...definedFields({ active, status }),
     };
   } catch {
+    // The PDS received the request and may have created the session or account, or spent the
+    // refresh token, so an unreadable answer is an uncertain outcome.
     throw new SocialError({
-      code: "upstream_failure",
+      code: "ambiguous_outcome",
       operation,
       message: "Bluesky returned an invalid session.",
       retryDisposition: { kind: "reconcile-first" },
@@ -9999,12 +10389,30 @@ async function serverCall(
   });
 
   try {
-    return await http({
+    const answer = await http.exchange({
       url: endpoint(request.service, method),
       method: httpMethod,
       maxAttempts: 1,
       ...definedFields({ headers: init.headers, body: init.body, signal: request.signal }),
     });
+
+    if (
+      httpMethod === "POST" &&
+      !confirmsProcedure(
+        method,
+        init.body === undefined ? null : parseJson(init.body),
+        answer.status,
+        answer.body,
+      )
+    )
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation: `bluesky.${method}`,
+        message: "Bluesky received the request but did not confirm it. Reconcile before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+
+    return answer.body;
   } catch (error) {
     throw operationError(`bluesky.${method}`, error, httpMethod === "POST");
   }

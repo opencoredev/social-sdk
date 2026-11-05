@@ -1,3 +1,4 @@
+import type { JsonValue } from "../src/core/types.js";
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef } from "../src/index.js";
@@ -239,7 +240,10 @@ it("YouTube thumbnails use the upload endpoint", async () => {
     fetch: async (input) => {
       seen = new URL(String(input));
 
-      return Response.json({ kind: "youtube#thumbnail" });
+      return Response.json({
+        kind: "youtube#thumbnailSetResponse",
+        items: [{ default: { url: "https://i.ytimg.com/vi/v1/default.jpg" } }],
+      });
     },
   });
 
@@ -523,4 +527,26 @@ it("YouTube refuses untrusted upload session hosts before forwarding authorizati
     ),
   );
   assert.equal(calls, 0);
+});
+
+it("YouTube accepts a completed snippet-only upload without a status part, and rejects a malformed one", async () => {
+  const session = {
+    url: "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=x",
+    channelId: "channel1",
+    size: 100,
+    mimeType: "video/mp4",
+  };
+
+  const answering = (body: JsonValue) => ({
+    accessToken: "test",
+    fetch: async () => Response.json(body),
+  });
+
+  const done = await queryYouTubeUpload(session, answering({ id: "v1", snippet: { title: "T" } }));
+
+  assert.equal(done.state, "complete");
+
+  await assert.rejects(queryYouTubeUpload(session, answering({ id: "v1", status: "processed" })), {
+    code: "ambiguous_outcome",
+  });
 });

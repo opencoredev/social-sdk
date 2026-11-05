@@ -189,7 +189,7 @@ it("Buffer lists posts with status, date, dueAtPresence, postTypes, tag filters 
   );
 });
 
-it("Buffer reports the post error message, rawError and supportUrl [feature:buffer.read.post_error]", async () => {
+it("Buffer returns the post error message, rawError and supportUrl as read data, never in the outcome message [feature:buffer.read.post_error]", async () => {
   const failed = post("linkedin", {
     status: "error",
     error: {
@@ -203,9 +203,14 @@ it("Buffer reports the post error message, rawError and supportUrl [feature:buff
   const outcome = await adapter.posts.getDelivery(delivery("linkedin"), context);
 
   assert.equal(outcome.state, "failed");
+  // The outcome message is fixed: Buffer's error prose and links stay out of failure text.
   assert.equal(
     outcome.state === "failed" ? outcome.message : undefined,
-    "Buffer reports that this post failed: LinkedIn rejected the image size. (help: https://support.buffer.com/article/linkedin-errors)",
+    "Buffer reports that this post failed. Inspect the channel connection and the post in Buffer.",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(outcome),
+    /LinkedIn rejected|support\.buffer\.com|MEDIA_ASSET/,
   );
   assert.match(string(operations.at(-1)?.query), /error \{\s+message\s+rawError\s+supportUrl/);
 
