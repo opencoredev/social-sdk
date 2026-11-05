@@ -2809,6 +2809,42 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     return result;
   }
 
+  /**
+   * Wraps one native write. Request failures already arrive classified from `managedHttp`; what
+   * remains is a response the method cannot decode after X received the request, which leaves the
+   * change uncertain. `queryOnly` marks inputs that only query, such as dry runs.
+   */
+  const uncertainWrite =
+    <Input extends { readonly context: AdapterOperationContext }, Output>(
+      operation: string,
+      write: (input: Input) => Promise<Output>,
+      options: { readonly queryOnly?: (input: Input) => boolean } = {},
+    ) =>
+    async (input: Input): Promise<Output> => {
+      try {
+        return await write(input);
+      } catch (error) {
+        if (
+          !(error instanceof HttpError) ||
+          !error.dispatched ||
+          error.kind === "http" ||
+          options.queryOnly?.(input) === true
+        )
+          throw error;
+
+        throw new SocialError({
+          code: "ambiguous_outcome",
+          operation,
+          backend: input.context.backendInstance,
+          correlationId: input.context.correlationId,
+          message:
+            "X did not return a readable confirmation. Read the current state before retrying.",
+          retryDisposition: { kind: "reconcile-first" },
+          cause: error,
+        });
+      }
+    };
+
   async function readAccount(context: AdapterOperationContext) {
     const user = object(object(await request("/2/users/me", context))["data"]);
 
@@ -5911,7 +5947,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         return searchPosts(account, { ...search, scope: "all" }, context, search);
       },
       readPost,
-      async repost({ account, postId, context }) {
+      repost: uncertainWrite("x.repost", async ({ account, postId, context }) => {
         authorize(account, context);
 
         return confirmedWrite(
@@ -5926,8 +5962,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.repost",
         );
-      },
-      async quote({ account, text, quotedPostId, context }) {
+      }),
+      quote: uncertainWrite("x.quote", async ({ account, text, quotedPostId, context }) => {
         authorize(account, context);
 
         return object(
@@ -5936,8 +5972,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             quote_tweet_id: quotedPostId,
           }),
         );
-      },
-      async deletePost({ account, postId, context }) {
+      }),
+      deletePost: uncertainWrite("x.deletePost", async ({ account, postId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -5952,8 +5988,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.deletePost",
         );
-      },
-      async updatePost({ account, postId, text, context }) {
+      }),
+      updatePost: uncertainWrite("x.updatePost", async ({ account, postId, text, context }) => {
         authorize(account, context);
 
         if (!/^[0-9]{1,19}$/.test(postId))
@@ -6011,53 +6047,62 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           text: optionalString(data["text"]) ?? text,
           ...definedFields({ editHistoryPostIds }),
         };
-      },
-      async uploadVideo({ account, video, mimeType = "video/mp4", additionalOwners, context }) {
-        authorize(account, context);
-        requireAdditionalOwners(additionalOwners, "media.upload");
+      }),
+      uploadVideo: uncertainWrite(
+        "x.uploadVideo",
+        async ({ account, video, mimeType = "video/mp4", additionalOwners, context }) => {
+          authorize(account, context);
+          requireAdditionalOwners(additionalOwners, "media.upload");
 
-        const media: MediaAttachment = {
-          kind: "video",
-          mimeType,
-          source: { kind: "blob", blob: video, fingerprint: "native-upload" },
-        };
+          const media: MediaAttachment = {
+            kind: "video",
+            mimeType,
+            source: { kind: "blob", blob: video, fingerprint: "native-upload" },
+          };
 
-        return { mediaId: await uploadVideoOrGif(media, context, additionalOwners) };
-      },
-      async uploadGif({ account, gif, additionalOwners, context }) {
-        authorize(account, context);
-        requireAdditionalOwners(additionalOwners, "media.upload");
+          return { mediaId: await uploadVideoOrGif(media, context, additionalOwners) };
+        },
+      ),
+      uploadGif: uncertainWrite(
+        "x.uploadGif",
+        async ({ account, gif, additionalOwners, context }) => {
+          authorize(account, context);
+          requireAdditionalOwners(additionalOwners, "media.upload");
 
-        const media: MediaAttachment = {
-          kind: "image",
-          mimeType: "image/gif",
-          source: { kind: "blob", blob: gif, fingerprint: "native-upload" },
-        };
+          const media: MediaAttachment = {
+            kind: "image",
+            mimeType: "image/gif",
+            source: { kind: "blob", blob: gif, fingerprint: "native-upload" },
+          };
 
-        return { mediaId: await uploadVideoOrGif(media, context, additionalOwners) };
-      },
-      async createPoll({ account, text, options: pollOptions, durationMinutes, context }) {
-        authorize(account, context);
+          return { mediaId: await uploadVideoOrGif(media, context, additionalOwners) };
+        },
+      ),
+      createPoll: uncertainWrite(
+        "x.createPoll",
+        async ({ account, text, options: pollOptions, durationMinutes, context }) => {
+          authorize(account, context);
 
-        if (
-          pollOptions.length < 2 ||
-          pollOptions.length > 4 ||
-          durationMinutes < 5 ||
-          durationMinutes > 10080
-        )
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "x.polls.create",
-            message: "X polls require 2-4 options and a duration from 5 minutes to 7 days.",
-          });
+          if (
+            pollOptions.length < 2 ||
+            pollOptions.length > 4 ||
+            durationMinutes < 5 ||
+            durationMinutes > 10080
+          )
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "x.polls.create",
+              message: "X polls require 2-4 options and a duration from 5 minutes to 7 days.",
+            });
 
-        return object(
-          await requireUserToken("x.createPoll")("/2/tweets", context, {
-            text,
-            poll: { options: [...pollOptions], duration_minutes: durationMinutes },
-          }),
-        );
-      },
+          return object(
+            await requireUserToken("x.createPoll")("/2/tweets", context, {
+              text,
+              poll: { options: [...pollOptions], duration_minutes: durationMinutes },
+            }),
+          );
+        },
+      ),
       // GET /2/users/:id/bookmarks takes max_results 1-100 and pagination_token from
       // meta.next_token. Source, accessed 2026-10-24: https://docs.x.com/x-api/users/get-bookmarks
       async bookmarks({ account, cursor, maxResults, context }) {
@@ -6092,7 +6137,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           ),
         );
       },
-      async bookmark({ account, postId, context }) {
+      bookmark: uncertainWrite("x.bookmark", async ({ account, postId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -6107,157 +6152,175 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.bookmark",
         );
-      },
-      async bookmarkPosts({ account, postIds, folderId, context }) {
-        authorize(account, context);
+      }),
+      bookmarkPosts: uncertainWrite(
+        "x.bookmarkPosts",
+        async ({ account, postIds, folderId, context }) => {
+          authorize(account, context);
 
-        const operation = "x.bookmarks.bulk";
+          const operation = "x.bookmarks.bulk";
 
-        if (postIds.length < 1 || postIds.length > 25 || postIds.some((id) => !xIdPattern.test(id)))
-          throw invalid(operation, "postIds must list 1-25 numeric X post IDs.");
+          if (
+            postIds.length < 1 ||
+            postIds.length > 25 ||
+            postIds.some((id) => !xIdPattern.test(id))
+          )
+            throw invalid(operation, "postIds must list 1-25 numeric X post IDs.");
 
-        if (folderId !== undefined) requireId(folderId, "folderId", operation);
+          if (folderId !== undefined) requireId(folderId, "folderId", operation);
 
-        const result = object(
-          await requireUserToken(operation)(
-            `/2/users/${encodeURIComponent(account.accountId)}/bookmarks`,
-            context,
-            { tweet_ids: [...postIds], ...definedFields({ folder_id: folderId }) },
-          ),
-        );
-
-        const data = result["data"];
-
-        const errors = result["errors"] === undefined ? [] : array(result["errors"]).map(object);
-
-        if (!isJsonArray(data) && errors.length === 0)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation,
-            message: "X did not report which posts were bookmarked. Read the bookmarks first.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        const bookmarked = (isJsonArray(data) ? data : []).flatMap((entry) => {
-          const row = object(entry);
-
-          const id = optionalString(row["tweet_id"]);
-
-          return row["bookmarked"] === true && id !== undefined ? [id] : [];
-        });
-
-        return { bookmarked, errors };
-      },
-      async setMediaMetadata({ account, mediaId, metadata, context }) {
-        authorize(account, context);
-
-        const operation = "x.media.metadata";
-
-        requireId(mediaId, "mediaId", operation);
-
-        const wire: Record<string, JsonValue> = {};
-
-        if (metadata.altText !== undefined) {
-          if ([...metadata.altText].length > 1000)
-            throw invalid(operation, "altText is limited to 1,000 characters.");
-
-          wire["alt_text"] = { text: metadata.altText };
-        }
-
-        if (metadata.allowDownload !== undefined)
-          wire["allow_download_status"] = { allow_download: metadata.allowDownload };
-
-        if (metadata.contentExpiresAt !== undefined) {
-          const expires = Date.parse(metadata.contentExpiresAt);
-
-          if (!Number.isFinite(expires))
-            throw invalid(operation, "contentExpiresAt must be an ISO 8601 timestamp.");
-
-          wire["content_expiration"] = { timestamp_sec: Math.floor(expires / 1000) };
-        }
-
-        if (metadata.domainAllowlist !== undefined) {
-          if (metadata.domainAllowlist.some((domain) => !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)))
-            throw invalid(
-              operation,
-              "domainAllowlist takes bare domain names such as example.com.",
-            );
-
-          wire["domain_restrictions"] = { whitelist: [...metadata.domainAllowlist] };
-        }
-
-        if (metadata.foundMediaOrigin !== undefined) {
-          if (!metadata.foundMediaOrigin.provider.trim() || !metadata.foundMediaOrigin.id.trim())
-            throw invalid(operation, "foundMediaOrigin needs a provider and an id.");
-
-          wire["found_media_origin"] = {
-            provider: metadata.foundMediaOrigin.provider,
-            id: metadata.foundMediaOrigin.id,
-          };
-        }
-
-        if (metadata.managed !== undefined) wire["management_info"] = { managed: metadata.managed };
-
-        if (metadata.shared !== undefined) wire["shared_info"] = { shared: metadata.shared };
-
-        if (metadata.uploadSource !== undefined) {
-          if (!metadata.uploadSource.trim())
-            throw invalid(operation, "uploadSource must not be empty.");
-
-          wire["upload_source"] = { upload_source: metadata.uploadSource };
-        }
-
-        if (metadata.sensitiveMediaWarning !== undefined)
-          wire["sensitive_media_warning"] = metadata.sensitiveMediaWarning;
-
-        if (metadata.geoRestrictions !== undefined)
-          wire["geo_restrictions"] = metadata.geoRestrictions;
-
-        if (metadata.audiencePolicy !== undefined)
-          wire["audience_policy"] = metadata.audiencePolicy;
-
-        if (Object.keys(wire).length === 0)
-          throw invalid(operation, "Pass at least one metadata field.");
-
-        const data = object(
-          object(
-            await requireUserToken(operation)("/2/media/metadata", context, {
-              id: mediaId,
-              metadata: wire,
-            }),
-          )["data"],
-        );
-
-        if (data["id"] !== mediaId)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation,
-            message: "X did not confirm the media metadata. Read the media before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        return data["associated_metadata"] === undefined ? {} : object(data["associated_metadata"]);
-      },
-      async createComplianceJob({ account, type, name, resumable, context }) {
-        authorize(account, context);
-
-        const operation = "x.compliance.jobs.create";
-
-        if (name !== undefined && (!name.trim() || [...name].length > 64))
-          throw invalid(operation, "Compliance job names are 1-64 characters.");
-
-        return complianceJob(
-          object(
-            await appRequest()(
-              "/2/compliance/jobs",
+          const result = object(
+            await requireUserToken(operation)(
+              `/2/users/${encodeURIComponent(account.accountId)}/bookmarks`,
               context,
-              { type, ...definedFields({ name, resumable }) },
-              { "compliance_job.fields": complianceJobFields },
+              { tweet_ids: [...postIds], ...definedFields({ folder_id: folderId }) },
             ),
-          )["data"],
-          operation,
-        );
-      },
+          );
+
+          const data = result["data"];
+
+          const errors = result["errors"] === undefined ? [] : array(result["errors"]).map(object);
+
+          if (!isJsonArray(data) && errors.length === 0)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not report which posts were bookmarked. Read the bookmarks first.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+
+          const bookmarked = (isJsonArray(data) ? data : []).flatMap((entry) => {
+            const row = object(entry);
+
+            const id = optionalString(row["tweet_id"]);
+
+            return row["bookmarked"] === true && id !== undefined ? [id] : [];
+          });
+
+          return { bookmarked, errors };
+        },
+      ),
+      setMediaMetadata: uncertainWrite(
+        "x.setMediaMetadata",
+        async ({ account, mediaId, metadata, context }) => {
+          authorize(account, context);
+
+          const operation = "x.media.metadata";
+
+          requireId(mediaId, "mediaId", operation);
+
+          const wire: Record<string, JsonValue> = {};
+
+          if (metadata.altText !== undefined) {
+            if ([...metadata.altText].length > 1000)
+              throw invalid(operation, "altText is limited to 1,000 characters.");
+
+            wire["alt_text"] = { text: metadata.altText };
+          }
+
+          if (metadata.allowDownload !== undefined)
+            wire["allow_download_status"] = { allow_download: metadata.allowDownload };
+
+          if (metadata.contentExpiresAt !== undefined) {
+            const expires = Date.parse(metadata.contentExpiresAt);
+
+            if (!Number.isFinite(expires))
+              throw invalid(operation, "contentExpiresAt must be an ISO 8601 timestamp.");
+
+            wire["content_expiration"] = { timestamp_sec: Math.floor(expires / 1000) };
+          }
+
+          if (metadata.domainAllowlist !== undefined) {
+            if (
+              metadata.domainAllowlist.some((domain) => !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain))
+            )
+              throw invalid(
+                operation,
+                "domainAllowlist takes bare domain names such as example.com.",
+              );
+
+            wire["domain_restrictions"] = { whitelist: [...metadata.domainAllowlist] };
+          }
+
+          if (metadata.foundMediaOrigin !== undefined) {
+            if (!metadata.foundMediaOrigin.provider.trim() || !metadata.foundMediaOrigin.id.trim())
+              throw invalid(operation, "foundMediaOrigin needs a provider and an id.");
+
+            wire["found_media_origin"] = {
+              provider: metadata.foundMediaOrigin.provider,
+              id: metadata.foundMediaOrigin.id,
+            };
+          }
+
+          if (metadata.managed !== undefined)
+            wire["management_info"] = { managed: metadata.managed };
+
+          if (metadata.shared !== undefined) wire["shared_info"] = { shared: metadata.shared };
+
+          if (metadata.uploadSource !== undefined) {
+            if (!metadata.uploadSource.trim())
+              throw invalid(operation, "uploadSource must not be empty.");
+
+            wire["upload_source"] = { upload_source: metadata.uploadSource };
+          }
+
+          if (metadata.sensitiveMediaWarning !== undefined)
+            wire["sensitive_media_warning"] = metadata.sensitiveMediaWarning;
+
+          if (metadata.geoRestrictions !== undefined)
+            wire["geo_restrictions"] = metadata.geoRestrictions;
+
+          if (metadata.audiencePolicy !== undefined)
+            wire["audience_policy"] = metadata.audiencePolicy;
+
+          if (Object.keys(wire).length === 0)
+            throw invalid(operation, "Pass at least one metadata field.");
+
+          const data = object(
+            object(
+              await requireUserToken(operation)("/2/media/metadata", context, {
+                id: mediaId,
+                metadata: wire,
+              }),
+            )["data"],
+          );
+
+          if (data["id"] !== mediaId)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not confirm the media metadata. Read the media before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+
+          return data["associated_metadata"] === undefined
+            ? {}
+            : object(data["associated_metadata"]);
+        },
+      ),
+      createComplianceJob: uncertainWrite(
+        "x.createComplianceJob",
+        async ({ account, type, name, resumable, context }) => {
+          authorize(account, context);
+
+          const operation = "x.compliance.jobs.create";
+
+          if (name !== undefined && (!name.trim() || [...name].length > 64))
+            throw invalid(operation, "Compliance job names are 1-64 characters.");
+
+          return complianceJob(
+            object(
+              await appRequest()(
+                "/2/compliance/jobs",
+                context,
+                { type, ...definedFields({ name, resumable }) },
+                { "compliance_job.fields": complianceJobFields },
+              ),
+            )["data"],
+            operation,
+          );
+        },
+      ),
       async complianceJobs({ account, type, status, context }) {
         const result = await xRead({
           account,
@@ -6293,73 +6356,77 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "x.compliance.jobs.get",
         );
       },
-      async uploadComplianceIds({ account, job, ids, context }) {
-        authorize(account, context);
+      uploadComplianceIds: uncertainWrite(
+        "x.uploadComplianceIds",
+        async ({ account, job, ids, context }) => {
+          authorize(account, context);
 
-        const operation = "x.compliance.jobs.upload";
+          const operation = "x.compliance.jobs.upload";
 
-        if (ids.length === 0 || ids.some((id) => !xIdPattern.test(id)))
-          throw invalid(operation, "ids must list numeric X Post or user IDs.");
+          if (ids.length === 0 || ids.some((id) => !xIdPattern.test(id)))
+            throw invalid(operation, "ids must list numeric X Post or user IDs.");
 
-        const url = signedComplianceUrl(job.uploadUrl, "uploadUrl", operation);
+          const url = signedComplianceUrl(job.uploadUrl, "uploadUrl", operation);
 
-        if (context.signal?.aborted)
-          throw new SocialError({
-            code: "cancelled",
-            operation,
-            message: "The upload was cancelled.",
-          });
+          if (context.signal?.aborted)
+            throw new SocialError({
+              code: "cancelled",
+              operation,
+              message: "The upload was cancelled.",
+            });
 
-        const controller = new AbortController();
+          const controller = new AbortController();
 
-        const onAbort = () => controller.abort();
+          const onAbort = () => controller.abort();
 
-        context.signal?.addEventListener("abort", onAbort, { once: true });
+          context.signal?.addEventListener("abort", onAbort, { once: true });
 
-        const timer = setTimeout(onAbort, remainingBudget(context));
+          const timer = setTimeout(onAbort, remainingBudget(context));
 
-        const headers = new Headers({ "content-type": "text/plain" });
+          const headers = new Headers({ "content-type": "text/plain" });
 
-        if (url.hostname === "api.x.com")
-          headers.set("authorization", `Bearer ${options.appBearerToken ?? ""}`);
+          if (url.hostname === "api.x.com")
+            headers.set("authorization", `Bearer ${options.appBearerToken ?? ""}`);
 
-        let response: Response;
+          let response: Response;
 
-        try {
-          response = await (options.fetch ?? globalThis.fetch)(url, {
-            method: "PUT",
-            headers,
-            body: ids.join("\n"),
-            redirect: "manual",
-            signal: controller.signal,
-          });
-        } catch (error) {
-          throw new SocialError({
-            code: context.signal?.aborted ? "cancelled" : "ambiguous_outcome",
-            operation,
-            message: "The compliance upload did not complete. Read the job status before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-            cause: error,
-          });
-        } finally {
-          clearTimeout(timer);
-          context.signal?.removeEventListener("abort", onAbort);
-        }
+          try {
+            response = await (options.fetch ?? globalThis.fetch)(url, {
+              method: "PUT",
+              headers,
+              body: ids.join("\n"),
+              redirect: "manual",
+              signal: controller.signal,
+            });
+          } catch (error) {
+            throw new SocialError({
+              code: context.signal?.aborted ? "cancelled" : "ambiguous_outcome",
+              operation,
+              message:
+                "The compliance upload did not complete. Read the job status before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+              cause: error,
+            });
+          } finally {
+            clearTimeout(timer);
+            context.signal?.removeEventListener("abort", onAbort);
+          }
 
-        void response.body?.cancel().catch(() => undefined);
+          void response.body?.cancel().catch(() => undefined);
 
-        if (!response.ok)
-          throw new SocialError({
-            code:
-              response.status === 401 || response.status === 403
-                ? "missing_permission"
-                : "upstream_failure",
-            operation,
-            message: `The compliance upload failed with HTTP ${response.status}. The signed URL may have expired; create a new job.`,
-            upstreamStatus: response.status,
-            retryDisposition: { kind: "never" },
-          });
-      },
+          if (!response.ok)
+            throw new SocialError({
+              code:
+                response.status === 401 || response.status === 403
+                  ? "missing_permission"
+                  : "upstream_failure",
+              operation,
+              message: `The compliance upload failed with HTTP ${response.status}. The signed URL may have expired; create a new job.`,
+              upstreamStatus: response.status,
+              retryDisposition: { kind: "never" },
+            });
+        },
+      ),
       async downloadComplianceResults({ account, job, maxBytes = 64 * 1024 * 1024, context }) {
         authorize(account, context);
 
@@ -6403,71 +6470,77 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             return parsed;
           });
       },
-      async cancelComplianceJob({ account, jobId, context }) {
-        authorize(account, context);
-        requireId(jobId, "jobId", "x.compliance.jobs.cancel");
+      cancelComplianceJob: uncertainWrite(
+        "x.cancelComplianceJob",
+        async ({ account, jobId, context }) => {
+          authorize(account, context);
+          requireId(jobId, "jobId", "x.compliance.jobs.cancel");
 
-        return complianceJob(
-          object(
-            await appRequest()(
-              `/2/compliance/jobs/${jobId}`,
-              context,
-              undefined,
-              { "compliance_job.fields": complianceJobFields },
-              "DELETE",
-            ),
-          )["data"],
-          "x.compliance.jobs.cancel",
-        );
-      },
-      async createCommunityNote({ account, note, context }) {
-        authorize(account, context);
+          return complianceJob(
+            object(
+              await appRequest()(
+                `/2/compliance/jobs/${jobId}`,
+                context,
+                undefined,
+                { "compliance_job.fields": complianceJobFields },
+                "DELETE",
+              ),
+            )["data"],
+            "x.compliance.jobs.cancel",
+          );
+        },
+      ),
+      createCommunityNote: uncertainWrite(
+        "x.createCommunityNote",
+        async ({ account, note, context }) => {
+          authorize(account, context);
 
-        const operation = "x.notes.create";
+          const operation = "x.notes.create";
 
-        requireId(note.postId, "postId", operation);
+          requireId(note.postId, "postId", operation);
 
-        if (!/https?:\/\/\S+/.test(note.text))
-          throw invalid(operation, "Community Note text must contain a URL.");
+          if (!/https?:\/\/\S+/.test(note.text))
+            throw invalid(operation, "Community Note text must contain a URL.");
 
-        if (
-          note.misleadingTags.some((tag) => !xNoteTags.has(tag)) ||
-          (note.classification === "misinformed_or_potentially_misleading" &&
-            note.misleadingTags.length === 0)
-        )
-          throw invalid(
-            operation,
-            "A misleading note needs at least one known misleadingTags value.",
+          if (
+            note.misleadingTags.some((tag) => !xNoteTags.has(tag)) ||
+            (note.classification === "misinformed_or_potentially_misleading" &&
+              note.misleadingTags.length === 0)
+          )
+            throw invalid(
+              operation,
+              "A misleading note needs at least one known misleadingTags value.",
+            );
+
+          const data = object(
+            object(
+              await requireUserToken(operation)("/2/notes", context, {
+                post_id: note.postId,
+                test_mode: note.testMode,
+                info: {
+                  text: note.text,
+                  classification: note.classification,
+                  misleading_tags: [...note.misleadingTags],
+                  trustworthy_sources: note.trustworthySources,
+                  ...definedFields({ is_media_note: note.isMediaNote }),
+                },
+              }),
+            )["data"],
           );
 
-        const data = object(
-          object(
-            await requireUserToken(operation)("/2/notes", context, {
-              post_id: note.postId,
-              test_mode: note.testMode,
-              info: {
-                text: note.text,
-                classification: note.classification,
-                misleading_tags: [...note.misleadingTags],
-                trustworthy_sources: note.trustworthySources,
-                ...definedFields({ is_media_note: note.isMediaNote }),
-              },
-            }),
-          )["data"],
-        );
+          const noteId = optionalString(data["id"]);
 
-        const noteId = optionalString(data["id"]);
+          if (noteId === undefined)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not return the note ID. Search the notes written before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
-        if (noteId === undefined)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation,
-            message: "X did not return the note ID. Search the notes written before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        return { noteId };
-      },
+          return { noteId };
+        },
+      ),
       async evaluateCommunityNote({ account, postId, text, context }) {
         authorize(account, context);
         requireId(postId, "postId", "x.notes.evaluate");
@@ -6485,23 +6558,26 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return definedFields({ claimOpinionScore: optionalNumber(data["claim_opinion_score"]) });
       },
-      async deleteCommunityNote({ account, noteId, context }) {
-        authorize(account, context);
-        requireId(noteId, "noteId", "x.notes.delete");
+      deleteCommunityNote: uncertainWrite(
+        "x.deleteCommunityNote",
+        async ({ account, noteId, context }) => {
+          authorize(account, context);
+          requireId(noteId, "noteId", "x.notes.delete");
 
-        confirmedWrite(
-          await requireUserToken("x.notes.delete")(
-            `/2/notes/${noteId}`,
-            context,
-            undefined,
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "x.notes.delete",
-        );
-      },
+          confirmedWrite(
+            await requireUserToken("x.notes.delete")(
+              `/2/notes/${noteId}`,
+              context,
+              undefined,
+              {},
+              "DELETE",
+            ),
+            "deleted",
+            true,
+            "x.notes.delete",
+          );
+        },
+      ),
       async communityNotesWritten({ account, testMode, cursor, limit, context }) {
         return xReadPage({
           account,
@@ -6583,7 +6659,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async removeBookmark({ account, postId, context }) {
+      removeBookmark: uncertainWrite("x.removeBookmark", async ({ account, postId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -6598,8 +6674,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "x.removeBookmark",
         );
-      },
-      async follow({ account, userId, context }) {
+      }),
+      follow: uncertainWrite("x.follow", async ({ account, userId, context }) => {
         authorize(account, context);
 
         return confirmedWrite(
@@ -6614,8 +6690,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.follow",
         );
-      },
-      async unfollow({ account, userId, context }) {
+      }),
+      unfollow: uncertainWrite("x.unfollow", async ({ account, userId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -6630,7 +6706,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "x.unfollow",
         );
-      },
+      }),
       async listDirectMessages({
         account,
         participantId,
@@ -6692,77 +6768,87 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }),
         };
       },
-      async sendDirectMessage({ account, participantId, text, context }) {
-        authorize(account, context);
+      sendDirectMessage: uncertainWrite(
+        "x.sendDirectMessage",
+        async ({ account, participantId, text, context }) => {
+          authorize(account, context);
 
-        requireUserToken("messages.write");
+          requireUserToken("messages.write");
 
-        if (!text.trim())
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "messages.write",
-            message: "X direct messages require non-empty text.",
-          });
+          if (!text.trim())
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "messages.write",
+              message: "X direct messages require non-empty text.",
+            });
 
-        return dmWrite(
-          `/2/dm_conversations/with/${encodeURIComponent(participantId)}/messages`,
-          { text },
-          context,
-          "messages.write",
-        );
-      },
-      async sendConversationMessage({ account, conversationId, text, attachments, context }) {
-        authorize(account, context);
+          return dmWrite(
+            `/2/dm_conversations/with/${encodeURIComponent(participantId)}/messages`,
+            { text },
+            context,
+            "messages.write",
+          );
+        },
+      ),
+      sendConversationMessage: uncertainWrite(
+        "x.sendConversationMessage",
+        async ({ account, conversationId, text, attachments, context }) => {
+          authorize(account, context);
 
-        if (
-          attachments !== undefined &&
-          (attachments.length > 1 ||
-            attachments.some(
-              (attachment) =>
-                !isString(attachment["media_id"]) || !/^[0-9]{1,19}$/.test(attachment["media_id"]),
-            ))
-        )
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "messages.conversation.write",
-            message: "X messages accept at most one attachment with a numeric media_id.",
-          });
+          if (
+            attachments !== undefined &&
+            (attachments.length > 1 ||
+              attachments.some(
+                (attachment) =>
+                  !isString(attachment["media_id"]) ||
+                  !/^[0-9]{1,19}$/.test(attachment["media_id"]),
+              ))
+          )
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "messages.conversation.write",
+              message: "X messages accept at most one attachment with a numeric media_id.",
+            });
 
-        if (!text.trim() && !attachments?.length)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "messages.conversation.write",
-            message: "X direct messages require non-empty text or one media attachment.",
-          });
+          if (!text.trim() && !attachments?.length)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "messages.conversation.write",
+              message: "X direct messages require non-empty text or one media attachment.",
+            });
 
-        return dmWrite(
-          `/2/dm_conversations/${encodeURIComponent(conversationId)}/messages`,
-          { ...definedFields({ text: text.trim() ? text : undefined, attachments }) },
-          context,
-          "messages.conversation.write",
-        );
-      },
-      async createGroupConversation({ account, participantIds, message, context }) {
-        authorize(account, context);
+          return dmWrite(
+            `/2/dm_conversations/${encodeURIComponent(conversationId)}/messages`,
+            { ...definedFields({ text: text.trim() ? text : undefined, attachments }) },
+            context,
+            "messages.conversation.write",
+          );
+        },
+      ),
+      createGroupConversation: uncertainWrite(
+        "x.createGroupConversation",
+        async ({ account, participantIds, message, context }) => {
+          authorize(account, context);
 
-        if (!message.trim())
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "messages.group.write",
-            message: "X direct messages require non-empty text.",
-          });
+          if (!message.trim())
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "messages.group.write",
+              message: "X direct messages require non-empty text.",
+            });
 
-        return dmWrite(
-          "/2/dm_conversations",
-          {
-            conversation_type: "Group",
-            participant_ids: [...participantIds],
-            message: { text: message },
-          },
-          context,
-          "messages.group.write",
-        );
-      },
+          return dmWrite(
+            "/2/dm_conversations",
+            {
+              conversation_type: "Group",
+              participant_ids: [...participantIds],
+              message: { text: message },
+            },
+            context,
+            "messages.group.write",
+          );
+        },
+      ),
       async getSpace({ account, spaceId, options: lookup, context }) {
         authorize(account, context);
         validateSpaceIds([spaceId], "spaceId", 1);
@@ -6944,7 +7030,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           context,
         );
       },
-      async followUser({ account, userId, context }) {
+      followUser: uncertainWrite("x.followUser", async ({ account, userId, context }) => {
         authorize(account, context);
 
         return confirmedWrite(
@@ -6959,8 +7045,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.followUser",
         );
-      },
-      async unfollowUser({ account, userId, context }) {
+      }),
+      unfollowUser: uncertainWrite("x.unfollowUser", async ({ account, userId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -6975,8 +7061,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "x.unfollowUser",
         );
-      },
-      async muteUser({ account, userId, context }) {
+      }),
+      muteUser: uncertainWrite("x.muteUser", async ({ account, userId, context }) => {
         authorize(account, context);
 
         return confirmedWrite(
@@ -6991,8 +7077,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.muteUser",
         );
-      },
-      async unmuteUser({ account, userId, context }) {
+      }),
+      unmuteUser: uncertainWrite("x.unmuteUser", async ({ account, userId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -7007,7 +7093,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "x.unmuteUser",
         );
-      },
+      }),
       async mutedUsers({ account, cursor, limit, context }) {
         return pageRequest(
           `/2/users/${encodeURIComponent(account.accountId)}/muting`,
@@ -7016,7 +7102,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           context,
         );
       },
-      async blockUser({ account, userId, context }) {
+      blockUser: uncertainWrite("x.blockUser", async ({ account, userId, context }) => {
         authorize(account, context);
 
         return confirmedWrite(
@@ -7031,8 +7117,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.blockUser",
         );
-      },
-      async unblockUser({ account, userId, context }) {
+      }),
+      unblockUser: uncertainWrite("x.unblockUser", async ({ account, userId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -7047,7 +7133,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "x.unblockUser",
         );
-      },
+      }),
       async blockedUsers({ account, cursor, limit, context }) {
         return pageRequest(
           `/2/users/${encodeURIComponent(account.accountId)}/blocking`,
@@ -7056,7 +7142,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           context,
         );
       },
-      async like({ account, postId, context }) {
+      like: uncertainWrite("x.like", async ({ account, postId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -7071,8 +7157,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.like",
         );
-      },
-      async unlike({ account, postId, context }) {
+      }),
+      unlike: uncertainWrite("x.unlike", async ({ account, postId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -7087,7 +7173,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "x.unlike",
         );
-      },
+      }),
       async likedPosts({ account, userId, cursor, limit, context }) {
         return pageRequest(
           `/2/users/${encodeURIComponent(userId ?? account.accountId)}/liked_tweets`,
@@ -7110,32 +7196,38 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "users",
         );
       },
-      async createList({ account, name, description, isPrivate, context }) {
-        authorize(account, context);
+      createList: uncertainWrite(
+        "x.createList",
+        async ({ account, name, description, isPrivate, context }) => {
+          authorize(account, context);
 
-        return object(
-          await requireUserToken("x.createList")("/2/lists", context, {
-            name,
-            ...definedFields({ description, private: isPrivate }),
-          }),
-        );
-      },
-      async updateList({ account, listId, name, description, isPrivate, context }) {
-        authorize(account, context);
+          return object(
+            await requireUserToken("x.createList")("/2/lists", context, {
+              name,
+              ...definedFields({ description, private: isPrivate }),
+            }),
+          );
+        },
+      ),
+      updateList: uncertainWrite(
+        "x.updateList",
+        async ({ account, listId, name, description, isPrivate, context }) => {
+          authorize(account, context);
 
-        return object(
-          await requireUserToken("x.updateList")(
-            `/2/lists/${encodeURIComponent(listId)}`,
-            context,
-            {
-              ...definedFields({ name, description, private: isPrivate }),
-            },
-            {},
-            "PUT",
-          ),
-        );
-      },
-      async deleteList({ account, listId, context }) {
+          return object(
+            await requireUserToken("x.updateList")(
+              `/2/lists/${encodeURIComponent(listId)}`,
+              context,
+              {
+                ...definedFields({ name, description, private: isPrivate }),
+              },
+              {},
+              "PUT",
+            ),
+          );
+        },
+      ),
+      deleteList: uncertainWrite("x.deleteList", async ({ account, listId, context }) => {
         authorize(account, context);
 
         await requireUserToken("x.deleteList")(
@@ -7145,7 +7237,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           {},
           "DELETE",
         );
-      },
+      }),
       async getList({ account, listId, context }) {
         authorize(account, context);
 
@@ -7163,31 +7255,37 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "id,name,username,description,created_at,public_metrics",
         );
       },
-      async addListMember({ account, listId, userId, context }) {
-        authorize(account, context);
+      addListMember: uncertainWrite(
+        "x.addListMember",
+        async ({ account, listId, userId, context }) => {
+          authorize(account, context);
 
-        return object(
-          await requireUserToken("x.addListMember")(
-            `/2/lists/${encodeURIComponent(listId)}/members`,
+          return object(
+            await requireUserToken("x.addListMember")(
+              `/2/lists/${encodeURIComponent(listId)}/members`,
+              context,
+              {
+                user_id: userId,
+              },
+            ),
+          );
+        },
+      ),
+      removeListMember: uncertainWrite(
+        "x.removeListMember",
+        async ({ account, listId, userId, context }) => {
+          authorize(account, context);
+
+          await requireUserToken("x.removeListMember")(
+            `/2/lists/${encodeURIComponent(listId)}/members/${encodeURIComponent(userId)}`,
             context,
-            {
-              user_id: userId,
-            },
-          ),
-        );
-      },
-      async removeListMember({ account, listId, userId, context }) {
-        authorize(account, context);
-
-        await requireUserToken("x.removeListMember")(
-          `/2/lists/${encodeURIComponent(listId)}/members/${encodeURIComponent(userId)}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
-        );
-      },
-      async followList({ account, listId, context }) {
+            undefined,
+            {},
+            "DELETE",
+          );
+        },
+      ),
+      followList: uncertainWrite("x.followList", async ({ account, listId, context }) => {
         authorize(account, context);
 
         return object(
@@ -7197,8 +7295,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             { list_id: listId },
           ),
         );
-      },
-      async unfollowList({ account, listId, context }) {
+      }),
+      unfollowList: uncertainWrite("x.unfollowList", async ({ account, listId, context }) => {
         authorize(account, context);
 
         await requireUserToken("x.unfollowList")(
@@ -7208,7 +7306,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           {},
           "DELETE",
         );
-      },
+      }),
       async ownedLists({ account, cursor, limit, context }) {
         return pageRequest(
           `/2/users/${encodeURIComponent(account.accountId)}/owned_lists`,
@@ -7219,7 +7317,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "id,name,description,private,member_count,follower_count",
         );
       },
-      async pinList({ account, listId, context }) {
+      pinList: uncertainWrite("x.pinList", async ({ account, listId, context }) => {
         authorize(account, context);
 
         return object(
@@ -7231,8 +7329,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             },
           ),
         );
-      },
-      async unpinList({ account, listId, context }) {
+      }),
+      unpinList: uncertainWrite("x.unpinList", async ({ account, listId, context }) => {
         authorize(account, context);
 
         await requireUserToken("lists.pinned.write")(
@@ -7242,7 +7340,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           {},
           "DELETE",
         );
-      },
+      }),
       async pinnedLists({ account, cursor, limit, context }) {
         if (cursor !== undefined || limit !== undefined)
           throw new SocialError({
@@ -7307,7 +7405,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "tweets",
         );
       },
-      async undoRepost({ account, postId, context }) {
+      undoRepost: uncertainWrite("x.undoRepost", async ({ account, postId, context }) => {
         authorize(account, context);
 
         confirmedWrite(
@@ -7322,7 +7420,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "x.undoRepost",
         );
-      },
+      }),
       async listStreamRules({ account, ids, cursor, limit, context }) {
         authorize(account, context);
 
@@ -7354,45 +7452,53 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return { items, ...definedFields({ nextCursor }) };
       },
-      async addStreamRules({ account, rules, dryRun = false, context }) {
-        authorize(account, context);
+      addStreamRules: uncertainWrite(
+        "x.addStreamRules",
+        async ({ account, rules, dryRun = false, context }) => {
+          authorize(account, context);
 
-        if (rules.length === 0)
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "x.streamRules.add",
-            message: "Provide at least one X filtered-stream rule to add.",
-          });
+          if (rules.length === 0)
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "x.streamRules.add",
+              message: "Provide at least one X filtered-stream rule to add.",
+            });
 
-        for (const rule of rules) validateRuleInput(rule);
+          for (const rule of rules) validateRuleInput(rule);
 
-        const result = await appRequest()(
-          "/2/tweets/search/stream/rules",
-          context,
-          {
-            add: rules.map((rule) => ({
-              value: rule.value,
-              ...definedFields({ tag: rule.tag }),
-            })),
-          },
-          dryRun ? { dry_run: "true" } : {},
-        );
+          const result = await appRequest()(
+            "/2/tweets/search/stream/rules",
+            context,
+            {
+              add: rules.map((rule) => ({
+                value: rule.value,
+                ...definedFields({ tag: rule.tag }),
+              })),
+            },
+            dryRun ? { dry_run: "true" } : {},
+          );
 
-        return parseRulesUpdate(object(result), dryRun);
-      },
-      async deleteStreamRules({ account, ids, dryRun = false, context }) {
-        authorize(account, context);
-        validateRuleIds(ids, "x.streamRules.delete", 1000);
+          return parseRulesUpdate(object(result), dryRun);
+        },
+        { queryOnly: ({ dryRun }) => dryRun === true },
+      ),
+      deleteStreamRules: uncertainWrite(
+        "x.deleteStreamRules",
+        async ({ account, ids, dryRun = false, context }) => {
+          authorize(account, context);
+          validateRuleIds(ids, "x.streamRules.delete", 1000);
 
-        const result = await appRequest()(
-          "/2/tweets/search/stream/rules",
-          context,
-          { delete: { ids: [...ids] } },
-          dryRun ? { dry_run: "true" } : {},
-        );
+          const result = await appRequest()(
+            "/2/tweets/search/stream/rules",
+            context,
+            { delete: { ids: [...ids] } },
+            dryRun ? { dry_run: "true" } : {},
+          );
 
-        return parseRulesUpdate(object(result), dryRun);
-      },
+          return parseRulesUpdate(object(result), dryRun);
+        },
+        { queryOnly: ({ dryRun }) => dryRun === true },
+      ),
       async *activityStream({ account, context, ...streamOptions }) {
         authorize(account, context);
 
@@ -7442,18 +7548,22 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           context,
         );
       },
-      async deleteAllStreamRules({ account, dryRun = false, context }) {
-        authorize(account, context);
+      deleteAllStreamRules: uncertainWrite(
+        "x.deleteAllStreamRules",
+        async ({ account, dryRun = false, context }) => {
+          authorize(account, context);
 
-        const result = await appRequest()(
-          "/2/tweets/search/stream/rules",
-          context,
-          {},
-          { delete_all: "true", ...definedFields({ dry_run: dryRun ? "true" : undefined }) },
-        );
+          const result = await appRequest()(
+            "/2/tweets/search/stream/rules",
+            context,
+            {},
+            { delete_all: "true", ...definedFields({ dry_run: dryRun ? "true" : undefined }) },
+          );
 
-        return parseRulesUpdate(object(result), dryRun);
-      },
+          return parseRulesUpdate(object(result), dryRun);
+        },
+        { queryOnly: ({ dryRun }) => dryRun === true },
+      ),
       async *stream({ account, context, ...streamOptions }) {
         authorize(account, context);
         const bearerToken = options.appBearerToken;
@@ -7468,7 +7578,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         yield* readFilteredStream({ bearerToken, fetch: options.fetch }, streamOptions, context);
       },
-      async hideReply({ account, replyId, hidden, context }) {
+      hideReply: uncertainWrite("x.hideReply", async ({ account, replyId, hidden, context }) => {
         authorize(account, context);
 
         if (!/^[0-9]{1,19}$/.test(replyId))
@@ -7503,7 +7613,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           });
 
         return { hidden: state };
-      },
+      }),
       async getPosts({ account, postIds, fields, context }) {
         requireIds(postIds, "postIds", "x.posts.lookup");
 
@@ -7706,30 +7816,37 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return { ...page, items: page.items.map(bookmarkFolder) };
       },
-      async createBookmarkFolder({ account, name, context }) {
-        authorize(account, context);
+      createBookmarkFolder: uncertainWrite(
+        "x.createBookmarkFolder",
+        async ({ account, name, context }) => {
+          authorize(account, context);
 
-        if ([...name].length < 1 || [...name].length > 25 || !name.trim())
-          throw invalid("x.bookmarks.folders.create", "Bookmark folder names are 1-25 characters.");
+          if ([...name].length < 1 || [...name].length > 25 || !name.trim())
+            throw invalid(
+              "x.bookmarks.folders.create",
+              "Bookmark folder names are 1-25 characters.",
+            );
 
-        const result = object(
-          await requireUserToken("x.bookmarks.folders.create")(
-            `/2/users/${encodeURIComponent(account.accountId)}/bookmarks/folders`,
-            context,
-            { name },
-          ),
-        );
+          const result = object(
+            await requireUserToken("x.bookmarks.folders.create")(
+              `/2/users/${encodeURIComponent(account.accountId)}/bookmarks/folders`,
+              context,
+              { name },
+            ),
+          );
 
-        if (result["data"] === undefined)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "x.bookmarks.folders.create",
-            message: "X did not return the created bookmark folder. List folders before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
+          if (result["data"] === undefined)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "x.bookmarks.folders.create",
+              message:
+                "X did not return the created bookmark folder. List folders before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
-        return bookmarkFolder(result["data"]);
-      },
+          return bookmarkFolder(result["data"]);
+        },
+      ),
       async bookmarksByFolder({ account, folderId, cursor, limit, context }) {
         requireId(folderId, "folderId", "x.bookmarks.folder");
 
@@ -7930,120 +8047,130 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }),
         );
       },
-      async uploadDmMedia({ account, media, kind, mimeType, additionalOwners, context }) {
-        authorize(account, context);
-        requireAdditionalOwners(additionalOwners, "x.media.dm");
+      uploadDmMedia: uncertainWrite(
+        "x.uploadDmMedia",
+        async ({ account, media, kind, mimeType, additionalOwners, context }) => {
+          authorize(account, context);
+          requireAdditionalOwners(additionalOwners, "x.media.dm");
 
-        const limit = dmMediaLimits[kind];
+          const limit = dmMediaLimits[kind];
 
-        const mediaType = mimeType ?? media.type;
+          const mediaType = mimeType ?? media.type;
 
-        const accepted =
-          kind === "gif"
-            ? mediaType === "image/gif"
-            : kind === "image"
-              ? xStaticImageMimeTypes.has(mediaType)
-              : xVideoMimeTypes.has(mediaType);
+          const accepted =
+            kind === "gif"
+              ? mediaType === "image/gif"
+              : kind === "image"
+                ? xStaticImageMimeTypes.has(mediaType)
+                : xVideoMimeTypes.has(mediaType);
 
-        if (!accepted)
-          throw invalid(
-            "x.media.dm",
-            `The ${kind} MIME type ${mediaType || "(none)"} is not accepted.`,
+          if (!accepted)
+            throw invalid(
+              "x.media.dm",
+              `The ${kind} MIME type ${mediaType || "(none)"} is not accepted.`,
+            );
+
+          if (media.size <= 0 || media.size > limit.maxBytes)
+            throw invalid(
+              "x.media.dm",
+              `X DM ${kind} uploads must be 1 to ${limit.maxBytes} bytes.`,
+            );
+
+          return {
+            mediaId: await uploadChunks(
+              {
+                blob: media,
+                category: limit.category,
+                mediaType,
+                ...definedFields({ additionalOwners }),
+              },
+              context,
+            ),
+          };
+        },
+      ),
+      uploadSubtitles: uncertainWrite(
+        "x.uploadSubtitles",
+        async ({ account, file, format, context }) => {
+          authorize(account, context);
+
+          if (file.size <= 0)
+            throw invalid("x.media.subtitles", "Subtitle files must not be empty.");
+
+          return {
+            mediaId: await uploadChunks(
+              {
+                blob: file,
+                category: "subtitles",
+                mediaType: format === "srt" ? "text/srt" : "text/vtt",
+              },
+              context,
+            ),
+          };
+        },
+      ),
+      attachSubtitles: uncertainWrite(
+        "x.attachSubtitles",
+        async ({
+          account,
+          videoMediaId,
+          subtitleMediaId,
+          languageCode,
+          displayName,
+          mediaCategory = "TweetVideo",
+          context,
+        }) => {
+          authorize(account, context);
+          requireId(videoMediaId, "videoMediaId", "x.media.subtitles");
+          requireId(subtitleMediaId, "subtitleMediaId", "x.media.subtitles");
+
+          if (!/^[A-Z]{2}$/.test(languageCode))
+            throw invalid(
+              "x.media.subtitles",
+              "languageCode must be two uppercase letters, such as EN.",
+            );
+
+          const result = object(
+            await requireUserToken("x.media.subtitles")("/2/media/subtitles", context, {
+              id: videoMediaId,
+              media_category: mediaCategory,
+              subtitles: {
+                id: subtitleMediaId,
+                language_code: languageCode,
+                ...definedFields({ display_name: displayName }),
+              },
+            }),
           );
 
-        if (media.size <= 0 || media.size > limit.maxBytes)
-          throw invalid("x.media.dm", `X DM ${kind} uploads must be 1 to ${limit.maxBytes} bytes.`);
+          return result["data"] === undefined ? {} : object(result["data"]);
+        },
+      ),
+      deleteSubtitles: uncertainWrite(
+        "x.deleteSubtitles",
+        async ({ account, videoMediaId, languageCode, mediaCategory = "TweetVideo", context }) => {
+          authorize(account, context);
+          requireId(videoMediaId, "videoMediaId", "x.media.subtitles");
 
-        return {
-          mediaId: await uploadChunks(
-            {
-              blob: media,
-              category: limit.category,
-              mediaType,
-              ...definedFields({ additionalOwners }),
-            },
-            context,
-          ),
-        };
-      },
-      async uploadSubtitles({ account, file, format, context }) {
-        authorize(account, context);
+          if (!/^[A-Z]{2}$/.test(languageCode))
+            throw invalid(
+              "x.media.subtitles",
+              "languageCode must be two uppercase letters, such as EN.",
+            );
 
-        if (file.size <= 0) throw invalid("x.media.subtitles", "Subtitle files must not be empty.");
-
-        return {
-          mediaId: await uploadChunks(
-            {
-              blob: file,
-              category: "subtitles",
-              mediaType: format === "srt" ? "text/srt" : "text/vtt",
-            },
-            context,
-          ),
-        };
-      },
-      async attachSubtitles({
-        account,
-        videoMediaId,
-        subtitleMediaId,
-        languageCode,
-        displayName,
-        mediaCategory = "TweetVideo",
-        context,
-      }) {
-        authorize(account, context);
-        requireId(videoMediaId, "videoMediaId", "x.media.subtitles");
-        requireId(subtitleMediaId, "subtitleMediaId", "x.media.subtitles");
-
-        if (!/^[A-Z]{2}$/.test(languageCode))
-          throw invalid(
+          confirmedWrite(
+            await requireUserToken("x.media.subtitles")(
+              "/2/media/subtitles",
+              context,
+              { id: videoMediaId, media_category: mediaCategory, language_code: languageCode },
+              {},
+              "DELETE",
+            ),
+            "deleted",
+            true,
             "x.media.subtitles",
-            "languageCode must be two uppercase letters, such as EN.",
           );
-
-        const result = object(
-          await requireUserToken("x.media.subtitles")("/2/media/subtitles", context, {
-            id: videoMediaId,
-            media_category: mediaCategory,
-            subtitles: {
-              id: subtitleMediaId,
-              language_code: languageCode,
-              ...definedFields({ display_name: displayName }),
-            },
-          }),
-        );
-
-        return result["data"] === undefined ? {} : object(result["data"]);
-      },
-      async deleteSubtitles({
-        account,
-        videoMediaId,
-        languageCode,
-        mediaCategory = "TweetVideo",
-        context,
-      }) {
-        authorize(account, context);
-        requireId(videoMediaId, "videoMediaId", "x.media.subtitles");
-
-        if (!/^[A-Z]{2}$/.test(languageCode))
-          throw invalid(
-            "x.media.subtitles",
-            "languageCode must be two uppercase letters, such as EN.",
-          );
-
-        confirmedWrite(
-          await requireUserToken("x.media.subtitles")(
-            "/2/media/subtitles",
-            context,
-            { id: videoMediaId, media_category: mediaCategory, language_code: languageCode },
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "x.media.subtitles",
-        );
-      },
+        },
+      ),
       async privatePostMetrics({ account, postIds, context }) {
         requireIds(postIds, "postIds", "x.analytics.private");
 
@@ -8146,23 +8273,26 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           },
         });
       },
-      async deleteDirectMessage({ account, eventId, context }) {
-        authorize(account, context);
-        requireId(eventId, "eventId", "messages.delete");
+      deleteDirectMessage: uncertainWrite(
+        "x.deleteDirectMessage",
+        async ({ account, eventId, context }) => {
+          authorize(account, context);
+          requireId(eventId, "eventId", "messages.delete");
 
-        confirmedWrite(
-          await requireUserToken("messages.delete")(
-            `/2/dm_events/${eventId}`,
-            context,
-            undefined,
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "messages.delete",
-        );
-      },
+          confirmedWrite(
+            await requireUserToken("messages.delete")(
+              `/2/dm_events/${eventId}`,
+              context,
+              undefined,
+              {},
+              "DELETE",
+            ),
+            "deleted",
+            true,
+            "messages.delete",
+          );
+        },
+      ),
       async downloadDmMedia({
         account,
         dmId,
@@ -8191,7 +8321,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           "messages.media",
         );
       },
-      async blockDms({ account, userId, context }) {
+      blockDms: uncertainWrite("x.blockDms", async ({ account, userId, context }) => {
         authorize(account, context);
         requireId(userId, "userId", "messages.block");
 
@@ -8207,7 +8337,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "messages.block",
         );
-      },
+      }),
       async streamRuleCounts({ account, context }) {
         const data = object(
           (
@@ -8248,40 +8378,46 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }),
         );
       },
-      async linkStreamWebhook({ account, webhookId, context }) {
-        authorize(account, context);
-        requireId(webhookId, "webhookId", "x.streamWebhooks.link");
+      linkStreamWebhook: uncertainWrite(
+        "x.linkStreamWebhook",
+        async ({ account, webhookId, context }) => {
+          authorize(account, context);
+          requireId(webhookId, "webhookId", "x.streamWebhooks.link");
 
-        confirmedWrite(
-          await appRequest()(
-            `/2/tweets/search/webhooks/${webhookId}`,
-            context,
-            undefined,
-            {},
-            "POST",
-          ),
-          "provisioned",
-          true,
-          "x.streamWebhooks.link",
-        );
-      },
-      async unlinkStreamWebhook({ account, webhookId, context }) {
-        authorize(account, context);
-        requireId(webhookId, "webhookId", "x.streamWebhooks.unlink");
+          confirmedWrite(
+            await appRequest()(
+              `/2/tweets/search/webhooks/${webhookId}`,
+              context,
+              undefined,
+              {},
+              "POST",
+            ),
+            "provisioned",
+            true,
+            "x.streamWebhooks.link",
+          );
+        },
+      ),
+      unlinkStreamWebhook: uncertainWrite(
+        "x.unlinkStreamWebhook",
+        async ({ account, webhookId, context }) => {
+          authorize(account, context);
+          requireId(webhookId, "webhookId", "x.streamWebhooks.unlink");
 
-        confirmedWrite(
-          await appRequest()(
-            `/2/tweets/search/webhooks/${webhookId}`,
-            context,
-            undefined,
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "x.streamWebhooks.unlink",
-        );
-      },
+          confirmedWrite(
+            await appRequest()(
+              `/2/tweets/search/webhooks/${webhookId}`,
+              context,
+              undefined,
+              {},
+              "DELETE",
+            ),
+            "deleted",
+            true,
+            "x.streamWebhooks.unlink",
+          );
+        },
+      ),
       async streamConnections({ account, status, endpoints, cursor, limit, context }) {
         return xReadPage({
           account,
@@ -8300,75 +8436,78 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           maxLimit: 100,
         });
       },
-      async terminateStreamConnections({ account, target, context }) {
-        authorize(account, context);
+      terminateStreamConnections: uncertainWrite(
+        "x.terminateStreamConnections",
+        async ({ account, target, context }) => {
+          authorize(account, context);
 
-        let result: JsonValue;
+          let result: JsonValue;
 
-        switch (target.kind) {
-          case "uuids":
-            if (
-              target.uuids.length < 1 ||
-              target.uuids.length > 100 ||
-              target.uuids.some((uuid) => !/^[A-Za-z0-9-]{1,64}$/.test(uuid))
-            )
-              throw invalid("x.connections.terminate", "uuids must list 1-100 connection UUIDs.");
+          switch (target.kind) {
+            case "uuids":
+              if (
+                target.uuids.length < 1 ||
+                target.uuids.length > 100 ||
+                target.uuids.some((uuid) => !/^[A-Za-z0-9-]{1,64}$/.test(uuid))
+              )
+                throw invalid("x.connections.terminate", "uuids must list 1-100 connection UUIDs.");
 
-            result = await appRequest()(
-              "/2/connections",
-              context,
-              { uuids: [...target.uuids] },
-              {},
-              "DELETE",
-            );
-            break;
-          case "endpoint":
-            result = await appRequest()(
-              `/2/connections/${target.endpoint}`,
-              context,
-              undefined,
-              {},
-              "DELETE",
-            );
-            break;
-          case "all":
-            result = await appRequest()("/2/connections/all", context, undefined, {}, "DELETE");
-            break;
-          default: {
-            const _exhaustive: never = target;
+              result = await appRequest()(
+                "/2/connections",
+                context,
+                { uuids: [...target.uuids] },
+                {},
+                "DELETE",
+              );
+              break;
+            case "endpoint":
+              result = await appRequest()(
+                `/2/connections/${target.endpoint}`,
+                context,
+                undefined,
+                {},
+                "DELETE",
+              );
+              break;
+            case "all":
+              result = await appRequest()("/2/connections/all", context, undefined, {}, "DELETE");
+              break;
+            default: {
+              const _exhaustive: never = target;
 
-            throw invalid("x.connections.terminate", `Unknown target ${String(_exhaustive)}.`);
+              throw invalid("x.connections.terminate", `Unknown target ${String(_exhaustive)}.`);
+            }
           }
-        }
 
-        const data = object(object(result)["data"]);
+          const data = object(object(result)["data"]);
 
-        const total = (value: JsonField) => {
-          const parsed = optionalNumber(value);
+          const total = (value: JsonField) => {
+            const parsed = optionalNumber(value);
 
-          if (parsed === undefined)
-            throw new HttpError(
-              "X did not report terminated connections.",
-              "invalid-response",
-              true,
-            );
+            if (parsed === undefined)
+              throw new HttpError(
+                "X did not report terminated connections.",
+                "invalid-response",
+                true,
+              );
 
-          return parsed;
-        };
+            return parsed;
+          };
 
-        return {
-          successful: total(data["successful_kills"]),
-          failed: total(data["failed_kills"]),
-          results: (data["results"] === undefined ? [] : array(data["results"])).map((entry) => {
-            const row = object(entry);
+          return {
+            successful: total(data["successful_kills"]),
+            failed: total(data["failed_kills"]),
+            results: (data["results"] === undefined ? [] : array(data["results"])).map((entry) => {
+              const row = object(entry);
 
-            return {
-              uuid: string(row["uuid"]),
-              success: optionalBoolean(row["success"]) === true,
-            };
-          }),
-        };
-      },
+              return {
+                uuid: string(row["uuid"]),
+                success: optionalBoolean(row["success"]) === true,
+              };
+            }),
+          };
+        },
+      ),
       async listWebhooks({ account, context }) {
         const result = await xRead({
           account,
@@ -8381,7 +8520,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return (result["data"] === undefined ? [] : array(result["data"])).map(webhookConfig);
       },
-      async createWebhook({ account, url, context }) {
+      createWebhook: uncertainWrite("x.createWebhook", async ({ account, url, context }) => {
         authorize(account, context);
 
         if (!isHttpsUrl(url) || url.length > 200)
@@ -8397,31 +8536,34 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             }),
           )["data"],
         );
-      },
-      async validateWebhook({ account, webhookId, context }) {
-        authorize(account, context);
-        requireId(webhookId, "webhookId", "x.webhooks.validate");
+      }),
+      validateWebhook: uncertainWrite(
+        "x.validateWebhook",
+        async ({ account, webhookId, context }) => {
+          authorize(account, context);
+          requireId(webhookId, "webhookId", "x.webhooks.validate");
 
-        const data = object(
-          object(
-            await credentialRequest("app-or-user", "x.webhooks.validate")(
-              `/2/webhooks/${webhookId}`,
-              context,
-              undefined,
-              {},
-              "PUT",
-            ),
-          )["data"],
-        );
+          const data = object(
+            object(
+              await credentialRequest("app-or-user", "x.webhooks.validate")(
+                `/2/webhooks/${webhookId}`,
+                context,
+                undefined,
+                {},
+                "PUT",
+              ),
+            )["data"],
+          );
 
-        const valid = optionalBoolean(data["valid"]);
+          const valid = optionalBoolean(data["valid"]);
 
-        if (valid === undefined)
-          throw new HttpError("X did not report the webhook check.", "invalid-response", true);
+          if (valid === undefined)
+            throw new HttpError("X did not report the webhook check.", "invalid-response", true);
 
-        return { valid };
-      },
-      async deleteWebhook({ account, webhookId, context }) {
+          return { valid };
+        },
+      ),
+      deleteWebhook: uncertainWrite("x.deleteWebhook", async ({ account, webhookId, context }) => {
         authorize(account, context);
         requireId(webhookId, "webhookId", "x.webhooks.delete");
 
@@ -8437,69 +8579,72 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.webhooks.delete",
         );
-      },
-      async replayWebhook({ account, webhookId, from, to, context }) {
-        authorize(account, context);
-        requireId(webhookId, "webhookId", "x.webhooks.replay");
-        requireWindow(from, to, "x.webhooks.replay");
+      }),
+      replayWebhook: uncertainWrite(
+        "x.replayWebhook",
+        async ({ account, webhookId, from, to, context }) => {
+          authorize(account, context);
+          requireId(webhookId, "webhookId", "x.webhooks.replay");
+          requireWindow(from, to, "x.webhooks.replay");
 
-        // X takes yyyymmddhhmm in UTC.
-        const minute = (value: string) =>
-          new Date(Date.parse(value)).toISOString().slice(0, 16).replaceAll(/[-T:]/g, "");
+          // X takes yyyymmddhhmm in UTC.
+          const minute = (value: string) =>
+            new Date(Date.parse(value)).toISOString().slice(0, 16).replaceAll(/[-T:]/g, "");
 
-        const data = object(
-          object(
-            await appRequest()("/2/webhooks/replay", context, {
-              webhook_id: webhookId,
-              from_date: minute(from),
-              to_date: minute(to),
-            }),
-          )["data"],
-        );
-
-        return { jobId: string(data["job_id"]), createdAt: string(data["created_at"]) };
-      },
-      async createActivitySubscription({
-        account,
-        eventType,
-        filter,
-        webhookId,
-        tag,
-        expiresAt,
-        context,
-      }) {
-        authorize(account, context);
-
-        const operation = "x.activity.subscribe";
-
-        if (filter.userId !== undefined) requireId(filter.userId, "filter.userId", operation);
-
-        if (webhookId !== undefined) requireId(webhookId, "webhookId", operation);
-
-        if (tag !== undefined && (tag.length < 1 || tag.length > 200))
-          throw invalid(operation, "tag must be 1-200 characters.");
-
-        if (expiresAt !== undefined && !Number.isFinite(Date.parse(expiresAt)))
-          throw invalid(operation, "expiresAt must be an RFC 3339 timestamp.");
-
-        if (filter.qualifiers !== undefined && Object.keys(filter.qualifiers).length > 8)
-          throw invalid(operation, "X accepts at most 8 filter qualifiers.");
-
-        return object(
-          await credentialRequest("user-or-app", operation)("/2/activity/subscriptions", context, {
-            event_type: eventType,
-            filter: {
-              ...definedFields({
-                user_id: filter.userId,
-                keyword: filter.keyword,
-                direction: filter.direction,
-                qualifiers: filter.qualifiers === undefined ? undefined : { ...filter.qualifiers },
+          const data = object(
+            object(
+              await appRequest()("/2/webhooks/replay", context, {
+                webhook_id: webhookId,
+                from_date: minute(from),
+                to_date: minute(to),
               }),
-            },
-            ...definedFields({ webhook_id: webhookId, tag, expires_at: expiresAt }),
-          }),
-        );
-      },
+            )["data"],
+          );
+
+          return { jobId: string(data["job_id"]), createdAt: string(data["created_at"]) };
+        },
+      ),
+      createActivitySubscription: uncertainWrite(
+        "x.createActivitySubscription",
+        async ({ account, eventType, filter, webhookId, tag, expiresAt, context }) => {
+          authorize(account, context);
+
+          const operation = "x.activity.subscribe";
+
+          if (filter.userId !== undefined) requireId(filter.userId, "filter.userId", operation);
+
+          if (webhookId !== undefined) requireId(webhookId, "webhookId", operation);
+
+          if (tag !== undefined && (tag.length < 1 || tag.length > 200))
+            throw invalid(operation, "tag must be 1-200 characters.");
+
+          if (expiresAt !== undefined && !Number.isFinite(Date.parse(expiresAt)))
+            throw invalid(operation, "expiresAt must be an RFC 3339 timestamp.");
+
+          if (filter.qualifiers !== undefined && Object.keys(filter.qualifiers).length > 8)
+            throw invalid(operation, "X accepts at most 8 filter qualifiers.");
+
+          return object(
+            await credentialRequest("user-or-app", operation)(
+              "/2/activity/subscriptions",
+              context,
+              {
+                event_type: eventType,
+                filter: {
+                  ...definedFields({
+                    user_id: filter.userId,
+                    keyword: filter.keyword,
+                    direction: filter.direction,
+                    qualifiers:
+                      filter.qualifiers === undefined ? undefined : { ...filter.qualifiers },
+                  }),
+                },
+                ...definedFields({ webhook_id: webhookId, tag, expires_at: expiresAt }),
+              },
+            ),
+          );
+        },
+      ),
       async listActivitySubscriptions({ account, userId, cursor, limit, context }) {
         if (userId !== undefined) requireId(userId, "userId", "x.activity.list");
 
@@ -8516,118 +8661,130 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           maxLimit: 1000,
         });
       },
-      async updateActivitySubscription({ account, subscriptionId, tag, webhookId, context }) {
-        authorize(account, context);
+      updateActivitySubscription: uncertainWrite(
+        "x.updateActivitySubscription",
+        async ({ account, subscriptionId, tag, webhookId, context }) => {
+          authorize(account, context);
 
-        const operation = "x.activity.update";
+          const operation = "x.activity.update";
 
-        requireId(subscriptionId, "subscriptionId", operation);
+          requireId(subscriptionId, "subscriptionId", operation);
 
-        if (webhookId !== undefined) requireId(webhookId, "webhookId", operation);
+          if (webhookId !== undefined) requireId(webhookId, "webhookId", operation);
 
-        if (tag === undefined && webhookId === undefined)
-          throw invalid(operation, "Set tag or webhookId to update a subscription.");
+          if (tag === undefined && webhookId === undefined)
+            throw invalid(operation, "Set tag or webhookId to update a subscription.");
 
-        return object(
-          await credentialRequest("user-or-app", operation)(
-            `/2/activity/subscriptions/${subscriptionId}`,
-            context,
-            { ...definedFields({ tag, webhook_id: webhookId }) },
-            {},
-            "PUT",
-          ),
-        );
-      },
-      async deleteActivitySubscriptions({ account, subscriptionIds, context }) {
-        authorize(account, context);
-        requireIds(subscriptionIds, "subscriptionIds", "x.activity.delete");
+          return object(
+            await credentialRequest("user-or-app", operation)(
+              `/2/activity/subscriptions/${subscriptionId}`,
+              context,
+              { ...definedFields({ tag, webhook_id: webhookId }) },
+              {},
+              "PUT",
+            ),
+          );
+        },
+      ),
+      deleteActivitySubscriptions: uncertainWrite(
+        "x.deleteActivitySubscriptions",
+        async ({ account, subscriptionIds, context }) => {
+          authorize(account, context);
+          requireIds(subscriptionIds, "subscriptionIds", "x.activity.delete");
 
-        const [single] = subscriptionIds;
+          const [single] = subscriptionIds;
 
-        return object(
-          subscriptionIds.length === 1 && single !== undefined
-            ? await credentialRequest("user-or-app", "x.activity.delete")(
-                `/2/activity/subscriptions/${single}`,
-                context,
-                undefined,
-                {},
-                "DELETE",
-              )
-            : await appRequest()(
-                "/2/activity/subscriptions",
-                context,
-                undefined,
-                { ids: subscriptionIds.join(",") },
-                "DELETE",
-              ),
-        );
-      },
-      async createArticleDraft({ account, title, blocks, entities = [], coverMedia, context }) {
-        authorize(account, context);
+          return object(
+            subscriptionIds.length === 1 && single !== undefined
+              ? await credentialRequest("user-or-app", "x.activity.delete")(
+                  `/2/activity/subscriptions/${single}`,
+                  context,
+                  undefined,
+                  {},
+                  "DELETE",
+                )
+              : await appRequest()(
+                  "/2/activity/subscriptions",
+                  context,
+                  undefined,
+                  { ids: subscriptionIds.join(",") },
+                  "DELETE",
+                ),
+          );
+        },
+      ),
+      createArticleDraft: uncertainWrite(
+        "x.createArticleDraft",
+        async ({ account, title, blocks, entities = [], coverMedia, context }) => {
+          authorize(account, context);
 
-        const operation = "x.articles.draft";
+          const operation = "x.articles.draft";
 
-        if (!title.trim()) throw invalid(operation, "Article titles must not be empty.");
+          if (!title.trim()) throw invalid(operation, "Article titles must not be empty.");
 
-        if (coverMedia !== undefined)
-          requireId(coverMedia.mediaId, "coverMedia.mediaId", operation);
+          if (coverMedia !== undefined)
+            requireId(coverMedia.mediaId, "coverMedia.mediaId", operation);
 
-        const contentState = articleContentState(blocks, entities);
+          const contentState = articleContentState(blocks, entities);
 
-        const data = object(
-          object(
-            await requireUserToken(operation)("/2/articles/draft", context, {
-              title,
-              content_state: contentState,
-              ...definedFields({
-                cover_media:
-                  coverMedia === undefined
-                    ? undefined
-                    : {
-                        media_id: coverMedia.mediaId,
-                        media_category: coverMedia.mediaCategory ?? "tweet_image",
-                      },
+          const data = object(
+            object(
+              await requireUserToken(operation)("/2/articles/draft", context, {
+                title,
+                content_state: contentState,
+                ...definedFields({
+                  cover_media:
+                    coverMedia === undefined
+                      ? undefined
+                      : {
+                          media_id: coverMedia.mediaId,
+                          media_category: coverMedia.mediaCategory ?? "tweet_image",
+                        },
+                }),
               }),
-            }),
-          )["data"],
-        );
+            )["data"],
+          );
 
-        return { articleId: string(data["id"]), title: optionalString(data["title"]) ?? title };
-      },
-      async publishArticle({ account, articleId, context }) {
-        authorize(account, context);
-        requireId(articleId, "articleId", "x.articles.publish");
+          return { articleId: string(data["id"]), title: optionalString(data["title"]) ?? title };
+        },
+      ),
+      publishArticle: uncertainWrite(
+        "x.publishArticle",
+        async ({ account, articleId, context }) => {
+          authorize(account, context);
+          requireId(articleId, "articleId", "x.articles.publish");
 
-        const result = await requireUserToken("x.articles.publish")(
-          `/2/articles/${articleId}/publish`,
-          context,
-          undefined,
-          {},
-          "POST",
-        );
+          const result = await requireUserToken("x.articles.publish")(
+            `/2/articles/${articleId}/publish`,
+            context,
+            undefined,
+            {},
+            "POST",
+          );
 
-        const data = isJsonObject(result) ? result["data"] : undefined;
+          const data = isJsonObject(result) ? result["data"] : undefined;
 
-        const postId = isJsonObject(data) ? optionalString(data["post_id"]) : undefined;
+          const postId = isJsonObject(data) ? optionalString(data["post_id"]) : undefined;
 
-        if (postId === undefined)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "x.articles.publish",
-            message:
-              "X did not return the published Article's post ID. Check the profile before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
+          if (postId === undefined)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "x.articles.publish",
+              message:
+                "X did not return the published Article's post ID. Check the profile before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
-        return {
-          kind: "platform-post",
-          version: 1,
-          backend: account.backend,
-          platform: "x",
-          accountId: account.accountId,
-          postId,
-        };
-      },
+          return {
+            kind: "platform-post",
+            version: 1,
+            backend: account.backend,
+            platform: "x",
+            accountId: account.accountId,
+            postId,
+          };
+        },
+      ),
       async chatConversations({
         account,
         unreadOnly,
@@ -8699,95 +8856,91 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           maxLimit: 100,
         });
       },
-      async sendChatMessage({
-        account,
-        conversationId,
-        messageId,
-        message,
-        conversationToken,
-        context,
-      }) {
-        authorize(account, context);
+      sendChatMessage: uncertainWrite(
+        "x.sendChatMessage",
+        async ({ account, conversationId, messageId, message, conversationToken, context }) => {
+          authorize(account, context);
 
-        const operation = "x.chat.send";
+          const operation = "x.chat.send";
 
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
 
-        if (!/^[A-Za-z0-9_-]{1,64}$/.test(messageId))
-          throw invalid(operation, "messageId must be 1-64 letters, digits, _ or -.");
+          if (!/^[A-Za-z0-9_-]{1,64}$/.test(messageId))
+            throw invalid(operation, "messageId must be 1-64 letters, digits, _ or -.");
 
-        let body: JsonObject;
+          let body: JsonObject;
 
-        switch (message.kind) {
-          case "text":
-            if (!message.text.trim()) throw invalid(operation, "Chat messages need text.");
-            body = { message_id: messageId, content: { message: { text: message.text } } };
-            break;
-          case "reaction":
-            requireId(message.eventId, "eventId", operation);
+          switch (message.kind) {
+            case "text":
+              if (!message.text.trim()) throw invalid(operation, "Chat messages need text.");
+              body = { message_id: messageId, content: { message: { text: message.text } } };
+              break;
+            case "reaction":
+              requireId(message.eventId, "eventId", operation);
 
-            if (!message.emoji.trim()) throw invalid(operation, "A reaction needs an emoji.");
+              if (!message.emoji.trim()) throw invalid(operation, "A reaction needs an emoji.");
 
-            body = {
-              message_id: messageId,
-              content: {
-                [message.remove === true ? "reaction_remove" : "reaction_add"]: {
-                  event_id: message.eventId,
-                  emoji: message.emoji,
+              body = {
+                message_id: messageId,
+                content: {
+                  [message.remove === true ? "reaction_remove" : "reaction_add"]: {
+                    event_id: message.eventId,
+                    emoji: message.emoji,
+                  },
                 },
-              },
-            };
-            break;
-          case "encrypted":
-            if (!message.encodedMessageCreateEvent.trim())
-              throw invalid(operation, "Pass the encoded event produced by the Chat XDK.");
-            body = {
-              message_id: messageId,
-              encoded_message_create_event: message.encodedMessageCreateEvent,
-              ...definedFields({
-                encoded_message_event_signature: message.encodedMessageEventSignature,
-                xdk_version: message.xdkVersion,
-              }),
-            };
-            break;
-          default: {
-            const _exhaustive: never = message;
+              };
+              break;
+            case "encrypted":
+              if (!message.encodedMessageCreateEvent.trim())
+                throw invalid(operation, "Pass the encoded event produced by the Chat XDK.");
+              body = {
+                message_id: messageId,
+                encoded_message_create_event: message.encodedMessageCreateEvent,
+                ...definedFields({
+                  encoded_message_event_signature: message.encodedMessageEventSignature,
+                  xdk_version: message.xdkVersion,
+                }),
+              };
+              break;
+            default: {
+              const _exhaustive: never = message;
 
-            throw invalid(operation, `Unknown chat message ${String(_exhaustive)}.`);
+              throw invalid(operation, `Unknown chat message ${String(_exhaustive)}.`);
+            }
           }
-        }
 
-        if (conversationToken !== undefined) {
-          if (!conversationToken.trim())
-            throw invalid(operation, "conversationToken must not be empty.");
+          if (conversationToken !== undefined) {
+            if (!conversationToken.trim())
+              throw invalid(operation, "conversationToken must not be empty.");
 
-          body = { ...body, conversation_token: conversationToken };
-        }
+            body = { ...body, conversation_token: conversationToken };
+          }
 
-        const response = await requireUserToken(operation)(
-          `/2/chat/conversations/${conversationId}/messages`,
-          context,
-          body,
-        );
+          const response = await requireUserToken(operation)(
+            `/2/chat/conversations/${conversationId}/messages`,
+            context,
+            body,
+          );
 
-        // The send was dispatched and accepted; a response without the event cannot prove
-        // what X stored, so callers must read the conversation before any retry.
-        const data = isJsonObject(response) ? response["data"] : undefined;
+          // The send was dispatched and accepted; a response without the event cannot prove
+          // what X stored, so callers must read the conversation before any retry.
+          const data = isJsonObject(response) ? response["data"] : undefined;
 
-        const event = isJsonObject(data) ? data["encoded_message_event"] : undefined;
+          const event = isJsonObject(data) ? data["encoded_message_event"] : undefined;
 
-        if (!isString(event) || event === "")
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation,
-            message:
-              "X accepted the Chat message without returning its event. Read the conversation before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
+          if (!isString(event) || event === "")
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message:
+                "X accepted the Chat message without returning its event. Read the conversation before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
-        return { encodedMessageEvent: event };
-      },
-      async initializeChatGroup({ account, context }) {
+          return { encodedMessageEvent: event };
+        },
+      ),
+      initializeChatGroup: uncertainWrite("x.initializeChatGroup", async ({ account, context }) => {
         const data = await chatWrite({
           account,
           context,
@@ -8797,8 +8950,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         });
 
         return { conversationId: chatConversationId(data, "x.chat.groups.initialize") };
-      },
-      async createChatGroup({ account, group, context }) {
+      }),
+      createChatGroup: uncertainWrite("x.createChatGroup", async ({ account, group, context }) => {
         const operation = "x.chat.groups.create";
 
         requireId(group.conversationId, "conversationId", operation, chatGroupPattern);
@@ -8850,7 +9003,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             keyChangeSequenceId: optionalString(data["conversation_key_change_sequence_id"]),
           }),
         };
-      },
+      }),
       async getChatConversation({ account, conversationId, context }) {
         requireId(conversationId, "conversationId", "x.chat.conversation", chatConversationPattern);
 
@@ -8871,143 +9024,151 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async updateChatGroup({ account, conversationId, update, context }) {
-        const operation = "x.chat.groups.update";
+      updateChatGroup: uncertainWrite(
+        "x.updateChatGroup",
+        async ({ account, conversationId, update, context }) => {
+          const operation = "x.chat.groups.update";
 
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
 
-        if (
-          update.modifiedFields.length === 0 ||
-          !/^[0-9]{1,19}$/.test(update.conversationKeyVersion)
-        )
-          throw invalid(operation, "Pass modifiedFields and the conversation key version.");
+          if (
+            update.modifiedFields.length === 0 ||
+            !/^[0-9]{1,19}$/.test(update.conversationKeyVersion)
+          )
+            throw invalid(operation, "Pass modifiedFields and the conversation key version.");
 
-        await chatWrite({
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}`,
+            method: "PUT",
+            confirm: ["updated", true],
+            body: {
+              modified_fields: [...update.modifiedFields],
+              conversation_key_version: update.conversationKeyVersion,
+              ...definedFields({
+                group_name: update.name,
+                group_description: update.description,
+                group_avatar_url: update.avatarUrl,
+                conversation_participant_keys:
+                  update.participantKeys === undefined
+                    ? undefined
+                    : wireChatKeys(update.participantKeys),
+                base64_encoded_key_rotation: update.keyRotation,
+                rotated_pmk_bundle:
+                  update.rotatedMessageKeys === undefined
+                    ? undefined
+                    : [...update.rotatedMessageKeys],
+                action_signatures: chatSignatures(update.actionSignatures),
+              }),
+            },
+          });
+        },
+      ),
+      deleteChatConversation: uncertainWrite(
+        "x.deleteChatConversation",
+        async ({ account, conversationId, actionSignatures, context }) => {
+          const operation = "x.chat.conversation.delete";
+
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}`,
+            method: "DELETE",
+            confirm: ["deleted", true],
+            body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+          });
+        },
+      ),
+      addChatMembers: uncertainWrite(
+        "x.addChatMembers",
+        async ({
           account,
+          conversationId,
+          userIds,
+          conversationKeyVersion,
+          participantKeys,
+          encryptedTitle,
+          encryptedAvatarUrl,
+          actionSignatures,
           context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}`,
-          method: "PUT",
-          confirm: ["updated", true],
-          body: {
-            modified_fields: [...update.modifiedFields],
-            conversation_key_version: update.conversationKeyVersion,
-            ...definedFields({
-              group_name: update.name,
-              group_description: update.description,
-              group_avatar_url: update.avatarUrl,
-              conversation_participant_keys:
-                update.participantKeys === undefined
-                  ? undefined
-                  : wireChatKeys(update.participantKeys),
-              base64_encoded_key_rotation: update.keyRotation,
-              rotated_pmk_bundle:
-                update.rotatedMessageKeys === undefined
-                  ? undefined
-                  : [...update.rotatedMessageKeys],
-              action_signatures: chatSignatures(update.actionSignatures),
-            }),
-          },
-        });
-      },
-      async deleteChatConversation({ account, conversationId, actionSignatures, context }) {
-        const operation = "x.chat.conversation.delete";
+        }) => {
+          const operation = "x.chat.members.add";
 
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+          requireIds(userIds, "userIds", operation);
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}`,
-          method: "DELETE",
-          confirm: ["deleted", true],
-          body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-        });
-      },
-      async addChatMembers({
-        account,
-        conversationId,
-        userIds,
-        conversationKeyVersion,
-        participantKeys,
-        encryptedTitle,
-        encryptedAvatarUrl,
-        actionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.members.add";
+          return chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/members`,
+            method: "POST",
+            body: {
+              user_ids: [...userIds],
+              ...definedFields({
+                conversation_key_version: conversationKeyVersion,
+                conversation_participant_keys:
+                  participantKeys === undefined ? undefined : wireChatKeys(participantKeys),
+                encrypted_title: encryptedTitle,
+                encrypted_avatar_url: encryptedAvatarUrl,
+                action_signatures: chatSignatures(actionSignatures),
+              }),
+            },
+          });
+        },
+      ),
+      removeChatMembers: uncertainWrite(
+        "x.removeChatMembers",
+        async ({ account, conversationId, userIds, keyRotation, actionSignatures, context }) => {
+          const operation = "x.chat.members.remove";
 
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-        requireIds(userIds, "userIds", operation);
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+          requireIds(userIds, "userIds", operation);
 
-        return chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/members`,
-          method: "POST",
-          body: {
-            user_ids: [...userIds],
-            ...definedFields({
-              conversation_key_version: conversationKeyVersion,
-              conversation_participant_keys:
-                participantKeys === undefined ? undefined : wireChatKeys(participantKeys),
-              encrypted_title: encryptedTitle,
-              encrypted_avatar_url: encryptedAvatarUrl,
-              action_signatures: chatSignatures(actionSignatures),
-            }),
-          },
-        });
-      },
-      async removeChatMembers({
-        account,
-        conversationId,
-        userIds,
-        keyRotation,
-        actionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.members.remove";
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/members/remove`,
+            method: "POST",
+            confirm: ["removed", true],
+            body: {
+              user_ids: [...userIds],
+              ...definedFields({
+                group_key_rotation_data: keyRotation,
+                action_signatures: chatSignatures(actionSignatures),
+              }),
+            },
+          });
+        },
+      ),
+      setChatAdmins: uncertainWrite(
+        "x.setChatAdmins",
+        async ({ account, conversationId, userIds, admin, actionSignatures, context }) => {
+          const operation = "x.chat.admins";
 
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-        requireIds(userIds, "userIds", operation);
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
+          requireIds(userIds, "userIds", operation);
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/members/remove`,
-          method: "POST",
-          confirm: ["removed", true],
-          body: {
-            user_ids: [...userIds],
-            ...definedFields({
-              group_key_rotation_data: keyRotation,
-              action_signatures: chatSignatures(actionSignatures),
-            }),
-          },
-        });
-      },
-      async setChatAdmins({ account, conversationId, userIds, admin, actionSignatures, context }) {
-        const operation = "x.chat.admins";
-
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
-        requireIds(userIds, "userIds", operation);
-
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/admins${admin ? "" : "/remove"}`,
-          method: "POST",
-          confirm: [admin ? "added" : "removed", true],
-          body: {
-            user_ids: [...userIds],
-            ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-          },
-        });
-      },
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/admins${admin ? "" : "/remove"}`,
+            method: "POST",
+            confirm: [admin ? "added" : "removed", true],
+            body: {
+              user_ids: [...userIds],
+              ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+            },
+          });
+        },
+      ),
       async chatAdminRequests({ account, conversationId, cursor, context }) {
         requireId(conversationId, "conversationId", "x.chat.admins.requests", chatGroupPattern);
 
@@ -9022,150 +9183,153 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           maxLimit: 1,
         });
       },
-      async requestChatAdmin({ account, conversationId, actionSignatures, context }) {
-        const operation = "x.chat.admins.request";
+      requestChatAdmin: uncertainWrite(
+        "x.requestChatAdmin",
+        async ({ account, conversationId, actionSignatures, context }) => {
+          const operation = "x.chat.admins.request";
 
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/admin_requests`,
-          method: "POST",
-          confirm: ["requested", true],
-          body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-        });
-      },
-      async resolveChatAdminRequest({
-        account,
-        conversationId,
-        userId,
-        approve,
-        actionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.admins.resolve";
-
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
-        requireId(userId, "userId", operation);
-
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/admin_requests/${userId}/${approve ? "approve" : "reject"}`,
-          method: "POST",
-          confirm: [approve ? "approved" : "rejected", true],
-          body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-        });
-      },
-      async updateChatAdminSettings({
-        account,
-        conversationId,
-        settings,
-        actionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.admins.settings";
-
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
-
-        const body = definedFields({
-          add_member: settings.addMember,
-          block_screen_capture: settings.blockScreenCapture,
-          edit_group_info: settings.editGroupInfo,
-          edit_message_ttl: settings.editMessageTtl,
-          send_message: settings.sendMessage,
-          start_call: settings.startCall,
-        });
-
-        if (Object.keys(body).length === 0) throw invalid(operation, "Pass at least one setting.");
-
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/admin_settings`,
-          method: "PUT",
-          confirm: ["updated", true],
-          body: {
-            ...body,
-            ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-          },
-        });
-      },
-      async enableChatInvite({ account, conversationId, invite, context }) {
-        const operation = "x.chat.invite.enable";
-
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
-
-        if (
-          invite.inviteUrl !== undefined &&
-          !new RegExp(
-            `^https://x\\.com/i/chat/group_join/${conversationId}/[A-Za-z0-9_-]{10}$`,
-          ).test(invite.inviteUrl)
-        )
-          throw invalid(
+          await chatWrite({
+            account,
+            context,
             operation,
-            "inviteUrl must be https://x.com/i/chat/group_join/<id>/<token>.",
-          );
+            path: `/2/chat/conversations/${conversationId}/admin_requests`,
+            method: "POST",
+            confirm: ["requested", true],
+            body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+          });
+        },
+      ),
+      resolveChatAdminRequest: uncertainWrite(
+        "x.resolveChatAdminRequest",
+        async ({ account, conversationId, userId, approve, actionSignatures, context }) => {
+          const operation = "x.chat.admins.resolve";
 
-        if (
-          invite.validForMs !== undefined &&
-          (!Number.isSafeInteger(invite.validForMs) || invite.validForMs < 1)
-        )
-          throw invalid(operation, "validForMs must be a positive integer.");
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
+          requireId(userId, "userId", operation);
 
-        if (invite.affiliateUserId !== undefined)
-          requireId(invite.affiliateUserId, "affiliateUserId", operation);
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/admin_requests/${userId}/${approve ? "approve" : "reject"}`,
+            method: "POST",
+            confirm: [approve ? "approved" : "rejected", true],
+            body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+          });
+        },
+      ),
+      updateChatAdminSettings: uncertainWrite(
+        "x.updateChatAdminSettings",
+        async ({ account, conversationId, settings, actionSignatures, context }) => {
+          const operation = "x.chat.admins.settings";
 
-        if (invite.avatarUrl !== undefined && !isHttpsUrl(invite.avatarUrl))
-          throw invalid(operation, "avatarUrl must be an HTTPS URL.");
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
 
-        for (const [name, value] of [
-          ["welcomeMessage", invite.welcomeMessage],
-          ["title", invite.title],
-        ] as const)
-          if (value !== undefined && [...value].length > 1024)
-            throw invalid(operation, `${name} is limited to 1,024 characters.`);
+          const body = definedFields({
+            add_member: settings.addMember,
+            block_screen_capture: settings.blockScreenCapture,
+            edit_group_info: settings.editGroupInfo,
+            edit_message_ttl: settings.editMessageTtl,
+            send_message: settings.sendMessage,
+            start_call: settings.startCall,
+          });
 
-        return chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/invite`,
-          method: "POST",
-          body: definedFields({
-            invite_url: invite.inviteUrl,
-            validity_duration_msec: invite.validForMs?.toString(),
-            validity_expiry_timestamp_msec:
-              invite.expiresAt === undefined
-                ? undefined
-                : epochMs(invite.expiresAt, "expiresAt", operation),
-            welcome_message: invite.welcomeMessage,
-            decrypted_title: invite.title,
-            decrypted_avatar_url: invite.avatarUrl,
-            affiliate_user_id: invite.affiliateUserId,
-            action_signatures: chatSignatures(invite.actionSignatures),
-          }),
-        });
-      },
-      async disableChatInvite({ account, conversationId, actionSignatures, context }) {
-        const operation = "x.chat.invite.disable";
+          if (Object.keys(body).length === 0)
+            throw invalid(operation, "Pass at least one setting.");
 
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/admin_settings`,
+            method: "PUT",
+            confirm: ["updated", true],
+            body: {
+              ...body,
+              ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+            },
+          });
+        },
+      ),
+      enableChatInvite: uncertainWrite(
+        "x.enableChatInvite",
+        async ({ account, conversationId, invite, context }) => {
+          const operation = "x.chat.invite.enable";
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/invite`,
-          method: "DELETE",
-          confirm: ["disabled", true],
-          body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-        });
-      },
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
+
+          if (
+            invite.inviteUrl !== undefined &&
+            !new RegExp(
+              `^https://x\\.com/i/chat/group_join/${conversationId}/[A-Za-z0-9_-]{10}$`,
+            ).test(invite.inviteUrl)
+          )
+            throw invalid(
+              operation,
+              "inviteUrl must be https://x.com/i/chat/group_join/<id>/<token>.",
+            );
+
+          if (
+            invite.validForMs !== undefined &&
+            (!Number.isSafeInteger(invite.validForMs) || invite.validForMs < 1)
+          )
+            throw invalid(operation, "validForMs must be a positive integer.");
+
+          if (invite.affiliateUserId !== undefined)
+            requireId(invite.affiliateUserId, "affiliateUserId", operation);
+
+          if (invite.avatarUrl !== undefined && !isHttpsUrl(invite.avatarUrl))
+            throw invalid(operation, "avatarUrl must be an HTTPS URL.");
+
+          for (const [name, value] of [
+            ["welcomeMessage", invite.welcomeMessage],
+            ["title", invite.title],
+          ] as const)
+            if (value !== undefined && [...value].length > 1024)
+              throw invalid(operation, `${name} is limited to 1,024 characters.`);
+
+          return chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/invite`,
+            method: "POST",
+            body: definedFields({
+              invite_url: invite.inviteUrl,
+              validity_duration_msec: invite.validForMs?.toString(),
+              validity_expiry_timestamp_msec:
+                invite.expiresAt === undefined
+                  ? undefined
+                  : epochMs(invite.expiresAt, "expiresAt", operation),
+              welcome_message: invite.welcomeMessage,
+              decrypted_title: invite.title,
+              decrypted_avatar_url: invite.avatarUrl,
+              affiliate_user_id: invite.affiliateUserId,
+              action_signatures: chatSignatures(invite.actionSignatures),
+            }),
+          });
+        },
+      ),
+      disableChatInvite: uncertainWrite(
+        "x.disableChatInvite",
+        async ({ account, conversationId, actionSignatures, context }) => {
+          const operation = "x.chat.invite.disable";
+
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/invite`,
+            method: "DELETE",
+            confirm: ["disabled", true],
+            body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+          });
+        },
+      ),
       async getChatInvite({ account, conversationId, token, context }) {
         requireId(conversationId, "conversationId", "x.chat.invite.get", chatGroupPattern);
         requireId(token, "token", "x.chat.invite.get", chatInviteTokenPattern);
@@ -9182,167 +9346,186 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async requestToJoinChat({ account, conversationId, token, actionSignatures, context }) {
-        const operation = "x.chat.join";
+      requestToJoinChat: uncertainWrite(
+        "x.requestToJoinChat",
+        async ({ account, conversationId, token, actionSignatures, context }) => {
+          const operation = "x.chat.join";
 
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
-        requireId(token, "token", operation, chatInviteTokenPattern);
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
+          requireId(token, "token", operation, chatInviteTokenPattern);
 
-        await chatWrite({
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/join_requests`,
+            method: "POST",
+            confirm: ["requested", true],
+            body: {
+              token,
+              ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+            },
+          });
+        },
+      ),
+      rejectChatJoinRequests: uncertainWrite(
+        "x.rejectChatJoinRequests",
+        async ({ account, conversationId, userIds, actionSignatures, context }) => {
+          const operation = "x.chat.join.reject";
+
+          requireId(conversationId, "conversationId", operation, chatGroupPattern);
+          requireIds(userIds, "userIds", operation);
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/join_requests/reject`,
+            method: "POST",
+            confirm: ["rejected", true],
+            body: {
+              user_ids: [...userIds],
+              ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+            },
+          });
+        },
+      ),
+      setChatArchived: uncertainWrite(
+        "x.setChatArchived",
+        async ({ account, conversationId, archived, actionSignatures, context }) => {
+          const operation = "x.chat.archive";
+
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/archive`,
+            method: archived ? "POST" : "DELETE",
+            confirm: ["archived", archived],
+            body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+          });
+        },
+      ),
+      setChatMuted: uncertainWrite(
+        "x.setChatMuted",
+        async ({ account, conversationId, muted, actionSignatures, context }) => {
+          const operation = "x.chat.mute";
+
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/mute`,
+            method: muted ? "POST" : "DELETE",
+            confirm: ["muted", muted],
+            body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+          });
+        },
+      ),
+      markChatRead: uncertainWrite(
+        "x.markChatRead",
+        async ({ account, conversationId, read, actionSignatures, context }) => {
+          const operation = "x.chat.read";
+
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+
+          if (!read && actionSignatures !== undefined)
+            throw invalid(operation, "Only read receipts take actionSignatures.");
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: read
+              ? `/2/chat/conversations/${conversationId}/read`
+              : `/2/chat/conversations/${conversationId}/unread`,
+            method: "POST",
+            confirm: ["success", true],
+            body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
+          });
+        },
+      ),
+      sendChatTyping: uncertainWrite(
+        "x.sendChatTyping",
+        async ({ account, conversationId, context }) => {
+          requireId(conversationId, "conversationId", "x.chat.typing", chatConversationPattern);
+
+          await chatWrite({
+            account,
+            context,
+            operation: "x.chat.typing",
+            path: `/2/chat/conversations/${conversationId}/typing`,
+            method: "POST",
+            confirm: ["success", true],
+          });
+        },
+      ),
+      setChatMessageTtl: uncertainWrite(
+        "x.setChatMessageTtl",
+        async ({ account, conversationId, ttlMs, actionSignatures, context }) => {
+          const operation = "x.chat.message_ttl";
+
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+
+          if (ttlMs !== undefined && (!Number.isSafeInteger(ttlMs) || ttlMs < 1))
+            throw invalid(operation, "ttlMs must be a positive integer of milliseconds.");
+
+          const signatures = definedFields({ action_signatures: chatSignatures(actionSignatures) });
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/message_ttl`,
+            method: ttlMs === undefined ? "DELETE" : "PUT",
+            confirm: [ttlMs === undefined ? "deleted" : "updated", true],
+            body:
+              ttlMs === undefined ? signatures : { message_ttl_ms: String(ttlMs), ...signatures },
+          });
+        },
+      ),
+      setChatScreenCapture: uncertainWrite(
+        "x.setChatScreenCapture",
+        async ({
           account,
+          conversationId,
+          blocking,
+          detection,
+          blockingSignatures,
+          detectionSignatures,
           context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/join_requests`,
-          method: "POST",
-          confirm: ["requested", true],
-          body: {
-            token,
-            ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-          },
-        });
-      },
-      async rejectChatJoinRequests({
-        account,
-        conversationId,
-        userIds,
-        actionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.join.reject";
+        }) => {
+          const operation = "x.chat.screen_capture";
 
-        requireId(conversationId, "conversationId", operation, chatGroupPattern);
-        requireIds(userIds, "userIds", operation);
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/join_requests/reject`,
-          method: "POST",
-          confirm: ["rejected", true],
-          body: {
-            user_ids: [...userIds],
-            ...definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-          },
-        });
-      },
-      async setChatArchived({ account, conversationId, archived, actionSignatures, context }) {
-        const operation = "x.chat.archive";
+          if (blocking === undefined && detection === undefined)
+            throw invalid(operation, "Pass blocking, detection, or both.");
 
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
+          const data = await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/screen_capture`,
+            method: "PUT",
+            body: definedFields({
+              blocking,
+              detection,
+              blocking_action_signatures: chatSignatures(blockingSignatures),
+              detection_action_signatures: chatSignatures(detectionSignatures),
+            }),
+          });
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/archive`,
-          method: archived ? "POST" : "DELETE",
-          confirm: ["archived", archived],
-          body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-        });
-      },
-      async setChatMuted({ account, conversationId, muted, actionSignatures, context }) {
-        const operation = "x.chat.mute";
-
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/mute`,
-          method: muted ? "POST" : "DELETE",
-          confirm: ["muted", muted],
-          body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-        });
-      },
-      async markChatRead({ account, conversationId, read, actionSignatures, context }) {
-        const operation = "x.chat.read";
-
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-
-        if (!read && actionSignatures !== undefined)
-          throw invalid(operation, "Only read receipts take actionSignatures.");
-
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: read
-            ? `/2/chat/conversations/${conversationId}/read`
-            : `/2/chat/conversations/${conversationId}/unread`,
-          method: "POST",
-          confirm: ["success", true],
-          body: definedFields({ action_signatures: chatSignatures(actionSignatures) }),
-        });
-      },
-      async sendChatTyping({ account, conversationId, context }) {
-        requireId(conversationId, "conversationId", "x.chat.typing", chatConversationPattern);
-
-        await chatWrite({
-          account,
-          context,
-          operation: "x.chat.typing",
-          path: `/2/chat/conversations/${conversationId}/typing`,
-          method: "POST",
-          confirm: ["success", true],
-        });
-      },
-      async setChatMessageTtl({ account, conversationId, ttlMs, actionSignatures, context }) {
-        const operation = "x.chat.message_ttl";
-
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-
-        if (ttlMs !== undefined && (!Number.isSafeInteger(ttlMs) || ttlMs < 1))
-          throw invalid(operation, "ttlMs must be a positive integer of milliseconds.");
-
-        const signatures = definedFields({ action_signatures: chatSignatures(actionSignatures) });
-
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/message_ttl`,
-          method: ttlMs === undefined ? "DELETE" : "PUT",
-          confirm: [ttlMs === undefined ? "deleted" : "updated", true],
-          body: ttlMs === undefined ? signatures : { message_ttl_ms: String(ttlMs), ...signatures },
-        });
-      },
-      async setChatScreenCapture({
-        account,
-        conversationId,
-        blocking,
-        detection,
-        blockingSignatures,
-        detectionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.screen_capture";
-
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-
-        if (blocking === undefined && detection === undefined)
-          throw invalid(operation, "Pass blocking, detection, or both.");
-
-        const data = await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/screen_capture`,
-          method: "PUT",
-          body: definedFields({
-            blocking,
-            detection,
-            blocking_action_signatures: chatSignatures(blockingSignatures),
-            detection_action_signatures: chatSignatures(detectionSignatures),
-          }),
-        });
-
-        return definedFields({
-          blocking: optionalBoolean(data["blocking"]),
-          detection: optionalBoolean(data["detection"]),
-        });
-      },
+          return definedFields({
+            blocking: optionalBoolean(data["blocking"]),
+            detection: optionalBoolean(data["detection"]),
+          });
+        },
+      ),
       async chatPinnedMessages({ account, conversationId, cursor, context }) {
         requireId(conversationId, "conversationId", "x.chat.pinned", chatConversationPattern);
 
@@ -9357,77 +9540,86 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           maxLimit: 1,
         });
       },
-      async deleteChatMessages({
-        account,
-        conversationId,
-        sequenceIds,
-        scope,
-        mediaHashKeys,
-        actionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.messages.delete";
-
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-        requireIds(sequenceIds, "sequenceIds", operation);
-
-        if (actionSignatures.length === 0)
-          throw invalid(operation, "Message deletion needs the Chat XDK action signatures.");
-
-        if (mediaHashKeys !== undefined && scope !== "delete_for_all")
-          throw invalid(operation, "mediaHashKeys apply only to delete_for_all.");
-
-        await chatWrite({
+      deleteChatMessages: uncertainWrite(
+        "x.deleteChatMessages",
+        async ({
           account,
+          conversationId,
+          sequenceIds,
+          scope,
+          mediaHashKeys,
+          actionSignatures,
           context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/messages/delete`,
-          method: "POST",
-          confirm: ["deleted", true],
-          body: {
-            sequence_ids: [...sequenceIds],
-            delete_message_action: scope,
-            action_signatures: [...actionSignatures],
-            ...definedFields({
-              media_hash_keys: mediaHashKeys === undefined ? undefined : [...mediaHashKeys],
-            }),
-          },
-        });
-      },
-      async addChatConversationKeys({
-        account,
-        conversationId,
-        conversationKeyVersion,
-        participantKeys,
-        keyRotation,
-        actionSignatures,
-        context,
-      }) {
-        const operation = "x.chat.keys";
+        }) => {
+          const operation = "x.chat.messages.delete";
 
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+          requireIds(sequenceIds, "sequenceIds", operation);
 
-        if (!conversationKeyVersion.trim() || participantKeys.length === 0)
-          throw invalid(operation, "Pass the key version and participant keys from the Chat XDK.");
+          if (actionSignatures.length === 0)
+            throw invalid(operation, "Message deletion needs the Chat XDK action signatures.");
 
-        const data = await chatWrite({
+          if (mediaHashKeys !== undefined && scope !== "delete_for_all")
+            throw invalid(operation, "mediaHashKeys apply only to delete_for_all.");
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/messages/delete`,
+            method: "POST",
+            confirm: ["deleted", true],
+            body: {
+              sequence_ids: [...sequenceIds],
+              delete_message_action: scope,
+              action_signatures: [...actionSignatures],
+              ...definedFields({
+                media_hash_keys: mediaHashKeys === undefined ? undefined : [...mediaHashKeys],
+              }),
+            },
+          });
+        },
+      ),
+      addChatConversationKeys: uncertainWrite(
+        "x.addChatConversationKeys",
+        async ({
           account,
+          conversationId,
+          conversationKeyVersion,
+          participantKeys,
+          keyRotation,
+          actionSignatures,
           context,
-          operation,
-          path: `/2/chat/conversations/${conversationId}/keys`,
-          method: "POST",
-          body: {
-            conversation_key_version: conversationKeyVersion,
-            conversation_participant_keys: wireChatKeys(participantKeys),
-            ...definedFields({
-              base64_encoded_key_rotation: keyRotation,
-              action_signatures: chatSignatures(actionSignatures),
-            }),
-          },
-        });
+        }) => {
+          const operation = "x.chat.keys";
 
-        return definedFields({ sequenceId: optionalString(data["sequence_id"]) });
-      },
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
+
+          if (!conversationKeyVersion.trim() || participantKeys.length === 0)
+            throw invalid(
+              operation,
+              "Pass the key version and participant keys from the Chat XDK.",
+            );
+
+          const data = await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/conversations/${conversationId}/keys`,
+            method: "POST",
+            body: {
+              conversation_key_version: conversationKeyVersion,
+              conversation_participant_keys: wireChatKeys(participantKeys),
+              ...definedFields({
+                base64_encoded_key_rotation: keyRotation,
+                action_signatures: chatSignatures(actionSignatures),
+              }),
+            },
+          });
+
+          return definedFields({ sequenceId: optionalString(data["sequence_id"]) });
+        },
+      ),
       async chatPublicKeys({ account, userIds, context }) {
         requireIds(userIds, "userIds", "x.chat.public_keys");
 
@@ -9447,95 +9639,101 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return result["data"] === undefined ? [] : array(result["data"]).map(object);
       },
-      async registerChatPublicKey({ account, publicKey, context }) {
-        return chatWrite({
-          account,
-          context,
-          operation: "x.chat.public_keys.add",
-          path: `/2/users/${encodeURIComponent(account.accountId)}/public_keys`,
-          method: "POST",
-          body: { public_key: publicKey },
-        });
-      },
-      async uploadChatMedia({ account, conversationId, media, messageId, ttlMs, context }) {
-        const operation = "x.chat.media.upload";
-
-        requireId(conversationId, "conversationId", operation, chatConversationPattern);
-
-        if (media.size === 0) throw invalid(operation, "Chat media must not be empty.");
-
-        const parts = Math.ceil(media.size / xChatMediaChunkBytes);
-
-        if (parts > 1000)
-          throw invalid(operation, "Chat media is limited to 1,000 parts of 4 MiB.");
-
-        if (ttlMs !== undefined && (!Number.isSafeInteger(ttlMs) || ttlMs < 1))
-          throw invalid(operation, "ttlMs must be a positive integer.");
-
-        const started = await chatWrite({
-          account,
-          context,
-          operation,
-          path: "/2/chat/media/upload/initialize",
-          method: "POST",
-          body: { conversation_id: conversationId, total_bytes: media.size },
-        });
-
-        const sessionId = optionalString(started["session_id"]);
-
-        const mediaHashKey = optionalString(started["media_hash_key"]);
-
-        if (sessionId === undefined || !xIdPattern.test(sessionId) || mediaHashKey === undefined)
-          throw new HttpError("X did not return a chat media session.", "invalid-response", true);
-
-        for (let index = 0; index < parts; index++) {
-          const form = new FormData();
-
-          form.set("conversation_id", conversationId);
-          form.set("media_hash_key", mediaHashKey);
-          form.set("segment_index", String(index));
-          form.set(
-            "media",
-            media.slice(index * xChatMediaChunkBytes, (index + 1) * xChatMediaChunkBytes),
-          );
-
-          const appended = await requireUserToken(operation)(
-            `/2/chat/media/upload/${sessionId}/append`,
+      registerChatPublicKey: uncertainWrite(
+        "x.registerChatPublicKey",
+        async ({ account, publicKey, context }) => {
+          return chatWrite({
+            account,
             context,
-            form,
-            {},
-            "POST",
-          );
+            operation: "x.chat.public_keys.add",
+            path: `/2/users/${encodeURIComponent(account.accountId)}/public_keys`,
+            method: "POST",
+            body: { public_key: publicKey },
+          });
+        },
+      ),
+      uploadChatMedia: uncertainWrite(
+        "x.uploadChatMedia",
+        async ({ account, conversationId, media, messageId, ttlMs, context }) => {
+          const operation = "x.chat.media.upload";
 
-          // X can answer HTTP 200 with only `errors`; that segment was not accepted.
-          const appendErrors = isJsonObject(appended) ? appended["errors"] : undefined;
+          requireId(conversationId, "conversationId", operation, chatConversationPattern);
 
-          // Provider prose can echo request values, so the message keeps only the segment position.
-          if (isJsonArray(appendErrors) && appendErrors.length > 0)
-            throw new SocialError({
-              code: "upstream_failure",
-              operation,
-              message: `X rejected chat media segment ${index + 1} of ${parts}.`,
-            });
-        }
+          if (media.size === 0) throw invalid(operation, "Chat media must not be empty.");
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/chat/media/upload/${sessionId}/finalize`,
-          method: "POST",
-          confirm: ["success", true],
-          body: {
-            conversation_id: conversationId,
-            media_hash_key: mediaHashKey,
-            num_parts: String(parts),
-            ...definedFields({ message_id: messageId, ttl_msec: ttlMs?.toString() }),
-          },
-        });
+          const parts = Math.ceil(media.size / xChatMediaChunkBytes);
 
-        return { mediaHashKey, sessionId };
-      },
+          if (parts > 1000)
+            throw invalid(operation, "Chat media is limited to 1,000 parts of 4 MiB.");
+
+          if (ttlMs !== undefined && (!Number.isSafeInteger(ttlMs) || ttlMs < 1))
+            throw invalid(operation, "ttlMs must be a positive integer.");
+
+          const started = await chatWrite({
+            account,
+            context,
+            operation,
+            path: "/2/chat/media/upload/initialize",
+            method: "POST",
+            body: { conversation_id: conversationId, total_bytes: media.size },
+          });
+
+          const sessionId = optionalString(started["session_id"]);
+
+          const mediaHashKey = optionalString(started["media_hash_key"]);
+
+          if (sessionId === undefined || !xIdPattern.test(sessionId) || mediaHashKey === undefined)
+            throw new HttpError("X did not return a chat media session.", "invalid-response", true);
+
+          for (let index = 0; index < parts; index++) {
+            const form = new FormData();
+
+            form.set("conversation_id", conversationId);
+            form.set("media_hash_key", mediaHashKey);
+            form.set("segment_index", String(index));
+            form.set(
+              "media",
+              media.slice(index * xChatMediaChunkBytes, (index + 1) * xChatMediaChunkBytes),
+            );
+
+            const appended = await requireUserToken(operation)(
+              `/2/chat/media/upload/${sessionId}/append`,
+              context,
+              form,
+              {},
+              "POST",
+            );
+
+            // X can answer HTTP 200 with only `errors`; that segment was not accepted.
+            const appendErrors = isJsonObject(appended) ? appended["errors"] : undefined;
+
+            // Provider prose can echo request values, so the message keeps only the segment position.
+            if (isJsonArray(appendErrors) && appendErrors.length > 0)
+              throw new SocialError({
+                code: "upstream_failure",
+                operation,
+                message: `X rejected chat media segment ${index + 1} of ${parts}.`,
+              });
+          }
+
+          await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/chat/media/upload/${sessionId}/finalize`,
+            method: "POST",
+            confirm: ["success", true],
+            body: {
+              conversation_id: conversationId,
+              media_hash_key: mediaHashKey,
+              num_parts: String(parts),
+              ...definedFields({ message_id: messageId, ttl_msec: ttlMs?.toString() }),
+            },
+          });
+
+          return { mediaHashKey, sessionId };
+        },
+      ),
       async downloadChatMedia({
         account,
         conversationId,
@@ -9591,18 +9789,21 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async acceptChatMessageRequest({ account, conversationId, context }) {
-        requireId(conversationId, "conversationId", "x.chat.requests.accept", chatDirectPattern);
+      acceptChatMessageRequest: uncertainWrite(
+        "x.acceptChatMessageRequest",
+        async ({ account, conversationId, context }) => {
+          requireId(conversationId, "conversationId", "x.chat.requests.accept", chatDirectPattern);
 
-        await chatWrite({
-          account,
-          context,
-          operation: "x.chat.requests.accept",
-          path: `/2/chat/message_requests/${conversationId}/accept`,
-          method: "POST",
-          confirm: ["accepted", true],
-        });
-      },
+          await chatWrite({
+            account,
+            context,
+            operation: "x.chat.requests.accept",
+            path: `/2/chat/message_requests/${conversationId}/accept`,
+            method: "POST",
+            confirm: ["accepted", true],
+          });
+        },
+      ),
       async chatSettings({ account, settings, context }) {
         if (settings === undefined)
           return object(
@@ -9637,29 +9838,32 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           body,
         });
       },
-      async createCall({ account, conversationId, title, joinPolicy, audioOnly, context }) {
-        const operation = "x.calls.create";
+      createCall: uncertainWrite(
+        "x.createCall",
+        async ({ account, conversationId, title, joinPolicy, audioOnly, context }) => {
+          const operation = "x.calls.create";
 
-        if (conversationId !== undefined && !/^[A-Za-z0-9:_-]{1,128}$/.test(conversationId))
-          throw invalid(operation, "conversationId is not a valid X Chat conversation ID.");
+          if (conversationId !== undefined && !/^[A-Za-z0-9:_-]{1,128}$/.test(conversationId))
+            throw invalid(operation, "conversationId is not a valid X Chat conversation ID.");
 
-        if (title !== undefined && [...title].length > 100)
-          throw invalid(operation, "Call titles are limited to 100 characters.");
+          if (title !== undefined && [...title].length > 100)
+            throw invalid(operation, "Call titles are limited to 100 characters.");
 
-        return chatWrite({
-          account,
-          context,
-          operation,
-          path: "/2/calls",
-          method: "POST",
-          body: definedFields({
-            conversation_id: conversationId,
-            title,
-            join_policy: joinPolicy,
-            audio_only: audioOnly,
-          }),
-        });
-      },
+          return chatWrite({
+            account,
+            context,
+            operation,
+            path: "/2/calls",
+            method: "POST",
+            body: definedFields({
+              conversation_id: conversationId,
+              title,
+              join_policy: joinPolicy,
+              audio_only: audioOnly,
+            }),
+          });
+        },
+      ),
       async getCall({ account, callId, context }) {
         requireId(callId, "callId", "x.calls.get", callIdPattern);
 
@@ -9675,7 +9879,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async joinCall({ account, callId, audio, context }) {
+      joinCall: uncertainWrite("x.joinCall", async ({ account, callId, audio, context }) => {
         requireId(callId, "callId", "x.calls.join", callIdPattern);
 
         return chatWrite({
@@ -9697,8 +9901,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
                   },
                 },
         });
-      },
-      async leaveCall({ account, callId, context }) {
+      }),
+      leaveCall: uncertainWrite("x.leaveCall", async ({ account, callId, context }) => {
         requireId(callId, "callId", "x.calls.leave", callIdPattern);
 
         await chatWrite({
@@ -9709,7 +9913,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           method: "POST",
           confirm: ["left", true],
         });
-      },
+      }),
       async scheduledCalls({ account, startTime, endTime, limit, context }) {
         for (const value of [startTime, endTime])
           if (value !== undefined && !Number.isFinite(Date.parse(value)))
@@ -9727,7 +9931,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           maxLimit: 100,
         });
       },
-      async scheduleCall({ account, call, context }) {
+      scheduleCall: uncertainWrite("x.scheduleCall", async ({ account, call, context }) => {
         const operation = "x.calls.schedule";
 
         return chatWrite({
@@ -9738,7 +9942,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           method: "POST",
           body: scheduledCallBody({ ...call, startTime: call.startTime }, 25, operation),
         });
-      },
+      }),
       async getScheduledCall({ account, scheduledCallId, context }) {
         requireId(scheduledCallId, "scheduledCallId", "x.calls.scheduled.get");
 
@@ -9754,76 +9958,85 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async updateScheduledCall({ account, scheduledCallId, update, context }) {
-        const operation = "x.calls.scheduled.update";
+      updateScheduledCall: uncertainWrite(
+        "x.updateScheduledCall",
+        async ({ account, scheduledCallId, update, context }) => {
+          const operation = "x.calls.scheduled.update";
 
-        requireId(scheduledCallId, "scheduledCallId", operation);
+          requireId(scheduledCallId, "scheduledCallId", operation);
 
-        const body = {
-          ...scheduledCallBody(update, 100, operation),
-          ...callOccurrence(update, operation),
-        };
+          const body = {
+            ...scheduledCallBody(update, 100, operation),
+            ...callOccurrence(update, operation),
+          };
 
-        if (Object.keys(body).length === 0) throw invalid(operation, "Pass at least one change.");
+          if (Object.keys(body).length === 0) throw invalid(operation, "Pass at least one change.");
 
-        await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/calls/scheduled/${scheduledCallId}`,
-          method: "PUT",
-          confirm: ["updated", true],
-          body,
-        });
-      },
-      async cancelScheduledCall({ account, scheduledCallId, occurrence, notifyInvitees, context }) {
-        authorize(account, context);
-
-        const operation = "x.calls.scheduled.cancel";
-
-        requireId(scheduledCallId, "scheduledCallId", operation);
-
-        const wire = callOccurrence(occurrence ?? {}, operation);
-
-        confirmedWrite(
-          await requireUserToken(operation)(
-            `/2/calls/scheduled/${scheduledCallId}`,
+          await chatWrite({
+            account,
             context,
-            undefined,
-            definedFields({
-              scope: optionalString(wire["scope"]),
-              occurrence_start_time: optionalString(wire["occurrence_start_time"]),
-              notify_invitees: notifyInvitees === undefined ? undefined : String(notifyInvitees),
-            }),
-            "DELETE",
-          ),
-          "cancelled",
-          true,
-          operation,
-        );
-      },
-      async rsvpScheduledCall({ account, scheduledCallId, response, occurrence, context }) {
-        const operation = "x.calls.scheduled.rsvp";
-
-        requireId(scheduledCallId, "scheduledCallId", operation);
-
-        const data = await chatWrite({
-          account,
-          context,
-          operation,
-          path: `/2/calls/scheduled/${scheduledCallId}/rsvp`,
-          method: "POST",
-          body: { response, ...callOccurrence(occurrence ?? {}, operation) },
-        });
-
-        if (data["response"] !== response)
-          throw new SocialError({
-            code: "ambiguous_outcome",
             operation,
-            message: "X did not confirm the RSVP. Read the scheduled call before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
+            path: `/2/calls/scheduled/${scheduledCallId}`,
+            method: "PUT",
+            confirm: ["updated", true],
+            body,
           });
-      },
+        },
+      ),
+      cancelScheduledCall: uncertainWrite(
+        "x.cancelScheduledCall",
+        async ({ account, scheduledCallId, occurrence, notifyInvitees, context }) => {
+          authorize(account, context);
+
+          const operation = "x.calls.scheduled.cancel";
+
+          requireId(scheduledCallId, "scheduledCallId", operation);
+
+          const wire = callOccurrence(occurrence ?? {}, operation);
+
+          confirmedWrite(
+            await requireUserToken(operation)(
+              `/2/calls/scheduled/${scheduledCallId}`,
+              context,
+              undefined,
+              definedFields({
+                scope: optionalString(wire["scope"]),
+                occurrence_start_time: optionalString(wire["occurrence_start_time"]),
+                notify_invitees: notifyInvitees === undefined ? undefined : String(notifyInvitees),
+              }),
+              "DELETE",
+            ),
+            "cancelled",
+            true,
+            operation,
+          );
+        },
+      ),
+      rsvpScheduledCall: uncertainWrite(
+        "x.rsvpScheduledCall",
+        async ({ account, scheduledCallId, response, occurrence, context }) => {
+          const operation = "x.calls.scheduled.rsvp";
+
+          requireId(scheduledCallId, "scheduledCallId", operation);
+
+          const data = await chatWrite({
+            account,
+            context,
+            operation,
+            path: `/2/calls/scheduled/${scheduledCallId}/rsvp`,
+            method: "POST",
+            body: { response, ...callOccurrence(occurrence ?? {}, operation) },
+          });
+
+          if (data["response"] !== response)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not confirm the RSVP. Read the scheduled call before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+        },
+      ),
       async bots({ account, context }) {
         return pageFrom(
           await xRead({
@@ -9835,49 +10048,55 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }),
         );
       },
-      async createBot({ account, handle, displayName, orgOnly, scopes, context }) {
-        authorize(account, context);
+      createBot: uncertainWrite(
+        "x.createBot",
+        async ({ account, handle, displayName, orgOnly, scopes, context }) => {
+          authorize(account, context);
 
-        const operation = "x.bots.create";
+          const operation = "x.bots.create";
 
-        botFields(handle, displayName, operation);
+          botFields(handle, displayName, operation);
 
-        return botWithToken(
-          await credentialRequest("app-or-user", operation)("/2/bots", context, {
-            handle,
-            ...definedFields({
-              display_name: displayName,
-              org_only: orgOnly,
-              scopes: scopes === undefined ? undefined : [...scopes],
+          return botWithToken(
+            await credentialRequest("app-or-user", operation)("/2/bots", context, {
+              handle,
+              ...definedFields({
+                display_name: displayName,
+                org_only: orgOnly,
+                scopes: scopes === undefined ? undefined : [...scopes],
+              }),
             }),
-          }),
-          operation,
-        );
-      },
-      async updateBot({ account, botId, handle, displayName, dmPermission, context }) {
-        authorize(account, context);
+            operation,
+          );
+        },
+      ),
+      updateBot: uncertainWrite(
+        "x.updateBot",
+        async ({ account, botId, handle, displayName, dmPermission, context }) => {
+          authorize(account, context);
 
-        const operation = "x.bots.update";
+          const operation = "x.bots.update";
 
-        requireId(botId, "botId", operation);
-        botFields(handle, displayName, operation);
+          requireId(botId, "botId", operation);
+          botFields(handle, displayName, operation);
 
-        const body = definedFields({
-          handle,
-          display_name: displayName,
-          dm_permission: dmPermission,
-        });
+          const body = definedFields({
+            handle,
+            display_name: displayName,
+            dm_permission: dmPermission,
+          });
 
-        if (Object.keys(body).length === 0) throw invalid(operation, "Pass at least one change.");
+          if (Object.keys(body).length === 0) throw invalid(operation, "Pass at least one change.");
 
-        confirmedWrite(
-          await appRequest()(`/2/bots/${botId}`, context, body, {}, "PUT"),
-          "updated",
-          true,
-          operation,
-        );
-      },
-      async deleteBot({ account, botId, context }) {
+          confirmedWrite(
+            await appRequest()(`/2/bots/${botId}`, context, body, {}, "PUT"),
+            "updated",
+            true,
+            operation,
+          );
+        },
+      ),
+      deleteBot: uncertainWrite("x.deleteBot", async ({ account, botId, context }) => {
         authorize(account, context);
         requireId(botId, "botId", "x.bots.delete");
 
@@ -9887,26 +10106,29 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.bots.delete",
         );
-      },
-      async rotateBotToken({ account, botId, scopes, context }) {
-        authorize(account, context);
+      }),
+      rotateBotToken: uncertainWrite(
+        "x.rotateBotToken",
+        async ({ account, botId, scopes, context }) => {
+          authorize(account, context);
 
-        const operation = "x.bots.token.rotate";
+          const operation = "x.bots.token.rotate";
 
-        requireId(botId, "botId", operation);
+          requireId(botId, "botId", operation);
 
-        return botWithToken(
-          await credentialRequest("app-or-user", operation)(
-            `/2/bots/${botId}/token`,
-            context,
-            definedFields({ scopes: scopes === undefined ? undefined : [...scopes] }),
-            {},
-            "POST",
-          ),
-          operation,
-        );
-      },
-      async revokeBotToken({ account, botId, context }) {
+          return botWithToken(
+            await credentialRequest("app-or-user", operation)(
+              `/2/bots/${botId}/token`,
+              context,
+              definedFields({ scopes: scopes === undefined ? undefined : [...scopes] }),
+              {},
+              "POST",
+            ),
+            operation,
+          );
+        },
+      ),
+      revokeBotToken: uncertainWrite("x.revokeBotToken", async ({ account, botId, context }) => {
         authorize(account, context);
         requireId(botId, "botId", "x.bots.token.revoke");
 
@@ -9916,7 +10138,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           true,
           "x.bots.token.revoke",
         );
-      },
+      }),
       async developerAccount({ account, context }) {
         return object(
           (
@@ -9930,35 +10152,38 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async ensureDeveloperAccount({ account, metadata, context }) {
-        const operation = "x.account.developer.ensure";
+      ensureDeveloperAccount: uncertainWrite(
+        "x.ensureDeveloperAccount",
+        async ({ account, metadata, context }) => {
+          const operation = "x.account.developer.ensure";
 
-        if (metadata !== undefined && [...metadata].length > 64)
-          throw invalid(operation, "metadata is limited to 64 characters.");
+          if (metadata !== undefined && [...metadata].length > 64)
+            throw invalid(operation, "metadata is limited to 64 characters.");
 
-        const data = await chatWrite({
-          account,
-          context,
-          operation,
-          path: "/2/account",
-          method: "POST",
-          body: definedFields({ metadata }),
-        });
-
-        const accountId = optionalString(data["account_id"]);
-
-        const created = optionalBoolean(data["created"]);
-
-        if (accountId === undefined || created === undefined)
-          throw new SocialError({
-            code: "ambiguous_outcome",
+          const data = await chatWrite({
+            account,
+            context,
             operation,
-            message: "X did not return the developer account. Read it before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
+            path: "/2/account",
+            method: "POST",
+            body: definedFields({ metadata }),
           });
 
-        return { accountId, created };
-      },
+          const accountId = optionalString(data["account_id"]);
+
+          const created = optionalBoolean(data["created"]);
+
+          if (accountId === undefined || created === undefined)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not return the developer account. Read it before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+
+          return { accountId, created };
+        },
+      ),
       async broadcasts({ account, broadcastIds, cursor, limit, context }) {
         const operation = "x.broadcasts.list";
 
@@ -9993,7 +10218,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           credential: "user",
         });
       },
-      async endBroadcast({ account, broadcastId, context }) {
+      endBroadcast: uncertainWrite("x.endBroadcast", async ({ account, broadcastId, context }) => {
         authorize(account, context);
         requireBroadcastId(broadcastId, "x.broadcasts.end");
 
@@ -10012,65 +10237,73 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
             message: "X did not confirm the broadcast ended. Read it before retrying.",
             retryDisposition: { kind: "reconcile-first" },
           });
-      },
-      async deleteBroadcast({ account, broadcastId, context }) {
-        authorize(account, context);
-        requireBroadcastId(broadcastId, "x.broadcasts.delete");
+      }),
+      deleteBroadcast: uncertainWrite(
+        "x.deleteBroadcast",
+        async ({ account, broadcastId, context }) => {
+          authorize(account, context);
+          requireBroadcastId(broadcastId, "x.broadcasts.delete");
 
-        confirmedWrite(
-          await requireUserToken("x.broadcasts.delete")(
-            `/2/broadcasts/${broadcastId}`,
+          confirmedWrite(
+            await requireUserToken("x.broadcasts.delete")(
+              `/2/broadcasts/${broadcastId}`,
+              context,
+              undefined,
+              {},
+              "DELETE",
+            ),
+            "deleted",
+            true,
+            "x.broadcasts.delete",
+          );
+        },
+      ),
+      scheduleBroadcast: uncertainWrite(
+        "x.scheduleBroadcast",
+        async ({ account, broadcast, context }) => {
+          authorize(account, context);
+
+          const operation = "x.broadcasts.schedule";
+
+          if (!broadcast.sourceId.trim()) throw invalid(operation, "sourceId must not be empty.");
+
+          const start = epochMs(broadcast.startAt, "startAt", operation);
+
+          const end =
+            broadcast.endAt === undefined
+              ? undefined
+              : epochMs(broadcast.endAt, "endAt", operation);
+
+          if (end !== undefined && Number(end) <= Number(start))
+            throw invalid(operation, "endAt must be later than startAt.");
+
+          return broadcastWrite(
+            "/2/broadcasts/scheduled",
+            {
+              source_id: broadcast.sourceId,
+              scheduled_start_ms: start,
+              ...definedFields({
+                scheduled_end_ms: end,
+                title: broadcast.title,
+                description: broadcast.description,
+                locale: broadcast.locale,
+                manual_publish: broadcast.manualPublish,
+                available_for_replay: broadcast.availableForReplay,
+                chat_option:
+                  broadcast.chatOption === undefined ? undefined : String(broadcast.chatOption),
+                ...broadcastExtras(broadcast, operation),
+                recurrence:
+                  broadcast.recurrence === undefined
+                    ? undefined
+                    : broadcastRecurrence(broadcast.recurrence, operation),
+              }),
+            },
+            "POST",
             context,
-            undefined,
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "x.broadcasts.delete",
-        );
-      },
-      async scheduleBroadcast({ account, broadcast, context }) {
-        authorize(account, context);
-
-        const operation = "x.broadcasts.schedule";
-
-        if (!broadcast.sourceId.trim()) throw invalid(operation, "sourceId must not be empty.");
-
-        const start = epochMs(broadcast.startAt, "startAt", operation);
-
-        const end =
-          broadcast.endAt === undefined ? undefined : epochMs(broadcast.endAt, "endAt", operation);
-
-        if (end !== undefined && Number(end) <= Number(start))
-          throw invalid(operation, "endAt must be later than startAt.");
-
-        return broadcastWrite(
-          "/2/broadcasts/scheduled",
-          {
-            source_id: broadcast.sourceId,
-            scheduled_start_ms: start,
-            ...definedFields({
-              scheduled_end_ms: end,
-              title: broadcast.title,
-              description: broadcast.description,
-              locale: broadcast.locale,
-              manual_publish: broadcast.manualPublish,
-              available_for_replay: broadcast.availableForReplay,
-              chat_option:
-                broadcast.chatOption === undefined ? undefined : String(broadcast.chatOption),
-              ...broadcastExtras(broadcast, operation),
-              recurrence:
-                broadcast.recurrence === undefined
-                  ? undefined
-                  : broadcastRecurrence(broadcast.recurrence, operation),
-            }),
-          },
-          "POST",
-          context,
-          operation,
-        );
-      },
+            operation,
+          );
+        },
+      ),
       async scheduledBroadcasts({ account, oldestStartAt, newestStartAt, cursor, limit, context }) {
         for (const [name, value] of [
           ["oldestStartAt", oldestStartAt],
@@ -10110,50 +10343,47 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["data"],
         );
       },
-      async updateScheduledBroadcast({
-        account,
-        broadcastId,
-        scheduledBroadcastId,
-        broadcast,
-        context,
-      }) {
-        authorize(account, context);
+      updateScheduledBroadcast: uncertainWrite(
+        "x.updateScheduledBroadcast",
+        async ({ account, broadcastId, scheduledBroadcastId, broadcast, context }) => {
+          authorize(account, context);
 
-        const operation = "x.broadcasts.scheduled.update";
+          const operation = "x.broadcasts.scheduled.update";
 
-        requireBroadcastId(broadcastId, operation);
-        requireId(scheduledBroadcastId, "scheduledBroadcastId", operation);
+          requireBroadcastId(broadcastId, operation);
+          requireId(scheduledBroadcastId, "scheduledBroadcastId", operation);
 
-        const start = epochMs(broadcast.startAt, "startAt", operation);
+          const start = epochMs(broadcast.startAt, "startAt", operation);
 
-        const end = epochMs(broadcast.endAt, "endAt", operation);
+          const end = epochMs(broadcast.endAt, "endAt", operation);
 
-        if (Number(end) <= Number(start))
-          throw invalid(operation, "endAt must be later than startAt.");
+          if (Number(end) <= Number(start))
+            throw invalid(operation, "endAt must be later than startAt.");
 
-        return broadcastWrite(
-          `/2/broadcasts/scheduled/${broadcastId}`,
-          {
-            scheduled_broadcast_id: scheduledBroadcastId,
-            scheduled_start_ms: start,
-            scheduled_end_ms: end,
-            ...definedFields({
-              source_id: broadcast.sourceId,
-              title: broadcast.title,
-              description: broadcast.description,
-              locale: broadcast.locale,
-              manual_publish: broadcast.manualPublish,
-              available_for_replay: broadcast.availableForReplay,
-              chat_option:
-                broadcast.chatOption === undefined ? undefined : String(broadcast.chatOption),
-              ...broadcastExtras(broadcast, operation),
-            }),
-          },
-          "PUT",
-          context,
-          operation,
-        );
-      },
+          return broadcastWrite(
+            `/2/broadcasts/scheduled/${broadcastId}`,
+            {
+              scheduled_broadcast_id: scheduledBroadcastId,
+              scheduled_start_ms: start,
+              scheduled_end_ms: end,
+              ...definedFields({
+                source_id: broadcast.sourceId,
+                title: broadcast.title,
+                description: broadcast.description,
+                locale: broadcast.locale,
+                manual_publish: broadcast.manualPublish,
+                available_for_replay: broadcast.availableForReplay,
+                chat_option:
+                  broadcast.chatOption === undefined ? undefined : String(broadcast.chatOption),
+                ...broadcastExtras(broadcast, operation),
+              }),
+            },
+            "PUT",
+            context,
+            operation,
+          );
+        },
+      ),
       async ingestRegion({ account, context }) {
         const region = optionalString(
           (
@@ -10172,45 +10402,45 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
         return region;
       },
-      async setBroadcastChatMute({
-        account,
-        broadcastId,
-        userId,
-        muted,
-        endAt,
-        removeMessageId,
-        context,
-      }) {
-        authorize(account, context);
+      setBroadcastChatMute: uncertainWrite(
+        "x.setBroadcastChatMute",
+        async ({ account, broadcastId, userId, muted, endAt, removeMessageId, context }) => {
+          authorize(account, context);
 
-        const operation = "x.broadcasts.chat.mutes";
+          const operation = "x.broadcasts.chat.mutes";
 
-        requireBroadcastId(broadcastId, operation);
-        requireId(userId, "userId", operation);
+          requireBroadcastId(broadcastId, operation);
+          requireId(userId, "userId", operation);
 
-        if (!muted && (endAt !== undefined || removeMessageId !== undefined))
-          throw invalid(operation, "endAt and removeMessageId only apply when muting.");
+          if (!muted && (endAt !== undefined || removeMessageId !== undefined))
+            throw invalid(operation, "endAt and removeMessageId only apply when muting.");
 
-        if (removeMessageId !== undefined) requireId(removeMessageId, "removeMessageId", operation);
+          if (removeMessageId !== undefined)
+            requireId(removeMessageId, "removeMessageId", operation);
 
-        const result = muted
-          ? await requireUserToken(operation)(`/2/broadcasts/${broadcastId}/chat/mutes`, context, {
-              user_id: userId,
-              ...definedFields({
-                end_at_ms: endAt === undefined ? undefined : epochMs(endAt, "endAt", operation),
-                message_id: removeMessageId,
-              }),
-            })
-          : await requireUserToken(operation)(
-              `/2/broadcasts/${broadcastId}/chat/mutes/${userId}`,
-              context,
-              undefined,
-              {},
-              "DELETE",
-            );
+          const result = muted
+            ? await requireUserToken(operation)(
+                `/2/broadcasts/${broadcastId}/chat/mutes`,
+                context,
+                {
+                  user_id: userId,
+                  ...definedFields({
+                    end_at_ms: endAt === undefined ? undefined : epochMs(endAt, "endAt", operation),
+                    message_id: removeMessageId,
+                  }),
+                },
+              )
+            : await requireUserToken(operation)(
+                `/2/broadcasts/${broadcastId}/chat/mutes/${userId}`,
+                context,
+                undefined,
+                {},
+                "DELETE",
+              );
 
-        confirmedWrite(result, "muted", muted, operation);
-      },
+          confirmedWrite(result, "muted", muted, operation);
+        },
+      ),
       async userBroadcasts({ account, cursor, context }) {
         if (cursor !== undefined && !cursor.trim())
           throw invalid("x.broadcasts.user", "Pass the nextCursor value from a previous page.");
@@ -10254,88 +10484,97 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["broadcast"],
         );
       },
-      async createUserBroadcast({ account, sourceId, context }) {
-        authorize(account, context);
+      createUserBroadcast: uncertainWrite(
+        "x.createUserBroadcast",
+        async ({ account, sourceId, context }) => {
+          authorize(account, context);
 
-        const operation = "x.broadcasts.user.create";
+          const operation = "x.broadcasts.user.create";
 
-        requireId(sourceId, "sourceId", operation, streamSourcePattern);
+          requireId(sourceId, "sourceId", operation, streamSourcePattern);
 
-        const data = await broadcastWrite(
-          `/2/users/${encodeURIComponent(account.accountId)}/broadcasts`,
-          { source_id: sourceId },
-          "POST",
-          context,
-          operation,
-        );
-
-        const shareUrl = optionalString(data["share_url"]);
-
-        if (!isJsonObject(data["broadcast"]) || shareUrl === undefined)
-          throw new SocialError({
-            code: "ambiguous_outcome",
+          const data = await broadcastWrite(
+            `/2/users/${encodeURIComponent(account.accountId)}/broadcasts`,
+            { source_id: sourceId },
+            "POST",
+            context,
             operation,
-            message: "X did not return the new broadcast. List broadcasts before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
+          );
 
-        return { broadcast: data["broadcast"], shareUrl };
-      },
-      async setUserBroadcastState({ account, broadcastId, state, context }) {
-        authorize(account, context);
+          const shareUrl = optionalString(data["share_url"]);
 
-        const operation = "x.broadcasts.user.state";
+          if (!isJsonObject(data["broadcast"]) || shareUrl === undefined)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not return the new broadcast. List broadcasts before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
-        requireBroadcastId(broadcastId, operation);
+          return { broadcast: data["broadcast"], shareUrl };
+        },
+      ),
+      setUserBroadcastState: uncertainWrite(
+        "x.setUserBroadcastState",
+        async ({ account, broadcastId, state, context }) => {
+          authorize(account, context);
 
-        const data = await broadcastWrite(
-          `/2/users/${encodeURIComponent(account.accountId)}/broadcasts/${broadcastId}/state`,
-          state.kind === "end"
-            ? { state: "END" }
-            : {
-                state: "PUBLISH",
-                ...definedFields({
-                  title: state.title,
-                  locale: state.locale,
-                  chat_option: state.chatOption,
-                  should_not_tweet: state.shouldNotTweet,
-                }),
-              },
-          "PUT",
-          context,
-          operation,
-        );
+          const operation = "x.broadcasts.user.state";
 
-        if (state.kind === "end" ? data["success"] !== true : !isJsonObject(data["broadcast"]))
-          throw new SocialError({
-            code: "ambiguous_outcome",
+          requireBroadcastId(broadcastId, operation);
+
+          const data = await broadcastWrite(
+            `/2/users/${encodeURIComponent(account.accountId)}/broadcasts/${broadcastId}/state`,
+            state.kind === "end"
+              ? { state: "END" }
+              : {
+                  state: "PUBLISH",
+                  ...definedFields({
+                    title: state.title,
+                    locale: state.locale,
+                    chat_option: state.chatOption,
+                    should_not_tweet: state.shouldNotTweet,
+                  }),
+                },
+            "PUT",
+            context,
             operation,
-            message: "X did not confirm the broadcast state. Read it before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
+          );
 
-        return data;
-      },
-      async deleteUserBroadcast({ account, broadcastId, context }) {
-        authorize(account, context);
-        requireBroadcastId(broadcastId, "x.broadcasts.user.delete");
+          if (state.kind === "end" ? data["success"] !== true : !isJsonObject(data["broadcast"]))
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not confirm the broadcast state. Read it before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
-        const data = await broadcastWrite(
-          `/2/users/${encodeURIComponent(account.accountId)}/broadcasts/${broadcastId}`,
-          undefined,
-          "DELETE",
-          context,
-          "x.broadcasts.user.delete",
-        );
+          return data;
+        },
+      ),
+      deleteUserBroadcast: uncertainWrite(
+        "x.deleteUserBroadcast",
+        async ({ account, broadcastId, context }) => {
+          authorize(account, context);
+          requireBroadcastId(broadcastId, "x.broadcasts.user.delete");
 
-        if (data["success"] !== true)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "x.broadcasts.user.delete",
-            message: "X did not confirm the deletion. Read the broadcast before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-      },
+          const data = await broadcastWrite(
+            `/2/users/${encodeURIComponent(account.accountId)}/broadcasts/${broadcastId}`,
+            undefined,
+            "DELETE",
+            context,
+            "x.broadcasts.user.delete",
+          );
+
+          if (data["success"] !== true)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "x.broadcasts.user.delete",
+              message: "X did not confirm the deletion. Read the broadcast before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+        },
+      ),
       async userStreamSources({ account, context }) {
         return array(
           object(
@@ -10368,62 +10607,71 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           )["source"],
         );
       },
-      async createUserStreamSource({ account, name, region, context }) {
-        authorize(account, context);
+      createUserStreamSource: uncertainWrite(
+        "x.createUserStreamSource",
+        async ({ account, name, region, context }) => {
+          authorize(account, context);
 
-        if (!name.trim()) throw invalid("x.sources.user.create", "Give the source a name.");
+          if (!name.trim()) throw invalid("x.sources.user.create", "Give the source a name.");
 
-        return object(
-          (
-            await broadcastWrite(
-              `/2/users/${encodeURIComponent(account.accountId)}/sources`,
-              { name, ...definedFields({ region }) },
-              "POST",
-              context,
-              "x.sources.user.create",
-            )
-          )["source"],
-        );
-      },
-      async renameUserStreamSource({ account, sourceId, name, context }) {
-        authorize(account, context);
-        requireId(sourceId, "sourceId", "x.sources.user.rename", streamSourcePattern);
+          return object(
+            (
+              await broadcastWrite(
+                `/2/users/${encodeURIComponent(account.accountId)}/sources`,
+                { name, ...definedFields({ region }) },
+                "POST",
+                context,
+                "x.sources.user.create",
+              )
+            )["source"],
+          );
+        },
+      ),
+      renameUserStreamSource: uncertainWrite(
+        "x.renameUserStreamSource",
+        async ({ account, sourceId, name, context }) => {
+          authorize(account, context);
+          requireId(sourceId, "sourceId", "x.sources.user.rename", streamSourcePattern);
 
-        if (!name.trim()) throw invalid("x.sources.user.rename", "Give the source a name.");
+          if (!name.trim()) throw invalid("x.sources.user.rename", "Give the source a name.");
 
-        return object(
-          (
-            await broadcastWrite(
-              `/2/users/${encodeURIComponent(account.accountId)}/sources/${sourceId}`,
-              { name },
-              "PUT",
-              context,
-              "x.sources.user.rename",
-            )
-          )["source"],
-        );
-      },
-      async deleteUserStreamSource({ account, sourceId, context }) {
-        authorize(account, context);
-        requireId(sourceId, "sourceId", "x.sources.user.delete", streamSourcePattern);
+          return object(
+            (
+              await broadcastWrite(
+                `/2/users/${encodeURIComponent(account.accountId)}/sources/${sourceId}`,
+                { name },
+                "PUT",
+                context,
+                "x.sources.user.rename",
+              )
+            )["source"],
+          );
+        },
+      ),
+      deleteUserStreamSource: uncertainWrite(
+        "x.deleteUserStreamSource",
+        async ({ account, sourceId, context }) => {
+          authorize(account, context);
+          requireId(sourceId, "sourceId", "x.sources.user.delete", streamSourcePattern);
 
-        const result = await requireUserToken("x.sources.user.delete")(
-          `/2/users/${encodeURIComponent(account.accountId)}/sources/${sourceId}`,
-          context,
-          undefined,
-          {},
-          "DELETE",
-        );
+          const result = await requireUserToken("x.sources.user.delete")(
+            `/2/users/${encodeURIComponent(account.accountId)}/sources/${sourceId}`,
+            context,
+            undefined,
+            {},
+            "DELETE",
+          );
 
-        if (!isJsonObject(result) || !isJsonObject(result["data"]))
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "x.sources.user.delete",
-            message: "X did not confirm the deletion. List sources before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-      },
-      async goLive({ account, broadcastId, context }) {
+          if (!isJsonObject(result) || !isJsonObject(result["data"]))
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "x.sources.user.delete",
+              message: "X did not confirm the deletion. List sources before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+        },
+      ),
+      goLive: uncertainWrite("x.goLive", async ({ account, broadcastId, context }) => {
         authorize(account, context);
         requireBroadcastId(broadcastId, "x.broadcasts.live");
 
@@ -10434,24 +10682,27 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           context,
           "x.broadcasts.live",
         );
-      },
-      async deleteScheduledBroadcast({ account, broadcastId, context }) {
-        authorize(account, context);
-        requireBroadcastId(broadcastId, "x.broadcasts.scheduled.delete");
+      }),
+      deleteScheduledBroadcast: uncertainWrite(
+        "x.deleteScheduledBroadcast",
+        async ({ account, broadcastId, context }) => {
+          authorize(account, context);
+          requireBroadcastId(broadcastId, "x.broadcasts.scheduled.delete");
 
-        confirmedWrite(
-          await requireUserToken("x.broadcasts.scheduled.delete")(
-            `/2/broadcasts/scheduled/${broadcastId}`,
-            context,
-            undefined,
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "x.broadcasts.scheduled.delete",
-        );
-      },
+          confirmedWrite(
+            await requireUserToken("x.broadcasts.scheduled.delete")(
+              `/2/broadcasts/scheduled/${broadcastId}`,
+              context,
+              undefined,
+              {},
+              "DELETE",
+            ),
+            "deleted",
+            true,
+            "x.broadcasts.scheduled.delete",
+          );
+        },
+      ),
       async streamSources({ account, context }) {
         return pageFrom(
           await xRead({
@@ -10463,53 +10714,59 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           }),
         );
       },
-      async createStreamSource({ account, name, region, context }) {
-        authorize(account, context);
+      createStreamSource: uncertainWrite(
+        "x.createStreamSource",
+        async ({ account, name, region, context }) => {
+          authorize(account, context);
 
-        if (!name.trim() || !/^[a-z]{2}-[a-z]+-[0-9]$/.test(region))
-          throw invalid("x.sources.create", "Give a source name and a region such as us-east-1.");
+          if (!name.trim() || !/^[a-z]{2}-[a-z]+-[0-9]$/.test(region))
+            throw invalid("x.sources.create", "Give a source name and a region such as us-east-1.");
 
-        const source = await broadcastWrite(
-          "/2/sources",
-          { name, region },
-          "POST",
-          context,
-          "x.sources.create",
-        );
-
-        // X's CreateSourceResponseData requires both; without them the source cannot be used.
-        if (
-          optionalString(source["id"]) === undefined ||
-          optionalString(source["stream_key"]) === undefined
-        )
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation: "x.sources.create",
-            message: "X did not return the new stream source. List sources before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        return source;
-      },
-      async deleteStreamSource({ account, sourceId, context }) {
-        authorize(account, context);
-
-        if (!/^[A-Za-z0-9_-]{1,128}$/.test(sourceId))
-          throw invalid("x.sources.delete", "sourceId is not a valid X stream source ID.");
-
-        confirmedWrite(
-          await requireUserToken("x.sources.delete")(
-            `/2/sources/${sourceId}`,
+          const source = await broadcastWrite(
+            "/2/sources",
+            { name, region },
+            "POST",
             context,
-            undefined,
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "x.sources.delete",
-        );
-      },
+            "x.sources.create",
+          );
+
+          // X's CreateSourceResponseData requires both; without them the source cannot be used.
+          if (
+            optionalString(source["id"]) === undefined ||
+            optionalString(source["stream_key"]) === undefined
+          )
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation: "x.sources.create",
+              message: "X did not return the new stream source. List sources before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
+
+          return source;
+        },
+      ),
+      deleteStreamSource: uncertainWrite(
+        "x.deleteStreamSource",
+        async ({ account, sourceId, context }) => {
+          authorize(account, context);
+
+          if (!/^[A-Za-z0-9_-]{1,128}$/.test(sourceId))
+            throw invalid("x.sources.delete", "sourceId is not a valid X stream source ID.");
+
+          confirmedWrite(
+            await requireUserToken("x.sources.delete")(
+              `/2/sources/${sourceId}`,
+              context,
+              undefined,
+              {},
+              "DELETE",
+            ),
+            "deleted",
+            true,
+            "x.sources.delete",
+          );
+        },
+      ),
       async broadcastChat({ account, broadcastId, cursor, limit, context }) {
         requireBroadcastId(broadcastId, "x.broadcasts.chat");
 
@@ -10529,109 +10786,121 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           maxLimit: 200,
         });
       },
-      async sendBroadcastChat({ account, broadcastId, text, replyTo, context }) {
-        authorize(account, context);
+      sendBroadcastChat: uncertainWrite(
+        "x.sendBroadcastChat",
+        async ({ account, broadcastId, text, replyTo, context }) => {
+          authorize(account, context);
 
-        const operation = "x.broadcasts.chat.send";
+          const operation = "x.broadcasts.chat.send";
 
-        requireBroadcastId(broadcastId, operation);
+          requireBroadcastId(broadcastId, operation);
 
-        if (!text.trim() || [...text].length > 140)
-          throw invalid(operation, "Broadcast chat messages are 1-140 characters.");
+          if (!text.trim() || [...text].length > 140)
+            throw invalid(operation, "Broadcast chat messages are 1-140 characters.");
 
-        if (replyTo !== undefined) requireId(replyTo, "replyTo", operation);
+          if (replyTo !== undefined) requireId(replyTo, "replyTo", operation);
 
-        const data = await broadcastWrite(
-          `/2/broadcasts/${broadcastId}/chat`,
-          { text, ...definedFields({ reply_to: replyTo }) },
-          "POST",
-          context,
-          operation,
-        );
-
-        const timestamp = optionalString(data["timestamp"]);
-
-        if (data["success"] !== true || timestamp === undefined)
-          throw new SocialError({
-            code: "ambiguous_outcome",
-            operation,
-            message: "X did not confirm the chat message. Read the chat before retrying.",
-            retryDisposition: { kind: "reconcile-first" },
-          });
-
-        return { timestamp };
-      },
-      async removeBroadcastChatMessage({ account, broadcastId, messageId, context }) {
-        authorize(account, context);
-        requireBroadcastId(broadcastId, "x.broadcasts.chat.remove");
-        requireId(messageId, "messageId", "x.broadcasts.chat.remove");
-
-        confirmedWrite(
-          await requireUserToken("x.broadcasts.chat.remove")(
-            `/2/broadcasts/${broadcastId}/chat/${messageId}`,
+          const data = await broadcastWrite(
+            `/2/broadcasts/${broadcastId}/chat`,
+            { text, ...definedFields({ reply_to: replyTo }) },
+            "POST",
             context,
-            undefined,
-            {},
-            "DELETE",
-          ),
-          "deleted",
-          true,
-          "x.broadcasts.chat.remove",
-        );
-      },
-      async setChatModerator({ account, userId, moderator, context }) {
-        authorize(account, context);
-        requireId(userId, "userId", "x.broadcasts.moderators");
+            operation,
+          );
 
-        const data = moderator
-          ? await broadcastWrite(
-              "/2/broadcasts/chat/moderators",
-              { user_id: userId },
-              "POST",
-              context,
-              "x.broadcasts.moderators",
-            )
-          : await broadcastWrite(
-              `/2/broadcasts/chat/moderators/${userId}`,
-              undefined,
-              "DELETE",
-              context,
-              "x.broadcasts.moderators",
-            );
+          const timestamp = optionalString(data["timestamp"]);
 
-        return array(data["moderator_user_ids"]).map(string);
-      },
-      async setChatMute({ account, userId, muted, broadcastId, endAt, context }) {
-        authorize(account, context);
+          if (data["success"] !== true || timestamp === undefined)
+            throw new SocialError({
+              code: "ambiguous_outcome",
+              operation,
+              message: "X did not confirm the chat message. Read the chat before retrying.",
+              retryDisposition: { kind: "reconcile-first" },
+            });
 
-        const operation = "x.broadcasts.mutes";
+          return { timestamp };
+        },
+      ),
+      removeBroadcastChatMessage: uncertainWrite(
+        "x.removeBroadcastChatMessage",
+        async ({ account, broadcastId, messageId, context }) => {
+          authorize(account, context);
+          requireBroadcastId(broadcastId, "x.broadcasts.chat.remove");
+          requireId(messageId, "messageId", "x.broadcasts.chat.remove");
 
-        requireId(userId, "userId", operation);
-
-        if (broadcastId !== undefined) requireBroadcastId(broadcastId, operation);
-
-        if (!muted && endAt !== undefined)
-          throw invalid(operation, "endAt only applies when muting.");
-
-        const result = muted
-          ? await requireUserToken(operation)("/2/broadcasts/chat/mutes", context, {
-              user_id: userId,
-              ...definedFields({
-                broadcast_id: broadcastId,
-                end_at_ms: endAt === undefined ? undefined : epochMs(endAt, "endAt", operation),
-              }),
-            })
-          : await requireUserToken(operation)(
-              `/2/broadcasts/chat/mutes/${userId}`,
+          confirmedWrite(
+            await requireUserToken("x.broadcasts.chat.remove")(
+              `/2/broadcasts/${broadcastId}/chat/${messageId}`,
               context,
               undefined,
-              definedFields({ broadcast_id: broadcastId }),
+              {},
               "DELETE",
-            );
+            ),
+            "deleted",
+            true,
+            "x.broadcasts.chat.remove",
+          );
+        },
+      ),
+      setChatModerator: uncertainWrite(
+        "x.setChatModerator",
+        async ({ account, userId, moderator, context }) => {
+          authorize(account, context);
+          requireId(userId, "userId", "x.broadcasts.moderators");
 
-        confirmedWrite(result, "muted", muted, operation);
-      },
-      async unblockDms({ account, userId, context }) {
+          const data = moderator
+            ? await broadcastWrite(
+                "/2/broadcasts/chat/moderators",
+                { user_id: userId },
+                "POST",
+                context,
+                "x.broadcasts.moderators",
+              )
+            : await broadcastWrite(
+                `/2/broadcasts/chat/moderators/${userId}`,
+                undefined,
+                "DELETE",
+                context,
+                "x.broadcasts.moderators",
+              );
+
+          return array(data["moderator_user_ids"]).map(string);
+        },
+      ),
+      setChatMute: uncertainWrite(
+        "x.setChatMute",
+        async ({ account, userId, muted, broadcastId, endAt, context }) => {
+          authorize(account, context);
+
+          const operation = "x.broadcasts.mutes";
+
+          requireId(userId, "userId", operation);
+
+          if (broadcastId !== undefined) requireBroadcastId(broadcastId, operation);
+
+          if (!muted && endAt !== undefined)
+            throw invalid(operation, "endAt only applies when muting.");
+
+          const result = muted
+            ? await requireUserToken(operation)("/2/broadcasts/chat/mutes", context, {
+                user_id: userId,
+                ...definedFields({
+                  broadcast_id: broadcastId,
+                  end_at_ms: endAt === undefined ? undefined : epochMs(endAt, "endAt", operation),
+                }),
+              })
+            : await requireUserToken(operation)(
+                `/2/broadcasts/chat/mutes/${userId}`,
+                context,
+                undefined,
+                definedFields({ broadcast_id: broadcastId }),
+                "DELETE",
+              );
+
+          confirmedWrite(result, "muted", muted, operation);
+        },
+      ),
+      unblockDms: uncertainWrite("x.unblockDms", async ({ account, userId, context }) => {
         authorize(account, context);
         requireId(userId, "userId", "messages.block");
 
@@ -10647,7 +10916,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           false,
           "messages.block",
         );
-      },
+      }),
     }),
   });
 
