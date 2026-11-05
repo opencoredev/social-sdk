@@ -211,14 +211,17 @@ A poll cannot carry media, so the X target above shares only the text; split tar
 
 On X, Threads and Bluesky, `options.threadItems` lists the posts after the first. The adapter sends the target's own `text` and media as `threadItems[0]` and these items after it, in one Zernio request, so the whole thread is one backend record and one delivery. Each item has `text`, public HTTPS `media` (`kind`, `url`, optional `altText`), or both. Use `publishSequence` instead when each post needs its own uploaded media or its own outcome.
 
-````ts
+```ts
 await social.posts.publish(
   {
-    targets: [{ account, options: { threadItems: [{ text: "2/ Auth" }, { text: "3/ Versioning" }] } }],
+    targets: [
+      { account, options: { threadItems: [{ text: "2/ Auth" }, { text: "3/ Versioning" }] } },
+    ],
     content: { text: "1/ What makes a good API" },
   },
   { authorization },
 );
+```
 
 ## Schedule and check a delivery
 
@@ -262,7 +265,7 @@ function nextStep(outcome: DeliveryOutcome): string {
       return "state is unclear; reconcile before retrying";
   }
 }
-````
+```
 
 ## Cancel or remove a post
 
@@ -671,8 +674,8 @@ if (pending.delivery)
 - `updatePost({ post, text })` edits a published post's text with `POST /v1/posts/{id}/edit` on X, Facebook, LinkedIn, YouTube, Reddit, Discord, Telegram, Pinterest and Google Business Profile. X edits need X Premium and only work within an hour of posting, and X assigns a new post ID, so store the returned reference.
 - `updateYouTubeMetadata({ post, metadata })` changes a YouTube video's `title` (up to 100 characters), `description`, `tags` (500 characters combined), `categoryId`, `privacyStatus`, `thumbnailUrl`, `madeForKids`, `containsSyntheticMedia` or `playlistId` without a new upload, through `update-metadata` in direct video mode, so it also works on videos published outside Zernio.
 - `retryPost({ delivery })` retries a failed post at once with `POST /v1/posts/{id}/retry` and returns the new outcome. Only a `failed` post can be retried.
-- `validatePost({ account, content, options? })` sends the target to Zernio's validator, `POST /v1/tools/validate/post`, without creating anything, and returns `valid`, Zernio's `errors` and `warnings`, and the adapter's own `localIssues`. Each error keeps its `platform` and the explanation in `error`; each warning keeps `platform` and `warning`. Media must be public HTTPS URLs.
-- `validatePosts({ content, targets })` validates several destinations in one call. `content` is the shared `content` and `mediaItems`; a target's own `content` text becomes that destination's `platforms[].customContent` and its own media becomes `customMedia`, which replace the shared values for that destination only. Publishing does not need these overrides, because the adapter creates one Zernio post per target from that target's own content.
+- `validatePost({ account, content, options? })` sends the target to Zernio's validator, `POST /v1/tools/validate/post`, without creating anything, with the same text, platform options and `threadItems` that publishing sends, and returns `valid`, Zernio's `errors` and `warnings`, and the adapter's own `localIssues`. Each error keeps its `platform` and the explanation in `error`; each warning keeps `platform` and `warning`. Media must be public HTTPS URLs.
+- `validatePosts({ content, targets })` validates several destinations in one call, each with the platform options and `threadItems` that publishing sends. `content` is the shared `content` and `mediaItems`; a target's own `content` text becomes that destination's `platforms[].customContent` and its own media becomes `customMedia`, which replace the shared values for that destination only. Publishing does not need these overrides, because the adapter creates one Zernio post per target from that target's own content.
 
 Each of these reads the post first and refuses one whose single destination is a different account.
 

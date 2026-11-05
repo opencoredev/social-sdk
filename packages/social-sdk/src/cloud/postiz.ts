@@ -2044,7 +2044,9 @@ export function postiz(options: PostizOptions) {
         const issues: PreparationIssue[] = [
           ...managedPreparation(shared, "postiz").filter(
             (issue) =>
-              (link === undefined || issue.code !== "link.explicit_text") &&
+              // A mapped link is the post's content, so it needs no text or media.
+              (link === undefined ||
+                (issue.code !== "link.explicit_text" && issue.code !== "content.empty")) &&
               // Postiz-only channels are declared by this adapter, not the shared platform list.
               (channel === undefined || issue.code !== "platform.unsupported"),
           ),

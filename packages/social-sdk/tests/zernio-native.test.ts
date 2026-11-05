@@ -389,6 +389,75 @@ it("dry-runs a target through validate/post", async () => {
   });
 });
 
+it("validates the same YouTube fields and thread a publish sends", async () => {
+  const { native, calls } = fake({
+    "POST /v1/tools/validate/post": { valid: true, errors: [], warnings: [] },
+  });
+
+  const video = {
+    kind: "video",
+    mimeType: "video/mp4",
+    source: { kind: "https-url", url: "https://cdn.example.test/tour.mp4" },
+  } as const;
+
+  await native.validatePost(
+    {
+      account: youtube,
+      content: { text: "Tour", media: [video] },
+      options: { title: "Walkthrough", visibility: "unlisted", madeForKids: false },
+    },
+    context,
+  );
+
+  assert.deepEqual(calls[0]?.body?.["platforms"], [
+    {
+      platform: "youtube",
+      accountId: "yt1",
+      platformSpecificData: { title: "Walkthrough", visibility: "unlisted", madeForKids: false },
+    },
+  ]);
+
+  await native.validatePosts(
+    {
+      content: { text: "Root" },
+      targets: [{ account: x, options: { threadItems: [{ text: "Reply" }] } }],
+    },
+    context,
+  );
+
+  assert.deepEqual(calls[1]?.body?.["platforms"], [
+    {
+      platform: "twitter",
+      accountId: "x1",
+      platformSpecificData: { threadItems: [{ content: "Root" }, { content: "Reply" }] },
+    },
+  ]);
+});
+
+it("refuses connections-only LinkedIn visibility on native submissions", async () => {
+  const linkedin = connectedAccountRef({
+    backend: "default",
+    platform: "linkedin",
+    accountId: "li1",
+  });
+
+  const { native, calls } = fake({ "POST /v1/posts": record("draft") });
+
+  await assert.rejects(
+    native.submitPost(
+      {
+        account: linkedin,
+        content: { text: "Members only" },
+        options: { visibility: "connections" },
+        submission: { kind: "draft" },
+      },
+      context,
+    ),
+    { code: "invalid_input", message: /linkedin\.visibility_unsupported/ },
+  );
+  assert.equal(calls.length, 0);
+});
+
 it("reads TikTok creator-info for the pre-post screen", async () => {
   const { native, calls } = fake({
     "GET /v1/accounts/tt1/tiktok/creator-info": {

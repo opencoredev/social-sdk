@@ -234,7 +234,7 @@ if (outcome.state === "scheduled") {
 
 ## Reschedule or edit a post before it publishes
 
-The native `updatePost({ delivery, text?, at? })` changes the caption or the time of a draft or scheduled post with `PUT /v1/social-posts/{id}`; this is the `posts.update` capability. It reads the post first, refuses one that belongs to another account or has already published, and sends the stored media and configurations back unchanged, because the update replaces the whole post.
+The native `updatePost({ delivery, text?, at? })` changes the caption or the time of a draft or scheduled post with `PUT /v1/social-posts/{id}`; this is the `posts.update` capability. It reads the post first, refuses one that belongs to another account or has already published, and sends the stored media and configurations back, because the update replaces the whole post. A new `text` also clears any stored `caption` in `platform_configurations` and `account_configurations`, since those overrides would otherwise keep the old caption; their other settings stay.
 
 ```ts
 if (delivery) await native.updatePost({ delivery, at: "2026-12-01T09:00:00Z" }, context);

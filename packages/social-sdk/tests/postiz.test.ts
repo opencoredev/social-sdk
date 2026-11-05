@@ -1066,3 +1066,42 @@ it("Postiz rejects Twitch media and long messages before any upload", async () =
   );
   assert.equal(requests, 0);
 });
+
+it("Postiz publishes a Reddit link post with a title and no commentary", async () => {
+  const reddit = connectedAccountRef({ backend: "default", platform: "reddit", accountId: "red1" });
+  const sent: JsonObject[] = [];
+
+  const adapter = postiz({
+    apiKey: "test",
+    clock,
+    fetch: async (_input, init) => {
+      if (init?.method === "POST") {
+        sent.push(object(JSON.parse(String(init.body))));
+
+        return Response.json([{ postId: "p1", integration: "red1" }], { status: 201 });
+      }
+
+      return Response.json({
+        posts: [row({ integration: { id: "red1", providerIdentifier: "reddit" } })],
+      });
+    },
+  });
+
+  const social = createSocial({ backend: adapter, clock });
+
+  const request = {
+    targets: [{ account: reddit, options: { subreddit: "typescript", title: "Read this" } }],
+    content: { link: { url: "https://example.com/article" } },
+  };
+
+  assert.deepEqual(social.posts.prepare(request).issues, []);
+  await social.posts.publish(request);
+
+  const [post] = array(sent[0]?.["posts"] ?? []);
+  const settings = object(object(post ?? {})["settings"] ?? {});
+  const [entry] = array(settings["subreddit"] ?? []);
+  const value = object(object(entry ?? {})["value"] ?? {});
+
+  assert.equal(value["type"], "link");
+  assert.equal(value["url"], "https://example.com/article");
+});

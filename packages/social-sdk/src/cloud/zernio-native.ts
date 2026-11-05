@@ -32,8 +32,6 @@ import {
 import {
   accountMatches,
   acknowledged,
-  managedPreparation,
-  managedOptionIssues,
   normalizePlatform,
   platform,
   publicFields,
@@ -52,7 +50,8 @@ const {
   unconfirmed,
   inboxFields,
   targetData: zernioTargetData,
-  keysWithCommon: zernioKeysWithCommon,
+  targetIssues: zernioTargetIssues,
+  wirePost: zernioWirePost,
   editablePlatforms: zernioEditablePlatforms,
   hidePlatforms: zernioHidePlatforms,
   commentDeletePlatforms: zernioCommentDeletePlatforms,
@@ -1298,11 +1297,7 @@ export function zernioNative(options: ManagedOptions) {
         ...definedFields({ options: input.options }),
       };
 
-      const issues = [
-        ...managedPreparation(target, "zernio"),
-        ...managedOptionIssues(target, "zernio", zernioKeysWithCommon),
-        ...zernioTargetData(target).issues,
-      ];
+      const issues = zernioTargetIssues(target);
 
       if (input.submission.kind === "approval" && !Number.isFinite(Date.parse(input.submission.at)))
         invalid("posts.publish", "An approval post needs a scheduled time.");
@@ -1485,18 +1480,20 @@ export function zernioNative(options: ManagedOptions) {
       };
 
       const data = zernioTargetData(target);
+      const mediaItems = validationMedia(input.content, data.mediaFields);
+      const wire = zernioWirePost(target, data, mediaItems);
 
       const result = object(
         await request("/v1/tools/validate/post", context, {
-          content: input.content.text ?? "",
-          mediaItems: validationMedia(input.content, data.mediaFields),
+          content: wire.content,
+          mediaItems,
           ...data.root,
           platforms: [
             {
               platform: wirePlatform(input.account.platform),
               accountId: input.account.accountId,
               ...definedFields({
-                platformSpecificData: Object.keys(data.native).length ? data.native : undefined,
+                platformSpecificData: Object.keys(wire.native).length ? wire.native : undefined,
               }),
             },
           ],
@@ -1537,26 +1534,34 @@ export function zernioNative(options: ManagedOptions) {
 
         const content: PublishContent = { ...input.content, ...entry.content };
 
-        const data = zernioTargetData({
+        const target: PreparedPublishTarget = {
           targetIndex: index,
           targetKey: `validate-${index}`,
           account: entry.account,
           content,
           ...definedFields({ options: entry.options }),
-        });
+        };
+
+        const data = zernioTargetData(target);
 
         issues.push(...data.issues);
 
         const ownMedia =
           entry.content?.media !== undefined || entry.options?.["mediaOptions"] !== undefined;
 
+        const mediaItems = validationMedia(content, data.mediaFields);
+        const wire = zernioWirePost(target, data, mediaItems);
+
         return {
           platform: wirePlatform(entry.account.platform),
           accountId: entry.account.accountId,
           ...definedFields({
-            customContent: entry.content?.text,
-            customMedia: ownMedia ? validationMedia(content, data.mediaFields) : undefined,
-            platformSpecificData: Object.keys(data.native).length ? data.native : undefined,
+            customContent:
+              entry.content?.text !== undefined || wire.content !== (input.content.text ?? "")
+                ? wire.content
+                : undefined,
+            customMedia: ownMedia ? mediaItems : undefined,
+            platformSpecificData: Object.keys(wire.native).length ? wire.native : undefined,
           }),
         };
       });

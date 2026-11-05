@@ -56,11 +56,10 @@ import {
   managedPreparation,
   optionsObject,
   publicFields,
-  publishFormats,
+  linkedinDocumentFormats,
   mappedPlatform,
   providerPlatforms,
   type ManagedOptions,
-  type PublishFormats,
 } from "./common.js";
 import {
   assignDefined,
@@ -104,12 +103,6 @@ const mimeTypes = [
   "video/mov",
   "video/quicktime",
 ] as const;
-
-// PostFast's Bluesky guide (updated October 2026) documents text, images and one MP4 video.
-const postfastFormats: PublishFormats = (platform) =>
-  platform === "linkedin"
-    ? [...(publishFormats(platform) ?? []), "document"]
-    : publishFormats(platform);
 
 const maxBytes = {
   image: 10 * 1024 * 1024,
@@ -1165,7 +1158,7 @@ export function postfast(options: ManagedOptions) {
         "analytics.account.read",
         "media.upload",
       ],
-      postfastFormats,
+      linkedinDocumentFormats,
       (_platform, operation) =>
         managedConstraints(
           operation,

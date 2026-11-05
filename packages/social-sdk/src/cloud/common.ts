@@ -178,6 +178,11 @@ export function samePlatform(identifier: JsonField, slug: Platform): boolean {
   return isString(identifier) && normalizePlatform(identifier) === slug;
 }
 
+/** Post for Me lists TikTok Business accounts as `tiktok_business`; both publish as TikTok. */
+export function postForMePlatform(identifier: JsonField): JsonField {
+  return identifier === "tiktok_business" ? "tiktok" : identifier;
+}
+
 /** Zernio names X "twitter" and Google Business Profile "googlebusiness". */
 export function zernioPlatform(value: string): string {
   return value === "x" ? "twitter" : value === "google-business" ? "googlebusiness" : value;
@@ -365,6 +370,12 @@ export const publishFormats: PublishFormats = (platform) => {
 
   return ["text", "image", "video", "carousel"];
 };
+
+/** The default formats plus `document` on LinkedIn, for backends that publish LinkedIn documents. */
+export const linkedinDocumentFormats: PublishFormats = (platform) =>
+  platform === "linkedin"
+    ? [...(publishFormats(platform) ?? []), "document"]
+    : publishFormats(platform);
 
 const managedEligibility = [
   "A connected account returned by the managed provider is required.",

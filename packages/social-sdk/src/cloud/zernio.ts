@@ -50,6 +50,7 @@ import {
   accountMatches,
   capabilityManifest,
   acknowledged,
+  linkedinDocumentFormats,
   managedHttp,
   managedPreparation,
   managedOptionIssues,
@@ -1402,6 +1403,205 @@ const unconfirmed = (operation: string): never => {
  */
 const zernioClients = new WeakMap<ManagedOptions, ReturnType<typeof createZernioClient>>();
 
+/** The post text and `platformSpecificData` that one Zernio target sends. */
+interface ZernioWirePost {
+  readonly content: string;
+  readonly native: JsonObject;
+}
+
+/**
+ * The text and `platformSpecificData` Zernio receives for one target, shared by publishing
+ * and the dry-run validators so both see the same post. `media` holds the wire media items.
+ */
+function zernioWirePost(
+  target: PreparedPublishTarget,
+  data: ZernioTargetData,
+  media: readonly JsonObject[],
+): ZernioWirePost {
+  const config = optionsObject(target);
+  const native = { ...data.native };
+
+  if (data.threadItems)
+    native["threadItems"] = [
+      {
+        content: target.content.text ?? "",
+        ...definedFields({ mediaItems: media.length > 0 ? media : undefined }),
+      },
+      ...data.threadItems.map((item) => ({
+        ...definedFields({
+          content: item.text,
+          mediaItems:
+            item.media.length > 0
+              ? item.media.map((entry) => ({
+                  type: entry.kind,
+                  url: entry.url,
+                  ...definedFields({ altText: entry.altText }),
+                }))
+              : undefined,
+        }),
+      })),
+    ];
+
+  if (target.account.platform === "youtube") {
+    // Preparation requires these before a publish; a validator sends what it was given.
+    for (const key of ["title", "visibility"] as const) {
+      const value = optionalString(config[key]);
+
+      if (value !== undefined) native[key] = value;
+    }
+
+    const madeForKids = config["madeForKids"];
+
+    if (isBoolean(madeForKids)) native["madeForKids"] = madeForKids;
+  }
+
+  const shareToFeed = config["shareToFeed"];
+
+  if (target.account.platform === "instagram" && isBoolean(shareToFeed))
+    native["shareToFeed"] = shareToFeed;
+
+  if (
+    target.account.platform === "x" &&
+    config["replySettings"] !== undefined &&
+    config["replySettings"] !== "everyone"
+  )
+    native["replySettings"] = string(config["replySettings"]);
+
+  // prepareTarget admits only platform-post replies on X (managedReplySupported).
+  if (target.account.platform === "x" && target.replyTo?.kind === "platform-post")
+    native["replyToTweetId"] = target.replyTo.postId;
+
+  if (target.account.platform === "tiktok") {
+    const video = media.length === 1 && media[0]?.["type"] === "video";
+    const photo = media.length > 0 && media.every((item) => item["type"] === "image");
+    const privacy = optionalString(config["privacy"]);
+
+    if (privacy !== undefined) native["privacyLevel"] = privacy;
+    native["contentPreviewConfirmed"] = true;
+    native["expressConsentGiven"] = true;
+
+    if (video) native["autoAddMusic"] = false;
+    else if (photo)
+      native["autoAddMusic"] = isBoolean(config["autoAddMusic"]) ? config["autoAddMusic"] : false;
+    native["allowDuet"] = !config["disableDuet"];
+    native["allowStitch"] = !config["disableStitch"];
+
+    // prepareTarget requires these TikTok choices to be booleans. Skipping an
+    // absent value sends the same JSON body, since serialization drops undefined.
+    for (const [nativeKey, optionKey] of [
+      ["isBrandOrganicPost", "ownBrand"],
+      ["videoMadeWithAi", "aiGenerated"],
+      ["draft", "draft"],
+    ] as const) {
+      const value = config[optionKey];
+
+      if (value !== undefined) native[nativeKey] = value;
+    }
+
+    const { photoCoverIndex, disableComments, brandedContent, description, mediaType } = config;
+
+    if (isFiniteNumber(photoCoverIndex)) native["photoCoverIndex"] = photoCoverIndex;
+
+    if (isBoolean(disableComments)) native["allowComment"] = !disableComments;
+
+    if (isBoolean(brandedContent)) native["brandPartnerPromote"] = brandedContent;
+
+    // Zernio's single disclosure type; both booleans above still disclose both kinds at once.
+    native["commercialContentType"] =
+      brandedContent === true
+        ? "brand_content"
+        : config["ownBrand"] === true
+          ? "brand_organic"
+          : "none";
+
+    if (photo && (isString(description) || target.content.text !== undefined))
+      native["description"] = description ?? target.content.text ?? "";
+
+    if (photo && mediaType === "photo") native["mediaType"] = "photo";
+  }
+
+  if (target.account.platform === "pinterest")
+    for (const key of ["boardId", "title", "link"] as const) {
+      const value = optionalString(config[key]);
+
+      if (value !== undefined) native[key] = value;
+    }
+
+  if (target.account.platform === "reddit") {
+    const subreddit = optionalString(config["subreddit"]);
+
+    if (subreddit !== undefined) native["subreddit"] = subredditName(subreddit);
+
+    for (const key of ["title", "flairId"] as const) {
+      const value = optionalString(config[key]);
+
+      if (value !== undefined) native[key] = value;
+    }
+
+    if (isBoolean(config["nsfw"])) native["nsfw"] = config["nsfw"];
+  }
+
+  const channelId = optionalString(config["channelId"]);
+
+  if (target.account.platform === "discord" && channelId !== undefined)
+    native["channelId"] = channelId;
+
+  if (target.account.platform === "google-business") {
+    const locationId = optionalString(config["locationId"]);
+
+    if (locationId !== undefined) native["locationId"] = locationId;
+  }
+
+  if (target.account.platform === "snapchat") {
+    const contentType = optionalString(config["contentType"]);
+
+    if (contentType !== undefined) native["contentType"] = contentType;
+  }
+
+  const tiktokPhoto =
+    target.account.platform === "tiktok" &&
+    media.length > 0 &&
+    media.every((item) => item["type"] === "image");
+
+  const tiktokTitle = tiktokPhoto ? optionalString(config["title"]) : undefined;
+
+  return { content: tiktokTitle ?? target.content.text ?? "", native };
+}
+
+/** Zernio's preparation checks for one target, shared by `posts.publish` and native submissions. */
+function zernioTargetIssues(target: PreparedPublishTarget): PreparationIssue[] {
+  const config = optionsObject(target);
+
+  // A LinkedIn reshare without commentary publishes as a text-free repost.
+  const reshare = target.account.platform === "linkedin" && config["reshare"] !== undefined;
+
+  const issues = [
+    ...managedPreparation(target, "zernio").filter(
+      (issue) => !reshare || issue.code !== "content.empty",
+    ),
+    ...managedOptionIssues(target, "zernio", zernioKeysWithCommon),
+    ...zernioTargetData(target).issues,
+  ];
+
+  if (target.account.platform === "threads" && config["replyControl"] !== undefined)
+    issues.push({
+      code: "threads.reply_control_unsupported",
+      message: "Zernio's documented create-post schema does not expose this reply-control option.",
+      severity: "error",
+      targetIndex: target.targetIndex,
+    });
+
+  if (target.account.platform === "linkedin" && config["visibility"] === "connections")
+    issues.push({
+      code: "linkedin.visibility_unsupported",
+      message: "This managed adapter cannot guarantee connections-only visibility.",
+      severity: "error",
+      targetIndex: target.targetIndex,
+    });
+
+  return issues;
+}
+
 function zernioClient(options: ManagedOptions) {
   const existing = zernioClients.get(options);
 
@@ -1464,7 +1664,6 @@ function createZernioClient(options: ManagedOptions) {
         ...definedFields({ altText: item.altText, mimeType: item.mimeType }),
         ...data.mediaFields[index],
       });
-    const config = optionsObject(target);
 
     if (data.issues.length > 0)
       throw new SocialError({
@@ -1473,144 +1672,11 @@ function createZernioClient(options: ManagedOptions) {
         message: "Publish options failed preparation; call prepare to list the issues.",
       });
 
-    const native = { ...data.native };
-
-    if (data.threadItems)
-      native["threadItems"] = [
-        {
-          content: target.content.text ?? "",
-          ...definedFields({ mediaItems: media.length > 0 ? media : undefined }),
-        },
-        ...data.threadItems.map((item) => ({
-          ...definedFields({
-            content: item.text,
-            mediaItems:
-              item.media.length > 0
-                ? item.media.map((entry) => ({
-                    type: entry.kind,
-                    url: entry.url,
-                    ...definedFields({ altText: entry.altText }),
-                  }))
-                : undefined,
-          }),
-        })),
-      ];
-
-    if (target.account.platform === "youtube") {
-      native["title"] = string(config["title"]);
-      native["visibility"] = string(config["visibility"]);
-
-      const madeForKids = config["madeForKids"];
-
-      if (isBoolean(madeForKids)) native["madeForKids"] = madeForKids;
-    }
-
-    const shareToFeed = config["shareToFeed"];
-
-    if (target.account.platform === "instagram" && isBoolean(shareToFeed))
-      native["shareToFeed"] = shareToFeed;
-
-    if (
-      target.account.platform === "x" &&
-      config["replySettings"] !== undefined &&
-      config["replySettings"] !== "everyone"
-    )
-      native["replySettings"] = string(config["replySettings"]);
-
-    // prepareTarget admits only platform-post replies on X (managedReplySupported).
-    if (target.account.platform === "x" && target.replyTo?.kind === "platform-post")
-      native["replyToTweetId"] = target.replyTo.postId;
-
-    if (target.account.platform === "tiktok") {
-      const video = media.length === 1 && media[0]?.["type"] === "video";
-      const photo = media.length > 0 && media.every((item) => item["type"] === "image");
-      native["privacyLevel"] = string(config["privacy"]);
-      native["contentPreviewConfirmed"] = true;
-      native["expressConsentGiven"] = true;
-
-      if (video) native["autoAddMusic"] = false;
-      else if (photo)
-        native["autoAddMusic"] = isBoolean(config["autoAddMusic"]) ? config["autoAddMusic"] : false;
-      native["allowDuet"] = !config["disableDuet"];
-      native["allowStitch"] = !config["disableStitch"];
-
-      // prepareTarget requires these TikTok choices to be booleans. Skipping an
-      // absent value sends the same JSON body, since serialization drops undefined.
-      for (const [nativeKey, optionKey] of [
-        ["isBrandOrganicPost", "ownBrand"],
-        ["videoMadeWithAi", "aiGenerated"],
-        ["draft", "draft"],
-      ] as const) {
-        const value = config[optionKey];
-
-        if (value !== undefined) native[nativeKey] = value;
-      }
-
-      const { photoCoverIndex, disableComments, brandedContent, description, mediaType } = config;
-
-      if (isFiniteNumber(photoCoverIndex)) native["photoCoverIndex"] = photoCoverIndex;
-
-      if (isBoolean(disableComments)) native["allowComment"] = !disableComments;
-
-      if (isBoolean(brandedContent)) native["brandPartnerPromote"] = brandedContent;
-
-      // Zernio's single disclosure type; both booleans above still disclose both kinds at once.
-      native["commercialContentType"] =
-        brandedContent === true
-          ? "brand_content"
-          : config["ownBrand"] === true
-            ? "brand_organic"
-            : "none";
-
-      if (photo && (isString(description) || target.content.text !== undefined))
-        native["description"] = description ?? target.content.text ?? "";
-
-      if (photo && mediaType === "photo") native["mediaType"] = "photo";
-    }
-
-    if (target.account.platform === "pinterest")
-      for (const key of ["boardId", "title", "link"] as const) {
-        const value = optionalString(config[key]);
-
-        if (value !== undefined) native[key] = value;
-      }
-
-    if (target.account.platform === "reddit") {
-      native["subreddit"] = subredditName(string(config["subreddit"]));
-
-      for (const key of ["title", "flairId"] as const) {
-        const value = optionalString(config[key]);
-
-        if (value !== undefined) native[key] = value;
-      }
-
-      if (isBoolean(config["nsfw"])) native["nsfw"] = config["nsfw"];
-    }
-
-    if (target.account.platform === "discord") native["channelId"] = string(config["channelId"]);
-
-    if (target.account.platform === "google-business") {
-      const locationId = optionalString(config["locationId"]);
-
-      if (locationId !== undefined) native["locationId"] = locationId;
-    }
-
-    if (target.account.platform === "snapchat") {
-      const contentType = optionalString(config["contentType"]);
-
-      if (contentType !== undefined) native["contentType"] = contentType;
-    }
-
-    const tiktokPhoto =
-      target.account.platform === "tiktok" &&
-      media.length > 0 &&
-      media.every((item) => item["type"] === "image");
-
-    const tiktokTitle = tiktokPhoto ? optionalString(config["title"]) : undefined;
+    const wire = zernioWirePost(target, data, media);
 
     try {
       const sent = request("/v1/posts", context, {
-        content: tiktokTitle ?? target.content.text ?? "",
+        content: wire.content,
         mediaItems: media,
         ...data.root,
         platforms: [
@@ -1618,7 +1684,7 @@ function createZernioClient(options: ManagedOptions) {
             platform: wirePlatform(target.account.platform),
             accountId: target.account.accountId,
             ...definedFields({
-              platformSpecificData: Object.keys(native).length ? native : undefined,
+              platformSpecificData: Object.keys(wire.native).length ? wire.native : undefined,
             }),
           },
         ],
@@ -1675,10 +1741,11 @@ function createZernioClient(options: ManagedOptions) {
 export const zernioInternals = {
   client: zernioClient,
   targetData: zernioTargetData,
+  targetIssues: zernioTargetIssues,
+  wirePost: zernioWirePost,
   inboxFields,
   invalid,
   unconfirmed,
-  keysWithCommon: zernioKeysWithCommon,
   editablePlatforms: zernioEditablePlatforms,
   hidePlatforms: zernioHidePlatforms,
   commentDeletePlatforms: zernioCommentDeletePlatforms,
@@ -1748,9 +1815,15 @@ export function zernio(options: ManagedOptions) {
   return defineAdapter({
     id: "zernio",
     capabilities: {
-      ...capabilityManifest("zernio", "v1 / OpenAPI 1.25.1", zernioOperations),
+      ...capabilityManifest(
+        "zernio",
+        "v1 / OpenAPI 1.25.1",
+        zernioOperations,
+        linkedinDocumentFormats,
+      ),
       capabilities: [
-        ...capabilityManifest("zernio", "1.25.1", zernioOperations).capabilities,
+        ...capabilityManifest("zernio", "1.25.1", zernioOperations, linkedinDocumentFormats)
+          .capabilities,
         ...zernioRemovablePlatforms.map((platform) => {
           const declaration = {
             platform,
@@ -1976,37 +2049,7 @@ export function zernio(options: ManagedOptions) {
         };
       },
       prepareTarget(target: PreparedPublishTarget) {
-        const config = optionsObject(target);
-
-        // A LinkedIn reshare without commentary publishes as a text-free repost.
-        const reshare = target.account.platform === "linkedin" && config["reshare"] !== undefined;
-
-        const issues = [
-          ...managedPreparation(target, "zernio").filter(
-            (issue) => !reshare || issue.code !== "content.empty",
-          ),
-          ...managedOptionIssues(target, "zernio", zernioKeysWithCommon),
-          ...zernioTargetData(target).issues,
-        ];
-
-        if (target.account.platform === "threads" && config["replyControl"] !== undefined)
-          issues.push({
-            code: "threads.reply_control_unsupported",
-            message:
-              "Zernio's documented create-post schema does not expose this reply-control option.",
-            severity: "error",
-            targetIndex: target.targetIndex,
-          });
-
-        if (target.account.platform === "linkedin" && config["visibility"] === "connections")
-          issues.push({
-            code: "linkedin.visibility_unsupported",
-            message: "This managed adapter cannot guarantee connections-only visibility.",
-            severity: "error",
-            targetIndex: target.targetIndex,
-          });
-
-        return issues;
+        return zernioTargetIssues(target);
       },
       async publishTarget(
         target: PreparedPublishTarget,

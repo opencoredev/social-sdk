@@ -459,6 +459,20 @@ it("Buffer sends content.link as a linkAttachment card", async () => {
   );
 });
 
+it("Buffer publishes a link card without commentary", async () => {
+  const { input, issues } = await publish(
+    "linkedin",
+    { link: { url: "https://example.test/post", title: "The post" } },
+    {},
+  );
+
+  assert.deepEqual(issues, []);
+  assert.equal(input?.["text"], "");
+  assert.deepEqual(metadataOf(input, "linkedin"), {
+    linkAttachment: { url: "https://example.test/post", title: "The post" },
+  });
+});
+
 it("Buffer adds a firstComment on Instagram, Facebook, and LinkedIn", async () => {
   const { input } = await publish(
     "facebook",

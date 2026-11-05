@@ -14,7 +14,7 @@ import {
   string,
   type JsonField,
 } from "../transport/validation.js";
-import { samePlatform } from "./common.js";
+import { postForMePlatform, samePlatform } from "./common.js";
 
 export interface OutcomeContext {
   account: ConnectedAccountRef;
@@ -225,7 +225,7 @@ export function postForMeOutcome(
         return (
           entry["id"] === context.account.accountId &&
           (entry["platform"] === undefined ||
-            samePlatform(entry["platform"], context.account.platform))
+            samePlatform(postForMePlatform(entry["platform"]), context.account.platform))
         );
       })
     : [];

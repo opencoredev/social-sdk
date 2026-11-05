@@ -924,3 +924,31 @@ it("Buffer advertises LinkedIn documents in its manifest", () => {
   assert.deepEqual(formats("linkedin"), ["text", "image", "video", "carousel", "document"]);
   assert.ok(!formats("x")?.includes("document"));
 });
+
+it("Buffer keeps a created post when the createPost answer also carries GraphQL errors", async () => {
+  const adapter = buffer({
+    apiKey: "fixture-key",
+    organizationId: "org_example",
+    fetch: async (_input, init) => {
+      const { query } = graphql(init);
+
+      if (query.includes("query Channels")) return envelope({ channels: [channel({})] });
+
+      if (query.includes("createPost"))
+        return envelope(
+          { createPost: { post: post({ status: "sending", shareMode: "shareNow" }) } },
+          [{ message: "metrics unavailable", path: ["createPost", "post", "metrics"] }],
+        );
+
+      return envelope(null, [{ message: "unexpected", extensions: { code: "UNEXPECTED" } }]);
+    },
+  });
+
+  const result = await createSocial({ backend: adapter, clock }).posts.publish({
+    targets: [{ account: x }],
+    content: { text: "Hello from Buffer" },
+  });
+
+  assert.equal(result.outcomes[0]?.state, "processing");
+  assert.equal(result.outcomes[0]?.delivery?.deliveryId, "post_example");
+});

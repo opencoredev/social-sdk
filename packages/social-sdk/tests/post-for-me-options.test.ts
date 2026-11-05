@@ -2,6 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { createSocial, connectedAccountRef, type PublishRequest } from "../src/index.js";
 import { postForMe } from "../src/cloud/post-for-me.js";
+import { zernio } from "../src/cloud/zernio.js";
 import { definedFields } from "../src/core/fields.js";
 import { isJsonValue } from "../src/transport/json.js";
 import { array, object } from "../src/transport/validation.js";
@@ -654,6 +655,45 @@ it("reschedules a scheduled post with PUT, keeping its stored fields", async () 
   });
 });
 
+it("clears stored caption overrides when an update changes the caption", async () => {
+  const { native, calls } = fake({
+    "GET /v1/social-posts/sp_1": {
+      id: "sp_1",
+      status: "draft",
+      caption: "Old",
+      social_accounts: [{ id: "spc_1", platform: "x" }],
+      platform_configurations: { x: { caption: "Old X", community_id: "c1" } },
+      account_configurations: [
+        { social_account_id: "spc_1", configuration: { caption: "Old account", media: [] } },
+      ],
+    },
+    "PUT /v1/social-posts/sp_1": { id: "sp_1", status: "draft" },
+  });
+
+  await native.updatePost(
+    {
+      delivery: {
+        kind: "delivery",
+        version: 1,
+        backend: "default",
+        platform: "x",
+        accountId: "spc_1",
+        deliveryId: "sp_1",
+      },
+      text: "New",
+    },
+    context,
+  );
+
+  assert.deepEqual(calls[1]?.body, {
+    caption: "New",
+    social_accounts: ["spc_1"],
+    isDraft: true,
+    platform_configurations: { x: { community_id: "c1" } },
+    account_configurations: [{ social_account_id: "spc_1", configuration: { media: [] } }],
+  });
+});
+
 it("previews a post through social-post-previews", async () => {
   const { native, calls } = fake({
     "POST /v1/social-post-previews": [
@@ -712,4 +752,50 @@ it("creates, lists, updates and deletes /v1/webhooks", async () => {
   await native.deleteWebhook({ webhookId: "wh_1" }, context);
   assert.deepEqual(calls[2]?.body, { event_types: ["social.post.updated"] });
   assert.equal(calls[3]?.method, "DELETE");
+});
+
+it("treats a tiktok_business destination as the TikTok account it belongs to", async () => {
+  const owner = [{ id: "spc_1", platform: "tiktok_business" }];
+
+  const { adapter, calls } = fake({
+    "GET /v1/social-posts/sp_1": {
+      id: "sp_1",
+      status: "scheduled",
+      scheduled_at: "2026-11-10T09:00:00Z",
+      social_accounts: owner,
+    },
+    "GET /v1/social-post-results": { data: [] },
+    "GET /v1/social-posts/sp_2": { id: "sp_2", status: "draft", social_accounts: owner },
+    "DELETE /v1/social-posts/sp_2": { success: true },
+  });
+
+  const outcome = await adapter.posts.getDelivery(
+    { backend: "default", platform: "tiktok", accountId: "spc_1", deliveryId: "sp_1" },
+    context,
+  );
+
+  assert.equal(outcome.state, "scheduled");
+
+  await adapter.posts.deleteBackendRecord(
+    {
+      kind: "backend-post",
+      version: 1,
+      backend: "default",
+      platform: "tiktok",
+      accountId: "spc_1",
+      recordId: "sp_2",
+    },
+    context,
+  );
+  assert.equal(calls.at(-1)?.method, "DELETE");
+});
+
+it("declares LinkedIn document publishing for Post for Me and Zernio", () => {
+  for (const adapter of [fake({}).adapter, zernio({ apiKey: "test" })]) {
+    const entry = adapter.capabilities.capabilities.find(
+      (row) => row.platform === "linkedin" && row.operation === "posts.publish",
+    );
+
+    assert.ok(entry && "formats" in entry && entry.formats?.includes("document"), adapter.id);
+  }
 });

@@ -42,12 +42,14 @@ import { verifyPostForMeWebhook, decodeWebhook } from "../server/webhooks.js";
 import {
   accountMatches,
   capabilityManifest,
+  linkedinDocumentFormats,
   acknowledged,
   managedHttp,
   managedPreparation,
   managedOptionIssues,
   optionsObject,
   platform,
+  postForMePlatform,
   providerPlatforms,
   publicFields,
   type ManagedOptions,
@@ -57,6 +59,13 @@ import { postForMeOutcome } from "./outcomes.js";
 import { assignDefined, objectList, optionReader, xPoll } from "./option-checks.js";
 
 /** PlatformPostDto.media is an array of URLs. Return only public, unsigned HTTPS URLs. */
+/** A Post for Me configuration object without its `caption` override. */
+function withoutCaption(value: JsonValue): JsonValue {
+  return isJsonObject(value)
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "caption"))
+    : value;
+}
+
 function feedMedia(value: JsonValue | undefined): readonly string[] | undefined {
   if (!isJsonArray(value)) return undefined;
 
@@ -625,11 +634,7 @@ export function postForMe(options: ManagedOptions) {
         kind: "connected-account",
         version: 1,
         backend,
-        // Post for Me lists TikTok Business accounts as `tiktok_business`; both publish as TikTok.
-        platform: platform(
-          row["platform"] === "tiktok_business" ? "tiktok" : row["platform"],
-          options,
-        ),
+        platform: platform(postForMePlatform(row["platform"]), options),
         accountId: string(row["id"]),
       },
       displayName: handle ?? string(row["user_id"]),
@@ -705,7 +710,7 @@ export function postForMe(options: ManagedOptions) {
       "media.upload",
       "webhooks.verify",
     ],
-    undefined,
+    linkedinDocumentFormats,
     undefined,
     {
       facebook:
@@ -1236,9 +1241,30 @@ export function postForMe(options: ManagedOptions) {
           "account_configurations",
           "external_id",
         ].flatMap((key) => {
-          const value = record[key];
+          const stored = record[key];
 
-          return value === undefined || value === null ? [] : [[key, value] as const];
+          if (stored === undefined || stored === null) return [];
+
+          // A stored caption override beats the root caption, so a new text clears them.
+          const value =
+            input.text === undefined
+              ? stored
+              : key === "platform_configurations" && isJsonObject(stored)
+                ? Object.fromEntries(
+                    Object.entries(stored).map(([platform, config]) => [
+                      platform,
+                      withoutCaption(config),
+                    ]),
+                  )
+                : key === "account_configurations" && Array.isArray(stored)
+                  ? stored.map((entry) =>
+                      isJsonObject(entry) && entry["configuration"] !== undefined
+                        ? { ...entry, configuration: withoutCaption(entry["configuration"]) }
+                        : entry,
+                    )
+                  : stored;
+
+          return [[key, value] as const];
         });
 
         const scheduledAt = input.at ?? optionalString(record["scheduled_at"]);

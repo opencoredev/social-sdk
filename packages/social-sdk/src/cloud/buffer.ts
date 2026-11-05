@@ -1584,14 +1584,20 @@ export function buffer(options: BufferOptions) {
   ): JsonObject => {
     const payload = object(response);
     const errors = payload["errors"];
+    const data = payload["data"];
 
-    if (errors !== undefined) {
+    // A mutation field that came back non-null ran, even when a nested field errored:
+    // its decoder reads the result, so a created post keeps its delivery reference.
+    const ran =
+      kind === "mutation" &&
+      isJsonObject(data) &&
+      Object.values(data).some((value) => value !== null);
+
+    if (errors !== undefined && !ran) {
       const list = array(errors);
 
       if (list.length > 0) throw graphqlFailure(list, operation, context, kind);
     }
-
-    const data = payload["data"];
 
     if (data === null || data === undefined) {
       if (kind === "mutation")
@@ -2151,7 +2157,9 @@ export function buffer(options: BufferOptions) {
         const issues: PreparationIssue[] = [
           ...managedPreparation(shared, "buffer").filter(
             (issue) =>
-              (link === undefined || issue.code !== "link.explicit_text") &&
+              // A link card is the post's content; Buffer's CreatePostInput.text is optional.
+              (link === undefined ||
+                (issue.code !== "link.explicit_text" && issue.code !== "content.empty")) &&
               (!repost || issue.code !== "content.empty") &&
               // Substack is declared by this adapter, not the shared platform list.
               (target.account.platform !== substack || issue.code !== "platform.unsupported"),
