@@ -544,7 +544,7 @@ describe("facebook pages adapter", () => {
     );
   });
 
-  it("lists posts with Graph cursors and refuses another Page's reference", async () => {
+  it("lists posts from /{page-id}/posts with Graph cursors and refuses another Page's reference [feature:facebook.read.posts]", async () => {
     const { calls, adapter: fb } = adapter([
       {
         data: [{ id: "123_1", message: "Hi", from: { id: "secret" } }],
@@ -555,11 +555,33 @@ describe("facebook pages adapter", () => {
     const result = await fb.posts!.list!(page, { limit: 10 }, context);
 
     assert.deepEqual(result, { items: [{ id: "123_1", message: "Hi" }], nextCursor: "c2" });
+    assert.equal(calls[0]?.url.pathname, "/v27.0/123/posts");
     assert.equal(calls[0]?.url.searchParams.get("limit"), "10");
 
     await assert.rejects(fb.posts!.list!({ ...page, accountId: "999" }, {}, context), {
       code: "unauthorized",
     });
+  });
+
+  it("lists replies to a comment from /{comment-id}/comments with a cursor [feature:facebook.comments.replies.read]", async () => {
+    const { calls, adapter: fb } = adapter([
+      { data: [{ id: "c9", message: "Agreed" }], paging: { cursors: { after: "r2" }, next: "x" } },
+    ]);
+
+    assert.ok(fb.native);
+
+    const replies = await fb.native.listCommentReplies({
+      account: page,
+      commentId: "123_1_c1",
+      limit: 5,
+      context,
+    });
+
+    assert.equal(calls[0]?.method, "GET");
+    assert.equal(calls[0]?.url.pathname, "/v27.0/123_1_c1/comments");
+    assert.equal(calls[0]?.url.searchParams.get("limit"), "5");
+    assert.equal(replies.items[0]?.["id"], "c9");
+    assert.equal(replies.nextCursor, "r2");
   });
 
   it("reads, replies to, hides, and deletes comments [feature:facebook.comments.write]", async () => {

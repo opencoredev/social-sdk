@@ -1197,7 +1197,7 @@
         "\\}/posts`"
       ],
       "test": [
-        "/posts\\b"
+        "feature:facebook\\.read\\.posts\\b"
       ],
       "docs": [
         "/\\{page-id\\}/posts"
@@ -1620,7 +1620,7 @@
         "\\.commentId\\)\\}/comments`"
       ],
       "test": [
-        "listCommentReplies"
+        "feature:facebook\\.comments\\.replies\\.read\\b"
       ],
       "docs": [
         "listCommentReplies"
