@@ -533,6 +533,8 @@ export type XUserField =
   | "profile_image_url"
   | "protected"
   | "public_metrics"
+  | "receives_your_chat"
+  | "receives_your_dm"
   | "subscription_type"
   | "url"
   | "username"
@@ -4729,6 +4731,28 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
 
     // The request was dispatched, so an unreadable envelope leaves the change uncertain.
     if (!isJsonObject(data))
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message: "X did not confirm the broadcast change. Read its state before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+
+    return data;
+  }
+
+  /** A scheduled-broadcast write is confirmed only by the broadcast's ID in X's answer. */
+  async function scheduledBroadcastWrite(
+    path: string,
+    body: JsonObject | undefined,
+    method: "POST" | "PUT",
+    context: AdapterOperationContext,
+    operation: string,
+  ): Promise<JsonObject> {
+    const data = await broadcastWrite(path, body, method, context, operation);
+    const id = data["scheduled_broadcast_id"] ?? data["broadcast_id"];
+
+    if (!isString(id) || id.length === 0)
       throw new SocialError({
         code: "ambiguous_outcome",
         operation,
@@ -10277,7 +10301,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           if (end !== undefined && Number(end) <= Number(start))
             throw invalid(operation, "endAt must be later than startAt.");
 
-          return broadcastWrite(
+          return scheduledBroadcastWrite(
             "/2/broadcasts/scheduled",
             {
               source_id: broadcast.sourceId,
@@ -10360,7 +10384,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           if (Number(end) <= Number(start))
             throw invalid(operation, "endAt must be later than startAt.");
 
-          return broadcastWrite(
+          return scheduledBroadcastWrite(
             `/2/broadcasts/scheduled/${broadcastId}`,
             {
               scheduled_broadcast_id: scheduledBroadcastId,
@@ -10675,7 +10699,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         authorize(account, context);
         requireBroadcastId(broadcastId, "x.broadcasts.live");
 
-        return broadcastWrite(
+        return scheduledBroadcastWrite(
           `/2/broadcasts/scheduled/${broadcastId}/live`,
           undefined,
           "POST",

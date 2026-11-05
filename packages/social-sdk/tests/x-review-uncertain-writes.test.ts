@@ -213,3 +213,50 @@ for (const field of ["detail", "title"] as const) {
     assert.equal(requests, 2);
   });
 }
+
+it("scheduled broadcast writes without a broadcast ID are uncertain", async () => {
+  for (const body of [{ data: {} }, { data: { state: "RUNNING" } }]) {
+    const schedule = answering(body);
+
+    await assert.rejects(
+      schedule.api.scheduleBroadcast({
+        account,
+        broadcast: {
+          sourceId: "fixture-source",
+          startAt: "2026-11-05T18:00:00Z",
+          endAt: "2026-11-05T19:00:00Z",
+        },
+        context: context(),
+      }),
+      uncertain,
+    );
+    assert.equal(schedule.requests(), 1);
+
+    const live = answering(body);
+
+    await assert.rejects(
+      live.api.goLive({ account, broadcastId: "1yNGaQLWpejGj", context: context() }),
+      uncertain,
+    );
+    assert.equal(live.requests(), 1);
+  }
+});
+
+it("user lookups can request the documented chat and DM reachability fields", async () => {
+  let sent: URL | undefined;
+
+  const api = native(async (input) => {
+    sent = new URL(String(input));
+
+    return Response.json({ data: [{ id: "12", receives_your_chat: "unencrypted" }] });
+  });
+
+  await api.getUsers({
+    account,
+    userIds: ["12"],
+    userFields: ["id", "receives_your_chat", "receives_your_dm"],
+    context: context(),
+  });
+
+  assert.equal(sent?.searchParams.get("user.fields"), "id,receives_your_chat,receives_your_dm");
+});

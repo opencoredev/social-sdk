@@ -666,7 +666,8 @@ data or a keep-alive, and the adapter never reconnects on its own.
 
 ```ts
 for await (const event of native.activityStream({ account, context: operationContext() })) {
-  if (event.kind === "data") console.log(event.data["event_type"], event.data["payload"]);
+  // The payload can hold private messages; log only the event type.
+  if (event.kind === "data") console.log(event.data["event_type"]);
 }
 ```
 
