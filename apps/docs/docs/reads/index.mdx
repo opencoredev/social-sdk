@@ -1,7 +1,86 @@
 ---
 title: Read posts and analytics
 description: Read feeds, single posts, likes, and current post metrics through the normalized API, with platform tabs covering scopes, limits, and native reads.
+seo:
+  title: Social media post analytics API in TypeScript
+  description: Get likes, comments, reach and impressions for X, Instagram and LinkedIn posts in TypeScript with one call per post, plus feed and post reads.
 ---
+
+To get post analytics from X, Instagram and LinkedIn in one place with code,
+register each platform's adapter in one Social SDK client and call
+`social.analytics.getPostMetrics` with a reference to each post. Each call reads
+that platform's own API and returns a list of metrics with a `name`, a numeric
+`value`, a `unit`, a `period`, and a `source`. X returns likes, reposts,
+replies, quotes, impressions, and bookmarks; Instagram returns likes, comments,
+saved, shares, and reach from media insights; LinkedIn returns likes and
+comments. A metric the platform doesn't return is left out, not set to zero.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+```ts
+import { createSocial, platformPostRef } from "@opencoredev/social-sdk";
+import { instagram } from "@opencoredev/social-sdk/instagram";
+import { linkedin } from "@opencoredev/social-sdk/linkedin";
+import { x } from "@opencoredev/social-sdk/x";
+
+const social = createSocial({
+  backends: {
+    x: x({
+      auth: { userId: process.env.X_USER_ID!, accessToken: process.env.X_ACCESS_TOKEN! },
+    }),
+    instagram: instagram({
+      auth: {
+        accountId: process.env.IG_ACCOUNT_ID!,
+        accessToken: process.env.IG_ACCESS_TOKEN!,
+        flavor: "instagram-login",
+      },
+    }),
+    linkedin: linkedin({
+      auth: {
+        accessToken: process.env.LINKEDIN_ACCESS_TOKEN!,
+        author: "urn:li:organization:12345",
+      },
+      apiVersion: "202610",
+    }),
+  },
+});
+
+const posts = [
+  platformPostRef({
+    backend: "x",
+    platform: "x",
+    accountId: process.env.X_USER_ID!,
+    postId: "1850000000000000000",
+  }),
+  platformPostRef({
+    backend: "instagram",
+    platform: "instagram",
+    accountId: process.env.IG_ACCOUNT_ID!,
+    postId: "17900000000000000",
+  }),
+  platformPostRef({
+    backend: "linkedin",
+    platform: "linkedin",
+    accountId: "urn:li:organization:12345",
+    postId: "urn:li:share:7000000000000000000",
+  }),
+];
+
+for (const post of posts) {
+  const metrics = await social.analytics.getPostMetrics(post);
+  console.log(post.platform, metrics.map((metric) => `${metric.name}=${metric.value}`).join(" "));
+}
+```
+
+Each request goes straight to the platform with your own app's tokens, so
+the access rules are the platform's: X needs a user token and current X API
+access, Instagram needs a professional account, and LinkedIn Page posts need
+`r_organization_social`. The platform tabs below list each route's scopes. Units
+and periods differ by platform, so match `period` and `source` before you add
+numbers from different networks. For what each platform requires before you
+can post or read, see the <a href="/guides/social-media-apis">social media APIs guide</a>.
 
 This page covers post and feed reads, post and account metrics, and
 provider-native likes lists. See [Search](/reads/search),
