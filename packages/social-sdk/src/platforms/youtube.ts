@@ -2522,7 +2522,9 @@ export function youtube(
           "/youtube/v3/videos",
         );
 
-        const written = result["status"] === undefined ? undefined : object(result["status"]);
+        // A malformed status leaves the change unconfirmed, so it falls through to reconcile-first.
+        const writtenStatus = result["status"];
+        const written = isJsonObject(writtenStatus) ? writtenStatus : undefined;
 
         if (
           result["id"] !== ref.jobId ||
