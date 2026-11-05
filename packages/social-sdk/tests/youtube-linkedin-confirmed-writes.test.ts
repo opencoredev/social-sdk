@@ -80,9 +80,10 @@ const creates: readonly {
   {
     name: "playlists.update",
     run: (native) =>
+      // An update must answer with the playlist it addressed.
       native.playlists({
         action: "update",
-        playlistId: "playlist1",
+        playlistId: "created1",
         body: { snippet: { title: "Releases" } },
         context: context(),
       }),
@@ -228,9 +229,6 @@ const creates: readonly {
 
 for (const create of creates) {
   for (const { name, body } of unconfirmed) {
-    // An empty group-item answer is Google's documented 204 for an item already in the group.
-    if (create.name === "analyticsGroupItems.insert" && body === null) continue;
-
     it(`YouTube ${create.name} keeps a ${name} success uncertain after one write`, async () => {
       const { native, requests } = youtubeNative(() => Response.json(body));
 

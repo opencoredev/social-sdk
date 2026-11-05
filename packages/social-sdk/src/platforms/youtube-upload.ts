@@ -3,7 +3,15 @@ import type { JsonObject, MediaAttachment } from "../core/types.js";
 import { readJson } from "../transport/http.js";
 import { isJsonValue } from "../transport/json.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
-import { array, object, optionalString, string } from "../transport/validation.js";
+import {
+  array,
+  isJsonObject,
+  isString,
+  object,
+  optionalString,
+  string,
+  type JsonField,
+} from "../transport/validation.js";
 
 export interface YouTubeUploadSession {
   /** Secret upload URI. Store server-side; never serialize into public references. */
@@ -320,12 +328,47 @@ export type YouTubeUploadStatus =
   | { state: "incomplete"; nextByte: number }
   | { state: "complete"; video: JsonObject };
 
+/**
+ * The final upload answer is the created video resource. It confirms the upload only with a
+ * non-empty string ID and an object status part whose uploadStatus, when present, is a string.
+ * Anything else after the bytes were sent is reconcile-first: the video may exist.
+ * https://developers.google.com/youtube/v3/docs/videos/insert#response
+ */
+function uploadedVideo(body: JsonField): JsonObject {
+  const video = isJsonObject(body) ? body : undefined;
+  const id = video?.["id"];
+  const status = video?.["status"];
+
+  if (
+    video !== undefined &&
+    isString(id) &&
+    id.trim() !== "" &&
+    isJsonObject(status) &&
+    (status["uploadStatus"] === undefined || isString(status["uploadStatus"]))
+  )
+    return video;
+
+  throw new SocialError({
+    code: "ambiguous_outcome",
+    operation: "youtube.upload",
+    message:
+      "YouTube finished the upload without a usable video resource. Query the saved session or list the channel's videos before retrying.",
+    retryDisposition: { kind: "reconcile-first" },
+  });
+}
+
 async function statusFrom(response: Response): Promise<YouTubeUploadStatus> {
   if (response.status !== 308) {
-    const body: unknown = await response.json();
+    let body: JsonField;
 
-    // A non-JSON value decodes like an absent body: `object` rejects it as invalid.
-    return { state: "complete", video: object(isJsonValue(body) ? body : undefined) };
+    try {
+      const parsed: unknown = await response.json();
+      body = isJsonValue(parsed) ? parsed : undefined;
+    } catch {
+      body = undefined;
+    }
+
+    return { state: "complete", video: uploadedVideo(body) };
   }
 
   const range = response.headers.get("range");

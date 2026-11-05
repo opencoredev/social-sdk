@@ -50,6 +50,16 @@ export interface HttpRequest {
   timeoutMs?: number;
 }
 
+/**
+ * A successful answer with its HTTP status, for writes whose documented success is a status
+ * code such as 204 rather than a body. `headers` holds only the requested `responseHeaders`.
+ */
+export interface HttpExchange {
+  readonly status: number;
+  readonly body: JsonValue;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
 export class HttpError extends Error {
   override readonly name = "HttpError";
   constructor(
@@ -239,7 +249,7 @@ export function createHttp(options: HttpOptions = {}) {
   const now = options.now ?? Date.now;
   const random = options.random ?? Math.random;
 
-  return async function request(input: HttpRequest): Promise<JsonValue> {
+  const exchange = async (input: HttpRequest): Promise<HttpExchange> => {
     const deadlineMs = Math.min(timeoutMs, input.timeoutMs ?? timeoutMs);
 
     if (!Number.isFinite(deadlineMs) || deadlineMs <= 0)
@@ -320,16 +330,15 @@ export function createHttp(options: HttpOptions = {}) {
             const body =
               method === "HEAD" ? null : await readJson(response, maxBytes, controller.signal);
 
-            if (!input.responseHeaders) return body;
             const headers: Record<string, string> = {};
 
-            for (const name of input.responseHeaders) {
+            for (const name of input.responseHeaders ?? []) {
               const value = response.headers.get(name);
 
               if (value !== null) headers[name.toLowerCase()] = value;
             }
 
-            return { body, headers };
+            return { status: response.status, body, headers };
           }
 
           const currentTime = now();
@@ -446,4 +455,13 @@ export function createHttp(options: HttpOptions = {}) {
       input.signal?.removeEventListener("abort", abort);
     }
   };
+
+  /** The parsed body, or `{ body, headers }` when `responseHeaders` is requested. */
+  const request = async (input: HttpRequest): Promise<JsonValue> => {
+    const answer = await exchange(input);
+
+    return input.responseHeaders ? { body: answer.body, headers: answer.headers } : answer.body;
+  };
+
+  return Object.assign(request, { exchange });
 }

@@ -385,6 +385,21 @@ it("LinkedIn native writes use documented poll, reaction, reshare, update, and d
         headers: new Headers(init?.headers),
       });
 
+      // Each write gets its documented success: 201 with x-restli-id for a post create, 201
+      // with the reaction for a reaction, and 204 for a partial update or delete.
+      if (String(input).includes("/rest/reactions"))
+        return Response.json(
+          {
+            id: "urn:li:reaction:(urn:li:person:member1,urn:li:activity:123)",
+            reactionType: "LIKE",
+            root: "urn:li:activity:123",
+          },
+          { status: 201 },
+        );
+
+      if (init?.method === "DELETE" || new Headers(init?.headers).has("X-RestLi-Method"))
+        return new Response(null, { status: 204 });
+
       return new Response(null, { status: 201, headers: { "x-restli-id": "urn:li:share:99" } });
     },
   });

@@ -436,7 +436,17 @@ it("sends typed post edits as escaped commentary in patch.$set", async () => {
 });
 
 it("sends documented reaction types including ENTERTAINMENT", async () => {
-  const { calls, fetch } = recorder();
+  // Reactions API create answers 201 Created with the reaction.
+  const { calls, fetch } = recorder(() =>
+    Response.json(
+      {
+        id: "urn:li:reaction:(urn:li:person:member1,urn:li:activity:1)",
+        reactionType: "ENTERTAINMENT",
+        root: "urn:li:activity:1",
+      },
+      { status: 201 },
+    ),
+  );
 
   const native = linkedin({
     auth: { accessToken: "secret", author: memberUrn },

@@ -16,7 +16,7 @@ import type {
   PreparationIssue,
   PreparedPublishTarget,
 } from "../core/types.js";
-import { createHttp, HttpError, type HttpOptions } from "../transport/http.js";
+import { createHttp, HttpError, type HttpExchange, type HttpOptions } from "../transport/http.js";
 import { httpSocialError, providerErrorDecoder } from "../transport/provider-errors.js";
 import { isJsonValue } from "../transport/json.js";
 import { httpsUrl, upload } from "../transport/upload.js";
@@ -201,7 +201,11 @@ export type ManagedAuthHeader = (apiKey: string) => readonly [name: string, valu
 
 const bearer: ManagedAuthHeader = (apiKey) => ["Authorization", `Bearer ${apiKey}`];
 
-export function managedHttp(
+/**
+ * Like `managedHttp`, but each call resolves to the success status and body, for writes whose
+ * documented success is a status code such as 204 rather than a resource.
+ */
+export function managedHttpExchange(
   origin: string,
   options: ManagedOptions,
   authHeader: ManagedAuthHeader = bearer,
@@ -222,7 +226,7 @@ export function managedHttp(
     query: Readonly<Record<string, string | readonly string[]>> = {},
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = body === undefined ? "GET" : "POST",
     extraHeaders: Readonly<Record<string, string>> = {},
-  ): Promise<JsonValue> => {
+  ): Promise<HttpExchange> => {
     const url = new URL(origin + path);
 
     for (const [key, value] of Object.entries(query))
@@ -246,7 +250,7 @@ export function managedHttp(
       headers.set("Idempotency-Key", context.targetIdempotencyKey);
 
     try {
-      return await http({
+      return await http.exchange({
         url,
         decodeErrorBody: providerErrorDecoder(origin, path),
         headers,
@@ -264,6 +268,17 @@ export function managedHttp(
       throw httpSocialError(error, path, method, context);
     }
   };
+}
+
+export function managedHttp(
+  origin: string,
+  options: ManagedOptions,
+  authHeader: ManagedAuthHeader = bearer,
+) {
+  const exchange = managedHttpExchange(origin, options, authHeader);
+
+  return async (...args: Parameters<typeof exchange>): Promise<JsonValue> =>
+    (await exchange(...args)).body;
 }
 
 /**
