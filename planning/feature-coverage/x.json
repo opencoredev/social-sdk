@@ -1,0 +1,3314 @@
+[
+  {
+    "id": "x.publish.text",
+    "provider": "x",
+    "area": "publish",
+    "title": "Create a text Post (POST /2/tweets)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/2/tweets\""
+      ],
+      "test": [
+        "\"/2/tweets\""
+      ],
+      "docs": [
+        "POST /2/tweets"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.longform",
+    "provider": "x",
+    "area": "publish",
+    "title": "Long-form Posts up to 25,000 characters for X Premium authors",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "wrong",
+    "gap": "Add an opt-in long-text mode (e.g. options.longform or account premium flag) allowing up to 25,000 chars; document that X enforces eligibility",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "25_?000"
+      ],
+      "test": [
+        "25_?000"
+      ],
+      "docs": [
+        "25,000[- ]character|[Ll]ong-?form"
+      ],
+      "forbid": [
+        "Text uses X's weighted 280-character rules rather than JavaScript code-unit length\\."
+      ]
+    }
+  },
+  {
+    "id": "x.publish.images",
+    "provider": "x",
+    "area": "media",
+    "title": "Attach up to 4 images (JPG, PNG, GIF, WEBP; 5 MB each)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/media/quickstart/best-practices",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Accept image/webp (X lists JPG, PNG, GIF, WEBP); document WEBP once supported",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "image/webp"
+      ],
+      "test": [
+        "image/webp"
+      ],
+      "docs": [
+        "WEBP|WebP|image/webp"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.video",
+    "provider": "x",
+    "area": "media",
+    "title": "Attach one video via chunked upload (tweet_video; 8 GB/20 min default, 16 GB/125 min Premium)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/media/quickstart/best-practices",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Accept video/quicktime and video/webm, which X's initialize media_type enum lists; currently MP4 only",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "tweet_video",
+        "video/quicktime",
+        "video/webm"
+      ],
+      "test": [
+        "video/quicktime",
+        "video/webm"
+      ],
+      "docs": [
+        "uploadVideo",
+        "MP4"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.gif",
+    "provider": "x",
+    "area": "media",
+    "title": "Attach one animated GIF (tweet_gif, 15 MB)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/media/quickstart/best-practices",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\btweet_gif\\b"
+      ],
+      "test": [
+        "\\btweet_gif\\b"
+      ],
+      "docs": [
+        "GIF"
+      ]
+    }
+  },
+  {
+    "id": "x.media.alt_text",
+    "provider": "x",
+    "area": "media",
+    "title": "Image/GIF alt text via POST /2/media/metadata",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/2/media/metadata\\b",
+        "\\balt_text\\b"
+      ],
+      "test": [
+        "/2/media/metadata\\b"
+      ],
+      "docs": [
+        "altText|alt text"
+      ]
+    }
+  },
+  {
+    "id": "x.media.subtitles",
+    "provider": "x",
+    "area": "media",
+    "title": "Video subtitles/captions (POST/DELETE /2/media/subtitles, subtitles media_category)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native createSubtitles/deleteSubtitles and an SRT/VTT upload with media_category=subtitles",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/media/subtitles\\b"
+      ],
+      "test": [
+        "/2/media/subtitles\\b"
+      ],
+      "docs": [
+        "/2/media/subtitles|[Ss]ubtitles"
+      ]
+    }
+  },
+  {
+    "id": "x.media.dm_upload",
+    "provider": "x",
+    "area": "messaging",
+    "title": "Upload DM media (dm_image, dm_video, dm_gif) for DM attachments",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/media/quickstart/best-practices",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add native uploadDmMedia using dm_* categories and DM size limits (512 MB/140 s default)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdm_(image|video|gif)\\b"
+      ],
+      "test": [
+        "\\bdm_(image|video|gif)\\b"
+      ],
+      "docs": [
+        "\\bdm_(image|video|gif)\\b"
+      ]
+    }
+  },
+  {
+    "id": "x.media.lookup",
+    "provider": "x",
+    "area": "read",
+    "title": "Media lookup by media key (GET /2/media, /2/media/{media_key})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getMedia(mediaKeys)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/media(\\?|[\"`]|/\\$\\{)"
+      ],
+      "test": [
+        "/2/media(\\?|[\"`]|/\\$\\{)"
+      ],
+      "docs": [
+        "GET /2/media\\b"
+      ]
+    }
+  },
+  {
+    "id": "x.media.post_card",
+    "provider": "x",
+    "area": "publish",
+    "title": "Media title, description, preview_media_id, embeddable, call_to_actions on POST /2/tweets media",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Expose X media card fields as X publish options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpreview_media_id\\b",
+        "\\bcall_to_actions\\b"
+      ],
+      "test": [
+        "\\bpreview_media_id\\b"
+      ],
+      "docs": [
+        "preview_media_id|previewMediaId|call_to_actions|callToActions"
+      ]
+    }
+  },
+  {
+    "id": "x.media.tagged_users",
+    "provider": "x",
+    "area": "publish",
+    "title": "Tag users in media (media.tagged_user_ids)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a taggedUserIds option on X image attachments",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btagged_user_ids\\b"
+      ],
+      "test": [
+        "\\btagged_user_ids\\b"
+      ],
+      "docs": [
+        "tagged_user_ids|taggedUserIds"
+      ]
+    }
+  },
+  {
+    "id": "x.media.additional_owners",
+    "provider": "x",
+    "area": "media",
+    "title": "Share uploaded media with other accounts (additional_owners)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add additionalOwners to native upload methods",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\badditional_owners\\b"
+      ],
+      "test": [
+        "\\badditional_owners\\b"
+      ],
+      "docs": [
+        "additional_owners|additionalOwners"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.reply",
+    "provider": "x",
+    "area": "publish",
+    "title": "Reply to a Post (reply.in_reply_to_tweet_id)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bin_reply_to_tweet_id\\b"
+      ],
+      "test": [
+        "publishes an X tweet with a reply"
+      ],
+      "docs": [
+        "API replies require"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.thread",
+    "provider": "x",
+    "area": "publish",
+    "title": "Threads (self-reply chains)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "The X page apps/docs/docs/platforms/x.mdx never mentions threads or replyToPrevious; only apps/docs/docs/publishing/index.mdx does",
+    "probe": {
+      "src": [
+        "\\bin_reply_to_tweet_id\\b"
+      ],
+      "test": [
+        "chains X replies|X tweet with a reply"
+      ],
+      "docs": [
+        "replyToPrevious|[Tt]hreads? of posts|self-repl"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.exclude_reply_users",
+    "provider": "x",
+    "area": "publish",
+    "title": "Exclude users from a reply's mention list (reply.exclude_reply_user_ids)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add excludeReplyUserIds X option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bexclude_reply_user_ids\\b"
+      ],
+      "test": [
+        "\\bexclude_reply_user_ids\\b"
+      ],
+      "docs": [
+        "exclude_reply_user_ids|excludeReplyUserIds"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.reply_settings",
+    "provider": "x",
+    "area": "publish",
+    "title": "Reply settings (following, mentionedUsers, subscribers, verified)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Add 'subscribers' and 'verified' to replySettings and document the option on the X page",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\breply_settings\\b",
+        "[\"']subscribers[\"']",
+        "[\"']verified[\"']"
+      ],
+      "test": [
+        "[\"']subscribers[\"']"
+      ],
+      "docs": [
+        "replySettings|reply_settings"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.quote",
+    "provider": "x",
+    "area": "publish",
+    "title": "Quote a Post (quote_tweet_id)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add an example and the April 2026 note that Quote-Posts were removed from self-serve tiers",
+    "effort": "S",
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "\\bquote_tweet_id\\b"
+      ],
+      "test": [
+        "\\bquote_tweet_id\\b"
+      ],
+      "docs": [
+        "quote_tweet_id|quotedPostId"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.poll",
+    "provider": "x",
+    "area": "publish",
+    "title": "Poll Posts (poll.options 2-4, duration_minutes)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Document createPoll inputs, limits and that polls cannot be edited",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bduration_minutes\\b"
+      ],
+      "test": [
+        "durationMinutes"
+      ],
+      "docs": [
+        "createPoll|duration_minutes|durationMinutes"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.community",
+    "provider": "x",
+    "area": "publish",
+    "title": "Post to a Community (community_id) and share_with_followers",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add communityId and shareWithFollowers X options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcommunity_id\\b",
+        "\\bshare_with_followers\\b"
+      ],
+      "test": [
+        "\\bcommunity_id\\b"
+      ],
+      "docs": [
+        "community_id|communityId"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.paid_partnership",
+    "provider": "x",
+    "area": "publish",
+    "title": "Paid-partnership disclosure (paid_partnership)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add paidPartnership option; read tweet.fields=paid_partnership",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpaid_partnership\\b"
+      ],
+      "test": [
+        "\\bpaid_partnership\\b"
+      ],
+      "docs": [
+        "paid_partnership|paidPartnership"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.made_with_ai",
+    "provider": "x",
+    "area": "publish",
+    "title": "AI-generated media disclosure (made_with_ai)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add madeWithAi option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmade_with_ai\\b"
+      ],
+      "test": [
+        "\\bmade_with_ai\\b"
+      ],
+      "docs": [
+        "made_with_ai|madeWithAi"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.super_followers",
+    "provider": "x",
+    "area": "publish",
+    "title": "Subscriber-only Posts (for_super_followers_only)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add forSuperFollowersOnly option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfor_super_followers_only\\b"
+      ],
+      "test": [
+        "\\bfor_super_followers_only\\b"
+      ],
+      "docs": [
+        "for_super_followers_only|forSuperFollowersOnly"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.geo",
+    "provider": "x",
+    "area": "publish",
+    "title": "Geo-tag a Post (geo.place_id)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add placeId option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bgeo\\W+\\{\\s*[\"']?place_id\\b"
+      ],
+      "test": [
+        "\\bgeo\\W+\\{\\s*[\"']?place_id\\b"
+      ],
+      "docs": [
+        "geo\\.place_id|place_id|placeId|[Gg]eo-?tag"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.dm_deep_link",
+    "provider": "x",
+    "area": "publish",
+    "title": "Direct-message deep link on a Post (direct_message_deep_link)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add directMessageDeepLink option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdirect_message_deep_link\\b"
+      ],
+      "test": [
+        "\\bdirect_message_deep_link\\b"
+      ],
+      "docs": [
+        "direct_message_deep_link|directMessageDeepLink"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.card_uri",
+    "provider": "x",
+    "area": "publish",
+    "title": "Attach a card (card_uri)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add cardUri option (cards are created through the Ads API)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcard_uri\\b"
+      ],
+      "test": [
+        "\\bcard_uri\\b"
+      ],
+      "docs": [
+        "card_uri|cardUri"
+      ]
+    }
+  },
+  {
+    "id": "x.publish.nullcast",
+    "provider": "x",
+    "area": "publish",
+    "title": "Promoted-only Post (nullcast)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Optional: expose nullcast for ads users",
+    "effort": "S",
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "x.edit.text",
+    "provider": "x",
+    "area": "edit",
+    "title": "Edit a recent Post (edit_options.previous_post_id; 30 min / 5 edits, Premium)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/fundamentals/edit-posts",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bprevious_post_id\\b"
+      ],
+      "test": [
+        "\\bprevious_post_id\\b"
+      ],
+      "docs": [
+        "Edit a recent post",
+        "updatePost"
+      ]
+    }
+  },
+  {
+    "id": "x.delete.post",
+    "provider": "x",
+    "area": "delete",
+    "title": "Delete a Post (DELETE /2/tweets/{id})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/delete-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/2/tweets/\\$\\{encodeURIComponent\\(postId\\)\\}"
+      ],
+      "test": [
+        "\"/2/tweets/p1\", \"DELETE\""
+      ],
+      "docs": [
+        "DELETE /2/tweets/\\{id\\}"
+      ]
+    }
+  },
+  {
+    "id": "x.schedule.organic",
+    "provider": "x",
+    "area": "scheduling",
+    "title": "Scheduled Posts (X API v2 has none; Ads API scheduled_tweets only)",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://docs.x.com/x-ads-api/creatives",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "x.articles.publish",
+    "provider": "x",
+    "area": "publish",
+    "title": "Articles: create draft and publish long-form Article (POST /2/articles/draft, /{id}/publish)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/articles/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native createArticleDraft/publishArticle (DraftJS content_state, cover media)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/articles\\b"
+      ],
+      "test": [
+        "/2/articles\\b"
+      ],
+      "docs": [
+        "/2/articles|Articles API"
+      ]
+    }
+  },
+  {
+    "id": "x.read.post",
+    "provider": "x",
+    "area": "read",
+    "title": "Post lookup by ID (GET /2/tweets/{id})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/2/tweets/\\$\\{encodeURIComponent\\(ref\\.postId\\)\\}"
+      ],
+      "test": [
+        "X validates upstream account ownership and exposes only returned metrics"
+      ],
+      "docs": [
+        "readPost"
+      ]
+    }
+  },
+  {
+    "id": "x.read.posts_batch",
+    "provider": "x",
+    "area": "read",
+    "title": "Batch Post lookup (GET /2/tweets?ids=, up to 100)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getPosts(ids)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/tweets\\?ids=|[\"`]/2/tweets[\"`][^;]*?\\bids:"
+      ],
+      "test": [
+        "/2/tweets\\?ids="
+      ],
+      "docs": [
+        "/2/tweets\\?ids|GET /2/tweets\\b"
+      ]
+    }
+  },
+  {
+    "id": "x.read.user_timeline",
+    "provider": "x",
+    "area": "read",
+    "title": "User Posts timeline (GET /2/users/{id}/tweets)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/2/users/\\$\\{encodeURIComponent\\(userId\\)\\}/tweets"
+      ],
+      "test": [
+        "/2/users/[^/\" ]+/tweets"
+      ],
+      "docs": [
+        "userPosts|user timeline"
+      ]
+    }
+  },
+  {
+    "id": "x.read.home_timeline",
+    "provider": "x",
+    "area": "read",
+    "title": "Reverse-chronological home timeline",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Add a short example",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/timelines/reverse_chronological\\b"
+      ],
+      "test": [
+        "homeTimeline"
+      ],
+      "docs": [
+        "homeTimeline\\("
+      ]
+    }
+  },
+  {
+    "id": "x.read.mentions",
+    "provider": "x",
+    "area": "read",
+    "title": "Mentions timeline (GET /2/users/{id}/mentions)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/mentions\\b"
+      ],
+      "test": [
+        "\"mentions\""
+      ],
+      "docs": [
+        "mentions"
+      ]
+    }
+  },
+  {
+    "id": "x.read.quote_posts",
+    "provider": "x",
+    "area": "read",
+    "title": "Quote Posts of a Post (GET /2/tweets/{id}/quote_tweets)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native quotePosts(postId)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/quote_tweets\\b"
+      ],
+      "test": [
+        "/quote_tweets\\b"
+      ],
+      "docs": [
+        "quote_tweets|[Qq]uote [Pp]osts of"
+      ]
+    }
+  },
+  {
+    "id": "x.read.reposted_by",
+    "provider": "x",
+    "area": "read",
+    "title": "Users who reposted a Post (GET /2/tweets/{id}/retweeted_by) and reposts list",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native repostedBy/reposts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/retweeted_by\\b"
+      ],
+      "test": [
+        "/retweeted_by\\b"
+      ],
+      "docs": [
+        "retweeted_by|reposted by"
+      ]
+    }
+  },
+  {
+    "id": "x.read.reposts_of_me",
+    "provider": "x",
+    "area": "read",
+    "title": "Reposts of the authenticated user's Posts (GET /2/users/reposts_of_me)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native repostsOfMe",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/reposts_of_me\\b"
+      ],
+      "test": [
+        "/reposts_of_me\\b"
+      ],
+      "docs": [
+        "reposts_of_me"
+      ]
+    }
+  },
+  {
+    "id": "x.read.users",
+    "provider": "x",
+    "area": "read",
+    "title": "User lookup by ID/username incl. batch (GET /2/users, /2/users/by)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Add batch lookups GET /2/users?ids and /2/users/by?usernames",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/users/by/username/",
+        "\\busernames\\b"
+      ],
+      "test": [
+        "\\busernames\\b"
+      ],
+      "docs": [
+        "getUserByUsername|user lookup"
+      ]
+    }
+  },
+  {
+    "id": "x.search.users",
+    "provider": "x",
+    "area": "search",
+    "title": "User search (GET /2/users/search)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native searchUsers",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/users/search\\b"
+      ],
+      "test": [
+        "/2/users/search\\b"
+      ],
+      "docs": [
+        "/2/users/search|[Uu]ser search"
+      ]
+    }
+  },
+  {
+    "id": "x.search.recent",
+    "provider": "x",
+    "area": "search",
+    "title": "Recent search (GET /2/tweets/search/recent, 7 days, sort_order)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/2/tweets/search/recent\\b"
+      ],
+      "test": [
+        "/2/tweets/search/recent\\b"
+      ],
+      "docs": [
+        "search/recent|Search recent posts"
+      ]
+    }
+  },
+  {
+    "id": "x.search.all",
+    "provider": "x",
+    "area": "search",
+    "title": "Full-archive search (GET /2/tweets/search/all)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "searchAllPosts",
+        "scope: \"all\""
+      ],
+      "test": [
+        "/2/tweets/search/all\\b"
+      ],
+      "docs": [
+        "searchAllPosts"
+      ]
+    }
+  },
+  {
+    "id": "x.search.counts",
+    "provider": "x",
+    "area": "search",
+    "title": "Post counts (GET /2/tweets/counts/recent and /counts/all)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/getting-started/pricing",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native countRecentPosts/countAllPosts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/tweets/counts/"
+      ],
+      "test": [
+        "/2/tweets/counts/"
+      ],
+      "docs": [
+        "counts/(recent|all)|[Pp]ost counts"
+      ]
+    }
+  },
+  {
+    "id": "x.read.fields_post_fields",
+    "provider": "x",
+    "area": "read",
+    "title": "Extended Post fields (paid_partnership, article, community_id, edit_controls, note_post)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Extend XTweetField with newer fields; OpenAPI 2.173 names the param post.fields while the fields guide still shows tweet.fields",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"edit_controls\"",
+        "\"note_tweet\""
+      ],
+      "test": [
+        "\\bedit_controls\\b"
+      ],
+      "docs": [
+        "note_tweet|paid_partnership|post\\.fields"
+      ]
+    }
+  },
+  {
+    "id": "x.engagement.like",
+    "provider": "x",
+    "area": "engagement",
+    "title": "Like/unlike a Post (Enterprise only since Apr 20 2026)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/users/like-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/likes"
+      ],
+      "test": [
+        "/2/users/u/likes"
+      ],
+      "docs": [
+        "Like and unlike posts"
+      ]
+    }
+  },
+  {
+    "id": "x.engagement.liking_users",
+    "provider": "x",
+    "area": "engagement",
+    "title": "Liking users and liked Posts reads",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Add example",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/liking_users\\b"
+      ],
+      "test": [
+        "likingUsers"
+      ],
+      "docs": [
+        "likingUsers\\(|likedPosts\\("
+      ]
+    }
+  },
+  {
+    "id": "x.engagement.repost",
+    "provider": "x",
+    "area": "engagement",
+    "title": "Repost and undo repost",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Add example",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/retweets\\b"
+      ],
+      "test": [
+        "undoRepost"
+      ],
+      "docs": [
+        "undoRepost|repost\\("
+      ]
+    }
+  },
+  {
+    "id": "x.engagement.bookmarks",
+    "provider": "x",
+    "area": "engagement",
+    "title": "Bookmarks read/add/remove",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Document; note bookmarks returns raw first page only",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/bookmarks\\b"
+      ],
+      "test": [
+        "/2/users/u1/bookmarks"
+      ],
+      "docs": [
+        "removeBookmark"
+      ]
+    }
+  },
+  {
+    "id": "x.engagement.bookmark_folders",
+    "provider": "x",
+    "area": "engagement",
+    "title": "Bookmark folders (list, create, read by folder)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native bookmarkFolders/createBookmarkFolder/bookmarksByFolder",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/bookmarks/folders\\b"
+      ],
+      "test": [
+        "/bookmarks/folders\\b"
+      ],
+      "docs": [
+        "bookmarks/folders|[Bb]ookmark folders?"
+      ]
+    }
+  },
+  {
+    "id": "x.graph.follow",
+    "provider": "x",
+    "area": "account",
+    "title": "Follow/unfollow users (Enterprise only since Apr 2026)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/following\\b"
+      ],
+      "test": [
+        "/2/users/u1/following"
+      ],
+      "docs": [
+        "follow"
+      ]
+    }
+  },
+  {
+    "id": "x.graph.followers",
+    "provider": "x",
+    "area": "read",
+    "title": "Followers/following lists incl. /2/users/me/followers",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/followers\\b"
+      ],
+      "test": [
+        "kind: \"followers\""
+      ],
+      "docs": [
+        "followers"
+      ]
+    }
+  },
+  {
+    "id": "x.graph.mute",
+    "provider": "x",
+    "area": "moderation",
+    "title": "Mute/unmute and muted list",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/muting\\b"
+      ],
+      "test": [
+        "/2/users/u1/muting"
+      ],
+      "docs": [
+        "mute"
+      ]
+    }
+  },
+  {
+    "id": "x.graph.block",
+    "provider": "x",
+    "area": "moderation",
+    "title": "Block/unblock and blocked list",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/blocking\\b"
+      ],
+      "test": [
+        "/2/users/u1/blocking"
+      ],
+      "docs": [
+        "block"
+      ]
+    }
+  },
+  {
+    "id": "x.graph.affiliates",
+    "provider": "x",
+    "area": "read",
+    "title": "Organization affiliates (GET /2/users/{id}/affiliates)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native affiliates",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/affiliates\\b"
+      ],
+      "test": [
+        "/affiliates\\b"
+      ],
+      "docs": [
+        "affiliates"
+      ]
+    }
+  },
+  {
+    "id": "x.lists.manage",
+    "provider": "x",
+    "area": "other",
+    "title": "Lists create/update/delete, members add/remove, follow/unfollow, pin/unpin",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Add a lists example for create/members",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/2/lists\"",
+        "/members\\b",
+        "/followed_lists\\b",
+        "/pinned_lists\\b"
+      ],
+      "test": [
+        "createList",
+        "addListMember",
+        "followList",
+        "pinList"
+      ],
+      "docs": [
+        "createList|addListMember"
+      ]
+    }
+  },
+  {
+    "id": "x.lists.reads",
+    "provider": "x",
+    "area": "read",
+    "title": "List lookup, members, owned/followed/pinned lists, list Posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Document",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/owned_lists\\b",
+        "/lists/\\$\\{encodeURIComponent\\(listId\\)\\}/tweets"
+      ],
+      "test": [
+        "listMembers",
+        "listPosts",
+        "getList"
+      ],
+      "docs": [
+        "ownedLists|listMembers|listPosts"
+      ]
+    }
+  },
+  {
+    "id": "x.lists.followers_memberships",
+    "provider": "x",
+    "area": "read",
+    "title": "List followers and a user's list memberships",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native listFollowers and listMemberships",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/list_memberships\\b"
+      ],
+      "test": [
+        "/list_memberships\\b"
+      ],
+      "docs": [
+        "list_memberships|list memberships"
+      ]
+    }
+  },
+  {
+    "id": "x.moderation.hide_reply",
+    "provider": "x",
+    "area": "moderation",
+    "title": "Hide/unhide replies (PUT /2/tweets/{id}/hidden)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/hide-replies/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "hideReply is documented only in apps/docs/docs/comments/index.mdx:151; apps/docs/docs/platforms/x.mdx has no hide-reply mention",
+    "probe": {
+      "src": [
+        "/hidden\\b"
+      ],
+      "test": [
+        "\\[\"updatePost\", \"deletePost\", \"hideReply\"\\]"
+      ],
+      "docs": [
+        "hideReply"
+      ]
+    }
+  },
+  {
+    "id": "x.comments.list",
+    "provider": "x",
+    "area": "comments",
+    "title": "Read replies via conversation_id search",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/fundamentals/conversation-id",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "conversation_id:"
+      ],
+      "test": [
+        "conversation_id"
+      ],
+      "docs": [
+        "conversation_id"
+      ]
+    }
+  },
+  {
+    "id": "x.dm.read",
+    "provider": "x",
+    "area": "messaging",
+    "title": "DM events (GET /2/dm_events, by conversation, by participant; 30 days)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/direct-messages/lookup/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/dm_events\\b"
+      ],
+      "test": [
+        "/dm_events\\b"
+      ],
+      "docs": [
+        "listDirectMessages|dm_events"
+      ]
+    }
+  },
+  {
+    "id": "x.dm.send",
+    "provider": "x",
+    "area": "messaging",
+    "title": "Send DMs (1:1 by participant, by conversation, create group)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/direct-messages/manage/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/dm_conversations\\b"
+      ],
+      "test": [
+        "/dm_conversations\\b"
+      ],
+      "docs": [
+        "sendDirectMessage|direct message"
+      ]
+    }
+  },
+  {
+    "id": "x.dm.event_lookup_delete",
+    "provider": "x",
+    "area": "messaging",
+    "title": "Get or delete a single DM event (GET/DELETE /2/dm_events/{event_id})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getDirectMessage/deleteDirectMessage",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/dm_events/\\$\\{"
+      ],
+      "test": [
+        "/2/dm_events/[^\"\\s]"
+      ],
+      "docs": [
+        "dm_events/\\{(event_)?id\\}"
+      ]
+    }
+  },
+  {
+    "id": "x.dm.media_download",
+    "provider": "x",
+    "area": "messaging",
+    "title": "Download DM media (GET /2/dm_conversations/media/...)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native downloadDmMedia",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/dm_conversations/media\\b"
+      ],
+      "test": [
+        "/dm_conversations/media\\b"
+      ],
+      "docs": [
+        "dm_conversations/media|[Dd]ownload DM media"
+      ]
+    }
+  },
+  {
+    "id": "x.dm.block",
+    "provider": "x",
+    "area": "moderation",
+    "title": "Block/unblock DMs from a user (POST /2/users/{id}/dm/block|unblock)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native blockDms/unblockDms",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/dm/(block|unblock)\\b"
+      ],
+      "test": [
+        "/dm/(block|unblock)\\b"
+      ],
+      "docs": [
+        "/dm/block|[Bb]lock DMs"
+      ]
+    }
+  },
+  {
+    "id": "x.dm.refusal_errors",
+    "provider": "x",
+    "area": "messaging",
+    "title": "Typed DM refusal problem types (dm-...) on HTTP 403",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Map https://api.x.com/2/problems/dm-* types to specific SocialError upstreamCode values",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "problems/dm-"
+      ],
+      "test": [
+        "problems/dm-"
+      ],
+      "docs": [
+        "problems/dm-|\\bdm-[a-z]+-[a-z]"
+      ]
+    }
+  },
+  {
+    "id": "x.xchat",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat encrypted conversations API (/2/chat/*)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Evaluate a separate x-chat native module (needs Chat XDK encryption)",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/2/chat/"
+      ],
+      "test": [
+        "/2/chat/"
+      ],
+      "docs": [
+        "/2/chat|X Chat"
+      ]
+    }
+  },
+  {
+    "id": "x.spaces.lookup",
+    "provider": "x",
+    "area": "read",
+    "title": "Spaces lookup/search/by creator",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/spaces/lookup/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/2/spaces/search\""
+      ],
+      "test": [
+        "/2/spaces"
+      ],
+      "docs": [
+        "getSpace|searchSpaces"
+      ]
+    }
+  },
+  {
+    "id": "x.spaces.posts_buyers",
+    "provider": "x",
+    "area": "read",
+    "title": "Space Posts and ticket buyers (GET /2/spaces/{id}/tweets, /buyers)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native spacePosts/spaceBuyers",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/buyers\\b"
+      ],
+      "test": [
+        "/buyers\\b"
+      ],
+      "docs": [
+        "buyers"
+      ]
+    }
+  },
+  {
+    "id": "x.broadcasts",
+    "provider": "x",
+    "area": "other",
+    "title": "Live video broadcasts: sources, scheduled broadcasts, go live, chat moderation (/2/broadcasts, /2/sources)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Consider a native broadcasts module (broadcast.read/write scopes)",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/2/broadcasts\\b"
+      ],
+      "test": [
+        "/2/broadcasts\\b"
+      ],
+      "docs": [
+        "/2/broadcasts|[Bb]roadcasts"
+      ]
+    }
+  },
+  {
+    "id": "x.communities.lookup",
+    "provider": "x",
+    "area": "read",
+    "title": "Communities lookup and search",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/communities/lookup/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native getCommunity/searchCommunities",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/communities\\b"
+      ],
+      "test": [
+        "/2/communities\\b"
+      ],
+      "docs": [
+        "/2/communities|[Cc]ommunities"
+      ]
+    }
+  },
+  {
+    "id": "x.analytics.public_metrics",
+    "provider": "x",
+    "area": "analytics",
+    "title": "Post and user public_metrics",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/fundamentals/metrics",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bpublic_metrics\\b"
+      ],
+      "test": [
+        "\\bpublic_metrics\\b"
+      ],
+      "docs": [
+        "metrics"
+      ]
+    }
+  },
+  {
+    "id": "x.analytics.private_metrics",
+    "provider": "x",
+    "area": "analytics",
+    "title": "non_public_metrics and organic_metrics (owner, last 30 days)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/fundamentals/metrics",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Request non_public_metrics/organic_metrics for own posts (url_link_clicks, user_profile_clicks, video views)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bnon_public_metrics\\b",
+        "\\borganic_metrics\\b"
+      ],
+      "test": [
+        "\\bnon_public_metrics\\b"
+      ],
+      "docs": [
+        "non_public_metrics|organic_metrics"
+      ]
+    }
+  },
+  {
+    "id": "x.analytics.post_analytics",
+    "provider": "x",
+    "area": "analytics",
+    "title": "Post Analytics endpoint (GET /2/tweets/analytics; hourly/daily/weekly/total; impressions, engagements, url_clicks...)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native/normalized time-series post analytics via /2/tweets/analytics",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/tweets/analytics\\b"
+      ],
+      "test": [
+        "/2/tweets/analytics\\b"
+      ],
+      "docs": [
+        "/2/tweets/analytics|Post Analytics"
+      ]
+    }
+  },
+  {
+    "id": "x.analytics.media",
+    "provider": "x",
+    "area": "analytics",
+    "title": "Media analytics (GET /2/media/analytics)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native mediaAnalytics",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/media/analytics\\b"
+      ],
+      "test": [
+        "/2/media/analytics\\b"
+      ],
+      "docs": [
+        "/2/media/analytics|[Mm]edia analytics"
+      ]
+    }
+  },
+  {
+    "id": "x.stream.filtered",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Filtered stream + rules (1,000 rules/1,024 chars pay-per-use)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/filtered-stream/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "/2/tweets/search/stream\\b"
+      ],
+      "test": [
+        "search/stream/rules"
+      ],
+      "docs": [
+        "Filtered stream"
+      ]
+    }
+  },
+  {
+    "id": "x.stream.rule_counts",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Stream rule counts (GET /2/tweets/search/stream/rules/counts)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native streamRuleCounts",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "stream/rules/counts\\b"
+      ],
+      "test": [
+        "stream/rules/counts\\b"
+      ],
+      "docs": [
+        "rules/counts|[Rr]ule counts"
+      ]
+    }
+  },
+  {
+    "id": "x.stream.webhook_link",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Deliver filtered stream to a webhook (/2/tweets/search/webhooks/{id})",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native linkStreamWebhook/unlinkStreamWebhook",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/tweets/search/webhooks\\b"
+      ],
+      "test": [
+        "/2/tweets/search/webhooks\\b"
+      ],
+      "docs": [
+        "search/webhooks"
+      ]
+    }
+  },
+  {
+    "id": "x.stream.connections",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Connections API (list/terminate streaming connections)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native connection history/terminate for stream recovery",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/connections\\b"
+      ],
+      "test": [
+        "/2/connections\\b"
+      ],
+      "docs": [
+        "/2/connections|Connections API"
+      ]
+    }
+  },
+  {
+    "id": "x.webhooks.verify_crc",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Webhook CRC challenge and signature verification",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/account-activity/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bcrc_token\\b",
+        "\\bresponse_token\\b"
+      ],
+      "test": [
+        "\\bcrc_token\\b",
+        "\\bresponse_token\\b"
+      ],
+      "docs": [
+        "crc_token|CRC"
+      ]
+    }
+  },
+  {
+    "id": "x.webhooks.manage",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Webhook config management (GET/POST/PUT/DELETE /2/webhooks) and replay (POST /2/webhooks/replay)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add server helpers to register, validate, list, delete webhooks and create replay jobs",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "[\"`]/2/webhooks\\b"
+      ],
+      "test": [
+        "/2/webhooks\\b"
+      ],
+      "docs": [
+        "/2/webhooks"
+      ]
+    }
+  },
+  {
+    "id": "x.webhooks.aaa_subscriptions",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Account Activity subscriptions (create/validate/list/delete/count; deprecated in favour of XAA)",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/account-activity/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Mark AAA deprecated on the X page; prefer XAA subscription helpers",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "Account Activity",
+        "[Dd]eprecat"
+      ]
+    }
+  },
+  {
+    "id": "x.webhooks.aaa_decode",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "Account Activity event decoding (tweet_create, favorite, follow, block, mute, DM, typing, read, revoke)",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/account-activity/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Map tweet_create_events (mentions/replies) to comment.received and favorite/follow events, or document they decode as unknown",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "tweet_create_events|favorite_events|follow_events"
+      ]
+    }
+  },
+  {
+    "id": "x.webhooks.xaa",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "X Activity API subscriptions + events (post.*, like.create, follow.*, mute/block, profile.update.*, dm.*, chat.*, spaces.*, news.new) via webhook or stream",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/activity/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Add XAA subscription CRUD + activity stream, map post.reply.create/post.mention.create/dm.received to normalized events",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/2/activity/subscriptions\\b",
+        "post\\.reply\\.create"
+      ],
+      "test": [
+        "/2/activity/subscriptions\\b"
+      ],
+      "docs": [
+        "X Activity API",
+        "/2/activity"
+      ]
+    }
+  },
+  {
+    "id": "x.auth.oauth2_pkce",
+    "provider": "x",
+    "area": "auth",
+    "title": "OAuth 2.0 authorization code with PKCE and refresh",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "x\\.com/i/oauth2/authorize",
+        "\\bcode_challenge\\b"
+      ],
+      "test": [
+        "x\\.com/i/oauth2/authorize|\\bcode_challenge\\b"
+      ],
+      "docs": [
+        "PKCE"
+      ]
+    }
+  },
+  {
+    "id": "x.auth.oauth1_token_exchange",
+    "provider": "x",
+    "area": "auth",
+    "title": "Exchange OAuth 1.0a user tokens for OAuth 2.0 tokens (token-exchange grant)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/changelog",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add an xExchangeOAuth1Token server helper for migrations",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "token-exchange"
+      ],
+      "test": [
+        "token-exchange"
+      ],
+      "docs": [
+        "token-exchange|[Ee]xchange OAuth 1\\.0a"
+      ]
+    }
+  },
+  {
+    "id": "x.account.profile_update",
+    "provider": "x",
+    "area": "account",
+    "title": "Profile update (no v2 endpoint)",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "docs": [
+        "cannot update the account profile"
+      ]
+    }
+  },
+  {
+    "id": "x.usage.read",
+    "provider": "x",
+    "area": "other",
+    "title": "Usage and credit balance (GET /2/usage/tweets, /2/usage/credits)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native usage/credits reads to help apps budget pay-per-use",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/usage/"
+      ],
+      "test": [
+        "/2/usage/"
+      ],
+      "docs": [
+        "/2/usage|credit balance"
+      ]
+    }
+  },
+  {
+    "id": "x.trends",
+    "provider": "x",
+    "area": "read",
+    "title": "Trends by WOEID and personalized trends",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/getting-started/pricing",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native trends/personalizedTrends",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/trends/by/woeid\\b|/2/trends\\b"
+      ],
+      "test": [
+        "/trends/by/woeid\\b"
+      ],
+      "docs": [
+        "[Tt]rends"
+      ]
+    }
+  },
+  {
+    "id": "x.ads.campaigns",
+    "provider": "x",
+    "area": "ads",
+    "title": "Ads API campaign management, creatives, analytics, conversions",
+    "access": "approval",
+    "scope": "ads",
+    "source": {
+      "url": "https://docs.x.com/x-ads-api/creatives",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "docs": []
+    }
+  },
+  {
+    "id": "x.webhooks.activity_stream",
+    "provider": "x",
+    "area": "webhooks",
+    "title": "X Activity API persistent stream (GET /2/activity/stream, backfill_minutes, start_time, end_time)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/activity/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Subscriptions exist; add a stream consumer for activity events (reuse x-stream transport)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/activity/stream"
+      ],
+      "test": [
+        "/2/activity/stream"
+      ],
+      "docs": [
+        "/2/activity/stream",
+        "[Aa]ctivity ?[Ss]tream"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.xchat.groups",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat group management: create/initialize group, get/update/delete conversation, members, admins, admin requests, admin settings, invites, join requests",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/chat/create-chat-group-conversation",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Only list, events and send exist; add group lifecycle and membership endpoints",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "/2/chat/conversations/group",
+        "/admin_requests",
+        "/join_requests"
+      ],
+      "test": [
+        "/2/chat/conversations/group"
+      ],
+      "docs": [
+        "/2/chat/conversations/group"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.xchat.inbox_state",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat per-user conversation state: archive/unarchive, mute/unmute, mark read/unread, typing indicator",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/chat/mark-conversation-as-read",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No way to archive, mute, mark read or send typing for X Chat conversations",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/chat/conversations/[^\\n]*/archive",
+        "/2/chat/conversations/[^\\n]*/mute",
+        "/2/chat/conversations/[^\\n]*/read",
+        "/2/chat/conversations/[^\\n]*/typing"
+      ],
+      "test": [
+        "/2/chat/conversations/[^\\n]*/(?:archive|mute|read|typing)"
+      ],
+      "docs": [
+        "/2/chat/conversations/[^\\n]*/(?:archive|mute|read|typing)|[Tt]yping indicator"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.xchat.conversation_settings",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat conversation settings: message_ttl, screen_capture, pinned_messages, delete messages",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No disappearing-message TTL, screen-capture setting, pinned-message read or message deletion",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bmessage_ttl\\b",
+        "\\bscreen_capture\\b",
+        "\\bpinned_messages\\b",
+        "/messages/delete"
+      ],
+      "test": [
+        "\\bmessage_ttl\\b"
+      ],
+      "docs": [
+        "message_ttl|pinned_messages|[Pp]inned messages"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.xchat.keys",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat E2EE keys: conversation keys (POST /2/chat/conversations/{id}/keys) and user public keys (GET /2/users/public_keys, GET/POST /2/users/{id}/public_keys)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/chat/get-user-public-keys",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Encrypted chat needs recipient public keys; today the SDK leaves keys to the Chat XDK",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/public_keys\\b",
+        "/2/chat/conversations/[^\\n]*/keys\\b"
+      ],
+      "test": [
+        "/public_keys\\b"
+      ],
+      "docs": [
+        "public_keys|[Pp]ublic keys?"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.xchat.media",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat media upload (initialize/append/finalize) and download (GET /2/chat/media/{id}/{media_hash_key})",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/chat/initialize-chat-media-upload",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Chat attachments cannot be uploaded or downloaded",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/chat/media/upload",
+        "/2/chat/media/"
+      ],
+      "test": [
+        "/2/chat/media/"
+      ],
+      "docs": [
+        "/2/chat/media"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.xchat.requests_settings",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat message requests (list, get, accept) and chat settings (GET/PUT /2/chat/settings)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Cannot read or accept message requests or change chat settings",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/chat/message_requests",
+        "/2/chat/settings"
+      ],
+      "test": [
+        "/2/chat/message_requests"
+      ],
+      "docs": [
+        "message_requests|[Mm]essage requests",
+        "/2/chat/settings|[Cc]hat settings"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.xchat.options",
+    "provider": "x",
+    "area": "messaging",
+    "title": "X Chat options on implemented endpoints: participant_query on list; content.reaction_add/reaction_remove and conversation_token on send",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/chat/send-chat-message",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Chat reactions cannot be sent and conversations cannot be filtered by participant",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bparticipant_query\\b",
+        "\\breaction_add\\b",
+        "\\bconversation_token\\b"
+      ],
+      "test": [
+        "\\breaction_add\\b"
+      ],
+      "docs": [
+        "participant_query",
+        "reaction_add"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.calls",
+    "provider": "x",
+    "area": "messaging",
+    "title": "Calls API: create, get, join, leave; scheduled calls list/create/get/update/cancel and RSVP (/2/calls)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "OpenAPI-only (not in x-api/llms.txt); add only once X documents it",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/calls\\b",
+        "/2/calls/scheduled"
+      ],
+      "test": [
+        "/2/calls\\b"
+      ],
+      "docs": [
+        "/2/calls|X [Cc]alls"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.bots",
+    "provider": "x",
+    "area": "account",
+    "title": "Bots API: list, create (org_only, dm_permission), update, delete, rotate and revoke bot token (/2/bots)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "OpenAPI-only bot account management; returns bearer tokens, keep server-side",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/bots\\b"
+      ],
+      "test": [
+        "/2/bots\\b"
+      ],
+      "docs": [
+        "/2/bots"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.account.developer_account",
+    "provider": "x",
+    "area": "account",
+    "title": "Developer account read and ensure (GET/POST /2/account)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "OpenAPI-only; could back an account or credit preflight",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/account\\b"
+      ],
+      "test": [
+        "/2/account\\b"
+      ],
+      "docs": [
+        "/2/account\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.compliance.batch_jobs",
+    "provider": "x",
+    "area": "other",
+    "title": "Batch compliance jobs: create (type, resumable), list, get, upload IDs, download results, delete (/2/compliance/jobs)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/compliance/batch-compliance/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Apps that store posts or users cannot run the purge checks the Developer Agreement requires",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/compliance/jobs"
+      ],
+      "test": [
+        "/2/compliance/jobs"
+      ],
+      "docs": [
+        "/2/compliance/jobs|[Cc]ompliance jobs?"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.compliance.streams",
+    "provider": "x",
+    "area": "other",
+    "title": "Compliance streams: posts, users, likes compliance and post label streams (partition, backfill_minutes)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/compliance/streams/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Enterprise tier; types exist as connection targets only, no consumer",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/tweets/compliance/stream",
+        "/2/users/compliance/stream",
+        "/2/likes/compliance/stream",
+        "/2/tweets/label/stream"
+      ],
+      "test": [
+        "compliance/stream"
+      ],
+      "docs": [
+        "compliance/stream|[Cc]ompliance streams?"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.stream.volume",
+    "provider": "x",
+    "area": "read",
+    "title": "Volume streams: sample, sample10, firehose, en/ja/ko/pt firehoses, likes firehose and likes sample10 (partition, backfill_minutes, start_time, end_time)",
+    "access": "paid-tier",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/volume-streams/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "XStreamEndpoint enum lists them but nothing can consume them",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/tweets/sample/stream",
+        "/2/tweets/sample10/stream",
+        "/2/tweets/firehose/stream",
+        "/2/likes/firehose/stream"
+      ],
+      "test": [
+        "/2/tweets/(?:sample|sample10|firehose)/stream"
+      ],
+      "docs": [
+        "sample/stream|[Ss]ampled? stream",
+        "[Ff]irehose"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.community_notes",
+    "provider": "x",
+    "area": "other",
+    "title": "Community Notes (AI Note Writer): create, evaluate, delete, search notes written, search eligible posts (test_mode)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/community-notes/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "No Community Notes support",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/notes\\b",
+        "\\btest_mode\\b"
+      ],
+      "test": [
+        "/2/notes\\b"
+      ],
+      "docs": [
+        "/2/notes|Community Notes"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.news",
+    "provider": "x",
+    "area": "read",
+    "title": "News stories: search (query, max_age_hours) and get by ID (/2/news)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/news/introduction",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "news.new activity events are typed but the stories cannot be fetched",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/news/search",
+        "/2/news/"
+      ],
+      "test": [
+        "/2/news/"
+      ],
+      "docs": [
+        "/2/news"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.broadcasts.per_broadcast_mutes",
+    "provider": "x",
+    "area": "moderation",
+    "title": "Per-broadcast chat mute and unmute (POST/DELETE /2/broadcasts/{id}/chat/mutes)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only the host-level mute (/2/broadcasts/chat/mutes) exists",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/broadcasts/[^/\\s\"`]+/chat/mutes"
+      ],
+      "test": [
+        "/2/broadcasts/[^/\\s\"`]+/chat/mutes"
+      ],
+      "docs": [
+        "/2/broadcasts/[^/\\s`]+/chat/mutes|[Pp]er-broadcast"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.broadcasts.user_scoped",
+    "provider": "x",
+    "area": "other",
+    "title": "User-scoped broadcasts and sources (/2/users/{id}/broadcasts x5, /2/users/{id}/sources x5, is_low_latency)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Only app-level /2/broadcasts and /2/sources exist",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/2/users/[^/\\s\"`]+/broadcasts",
+        "/2/users/[^/\\s\"`]+/sources"
+      ],
+      "test": [
+        "/2/users/[^/\\s\"`]+/broadcasts"
+      ],
+      "docs": [
+        "/2/users/[^/\\s`]+/(?:broadcasts|sources)",
+        "is_low_latency"
+      ]
+    },
+    "round": 2,
+    "statusCorrection": "X OpenAPI 2.173 marks is_low_latency \"Ignored.\", telecast_id deprecated and ignored, and roll_forward deprecated with true rejected; these need a docs mention only (checked 2026-11-04)."
+  },
+  {
+    "id": "x.broadcasts.region",
+    "provider": "x",
+    "area": "other",
+    "title": "Ingest region lookup (GET /2/region) for stream sources",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Callers must hard-code the region passed to createStreamSource",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/region\\b"
+      ],
+      "test": [
+        "/2/region\\b"
+      ],
+      "docs": [
+        "/2/region"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.broadcasts.options",
+    "provider": "x",
+    "area": "other",
+    "title": "Broadcast options: oldest/newest_start_time on scheduled list, is_locked, recurrence, telecast_id, thumbnail_media_id, roll_forward, should_not_tweet",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://api.x.com/2/openapi.json",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "No recurring broadcasts, custom thumbnail, locked chat or end-without-posting",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\boldest_start_time\\b",
+        "\\bis_locked\\b",
+        "\\brecurrence\\b",
+        "\\bthumbnail_media_id\\b",
+        "\\bshould_not_tweet\\b"
+      ],
+      "test": [
+        "\\bthumbnail_media_id\\b"
+      ],
+      "docs": [
+        "[Rr]ecurr",
+        "[Tt]humbnail",
+        "should_not_tweet|without posting",
+        "telecast_id",
+        "roll_forward"
+      ]
+    },
+    "round": 2,
+    "statusCorrection": "X OpenAPI 2.173 marks is_low_latency \"Ignored.\", telecast_id deprecated and ignored, and roll_forward deprecated with true rejected; these need a docs mention only (checked 2026-11-04)."
+  },
+  {
+    "id": "x.auth.oauth2_revoke",
+    "provider": "x",
+    "area": "auth",
+    "title": "OAuth 2.0 token revocation (POST https://api.x.com/2/oauth2/revoke)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/fundamentals/authentication/oauth-2-0/user-access-token",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add an X revoke helper for disconnect flows (TikTok has one)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/2/oauth2/revoke"
+      ],
+      "test": [
+        "/2/oauth2/revoke"
+      ],
+      "docs": [
+        "oauth2/revoke"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.dm.event_types",
+    "provider": "x",
+    "area": "messaging",
+    "title": "DM event_types filter (MessageCreate, ParticipantsJoin, ParticipantsLeave) on all three DM event reads",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/direct-messages/get-dm-events",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Group DM reads cannot filter out join/leave events",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bevent_types\\b"
+      ],
+      "test": [
+        "\\bevent_types\\b"
+      ],
+      "docs": [
+        "event_types"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.publish.auto_populate_reply_metadata",
+    "provider": "x",
+    "area": "publish",
+    "title": "reply.auto_populate_reply_metadata on POST /2/tweets",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/posts/create-or-edit-post",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "The only POST /2/tweets body field never sent",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bauto_populate_reply_metadata\\b"
+      ],
+      "test": [
+        "\\bauto_populate_reply_metadata\\b"
+      ],
+      "docs": [
+        "auto_populate_reply_metadata"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.stream.rules_delete_all",
+    "provider": "x",
+    "area": "read",
+    "title": "Delete all filtered-stream rules (delete_all on POST /2/tweets/search/stream/rules)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/stream/update-stream-rules",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Rules can only be deleted by ID",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdelete_all\\b"
+      ],
+      "test": [
+        "\\bdelete_all\\b"
+      ],
+      "docs": [
+        "delete_all"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.engagement.bookmarks_bulk_folder",
+    "provider": "x",
+    "area": "engagement",
+    "title": "Bulk bookmarks and bookmark into a folder (tweet_ids, folder_id on POST /2/users/{id}/bookmarks)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/bookmarks/create-bookmark",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "SDK sends tweet_id only; cannot bookmark several posts or into a folder",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfolder_id\\b"
+      ],
+      "test": [
+        "\\bfolder_id\\b",
+        "feature:x\\.engagement\\.bookmarks_bulk_folder\\b"
+      ],
+      "docs": [
+        "folder_id"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.media.sensitive_warning",
+    "provider": "x",
+    "area": "media",
+    "title": "Sensitive media warning on media metadata (sensitive_media_warning: adult_content, graphic_violence, other)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/media/create-media-metadata",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Publishers cannot flag adult or graphic media",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bsensitive_media_warning\\b"
+      ],
+      "test": [
+        "\\bsensitive_media_warning\\b"
+      ],
+      "docs": [
+        "sensitive_media_warning|[Ss]ensitive media"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "x.media.metadata_controls",
+    "provider": "x",
+    "area": "media",
+    "title": "Media metadata controls: allow_download_status, content_expiration, geo_restrictions, domain_restrictions, audience_policy, found_media_origin, preview_image, sticker_info, upload_source, management_info, shared_info",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://docs.x.com/x-api/media/create-media-metadata",
+      "checked": "2026-11-04",
+      "apiVersion": "OpenAPI 2.173"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Only alt_text is sent to POST /2/media/metadata",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\ballow_download_status\\b",
+        "\\bcontent_expiration\\b",
+        "\\bgeo_restrictions\\b",
+        "\\bdomain_restrictions\\b",
+        "\\baudience_policy\\b",
+        "\\bfound_media_origin\\b"
+      ],
+      "test": [
+        "\\ballow_download_status\\b"
+      ],
+      "docs": [
+        "allow_download_status|content_expiration|geo_restrictions"
+      ]
+    },
+    "round": 2
+  }
+]

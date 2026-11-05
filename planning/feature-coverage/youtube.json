@@ -1,0 +1,2520 @@
+[
+  {
+    "id": "youtube.publish.video.resumable_upload",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Upload a video with videos.insert (resumable, up to 256 GB, video/* or octet-stream)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "uploadType=resumable"
+      ],
+      "test": [
+        "uploadType\\\"\\), \\\"resumable\\\"|uploadType=resumable"
+      ],
+      "docs": [
+        "### Upload a video",
+        "videos\\.insert"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.snippet.title_description",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Video title and description (snippet.title, snippet.description)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "snippet: \\{\\s*title,\\s*description:"
+      ],
+      "test": [
+        "snippet[\\s\\S]{0,200}?\\btitle\\b",
+        "\\bdescription\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\btitle\\b",
+        "\\bdescription\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.snippet.categoryId",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Video category (snippet.categoryId)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bcategoryId\\b"
+      ],
+      "test": [
+        "\\bcategoryId\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\bcategoryId\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.snippet.tags",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Video tags at upload (snippet.tags[])",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a `tags` target option to posts.publish and document it",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:youtube\\.publish\\.snippet\\.tags\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\btags\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.snippet.defaultLanguage",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Default metadata language at upload (snippet.defaultLanguage)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add `defaultLanguage` target option at upload",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:youtube\\.publish\\.snippet\\.defaultLanguage\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\bdefaultLanguage\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.status.privacyStatus",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Visibility public/unlisted/private (status.privacyStatus)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bprivacyStatus\\b"
+      ],
+      "test": [
+        "\\bprivacyStatus\\b"
+      ],
+      "docs": [
+        "\\bvisibility\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.status.selfDeclaredMadeForKids",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Made-for-kids declaration (status.selfDeclaredMadeForKids)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bselfDeclaredMadeForKids\\b"
+      ],
+      "test": [
+        "\\bselfDeclaredMadeForKids\\b"
+      ],
+      "docs": [
+        "\\bmadeForKids\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.status.license",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "License youtube or creativeCommon at upload (status.license)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add `license` target option at upload",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:youtube\\.publish\\.status\\.license\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\blicense\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.status.embeddable",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Allow embedding at upload (status.embeddable)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add `embeddable` target option at upload",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:youtube\\.publish\\.status\\.embeddable\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\bembeddable\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.status.publicStatsViewable",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Public stats visibility at upload (status.publicStatsViewable)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add `publicStatsViewable` target option at upload",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:youtube\\.publish\\.status\\.publicStatsViewable\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\bpublicStatsViewable\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.status.containsSyntheticMedia",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Altered or synthetic (AI) content disclosure (status.containsSyntheticMedia, added 2024-10-30)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Add `containsSyntheticMedia` upload option and document the AI-disclosure field on the YouTube page",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:youtube\\.publish\\.status\\.containsSyntheticMedia\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\bcontainsSyntheticMedia\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.recordingDetails.recordingDate",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Recording date (recordingDetails.recordingDate) on insert and update",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept recordingDetails on upload and updateVideo",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\brecordingDetails\\b",
+        "\\brecordingDate\\b"
+      ],
+      "test": [
+        "\\brecordingDate\\b"
+      ],
+      "docs": [
+        "\\brecordingDate\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.localizations",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Localized titles/descriptions per language (localizations.{lang}) on insert and update",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Accept a localizations map on upload and updateVideo (requires defaultLanguage)",
+    "effort": "M",
+    "probe": {
+      "test": [
+        "feature:youtube\\.publish\\.localizations\\b"
+      ],
+      "docs": [
+        "### Upload a video(?:(?!\\n### )[\\s\\S])*\\blocalizations\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.notifySubscribers",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Suppress subscriber notification (notifySubscribers=false query parameter)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add `notifySubscribers` target option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bnotifySubscribers\\b"
+      ],
+      "test": [
+        "\\bnotifySubscribers\\b"
+      ],
+      "docs": [
+        "\\bnotifySubscribers\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.onBehalfOfContentOwner",
+    "provider": "youtube",
+    "area": "publish",
+    "title": "Content-owner (CMS) uploads via onBehalfOfContentOwner/onBehalfOfContentOwnerChannel",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional: support CMS partner parameters; low priority",
+    "effort": "M",
+    "probe": {
+      "docs": [
+        "onBehalfOfContentOwner|[Cc]ontent owner"
+      ]
+    }
+  },
+  {
+    "id": "youtube.publish.unverified_project_privacy",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Uploads from unverified API projects are no longer forced private (policy reversed 2026-11-02; unspecified privacy defaults to public unless account settings say private)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/revision_history",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "wrong",
+    "gap": "Rewrite the warning and the capability note to match the 2026-11-02 revision (the upload guide already does)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "(?<![\\s\\S])(?![\\s\\S]*restricted to private visibility)"
+      ],
+      "test": [
+        "(?<![\\s\\S])(?![\\s\\S]*restricted to private visibility)"
+      ],
+      "docs": [
+        "(?<![\\s\\S])(?![\\s\\S]*restricted to private visibility)"
+      ],
+      "forbid": [
+        "unaudited API projects created after July 28, 2020 are restricted to private visibility"
+      ]
+    }
+  },
+  {
+    "id": "youtube.scheduling.publishAt",
+    "provider": "youtube",
+    "area": "scheduling",
+    "title": "Scheduled release (status.publishAt with private status)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bpublishAt\\b"
+      ],
+      "test": [
+        "\\bpublishAt\\b"
+      ],
+      "docs": [
+        "status\\.publishAt"
+      ]
+    }
+  },
+  {
+    "id": "youtube.scheduling.cancel",
+    "provider": "youtube",
+    "area": "scheduling",
+    "title": "Cancel a scheduled release by clearing publishAt via videos.update",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/update",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bcancelScheduled\\b",
+        "\\bpublishAt\\b"
+      ],
+      "test": [
+        "\\bcancelScheduled\\b"
+      ],
+      "docs": [
+        "### Cancel a scheduled video",
+        "cancelScheduled"
+      ]
+    }
+  },
+  {
+    "id": "youtube.media.upload.resume",
+    "provider": "youtube",
+    "area": "media",
+    "title": "Resume an interrupted resumable upload / query upload status",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "bytes \\*/"
+      ],
+      "test": [
+        "bytes \\*/"
+      ],
+      "docs": [
+        "### Resume an interrupted upload"
+      ]
+    }
+  },
+  {
+    "id": "youtube.edit.videos.update",
+    "provider": "youtube",
+    "area": "edit",
+    "title": "Update video metadata (videos.update: snippet, status, recordingDetails, localizations)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/update",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Support recordingDetails and localizations parts in updateVideo",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/videos\"[^\\n]*\"PUT\"",
+        "\\brecordingDetails\\b"
+      ],
+      "test": [
+        "feature:youtube\\.edit\\.videos\\.update\\b"
+      ],
+      "docs": [
+        "updateVideo"
+      ]
+    }
+  },
+  {
+    "id": "youtube.delete.videos.delete",
+    "provider": "youtube",
+    "area": "delete",
+    "title": "Delete a video (videos.delete)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/videos\", context, undefined, \\{ id: [a-zA-Z.]+ \\}, \"DELETE\""
+      ],
+      "test": [
+        "videos\\.delete|deleteVideo"
+      ],
+      "docs": [
+        "deleteVideo|[Vv]ideo update/delete"
+      ]
+    }
+  },
+  {
+    "id": "youtube.read.videos.byId",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Read videos by ID (videos.list id=, any public video, many parts)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Allow reading any public video by ID (not only the configured channel) and selectable parts (contentDetails, liveStreamingDetails, topicDetails)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bliveStreamingDetails\\b",
+        "\\btopicDetails\\b"
+      ],
+      "test": [
+        "\\bliveStreamingDetails\\b"
+      ],
+      "docs": [
+        "\\bliveStreamingDetails\\b",
+        "\\btopicDetails\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.read.videos.mostPopular",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Most popular chart by region/category (videos.list chart=mostPopular)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native videos list with chart, regionCode, videoCategoryId",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmostPopular\\b"
+      ],
+      "test": [
+        "\\bmostPopular\\b"
+      ],
+      "docs": [
+        "\\bmostPopular\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.read.videos.myRating",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Videos the user liked or disliked (videos.list myRating=like|dislike)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add myRating filter to a native videos list",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmyRating\\b"
+      ],
+      "test": [
+        "\\bmyRating\\b"
+      ],
+      "docs": [
+        "\\bmyRating\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.read.videos.batchGetStats",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Batch video stats with own quota bucket (videos.batchGetStats, added 2026-06-03)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/batchGetStats",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native batchGetStats (separate 10,000-unit bucket) and consider it for getPostMetrics",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bbatchGetStats\\b"
+      ],
+      "test": [
+        "\\bbatchGetStats\\b"
+      ],
+      "docs": [
+        "\\bbatchGetStats\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.read.channel.uploads",
+    "provider": "youtube",
+    "area": "read",
+    "title": "List the channel's uploads (uploads playlist via playlistItems.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/playlistItems",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/playlistItems\"",
+        "\\buploads\\b"
+      ],
+      "test": [
+        "playlistItems"
+      ],
+      "docs": [
+        "\\buploads\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.read.channels.lookup",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Look up other channels by ID, handle (forHandle) or username (channels.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/channels/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native channels list with id/forHandle/forUsername",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bforHandle\\b"
+      ],
+      "test": [
+        "\\bforHandle\\b"
+      ],
+      "docs": [
+        "\\bforHandle\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.read.activities",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Channel activity feed (activities.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/activities"
+      ],
+      "test": [
+        "/youtube/v3/activities"
+      ],
+      "docs": [
+        "native\\.activities"
+      ]
+    }
+  },
+  {
+    "id": "youtube.search.list",
+    "provider": "youtube",
+    "area": "search",
+    "title": "Search videos, channels, playlists (search.list, own 100-call daily bucket)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/search",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Native search lacks eventType (live/upcoming), regionCode, relevanceLanguage, videoDuration, safeSearch, location filters",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/search",
+        "\\beventType\\b",
+        "\\bregionCode\\b",
+        "\\brelevanceLanguage\\b",
+        "\\bvideoDuration\\b",
+        "\\bsafeSearch\\b"
+      ],
+      "test": [
+        "\\beventType\\b"
+      ],
+      "docs": [
+        "### Search and Analytics",
+        "publishedAfter"
+      ]
+    }
+  },
+  {
+    "id": "youtube.account.channels.update",
+    "provider": "youtube",
+    "area": "account",
+    "title": "Update channel brandingSettings and localizations (channels.update)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/channels/update",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bbrandingSettings\\b",
+        "\"/youtube/v3/channels"
+      ],
+      "test": [
+        "\\bbrandingSettings\\b"
+      ],
+      "docs": [
+        "native\\.updateProfile",
+        "brandingSettings"
+      ]
+    }
+  },
+  {
+    "id": "youtube.account.channelBanners.insert",
+    "provider": "youtube",
+    "area": "account",
+    "title": "Upload a channel banner (channelBanners.insert, 16:9, max 6 MB) then set bannerExternalUrl",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/channelBanners/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Add native channelBanners upload plus banner URL write in updateProfile",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "channelBanners"
+      ],
+      "test": [
+        "channelBanners"
+      ],
+      "docs": [
+        "\\bbanners?\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.account.watermarks",
+    "provider": "youtube",
+    "area": "account",
+    "title": "Set/unset channel watermark (watermarks.set/unset, max 10 MB)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/watermarks/set",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native watermarks set/unset",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/watermarks/set\\b"
+      ],
+      "test": [
+        "/watermarks/set\\b"
+      ],
+      "docs": [
+        "[Ww]atermark"
+      ]
+    }
+  },
+  {
+    "id": "youtube.account.channelSections",
+    "provider": "youtube",
+    "area": "account",
+    "title": "Channel sections (shelves) list/insert/update/delete",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/channelSections"
+      ],
+      "test": [
+        "/youtube/v3/channelSections"
+      ],
+      "docs": [
+        "native\\.channelSections"
+      ]
+    }
+  },
+  {
+    "id": "youtube.media.thumbnails.set",
+    "provider": "youtube",
+    "area": "media",
+    "title": "Custom video thumbnail (thumbnails.set, JPEG/PNG up to 50 MB)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/thumbnails/set",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Capability declares only youtube scope; youtube.upload also authorizes thumbnails.set",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/thumbnails/set\\b"
+      ],
+      "test": [
+        "/thumbnails/set\\b"
+      ],
+      "docs": [
+        "thumbnails\\.set"
+      ]
+    }
+  },
+  {
+    "id": "youtube.media.thumbnails.shorts",
+    "provider": "youtube",
+    "area": "media",
+    "title": "Custom thumbnails for Shorts after processing (added 2026-11-03)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/thumbnails/set",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "missing",
+    "gap": "Document that Shorts thumbnails need processingStatus=succeeded first",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/thumbnails/set\\b"
+      ],
+      "test": [
+        "/thumbnails/set\\b"
+      ],
+      "docs": [
+        "\\bShorts\\b[\\s\\S]{0,300}?thumbnail|thumbnail[\\s\\S]{0,300}?\\bShorts\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.media.captions",
+    "provider": "youtube",
+    "area": "media",
+    "title": "Captions list/insert/update/delete/download",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/captions"
+      ],
+      "test": [
+        "/youtube/v3/captions"
+      ],
+      "docs": [
+        "native\\.captions"
+      ]
+    }
+  },
+  {
+    "id": "youtube.media.playlistImages",
+    "provider": "youtube",
+    "area": "media",
+    "title": "Custom playlist thumbnail images (playlistImages list/insert/update/delete)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/playlistImages",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native playlistImages CRUD",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bplaylistImages\\b"
+      ],
+      "test": [
+        "\\bplaylistImages\\b"
+      ],
+      "docs": [
+        "\\bplaylistImages\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.other.playlists",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Playlists list/insert/update/delete",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/playlists\""
+      ],
+      "test": [
+        "/youtube/v3/playlists\\b"
+      ],
+      "docs": [
+        "native\\.playlists|playlist writes"
+      ]
+    }
+  },
+  {
+    "id": "youtube.other.playlistItems",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Playlist items list/insert/update(reorder)/delete",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/playlistItems\""
+      ],
+      "test": [
+        "native!?\\.playlistItems\\("
+      ],
+      "docs": [
+        "native\\.playlistItems"
+      ]
+    }
+  },
+  {
+    "id": "youtube.engagement.videos.rate",
+    "provider": "youtube",
+    "area": "engagement",
+    "title": "Like/dislike/clear rating on a video (videos.rate)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/videos/rate\""
+      ],
+      "test": [
+        "videos/rate"
+      ],
+      "docs": [
+        "native\\.rateVideo"
+      ]
+    }
+  },
+  {
+    "id": "youtube.engagement.videos.getRating",
+    "provider": "youtube",
+    "area": "engagement",
+    "title": "Read the user's rating of videos (videos.getRating; youtube.readonly accepted since 2026-09-01)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Document getRating and its youtube.readonly scope",
+    "effort": "S",
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/videos/getRating\""
+      ],
+      "test": [
+        "getRating"
+      ],
+      "docs": [
+        "\\bgetRating\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.engagement.subscriptions",
+    "provider": "youtube",
+    "area": "engagement",
+    "title": "Subscriptions list/insert/delete",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/subscriptions/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Add mySubscribers/myRecentSubscribers (list your subscribers), forChannelId and order",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/subscriptions",
+        "\\bmySubscribers\\b",
+        "\\bmyRecentSubscribers\\b"
+      ],
+      "test": [
+        "\\bmySubscribers\\b"
+      ],
+      "docs": [
+        "native\\.subscriptions"
+      ]
+    }
+  },
+  {
+    "id": "youtube.comments.threads.list",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "List comment threads for a video or channel (commentThreads.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/commentThreads/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Expose order (time/relevance), searchTerms, allThreadsRelatedToChannelId, textFormat",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/commentThreads\"",
+        "\\bsearchTerms\\b"
+      ],
+      "test": [
+        "\\bsearchTerms\\b"
+      ],
+      "docs": [
+        "\\bcomments?\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.comments.replies.list",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "List replies to a comment (comments.list parentId / commentThreads part=replies)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add replies listing for a top-level comment",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/comments\",\\s*context,\\s*undefined,\\s*\\{[^}]*\\bparentId\\b|part[=:]\\s*\"?[a-zA-Z,]*\\breplies\\b"
+      ],
+      "test": [
+        "feature:youtube\\.comments\\.replies\\.list"
+      ],
+      "docs": [
+        "comments\\.list|parentId"
+      ]
+    }
+  },
+  {
+    "id": "youtube.comments.reply",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "Reply to a comment (comments.insert)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/comments\"",
+        "\\bparentId\\b"
+      ],
+      "test": [
+        "\\bparentId\\b"
+      ],
+      "docs": [
+        "\\brepl(y|ies)\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.comments.topLevel.create",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "Post a top-level comment on a video (commentThreads.insert)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/commentThreads/insert",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add top-level comment creation (normalized comments.create or native)",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:youtube\\.comments\\.topLevel\\.create\\b"
+      ],
+      "docs": [
+        "commentThreads\\.insert"
+      ]
+    }
+  },
+  {
+    "id": "youtube.comments.update",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "Edit a comment (comments.update)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "missing",
+    "gap": "Document commentsModeration action 'update'",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"comments\\.update\""
+      ],
+      "test": [
+        "commentsModeration[\\s\\S]{0,300}?action: \\\"update\\\""
+      ],
+      "docs": [
+        "commentsModeration\\(\\{[^)]{0,200}?action: \\\"update\\\""
+      ]
+    }
+  },
+  {
+    "id": "youtube.comments.delete",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "Delete a comment (comments.delete)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/comments/delete",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "Google documents only a 403 for insufficient permissions; drop or source the 'original author only' claim (capability note at src/platforms/youtube.ts:812 already says Google does not document it)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/comments\", context, undefined, \\{ id: commentId \\}, \"DELETE\""
+      ],
+      "test": [
+        "deleteComment"
+      ],
+      "docs": [
+        "comments\\.delete"
+      ],
+      "forbid": [
+        "comments\\.delete`?\\]\\([^)]*\\) is restricted to the comment's original author|only the original author"
+      ]
+    }
+  },
+  {
+    "id": "youtube.comments.imageUrl",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "Image/GIF attachments on comments (snippet.imageUrl, signed 6-hour URL; GA November 2026)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/comments",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "Decide on surfacing imageUrl as typed media and note the signed-URL TTL (and keep it out of logs)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bimageUrl\\b"
+      ],
+      "test": [
+        "\\bimageUrl\\b"
+      ],
+      "docs": [
+        "\\bimageUrl\\b"
+      ]
+    }
+  },
+  {
+    "id": "youtube.moderation.setModerationStatus",
+    "provider": "youtube",
+    "area": "moderation",
+    "title": "Hold, publish or reject comments, optionally ban author (comments.setModerationStatus, banAuthor)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/comments/setModerationStatus",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "statusCorrection": "implemented in source, but no contract test exercises it",
+    "probe": {
+      "src": [
+        "/comments/setModerationStatus",
+        "\\bbanAuthor\\b"
+      ],
+      "test": [
+        "setModerationStatus"
+      ],
+      "docs": [
+        "setModerationStatus"
+      ]
+    }
+  },
+  {
+    "id": "youtube.moderation.heldAndSpam.list",
+    "provider": "youtube",
+    "area": "moderation",
+    "title": "List held-for-review and likely-spam comments (commentThreads.list moderationStatus)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/commentThreads/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "partial",
+    "docs": "documented",
+    "gap": "Add moderationStatus=likelySpam listing",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bheldForReview\\b",
+        "\\blikelySpam\\b"
+      ],
+      "test": [
+        "\\blikelySpam\\b"
+      ],
+      "docs": [
+        "native\\.heldComments"
+      ]
+    }
+  },
+  {
+    "id": "youtube.moderation.videos.reportAbuse",
+    "provider": "youtube",
+    "area": "moderation",
+    "title": "Report a video for abuse (videos.reportAbuse + videoAbuseReportReasons.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/reportAbuse",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native reportAbuse and abuse reason lookup",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/videos/reportAbuse\\b"
+      ],
+      "test": [
+        "reportAbuse"
+      ],
+      "docs": [
+        "reportAbuse|[Rr]eport abuse"
+      ]
+    }
+  },
+  {
+    "id": "youtube.other.videoCategories",
+    "provider": "youtube",
+    "area": "other",
+    "title": "List assignable video categories by region (videoCategories.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videoCategories/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native videoCategories lookup so callers can pick categoryId",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/videoCategories\\b"
+      ],
+      "test": [
+        "/videoCategories\\b"
+      ],
+      "docs": [
+        "videoCategories"
+      ]
+    }
+  },
+  {
+    "id": "youtube.other.i18n",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Supported languages and regions (i18nLanguages.list, i18nRegions.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native i18n lookups (useful for localizations/regionCode)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/i18nLanguages\\b",
+        "/i18nRegions\\b"
+      ],
+      "test": [
+        "i18nLanguages"
+      ],
+      "docs": [
+        "i18nLanguages|i18nRegions"
+      ]
+    }
+  },
+  {
+    "id": "youtube.account.members",
+    "provider": "youtube",
+    "area": "account",
+    "title": "Channel members and membership levels (members.list, membershipsLevels.list; approval via YouTube rep)",
+    "access": "approval",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/members/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional native members/membershipsLevels for approved creators (scope youtube.channel-memberships.creator)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/youtube/v3/members\\b",
+        "/membershipsLevels\\b"
+      ],
+      "test": [
+        "/youtube/v3/members\\b"
+      ],
+      "docs": [
+        "membershipsLevels|members\\.list|[Cc]hannel members"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.broadcasts.core",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Live broadcasts list/insert/transition",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveBroadcasts",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/liveBroadcasts\"",
+        "\"/youtube/v3/liveBroadcasts/transition\""
+      ],
+      "test": [
+        "native!?\\.liveBroadcasts\\("
+      ],
+      "docs": [
+        "native\\.liveBroadcasts",
+        "transition"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.broadcasts.update_delete",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Update and delete live broadcasts (liveBroadcasts.update/delete)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveBroadcasts",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add update and delete actions",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"/youtube/v3/liveBroadcasts\",\\s*context,\\s*undefined,\\s*\\{\\s*id\\s*\\},\\s*\"DELETE\""
+      ],
+      "test": [
+        "feature:youtube\\.live\\.broadcasts\\.update_delete"
+      ],
+      "docs": [
+        "liveBroadcasts\\.(update|delete)|(update|delete)s? (a |live )?broadcasts?"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.broadcasts.bind",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Bind a broadcast to a stream (liveBroadcasts.bind)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveBroadcasts",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Add bind so a broadcast can go live end to end",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/liveBroadcasts/bind\\b"
+      ],
+      "test": [
+        "/liveBroadcasts/bind\\b"
+      ],
+      "docs": [
+        "stream binding"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.broadcasts.cuepoint",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Insert an ad cuepoint during a broadcast (liveBroadcasts.cuepoint)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveBroadcasts",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native cuepoint (monetization-eligible channels)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/liveBroadcasts/cuepoint\\b"
+      ],
+      "test": [
+        "cuepoint"
+      ],
+      "docs": [
+        "cuepoint"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.streams",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Live streams (ingestion) list/insert/update/delete (liveStreams)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveStreams",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Add native liveStreams CRUD; without it live flows cannot be completed via the SDK",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/youtube/v3/liveStreams\\b"
+      ],
+      "test": [
+        "/youtube/v3/liveStreams\\b"
+      ],
+      "docs": [
+        "Stream creation"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.chat.messages",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Live chat messages list/insert/delete",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/liveChat/messages\""
+      ],
+      "test": [
+        "/youtube/v3/liveChat/messages"
+      ],
+      "docs": [
+        "liveChatMessages"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.chat.stream",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Server-streamed live chat (liveChatMessages.streamList, gRPC or HTTP)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveChatMessages/streamList",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add streaming chat reader as lower-latency alternative to polling",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "liveChat/messages/stream|\\bstreamList\\b"
+      ],
+      "test": [
+        "streamList|liveChat/messages/stream"
+      ],
+      "docs": [
+        "streamList"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.chat.moderators",
+    "provider": "youtube",
+    "area": "moderation",
+    "title": "Live chat moderators list/insert/delete",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/liveChat/moderators\""
+      ],
+      "test": [
+        "/youtube/v3/liveChat/moderators"
+      ],
+      "docs": [
+        "liveChatModerators"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.chat.bans",
+    "provider": "youtube",
+    "area": "moderation",
+    "title": "Live chat bans insert/delete (temporary or permanent)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/liveChat/bans\""
+      ],
+      "test": [
+        "/youtube/v3/liveChat/bans"
+      ],
+      "docs": [
+        "liveChatBans"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.superChatEvents",
+    "provider": "youtube",
+    "area": "analytics",
+    "title": "Super Chat purchases in the last 30 days (superChatEvents.list)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/superChatEvents/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native superChatEvents list",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "/superChatEvents\\b"
+      ],
+      "test": [
+        "superChatEvents"
+      ],
+      "docs": [
+        "superChatEvents|Super Chat"
+      ]
+    }
+  },
+  {
+    "id": "youtube.analytics.reports.query",
+    "provider": "youtube",
+    "area": "analytics",
+    "title": "YouTube Analytics reports.query (metrics, dimensions, filters, sort; monetary scope)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/analytics/reference",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/v2/reports\"",
+        "youtubeanalytics"
+      ],
+      "test": [
+        "/v2/reports"
+      ],
+      "docs": [
+        "### Search and Analytics",
+        "yt-analytics"
+      ]
+    }
+  },
+  {
+    "id": "youtube.analytics.channel.statistics",
+    "provider": "youtube",
+    "area": "analytics",
+    "title": "Channel statistics (channels.list part=statistics)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/channels/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/channels",
+        "\\bstatistics\\b"
+      ],
+      "test": [
+        "\\bstatistics\\b",
+        "subscriberCount|viewCount"
+      ],
+      "docs": [
+        "statistics"
+      ]
+    }
+  },
+  {
+    "id": "youtube.analytics.video.statistics",
+    "provider": "youtube",
+    "area": "analytics",
+    "title": "Video statistics (videos.list part=statistics)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"/youtube/v3/videos\"",
+        "\\bstatistics\\b"
+      ],
+      "test": [
+        "\\bstatistics\\b",
+        "viewCount|likeCount"
+      ],
+      "docs": [
+        "statistics"
+      ]
+    }
+  },
+  {
+    "id": "youtube.analytics.groups",
+    "provider": "youtube",
+    "area": "analytics",
+    "title": "Analytics groups and group items (groups/groupItems CRUD)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/analytics/reference",
+      "checked": "2026-11-04",
+      "apiVersion": "v2"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add native groups/groupItems for grouped reports",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/v2/groups\\b|/v2/groupItems\\b"
+      ],
+      "test": [
+        "groupItems"
+      ],
+      "docs": [
+        "groupItems|[Aa]nalytics groups"
+      ]
+    }
+  },
+  {
+    "id": "youtube.analytics.reporting.bulk",
+    "provider": "youtube",
+    "area": "analytics",
+    "title": "YouTube Reporting API bulk reports (jobs create/list/delete, reports list/get, reportTypes, downloadUrl)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/reporting/v1/reference/rest",
+      "checked": "2026-11-04",
+      "apiVersion": "v1"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a Reporting API client for scheduled bulk CSV reports",
+    "effort": "L",
+    "probe": {
+      "src": [
+        "youtubereporting"
+      ],
+      "test": [
+        "youtubereporting"
+      ],
+      "docs": [
+        "Reporting API"
+      ]
+    }
+  },
+  {
+    "id": "youtube.webhooks.pubsubhubbub",
+    "provider": "youtube",
+    "area": "webhooks",
+    "title": "Push notifications for uploads and title/description updates via PubSubHubbub",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/guides/push_notifications",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "partial",
+    "gap": "Use the official topic form https://www.youtube.com/xml/feeds/videos.xml?channel_id= (events/index.mdx already does); the two pages disagree",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "hub\\.challenge"
+      ],
+      "test": [
+        "hub\\.challenge"
+      ],
+      "docs": [
+        "xml/feeds/videos\\.xml\\?channel_id="
+      ]
+    }
+  },
+  {
+    "id": "youtube.auth.oauth",
+    "provider": "youtube",
+    "area": "auth",
+    "title": "Google OAuth authorization-code flow with offline refresh tokens and channel discovery",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "access_type",
+        "offline"
+      ],
+      "test": [
+        "youtubeOAuth\\("
+      ],
+      "docs": [
+        "refresh token|offline"
+      ]
+    }
+  },
+  {
+    "id": "youtube.other.quota",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Quota buckets: videos.insert and search.list each 100 calls/day at 1 unit; others share 10,000 units",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/determine_quota_cost",
+      "checked": "2026-11-04",
+      "apiVersion": "v3"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "quotaExceeded"
+      ],
+      "test": [
+        "quotaExceeded"
+      ],
+      "docs": [
+        "\\bquota\\b",
+        "quotaExceeded"
+      ]
+    }
+  },
+  {
+    "id": "youtube.live.chat.polls.close",
+    "provider": "youtube",
+    "area": "engagement",
+    "title": "Close a live chat poll (liveChatMessages.transition status=closed, 20 units)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveChatMessages/transition",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Polls can be created through the passthrough liveChatMessages insert body, but there is no call to POST /liveChat/messages/transition to end an active poll and read its final result.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "liveChat/messages/transition"
+      ],
+      "test": [
+        "liveChat/messages/transition"
+      ],
+      "docs": [
+        "liveChat/messages/transition|liveChatMessages\\.transition"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.live.broadcasts.list_filters",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Live broadcast list filters and paging (broadcastStatus active/upcoming/completed/all, broadcastType all/event/persistent, maxResults, pageToken)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveBroadcasts/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "liveBroadcasts list sends only id or mine=true with YouTube's default page size of 5: no broadcastStatus filter, no broadcastType (persistent broadcasts are hidden by default), and no maxResults or pageToken.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bbroadcastType\\b"
+      ],
+      "test": [
+        "\\bbroadcastType\\b"
+      ],
+      "docs": [
+        "\\bbroadcastType\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.live.chat.messages.list_options",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Live chat message list options (hl for localized currency strings, profileImageSize 16-720)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/live/docs/liveChatMessages/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "liveChatMessages list never sends hl or profileImageSize, so callers get default 88px avatars and unlocalized Super Chat amount strings.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bprofileImageSize\\b"
+      ],
+      "test": [
+        "\\bprofileImageSize\\b"
+      ],
+      "docs": [
+        "\\bprofileImageSize\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.search.video_filters_extra",
+    "provider": "youtube",
+    "area": "search",
+    "title": "search.list video filters videoEmbeddable, videoSyndicated, videoDimension, videoPaidProductPlacement and channelType",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/search/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "native.search accepts the other video filters but not videoEmbeddable, videoSyndicated, videoDimension (2d/3d), videoPaidProductPlacement, or channelType (any/show).",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bvideoEmbeddable\\b",
+        "\\bvideoSyndicated\\b",
+        "\\bvideoDimension\\b",
+        "\\bvideoPaidProductPlacement\\b",
+        "\\bchannelType\\b"
+      ],
+      "test": [
+        "\\bvideoEmbeddable\\b",
+        "\\bvideoPaidProductPlacement\\b"
+      ],
+      "docs": [
+        "\\bvideoEmbeddable\\b",
+        "\\bvideoPaidProductPlacement\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.search.owner_filters",
+    "provider": "youtube",
+    "area": "search",
+    "title": "Search the caller's own videos (forMine, includes private) or videos uploaded by this API project (forDeveloper)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/search/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "native.search has no forMine or forDeveloper flag, so it cannot search the authorized channel's private videos or the app's own uploads; forMine needs type=video and excludes the eight video filters.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bforMine\\b",
+        "\\bforDeveloper\\b"
+      ],
+      "test": [
+        "\\bforMine\\b",
+        "\\bforDeveloper\\b"
+      ],
+      "docs": [
+        "\\bforMine\\b",
+        "\\bforDeveloper\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.media.captions.download_options",
+    "provider": "youtube",
+    "area": "media",
+    "title": "Caption download format and machine translation (captions.download tfmt sbv/scc/srt/ttml/vtt or original, tlang)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/captions/download",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "captions download always forces tfmt=vtt and never sends tlang, so callers cannot get SRT/TTML/SCC, the original upload format, or a machine-translated track.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btlang\\b"
+      ],
+      "test": [
+        "\\btlang\\b",
+        "feature:youtube\\.media\\.captions\\.download_options\\b"
+      ],
+      "docs": [
+        "\\btlang\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.read.videos.player_size",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Sized embed player HTML (videos.list maxWidth/maxHeight returning player.embedHtml, embedWidth, embedHeight)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/videos/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "native.videos accepts the player part but not maxWidth or maxHeight, so player.embedHtml is always the default size and embedWidth/embedHeight are never returned.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmaxWidth\\b",
+        "\\bmaxHeight\\b"
+      ],
+      "test": [
+        "\\bmaxWidth\\b"
+      ],
+      "docs": [
+        "\\bmaxWidth\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.comments.lookup_by_id",
+    "provider": "youtube",
+    "area": "comments",
+    "title": "Read specific comments or comment threads by ID (comments.list id=, commentThreads.list id=)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/comments/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "There is no lookup by comment or thread ID; the reply path pages through every thread on the video to find a parent, which costs quota on busy videos.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bcommentIds\\b"
+      ],
+      "test": [
+        "feature:youtube\\.comments\\.lookup_by_id\\b"
+      ],
+      "docs": [
+        "\\bcommentIds\\b|comments by ID"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.account.channelSections.other_channels",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Read another channel's sections and localized titles (channelSections.list channelId=, hl)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/channelSections/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "native.channelSections list is fixed to the configured channel or a section ID; it cannot pass another channelId or hl for localized section titles.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\\"/youtube/v3/channelSections\\\"[^;]*\\bhl\\b"
+      ],
+      "test": [
+        "feature:youtube\\.account\\.channelSections\\.other_channels\\b"
+      ],
+      "docs": [
+        "channelSections[^\\n]*\\bchannelId\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.auth.revoke",
+    "provider": "youtube",
+    "area": "auth",
+    "title": "Revoke a Google OAuth access or refresh token (POST https://oauth2.googleapis.com/revoke)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "The OAuth helpers can connect a YouTube channel but have no Google token revocation helper (the TikTok one exists), so disconnecting cannot remove the app's grant.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "oauth2\\.googleapis\\.com/revoke"
+      ],
+      "test": [
+        "oauth2\\.googleapis\\.com/revoke"
+      ],
+      "docs": [
+        "oauth2\\.googleapis\\.com/revoke|[Rr]evoke"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.auth.authorize_options",
+    "provider": "youtube",
+    "area": "auth",
+    "title": "Google authorization URL options include_granted_scopes (incremental auth) and login_hint",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "The YouTube authorize URL hard-codes access_type=offline and prompt=consent; it cannot request incremental scopes (include_granted_scopes=true) or prefill the account (login_hint).",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\binclude_granted_scopes\\b",
+        "\\blogin_hint\\b"
+      ],
+      "test": [
+        "\\binclude_granted_scopes\\b"
+      ],
+      "docs": [
+        "\\binclude_granted_scopes\\b",
+        "\\blogin_hint\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.read.videoTrainability",
+    "provider": "youtube",
+    "area": "read",
+    "title": "Third-party AI training permission for a video (videoTrainability.get, returns permitted: all, none or a party list)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://youtube.googleapis.com/$discovery/rest?version=v3",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Discovery revision 20261103 exposes GET /youtube/v3/videoTrainability?id= but Google has no reference page or revision-history entry yet; the SDK neither calls it nor documents it.",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bvideoTrainability\\b"
+      ],
+      "test": [
+        "\\bvideoTrainability\\b"
+      ],
+      "docs": [
+        "\\bvideoTrainability\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.moderation.abuseReports.insert",
+    "provider": "youtube",
+    "area": "moderation",
+    "title": "Generic abuse report (abuseReports.insert with abuseTypes, subject, relatedEntities)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://youtube.googleapis.com/$discovery/rest?version=v3",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Discovery lists POST /youtube/v3/abuseReports with an AbuseReport body but Google publishes no reference page; only videos.reportAbuse is covered and the docs do not mention this method.",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "/youtube/v3/abuseReports"
+      ],
+      "test": [
+        "/youtube/v3/abuseReports"
+      ],
+      "docs": [
+        "\\babuseReports\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.other.thirdPartyLinks",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Channel-to-store and affiliate-program links (thirdPartyLinks list/insert/update/delete, linkingToken)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://youtube.googleapis.com/$discovery/rest?version=v3",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Discovery exposes thirdPartyLinks (channelToStoreLink, channelToAffiliateProgramLink) with no public reference page; YouTube Shopping partners use it. The docs do not say whether it is available.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "\\bthirdPartyLinks\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.moderation.comments.markAsSpam",
+    "provider": "youtube",
+    "area": "moderation",
+    "title": "Flag comments as spam (comments.markAsSpam)",
+    "access": "deprecated",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/revision_history",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Still in the discovery document, but deprecated (revision history 2023-09-12) and removed from the comments reference; the docs should point callers to setModerationStatus instead.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "\\bmarkAsSpam\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "youtube.other.contentOwner.delegation",
+    "provider": "youtube",
+    "area": "other",
+    "title": "Content-owner delegation outside uploads (onBehalfOfContentOwner on read/live/playlist/caption methods, channels.list managedByMe, search forContentOwner, captions onBehalfOf)",
+    "access": "partner-only",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.google.com/youtube/v3/docs/search/list",
+      "checked": "2026-11-04",
+      "apiVersion": "v3 (discovery revision 20261103)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Partner-only content-owner parameters are accepted by most methods; the docs do not say the SDK omits them outside uploads.",
+    "effort": "S",
+    "probe": {
+      "docs": [
+        "\\bforContentOwner\\b|\\bmanagedByMe\\b"
+      ]
+    },
+    "round": 2
+  }
+]

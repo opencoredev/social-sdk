@@ -1,0 +1,1676 @@
+[
+  {
+    "id": "buffer.auth.api_key",
+    "provider": "buffer",
+    "area": "auth",
+    "title": "Personal API key (Bearer), account-wide across organizations",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/authentication.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "Authorization: `Bearer \\$\\{"
+      ],
+      "test": [
+        "\"Bearer fixture-key\""
+      ],
+      "docs": [
+        "personal API key",
+        "`Authorization: Bearer`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.auth.oauth_pkce",
+    "provider": "buffer",
+    "area": "auth",
+    "title": "OAuth authorization code + PKCE S256, single-use rotating refresh tokens, offline_access",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/authentication.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"code_challenge_method\", \"S256\"",
+        "\\brefresh_token\\b"
+      ],
+      "test": [
+        "code_challenge_method=S256",
+        "\\brefreshBufferToken\\b"
+      ],
+      "docs": [
+        "authorization-code flow with PKCE",
+        "Refresh tokens are single-use"
+      ]
+    }
+  },
+  {
+    "id": "buffer.auth.extra_scopes",
+    "provider": "buffer",
+    "area": "auth",
+    "title": "Scopes ideas:read/write, account:write, snippets:read/write, notes:read/write",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/authentication.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Notes scopes not mentioned in docs",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"ideas:read\"|\"ideas:write\"|\"snippets:read\"|\"notes:read\"|\"account:write\""
+      ],
+      "test": [
+        "\"(ideas|snippets|notes):(read|write)\""
+      ],
+      "docs": [
+        "Ideas, snippets, and account writes are not used"
+      ]
+    }
+  },
+  {
+    "id": "buffer.account.organizations",
+    "provider": "buffer",
+    "area": "account",
+    "title": "account { organizations } query",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "query AccountOrganizations",
+        "\\borganizations \\{"
+      ],
+      "test": [
+        "AccountOrganizations"
+      ],
+      "docs": [
+        "`organizationId`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.account.channels",
+    "provider": "buffer",
+    "area": "account",
+    "title": "channels(input) / channel(input) with service, isDisconnected, isQueuePaused, postingSchedule",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Posting schedule, queue paused state and Pinterest boards (metadata.boards) not surfaced",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "query Channels\\(\\$input: ChannelsInput!\\)"
+      ],
+      "test": [
+        "query\\.includes\\(\"query Channels\"\\)"
+      ],
+      "docs": [
+        "The adapter lists channels"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.share_now",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "createPost mode=shareNow",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"shareNow\""
+      ],
+      "test": [
+        "mode === \"shareNow\""
+      ],
+      "docs": [
+        "`mode: shareNow`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.scheduling.custom",
+    "provider": "buffer",
+    "area": "scheduling",
+    "title": "createPost mode=customScheduled with dueAt",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"customScheduled\"",
+        "\\bdueAt\\b"
+      ],
+      "test": [
+        "shareMode: \"customScheduled\"",
+        "\\bdueAt: "
+      ],
+      "docs": [
+        "`mode: customScheduled`",
+        "`dueAt` is UTC"
+      ]
+    }
+  },
+  {
+    "id": "buffer.scheduling.queue",
+    "provider": "buffer",
+    "area": "scheduling",
+    "title": "ShareMode addToQueue and shareNext (posting-schedule slots)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Add a queue/next-slot schedule mode",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\"addToQueue\"|\"shareNext\""
+      ],
+      "test": [
+        "\"addToQueue\"|\"shareNext\""
+      ],
+      "docs": [
+        "shareMode",
+        "addToQueue"
+      ]
+    }
+  },
+  {
+    "id": "buffer.scheduling.move_in_queue",
+    "provider": "buffer",
+    "area": "scheduling",
+    "title": "movePostInQueue (top/bottom)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Optional once queue mode exists",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmovePostInQueue\\b"
+      ],
+      "test": [
+        "\\bmovePostInQueue\\b"
+      ],
+      "docs": [
+        "\\bmovePostInQueue\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.scheduling.notification",
+    "provider": "buffer",
+    "area": "scheduling",
+    "title": "schedulingType=notification (reminder publishing; Instagram stickerFields)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Reminder publishing not mapped; acceptable but not called out as a choice",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:buffer\\.scheduling\\.notification\\b"
+      ],
+      "docs": [
+        "`schedulingType: automatic`",
+        "`notification`|reminder"
+      ]
+    }
+  },
+  {
+    "id": "buffer.scheduling.daily_limits",
+    "provider": "buffer",
+    "area": "scheduling",
+    "title": "dailyPostingLimits query per channel",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Could feed preflight quota warnings",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdailyPostingLimits\\b"
+      ],
+      "test": [
+        "\\bdailyPostingLimits\\b"
+      ],
+      "docs": [
+        "\\bdailyPostingLimits\\b|daily posting limits?"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.draft",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "createPost saveToDraft and needsApproval",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Add draft and submit-for-approval options",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bsaveToDraft\\b"
+      ],
+      "test": [
+        "feature:buffer\\.publish\\.draft\\b"
+      ],
+      "docs": [
+        "`draft` or `needs_approval` \u2192 `accepted`",
+        "`saveToDraft`|`needsApproval`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.tags",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "createPost tagIds + tag CRUD (createTag/updateTag/deleteTag, tagsV2)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\btagIds\\b"
+      ],
+      "test": [
+        "\\btagIds\\b"
+      ],
+      "docs": [
+        "ideas, tags, and templates are outside this adapter"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.ideas",
+    "provider": "buffer",
+    "area": "other",
+    "title": "createIdea mutation + ideas query; createPost ideaId",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bcreateIdea\\b|\\bideaId\\b"
+      ],
+      "test": [
+        "\\bcreateIdea\\b|\\bideaId\\b"
+      ],
+      "docs": [
+        "ideas, tags, and templates are outside this adapter"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.templates_notes_snippets",
+    "provider": "buffer",
+    "area": "other",
+    "title": "Post templates, collaboration notes, snippets, content items",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Notes, snippets, content items not named as out of scope",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:buffer\\.publish\\.templates_notes_snippets\\b"
+      ],
+      "docs": [
+        "\\btemplates\\b",
+        "\\bnotes\\b",
+        "\\bcontent items\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.edit.edit_post",
+    "provider": "buffer",
+    "area": "edit",
+    "title": "editPost: change text, assets, metadata, dueAt, mode on an existing post",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Implement posts.update for unsent Buffer posts via editPost",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\beditPost\\b"
+      ],
+      "test": [
+        "\\beditPost\\b"
+      ],
+      "docs": [
+        "\\beditPost\\b|posts\\.update"
+      ]
+    }
+  },
+  {
+    "id": "buffer.delete.delete_post",
+    "provider": "buffer",
+    "area": "delete",
+    "title": "deletePost",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "deletePost\\(input: \\$input\\)"
+      ],
+      "test": [
+        "query\\.includes\\(\"deletePost\"\\)"
+      ],
+      "docs": [
+        "`posts\\.cancelScheduled` deletes",
+        "`posts\\.deleteBackendRecord` deletes"
+      ]
+    }
+  },
+  {
+    "id": "buffer.read.posts",
+    "provider": "buffer",
+    "area": "read",
+    "title": "post(input) and posts(first, after, input{filter,sort}) with status, externalLink",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": "Filters by status, dates, tags and sort not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "query Post\\(\\$input: PostInput!\\)",
+        "query Posts\\(\\$first"
+      ],
+      "test": [
+        "query Posts\\(",
+        "query Post\\b"
+      ],
+      "docs": [
+        "reads posts and delivery status"
+      ]
+    }
+  },
+  {
+    "id": "buffer.media.image_video_url",
+    "provider": "buffer",
+    "area": "media",
+    "title": "Image and video assets by public HTTPS URL; image altText",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/hosting-media.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\{ video: \\{ url: ",
+        "image: \\{",
+        "\\baltText: item\\.altText"
+      ],
+      "test": [
+        "\\{ image: \\{ url: \"https://cdn\\.example/one\\.jpg\" \\} \\}",
+        "\\{ video: \\{ url: \"https://cdn\\.example/tour\\.mp4\" \\} \\}"
+      ],
+      "docs": [
+        "## Media is a public HTTPS URL",
+        "ordered multi-image carousel"
+      ]
+    }
+  },
+  {
+    "id": "buffer.media.document",
+    "provider": "buffer",
+    "area": "media",
+    "title": "Document asset (url, title, thumbnailUrl)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/hosting-media.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "Section contradicts the code and the page's own later LinkedIn document paragraph; fix the Media section",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "document: \\{",
+        "thumbnailUrl: httpsUrl"
+      ],
+      "test": [
+        "\"carousel\", \"document\"\\]"
+      ],
+      "docs": [
+        "LinkedIn document assets publish from an HTTPS URL"
+      ],
+      "forbid": [
+        "It does not map Buffer document assets"
+      ]
+    }
+  },
+  {
+    "id": "buffer.media.video_thumbnail_offset",
+    "provider": "buffer",
+    "area": "media",
+    "title": "Video metadata.thumbnailOffset (Instagram, TikTok, Pinterest) and title",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a cover offset option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bthumbnailOffset\\b"
+      ],
+      "test": [
+        "\\bthumbnailOffset\\b"
+      ],
+      "docs": [
+        "\\bthumbnailOffset\\b|cover (frame|offset)"
+      ]
+    }
+  },
+  {
+    "id": "buffer.media.image_user_tags",
+    "provider": "buffer",
+    "area": "media",
+    "title": "Image metadata.userTags (handle, x, y)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map Instagram user tags",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\buserTags\\b"
+      ],
+      "test": [
+        "\\buserTags\\b"
+      ],
+      "docs": [
+        "\\buserTags\\b|user tags"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.link_attachment",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "metadata.{bluesky,facebook,linkedin,threads,substack}.linkAttachment link cards",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map content.link to linkAttachment (Buffer removes the link asset on 2026-12-15)",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blinkAttachment\\b"
+      ],
+      "test": [
+        "\\blinkAttachment\\b"
+      ],
+      "docs": [
+        "\\blinkAttachment\\b|link (attachment|preview)"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.first_comment",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "firstComment on Instagram, Facebook, LinkedIn",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Add a firstComment option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bfirstComment\\b"
+      ],
+      "test": [
+        "\\bfirstComment\\b"
+      ],
+      "docs": [
+        "\\bfirstComment\\b|first comment"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.threads_native",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "metadata.{twitter,threads,bluesky,mastodon}.thread[] threaded posts",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map publishSequence/replyToPrevious to Buffer thread metadata",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bthread: "
+      ],
+      "test": [
+        "feature:buffer\\.publish\\.threads_native"
+      ],
+      "docs": [
+        "metadata\\.\\w+\\.thread\\b|\\bthreaded\\b|\\bthreads? of posts\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.x",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Twitter metadata: isAiGenerated, retweet (id, comment quote)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "Map aiGenerated, and repost/quote via retweet",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bretweet\\b",
+        "\\[\"twitter\", \\{[^\\n]*isAiGenerated"
+      ],
+      "test": [
+        "\\bretweet\\b"
+      ],
+      "docs": [
+        "X reply settings have no Buffer Twitter field",
+        "`retweet`|\\bquote\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.instagram.feed",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Instagram type=post with shouldShareToFeed",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "shouldShareToFeed: shareToFeed",
+        "type: \"post\""
+      ],
+      "test": [
+        "\"instagram\\.share_to_feed\""
+      ],
+      "docs": [
+        "`metadata\\.instagram\\.shouldShareToFeed` with `type: post`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.instagram.story_reel",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Instagram type story/reel",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": "Map story and reel types",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:buffer\\.publish\\.instagram\\.story_reel\\b"
+      ],
+      "docs": [
+        "postType"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.instagram.extras",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Instagram geolocation, Shop Grid link, isAiGenerated, firstComment",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map location, link, aiGenerated",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:buffer\\.publish\\.instagram\\.extras\\b"
+      ],
+      "docs": [
+        "Instagram.{0,120}\\b(geolocation|location|Shop Grid)\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.instagram.audio",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Instagram audio search/trending/catalog queries",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Out of scope until reel audio mapping exists",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\baudio\\b"
+      ],
+      "test": [
+        "feature:buffer\\.publish\\.instagram\\.audio"
+      ],
+      "docs": [
+        "Instagram.{0,80}\\baudio\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.facebook.type",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Facebook type post/reel/story and annotations",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map Facebook reel/story types",
+    "effort": "S",
+    "probe": {
+      "test": [
+        "feature:buffer\\.publish\\.facebook\\.type\\b"
+      ],
+      "docs": [
+        "Facebook.{0,80}\\b(reel|story)\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.linkedin.annotations",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "LinkedIn annotations (mentions)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map mentions",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\[\"linkedin\",[^\\n]*\\bannotations\\b|\\bannotations\\b"
+      ],
+      "test": [
+        "feature:buffer\\.publish\\.linkedin\\.annotations"
+      ],
+      "docs": [
+        "\\bannotations\\b|LinkedIn mentions?"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.threads.extras",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Threads locationId/locationName, topic, type",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map topic and location",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\blocationName\\b"
+      ],
+      "test": [
+        "\\blocationName\\b"
+      ],
+      "docs": [
+        "Threads.{0,80}\\b(topic|location)\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.mastodon.spoiler",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Mastodon spoilerText (content warning)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map a contentWarning option",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bspoilerText\\b"
+      ],
+      "test": [
+        "\\bspoilerText\\b"
+      ],
+      "docs": [
+        "\\bspoilerText\\b|content warning"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.youtube.core",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "YouTube title, categoryId, privacy, madeForKids",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\bcategoryId\\b",
+        "\\bmadeForKids: "
+      ],
+      "test": [
+        "categoryId: \"22\", privacy: \"unlisted\", madeForKids: false"
+      ],
+      "docs": [
+        "YouTube requires `title`, `categoryId`, `visibility`, and `madeForKids`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.youtube.extras",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "YouTube embeddable, license, notifySubscribers, isAiGenerated, Shorts (PostType short)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map the remaining YouTube metadata",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bnotifySubscribers\\b",
+        "\\bembeddable\\b"
+      ],
+      "test": [
+        "\\bnotifySubscribers\\b"
+      ],
+      "docs": [
+        "\\bnotifySubscribers\\b|\\bembeddable\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.tiktok",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "TikTok isAiGenerated and title (photo posts)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "partial",
+    "docs": "partial",
+    "gap": "Buffer now also documents TikTok `title` for photo posts; map it and update the docs sentence",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\[\"tiktok\", \\{[^\\n]*isAiGenerated",
+        "\\[\"tiktok\", \\{[^\\n]*\\btitle\\b"
+      ],
+      "test": [
+        "feature:buffer\\.publish\\.tiktok"
+      ],
+      "docs": [
+        "`isAiGenerated`",
+        "TikTok.{0,80}`title`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.pinterest",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Pinterest boardServiceId, title, url",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\\[\"pinterest\", \\{ boardServiceId"
+      ],
+      "test": [
+        "boardServiceId|boardId"
+      ],
+      "docs": [
+        "Pinterest needs `boardId` and accepts `title` and `link`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.publish.google_business",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Google Business type whats_new/event/offer with button, dates, coupon, terms",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Map GBP post types (input is marked deprecated pending new types)",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bwhats_new\\b"
+      ],
+      "test": [
+        "\\bwhats_new\\b"
+      ],
+      "docs": [
+        "\\bwhats_new\\b|Google Business.{0,80}\\b(event|offer)\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.analytics.post_metrics",
+    "provider": "buffer",
+    "area": "analytics",
+    "title": "Post.metrics + metricsUpdatedAt (personal API keys only)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/post-metrics.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "wrong",
+    "gap": "Docs say OAuth clients 'may not' receive metrics and list milliseconds/seconds units; Buffer says app clients cannot read metrics and units are count or percentage",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bmetricsUpdatedAt\\b",
+        "\\bmetrics \\{"
+      ],
+      "test": [
+        "metricsUpdatedAt: \"2026"
+      ],
+      "docs": [
+        "`analytics\\.getPostMetrics` reads `Post\\.metrics`"
+      ],
+      "forbid": [
+        "OAuth app clients may not receive metrics",
+        "`count`, `percentage`, `milliseconds`, or `seconds`"
+      ]
+    }
+  },
+  {
+    "id": "buffer.analytics.aggregated",
+    "provider": "buffer",
+    "area": "analytics",
+    "title": "aggregatedPostMetrics: org totals over up to 365 days by channel or tag",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/post-metrics.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Implement analytics.getReport or getAccountMetrics via aggregatedPostMetrics",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\baggregatedPostMetrics\\b"
+      ],
+      "test": [
+        "\\baggregatedPostMetrics\\b"
+      ],
+      "docs": [
+        "\\baggregatedPostMetrics\\b"
+      ]
+    }
+  },
+  {
+    "id": "buffer.other.rate_limits",
+    "provider": "buffer",
+    "area": "other",
+    "title": "Plan rate limits (15 min/24 h/30 days), app-client limits, query complexity limits",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/guides/api-limits.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "implemented",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "src": [
+        "\"RATE_LIMIT_EXCEEDED\""
+      ],
+      "test": [
+        "code: \"RATE_LIMIT_EXCEEDED\"",
+        "\"Retry-After\": \"12\""
+      ],
+      "docs": [
+        "`RATE_LIMIT_EXCEEDED`",
+        "15 minutes, 24 hours, and 30 days"
+      ]
+    }
+  },
+  {
+    "id": "buffer.webhooks.none",
+    "provider": "buffer",
+    "area": "webhooks",
+    "title": "No public webhooks or comments API (engagement types only exposed as channel metadata)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": "GraphQL (no version)"
+    },
+    "sdk": "missing",
+    "docs": "documented",
+    "gap": null,
+    "effort": null,
+    "probe": {
+      "test": [
+        "feature:buffer\\.webhooks\\.none\\b"
+      ],
+      "docs": [
+        "It does not upload files, verify webhooks, comment, message"
+      ]
+    }
+  },
+  {
+    "id": "buffer.read.posts_filters",
+    "provider": "buffer",
+    "area": "read",
+    "title": "posts(input.filter/sort): status, dueAt and createdAt ranges, dueAtPresence, postTypes, tags; sort by dueAt or createdAt asc/desc",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "posts.list sends only filter.channelIds; status, date-range, format and tag filters and sort are not exposed",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bdueAtPresence\\b",
+        "\\bpostTypes\\b",
+        "\\bcreatedAt\\b"
+      ],
+      "test": [
+        "\\bdueAtPresence\\b",
+        "\\bpostTypes\\b"
+      ],
+      "docs": [
+        "\\bpostTypes\\b",
+        "\\bdueAtPresence\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.read.post_error",
+    "provider": "buffer",
+    "area": "read",
+    "title": "Post.error (message, rawError, supportUrl): why a post failed to publish",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "postSelection never reads `error`, so a failed delivery carries no Buffer failure reason",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\brawError\\b",
+        "\\bsupportUrl\\b"
+      ],
+      "test": [
+        "\\brawError\\b"
+      ],
+      "docs": [
+        "\\brawError\\b|failure reason"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.read.post_content_fields",
+    "provider": "buffer",
+    "area": "read",
+    "title": "Read back a post's assets, tags, metadata, author, notes, allowedActions, notificationStatus, ideaId and via",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "postSelection reads only id, text, status and scheduling fields; stored media, tags, service metadata and allowed actions are dropped",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\ballowedActions\\b",
+        "\\bnotificationStatus\\b"
+      ],
+      "test": [
+        "\\ballowedActions\\b"
+      ],
+      "docs": [
+        "\\ballowedActions\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.edit.approval_change",
+    "provider": "buffer",
+    "area": "edit",
+    "title": "editPost approvalChange (request, revert): submit a draft for approval or withdraw it",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "editPost never sends approvalChange; approval workflows cannot be driven",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bapprovalChange\\b"
+      ],
+      "test": [
+        "\\bapprovalChange\\b"
+      ],
+      "docs": [
+        "\\bapprovalChange\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.publish.provenance",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "createPost/editPost aiAssisted and draftId (AI-assisted flag, post created from a draft)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Neither aiAssisted nor draftId is sent on createPost or editPost",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\baiAssisted\\b",
+        "\\bdraftId\\b"
+      ],
+      "test": [
+        "\\baiAssisted\\b"
+      ],
+      "docs": [
+        "\\baiAssisted\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.media.image_thumbnails",
+    "provider": "buffer",
+    "area": "media",
+    "title": "Image assets: thumbnailUrl and metadata.animatedThumbnail (GIF preview); video asset thumbnailUrl",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Image and video assets are sent with url and alt text only; thumbnailUrl and animatedThumbnail are never set",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\banimatedThumbnail\\b"
+      ],
+      "test": [
+        "\\banimatedThumbnail\\b"
+      ],
+      "docs": [
+        "\\banimatedThumbnail\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.publish.substack",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "Substack channels: createPost text, image or video, link card via metadata.substack",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "partial",
+    "gap": "No `substack` service mapping; Substack channels cannot be published to",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "\\bsubstack\\b"
+      ],
+      "test": [
+        "\\bsubstack\\b"
+      ],
+      "docs": [
+        "\\bsubstack\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.publish.ideas.content_options",
+    "provider": "buffer",
+    "area": "publish",
+    "title": "createIdea content options: media (url, alt, type, thumbnailUrl, source), tags, services, cta, templateId, aiAssisted",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "partial",
+    "docs": "missing",
+    "gap": "native.createIdea sends only title, text and date",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\btemplateId\\b",
+        "\\bservices\\b"
+      ],
+      "test": [
+        "\\btemplateId\\b"
+      ],
+      "docs": [
+        "\\btemplateId\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.read.idea_groups",
+    "provider": "buffer",
+    "area": "read",
+    "title": "ideaGroups query, ideas groupFilter/tagsFilter, createIdea group placement (groupId, placeAfterId)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Idea groups (Create-space boards) cannot be listed, filtered or targeted",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bideaGroups\\b",
+        "\\bplaceAfterId\\b"
+      ],
+      "test": [
+        "\\bideaGroups\\b"
+      ],
+      "docs": [
+        "\\bideaGroups\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.account.channels_filter",
+    "provider": "buffer",
+    "area": "account",
+    "title": "channels(input.filter): isLocked and product (publish, analyze, engage, comments, startPage)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "channels lists every channel; the isLocked/product filters are not exposed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bisLocked\\b",
+        "\\bproduct\\b"
+      ],
+      "test": [
+        "\\bisLocked\\b"
+      ],
+      "docs": [
+        "\\bisLocked\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.account.channel_settings",
+    "provider": "buffer",
+    "area": "account",
+    "title": "Channel timezone, postingGoal, linkShortening, allowedActions, products, scopes, serviceId",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Channel reads omit the channel timezone, posting goal, link-shortening state and allowed actions",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bpostingGoal\\b",
+        "\\blinkShortening\\b",
+        "\\btimezone\\b"
+      ],
+      "test": [
+        "\\bpostingGoal\\b"
+      ],
+      "docs": [
+        "\\btimezone\\b",
+        "\\bpostingGoal\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.account.organization_limits",
+    "provider": "buffer",
+    "area": "account",
+    "title": "Organization limits (scheduledPosts, scheduledStoriesPerChannel, scheduledThreadsPerChannel, ideas, tags, postTemplates) and members",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "account.organizations reads id and name only; plan limits and members are not exposed for pre-flight checks",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bscheduledPosts\\b",
+        "\\bmembers\\b"
+      ],
+      "test": [
+        "\\bscheduledPosts\\b"
+      ],
+      "docs": [
+        "\\bscheduledPosts\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.account.preferences",
+    "provider": "buffer",
+    "area": "account",
+    "title": "Account timezone and preferences (timeFormat, startOfWeek, defaultScheduleOption)",
+    "access": "public",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Account reads skip timezone and scheduling preferences",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bdefaultScheduleOption\\b"
+      ],
+      "test": [
+        "\\bdefaultScheduleOption\\b"
+      ],
+      "docs": [
+        "\\bdefaultScheduleOption\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.account.configuration",
+    "provider": "buffer",
+    "area": "account",
+    "title": "configuration query (experimental): per-channel feature authorization and the service capability catalog (content and engagement rules)",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Buffer's own per-service content rules are not read; the SDK relies on its static limits",
+    "effort": "M",
+    "probe": {
+      "src": [
+        "configuration\\(input",
+        "\\bauthorizationStatus\\b"
+      ],
+      "test": [
+        "\\bauthorizationStatus\\b"
+      ],
+      "docs": [
+        "\\bconfiguration\\b"
+      ]
+    },
+    "round": 2
+  },
+  {
+    "id": "buffer.account.team_members",
+    "provider": "buffer",
+    "area": "account",
+    "title": "selectableTeamMembers (experimental): team members for mentions and pickers, by organization or channel scope",
+    "access": "beta",
+    "scope": "core",
+    "source": {
+      "url": "https://developers.buffer.com/reference.html",
+      "checked": "2026-11-04",
+      "apiVersion": null
+    },
+    "sdk": "missing",
+    "docs": "missing",
+    "gap": "Team members cannot be listed",
+    "effort": "S",
+    "probe": {
+      "src": [
+        "\\bselectableTeamMembers\\b"
+      ],
+      "test": [
+        "\\bselectableTeamMembers\\b"
+      ],
+      "docs": [
+        "\\bselectableTeamMembers\\b"
+      ]
+    },
+    "round": 2
+  }
+]
