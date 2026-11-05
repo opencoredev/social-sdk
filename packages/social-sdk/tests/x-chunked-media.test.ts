@@ -49,7 +49,7 @@ it("X video publish uses 4 MiB chunked upload and attaches the finalized media",
         const body = JSON.parse(String(init?.body));
         assert.deepEqual(body.media, { media_ids: ["video1"] });
 
-        return Response.json({ data: { id: "post1" } });
+        return Response.json({ data: { id: "1001", text: "Video" } });
       },
     }),
   });
@@ -120,7 +120,7 @@ it("X GIF upload polls processing_info until succeeded", async () => {
             : Response.json({ data: { id: "gif1", processing_info: { state: "succeeded" } } });
         }
 
-        return Response.json({ data: { id: "post2" } });
+        return Response.json({ data: { id: "1002", text: "GIF" } });
       },
     }),
   });
@@ -219,7 +219,7 @@ it("X failed media processing never creates a post", async () => {
 
         tweets++;
 
-        return Response.json({ data: { id: "post3" } });
+        return Response.json({ data: { id: "1003", text: "Video" } });
       },
     }),
   });
@@ -311,7 +311,7 @@ function chunkedFetch(
     if (url.pathname === "/2/media/upload")
       return handlers.status?.() ?? Response.json({ data: { id: "m1" } });
 
-    return handlers.tweet?.() ?? Response.json({ data: { id: "post" } });
+    return handlers.tweet?.() ?? Response.json({ data: { id: "1000", text: "Post" } });
   };
 }
 
@@ -439,7 +439,7 @@ it("X processing wait reports cancellation as cancelled", async () => {
       tweet: () => {
         tweets++;
 
-        return Response.json({ data: { id: "post" } });
+        return Response.json({ data: { id: "1000", text: "Post" } });
       },
     }),
   });
@@ -597,7 +597,7 @@ it("X treats a malformed INITIALIZE response as a definite media failure", async
 
         tweets++;
 
-        return Response.json({ data: { id: "post" } });
+        return Response.json({ data: { id: "1000", text: "Post" } });
       },
     }),
   });

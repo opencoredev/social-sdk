@@ -1699,6 +1699,10 @@ for await (const event of native.complianceStream({
 }
 ```
 
+## Write confirmation
+
+A native write counts as done only when X answers with the success shape its [OpenAPI 2.173](https://api.x.com/2/openapi.json) entry documents: the state flag set to the requested value (`liked`, `following`, `is_member`, `pinned`, `deleted`, `hidden`, and so on), or the created object with a non-empty ID (a numeric post ID for posts, polls, quotes, and published Articles; both IDs for a Direct Message). Any other 2xx answer, a lost response, a timeout, or a cancellation after the request was sent is `ambiguous_outcome` with `reconcile-first`. Media upload steps stay `media_error` because no post exists yet.
+
 ## Raw requests
 
 `native.request(input, context)` sends one request to an X API v2 endpoint the SDK does not wrap. It uses the user access token, or `appBearerToken` when no user token is configured, and checks `input.account` against the configured user and `context.backendInstance`.
@@ -1767,5 +1771,6 @@ Source: X's [media best practices](https://docs.x.com/x-api/media/quickstart/bes
 
 - The adapter cannot schedule posts. X API v2 has no scheduling field, so `POST /2/tweets` publishes immediately, and `posts.prepare` rejects a request with `schedule` (`x.operation`) before any network call. X's Ads API has [scheduled Tweets](https://docs.x.com/x-ads-api/creatives) at `ads-api.x.com/12/accounts/:account_id/scheduled_tweets`, but it needs Ads API approval, an ads account, and [OAuth 1.0a-signed requests](https://docs.x.com/x-ads-api/fundamentals/making-authenticated-requests). This adapter only uses OAuth 2.0 bearer tokens. Those scheduled Tweets are promoted-only (`nullcast=true`) by default and stay off the public timeline, and only the ads account's full promotable user can create organic ones. To publish at a set time, run your own job runner that calls `posts.publish`. (Checked 2026-09-24.)
 - The adapter cannot update the account profile. X API v2 ([OpenAPI 2.169](https://docs.x.com/openapi.json)) has no profile write endpoint. docs.x.com no longer publishes the v1.1 `POST account/update_profile` reference, and v1.1 user writes require OAuth 1.0a. (Checked 2026-09-24.)
+- Edits other than text: `updatePost` sends only the new text with `edit_options.previous_post_id`. X's [Create or Edit Post](https://docs.x.com/x-api/posts/create-post) reference accepts the other create fields alongside `edit_options`, but neither it nor the [edit posts guide](https://docs.x.com/x-api/fundamentals/edit-posts) says which of them an edit may change, so the SDK does not offer media, poll, or reply-setting edits. To try one, send `POST /2/tweets` with `edit_options` and the fields through `native.request`, then read the post's `edit_history_tweet_ids`. (Checked 2026-11-05.)
 - Account Activity subscriptions: X is deprecating the Account Activity API in favour of the X Activity API, so the adapter has no methods to create or list Account Activity subscriptions. It still verifies and decodes their deliveries; see [Account Activity API (deprecated)](#account-activity-api-deprecated).
 - Three live broadcast fields: X's OpenAPI 2.173 marks `is_low_latency` on `POST /2/users/{id}/broadcasts` as ignored, `telecast_id` as deprecated and ignored, and `roll_forward` as deprecated (X rejects `true`), so the adapter does not send them.

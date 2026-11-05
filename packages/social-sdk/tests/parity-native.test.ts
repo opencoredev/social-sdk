@@ -61,7 +61,10 @@ test("X parity native engagement and poll operations use typed routes", async ()
       const url = new URL(String(input));
       calls.push({ path: url.pathname, method: init?.method ?? "GET" });
 
-      return Response.json({ data: init?.method === "DELETE" ? { deleted: true } : { id: "ok" } });
+      // X answers a delete with `deleted: true` and a create with the new post (OpenAPI 2.173).
+      return Response.json({
+        data: init?.method === "DELETE" ? { deleted: true } : { id: "1001", text: "Choose" },
+      });
     },
   });
 

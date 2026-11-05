@@ -32,7 +32,14 @@ describe("Bluesky writes with a malformed success response", () => {
   });
 
   it("sendMessageBatch still returns the confirmed items", async () => {
-    const sent = { id: "msg-1", rev: "rev-1", text: "hello" };
+    const sent = {
+      id: "msg-1",
+      rev: "rev-1",
+      text: "hello",
+      sender: { did },
+      sentAt: "2026-11-05T00:00:00.000Z",
+    };
+
     const { native } = harness(() => json({ items: [sent] }));
 
     assert.deepEqual(
@@ -110,7 +117,7 @@ describe("Bluesky writes with a malformed success response", () => {
 });
 
 describe("Bluesky group chat names", () => {
-  const convo = { id: "convo-1", rev: "rev-1", members: [] };
+  const convo = { id: "convo-1", rev: "rev-1", members: [], muted: false, unreadCount: 0 };
 
   it("rejects more than 50 graphemes before sending", async () => {
     const { native, calls } = harness(() => json({ convo }));

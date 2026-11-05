@@ -337,7 +337,11 @@ describe("Bluesky app-password sessions", () => {
         refreshJwt: "r",
         fetch: broken.fetch,
       }),
-      (error) => error instanceof SocialError && error.code === "upstream_failure",
+      // The refresh was received and may have spent the old token.
+      (error) =>
+        error instanceof SocialError &&
+        error.code === "ambiguous_outcome" &&
+        error.retryDisposition.kind === "reconcile-first",
     );
 
     await assert.rejects(

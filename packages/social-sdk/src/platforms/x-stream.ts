@@ -139,15 +139,27 @@ export function parseRulesUpdate(value: JsonValue, dryRun: boolean): XStreamRule
   const data = body["data"];
   const meta = jsonObjectValue(body["meta"]);
   const summary = jsonObjectValue(meta?.["summary"]);
+  const errors = body["errors"];
 
   if (data !== undefined && !Array.isArray(data))
     throw invalidResponse(operation, "X returned a rule update whose data is not an array.");
 
+  // X reports every rule change with `meta.sent` and a `meta.summary` of counts; without them the
+  // answer does not say what changed. Source: https://docs.x.com/x-api/stream/update-stream-rules
+  if (meta === undefined || !isString(meta["sent"]) || summary === undefined)
+    throw invalidResponse(operation, "X returned a rule update without its summary.");
+
+  if (
+    errors !== undefined &&
+    (!Array.isArray(errors) || errors.some((entry: JsonValue) => !isJsonObject(entry)))
+  )
+    throw invalidResponse(operation, "X returned rule update errors that are not objects.");
+
   return {
     dryRun,
     rules: (data ?? []).map((entry: JsonValue) => parseStreamRule(entry, operation)),
-    ...definedFields({ summary }),
-    errors: objectArray(body["errors"]) ?? [],
+    summary,
+    errors: objectArray(errors) ?? [],
   };
 }
 

@@ -44,10 +44,12 @@ describe("Bluesky via attribution", () => {
   });
 
   it("credits a starter pack on follows and joinedViaStarterPack on the profile", async () => {
-    const { native, calls } = harness(({ url }) =>
+    const { native, calls } = harness(({ url, body }) =>
       url.pathname.endsWith("getRecord")
         ? json({ error: "RecordNotFound", message: "missing" }, 400)
-        : json({ uri: `at://${did}/app.bsky.graph.follow/3kfollow`, cid: "bafyreifollow" }),
+        : body?.["collection"] === "app.bsky.actor.profile"
+          ? json({ uri: `at://${did}/app.bsky.actor.profile/self`, cid: "bafyreiprofile" })
+          : json({ uri: `at://${did}/app.bsky.graph.follow/3kfollow`, cid: "bafyreifollow" }),
     );
 
     await native.follow({ account, did: "did:plc:alice", via: starterPack });

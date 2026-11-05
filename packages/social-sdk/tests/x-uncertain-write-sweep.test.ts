@@ -142,7 +142,9 @@ describe("X native writes with an unreadable acknowledgement", () => {
     assert.equal(requests(), 1);
   });
 
-  it("a delete answered with an empty body still succeeds", async () => {
+  // X answers a list delete with `{ data: { deleted: true } }` (OpenAPI 2.173 deleteLists); an
+  // empty body does not confirm it.
+  it("a delete answered with an empty body is uncertain, sent once", async () => {
     let requests = 0;
 
     const adapter = x({
@@ -155,7 +157,10 @@ describe("X native writes with an unreadable acknowledgement", () => {
     });
 
     assert.ok(adapter.native);
-    await adapter.native.deleteList({ account, listId: "5", context: context() });
+    await assert.rejects(
+      adapter.native.deleteList({ account, listId: "5", context: context() }),
+      uncertain,
+    );
     assert.equal(requests, 1);
   });
 });
