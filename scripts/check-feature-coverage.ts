@@ -89,7 +89,7 @@ interface Probe {
   readonly test: readonly RegExp[];
   readonly docs: readonly RegExp[];
   readonly forbid: readonly RegExp[];
-  /** Text that must be gone from the provider's source, its tests and its docs. */
+  /** Text that must be gone from the provider's source and docs. */
   readonly absent: readonly RegExp[];
 }
 
@@ -402,12 +402,9 @@ async function main(): Promise<void> {
     for (const pattern of feature.probe.docs)
       if (!pattern.test(docs)) gaps.push({ id: feature.id, part: "docs", pattern: pattern.source });
 
+    // Tests may name the text to assert it is gone, so only source and docs are checked.
     for (const pattern of feature.probe.absent)
-      if (
-        pattern.test(source) ||
-        pattern.test(providerTests.get(feature.provider) ?? "") ||
-        pattern.test(docs)
-      )
+      if (pattern.test(source) || pattern.test(docs))
         gaps.push({ id: feature.id, part: "absent", pattern: pattern.source });
 
     for (const pattern of feature.probe.forbid)
