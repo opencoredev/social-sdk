@@ -2,7 +2,7 @@ import { SocialError } from "../core/errors.js";
 import type { AdapterOperationContext, JsonObject } from "../core/types.js";
 import { definedFields } from "../core/fields.js";
 import { remainingBudget } from "../transport/budget.js";
-import { abortable, retryDelay } from "../transport/http.js";
+import { abortable, readJson, retryDelay } from "../transport/http.js";
 import { parseJson, type JsonValue } from "../transport/json.js";
 import { providerErrorDecoder } from "../transport/provider-errors.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
@@ -183,11 +183,10 @@ export class JsonArrayStreamSplitter {
   }
 }
 
-async function errorBody(response: Response): Promise<JsonValue | undefined> {
+/** Read optional error evidence within 64 KiB; an unreadable or stalled body yields nothing. */
+async function errorBody(response: Response, signal: AbortSignal): Promise<JsonValue | undefined> {
   try {
-    const text = await response.text();
-
-    return text.length > maxErrorBodyLength ? undefined : parseJson(text);
+    return (await readJson(response, maxErrorBodyLength, signal)) ?? undefined;
   } catch {
     return undefined;
   }
@@ -217,10 +216,11 @@ async function statusError(
   response: Response,
   path: string,
   context: AdapterOperationContext,
+  signal: AbortSignal,
 ): Promise<SocialError> {
   const status = response.status;
 
-  const body = await errorBody(response);
+  const body = await errorBody(response, signal);
 
   const reason =
     body === undefined
@@ -385,10 +385,23 @@ export async function* readLiveChatStream(
       throw interrupted("connect");
     }
 
+    if (!response.ok) {
+      // The connect deadline stays armed while the error body is read, and the stall timeout
+      // bounds it too, so a stalled error body cannot hold the iterator open.
+      const errorStall =
+        connection.stallTimeoutMs === undefined
+          ? undefined
+          : setTimeout(() => controller.abort(stalled), connection.stallTimeoutMs);
+
+      try {
+        throw await statusError(response, connection.url.pathname, context, controller.signal);
+      } finally {
+        clearTimeout(errorStall);
+      }
+    }
+
     clearTimeout(timer);
     timer = undefined;
-
-    if (!response.ok) throw await statusError(response, connection.url.pathname, context);
 
     if (!response.body) throw invalidStream("YouTube returned an empty live chat stream body.");
 

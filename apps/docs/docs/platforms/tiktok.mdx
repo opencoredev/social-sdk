@@ -490,7 +490,7 @@ The native module wraps the four endpoints:
 - `native.cancelDataRequest({ account, requestId, context })` calls `POST /v2/user/data/cancel/`. With an `.ongoing` scope you can then make another request.
 - `native.downloadDataRequest({ account, requestId, context })` calls `POST /v2/user/data/download/` and returns the zip archive as a `ReadableStream<Uint8Array>` that you must consume or cancel. The retry budget covers only the wait for the response headers. Archives expire four days after they become ready.
 
-TikTok's `request_id` is a 64-bit integer. The SDK passes it as a decimal string and refuses IDs beyond `Number.MAX_SAFE_INTEGER`, which a JSON number cannot carry exactly. Poll `checkDataRequest`, or wait for the `portability.download.ready` webhook, before downloading.
+TikTok's `request_id` is a 64-bit integer. The SDK passes it as a decimal string and refuses IDs beyond `Number.MAX_SAFE_INTEGER`, which a JSON number cannot carry exactly. If TikTok accepts `addDataRequest` but returns no usable `request_id`, the call throws `ambiguous_outcome` with `retryDisposition: { kind: "reconcile-first" }`, because TikTok may already have created the export; check the creator's requests before you retry. Poll `checkDataRequest`, or wait for the `portability.download.ready` webhook, before downloading.
 
 ```ts
 const { requestId } = await native.addDataRequest({

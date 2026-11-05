@@ -13,7 +13,7 @@ import type {
 } from "../core/types.js";
 import { profileRef } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
-import { readJson, retryDelay } from "../transport/http.js";
+import { HttpError, readJson, retryDelay } from "../transport/http.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
 import {
   array,
@@ -1610,24 +1610,43 @@ export function tiktok(
               "Choose data_format text or json and at least one documented portability category.",
           });
 
-        const result = data(
-          await request(
-            "/v2/user/data/add/",
-            context,
-            { data_format: dataFormat, category_selection_list: [...new Set(categories)] },
-            { fields: "request_id" },
-          ),
-        );
+        // TikTok may have created the export (a .single scope allows only one) once it answers
+        // "ok", so an unusable success response is uncertain, not a failed create.
+        const uncertain = (message: string, cause?: unknown) =>
+          new SocialError({
+            code: "ambiguous_outcome",
+            operation: "native",
+            message,
+            retryDisposition: { kind: "reconcile-first" },
+            ...definedFields({ cause }),
+          });
 
-        const requestId = result["request_id"];
+        let requestId: JsonField;
+
+        try {
+          requestId = data(
+            await request(
+              "/v2/user/data/add/",
+              context,
+              { data_format: dataFormat, category_selection_list: [...new Set(categories)] },
+              { fields: "request_id" },
+            ),
+          )["request_id"];
+        } catch (error) {
+          // Transport failures and explicit rejections arrive as SocialError; an HttpError here
+          // means the received success response could not be decoded.
+          if (error instanceof HttpError && error.kind === "invalid-response")
+            throw uncertain(
+              "TikTok answered the data request with a malformed response. Check the creator's requests in TikTok before retrying.",
+              error,
+            );
+          throw error;
+        }
 
         if (!isFiniteNumber(requestId) || !Number.isSafeInteger(requestId) || requestId <= 0)
-          throw new SocialError({
-            code: "upstream_failure",
-            operation: "native",
-            message:
-              "TikTok returned a data request ID that cannot be sent back exactly. Track it in TikTok instead.",
-          });
+          throw uncertain(
+            "TikTok accepted the data request but returned a request ID that cannot be sent back exactly. Track it in TikTok before retrying.",
+          );
 
         return { requestId: String(requestId) };
       },

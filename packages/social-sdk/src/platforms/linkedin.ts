@@ -1556,7 +1556,7 @@ export function linkedin(
       if (!(error instanceof HttpError)) throw error;
 
       const ambiguous =
-        body !== undefined &&
+        method !== "GET" &&
         error.dispatched &&
         (error.kind !== "http" || (error.status ?? 0) >= 500);
 
