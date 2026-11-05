@@ -1266,7 +1266,8 @@
             "text",
             "image",
             "video",
-            "carousel"
+            "carousel",
+            "document"
           ],
           "constraints": {
             "approval": [
@@ -4202,7 +4203,8 @@
             "text",
             "image",
             "video",
-            "carousel"
+            "carousel",
+            "document"
           ],
           "constraints": {
             "approval": [
