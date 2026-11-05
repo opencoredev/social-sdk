@@ -342,8 +342,8 @@ it("Instagram messages.send resolves the single other participant, never the con
   );
 
   assert.deepEqual(result, { recipient_id: "c1", message_id: "m2" });
-  assert.equal(seen[0]?.url.pathname, "/v25.0/conversation-1");
-  assert.equal(seen[1]?.url.pathname, "/v25.0/ig1/messages");
+  assert.equal(seen[0]?.url.pathname, "/v27.0/conversation-1");
+  assert.equal(seen[1]?.url.pathname, "/v27.0/ig1/messages");
   assert.deepEqual(jsonBody(seen[1]), { recipient: { id: "c1" }, message: { text: "Thanks" } });
 });
 
@@ -786,7 +786,7 @@ it("declares machine-readable publish media constraints that match prepareTarget
     publishConstraints(instagram({ auth: { accessToken: "t", accountId: "ig1" }, fetch })),
     {
       mediaSources: ["https-url"],
-      maxItems: 10,
+      maxItems: 20,
       allowedMimeTypes: ["image/jpeg", "video/mp4", "video/quicktime"],
     },
   );

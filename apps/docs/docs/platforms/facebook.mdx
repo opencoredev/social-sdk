@@ -1,9 +1,9 @@
 ---
 title: Facebook
-description: Publish and schedule Facebook Page posts, photos, videos, and Reels with a Page access token, then read posts, comments, and Page Insights.
+description: Publish Facebook Page posts, Reels, and Stories with a Page access token, and manage comments, Messenger, Page settings, and Insights.
 ---
 
-The direct Facebook adapter publishes to one Facebook Page through the Graph API (v25.0) with a Page access token. It covers feed posts, photos, videos, Reels, native scheduling, comments, and Page metrics. Personal profiles are not supported, because Meta's API does not publish to them. To publish to Facebook through a provider-owned app instead, use a [managed backend](/backends).
+The direct Facebook adapter publishes to one Facebook Page through the Graph API (v27.0) with a Page access token. It covers feed posts, photos, videos, Reels, Stories, live video, native scheduling, comments, Messenger, Page management, Insights, and webhooks. Personal profiles are not supported, because Meta's API does not publish to them. To publish to Facebook through a provider-owned app instead, use a [managed backend](/backends).
 
 For how user and Page tokens differ, how to get a long-lived Page access token, and the errors that mean the user must reconnect, read the <a href="/guides/facebook-page-access-token">Facebook Page access token guide</a>.
 
@@ -13,7 +13,9 @@ For how user and Page tokens differ, how to get a long-lived Page access token, 
   <Step title="Complete Meta app setup">
     Create a Meta app with Facebook Login and request `pages_show_list`, `pages_manage_posts`, and
     `pages_read_engagement`. Add `pages_manage_engagement` and `pages_read_user_content` for
-    comments, and `read_insights` for Page reports. App review and Page roles remain your setup.
+    comments, `read_insights` for Page reports, `pages_messaging` for Messenger, and
+    `pages_manage_metadata` for webhook subscriptions, Page settings, and Messenger conversations.
+    App review and Page roles remain your setup.
   </Step>
   <Step title="Find the Page access token">
     After Facebook Login, call `discoverFacebookPages` on your server with the user access token. It
@@ -55,6 +57,96 @@ const account = connectedAccountRef({
 
 Page access tokens are credentials. Never log them or send them to a browser. The adapter rejects any reference whose account ID is not the configured Page.
 
+### Facebook Login and token checks
+
+The SDK includes server-side helpers for the Facebook Login code flow, so you do not have to hand-write these Graph calls. They are standalone functions that run on your server.
+
+```ts
+import {
+  discoverFacebookPages,
+  exchangeFacebookCode,
+  exchangeFacebookToken,
+  facebookLoginUrl,
+  inspectFacebookToken,
+  listFacebookPermissions,
+} from "@opencoredev/social-sdk/facebook";
+
+const app = { appId: process.env["META_APP_ID"]!, appSecret: process.env["META_APP_SECRET"]! };
+
+// 1. Send the person to the Login dialog. Keep `state` in their server session.
+const loginUrl = facebookLoginUrl({
+  appId: app.appId,
+  redirectUri: "https://app.example.com/facebook/callback",
+  state: crypto.randomUUID(),
+  scopes: ["pages_show_list", "pages_manage_posts", "pages_read_engagement"],
+});
+
+// 2. On the redirect, check `state`, then exchange the code and extend the token.
+declare const code: string;
+const short = await exchangeFacebookCode({
+  ...app,
+  code,
+  redirectUri: "https://app.example.com/facebook/callback",
+});
+const long = await exchangeFacebookToken({ ...app, accessToken: short.accessToken });
+
+// 3. Check what the person granted before listing Pages.
+const { declined } = await listFacebookPermissions({ userAccessToken: long.accessToken });
+const info = await inspectFacebookToken({ ...app, inputToken: long.accessToken });
+const pages = await discoverFacebookPages({
+  userAccessToken: long.accessToken,
+  appSecret: app.appSecret,
+});
+```
+
+| Helper                    | Graph call                                                    | Notes                                                                                                                                                                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `facebookLoginUrl`        | `https://www.facebook.com/v27.0/dialog/oauth`                 | Builds the Login dialog URL with `client_id`, `redirect_uri`, `state`, `response_type=code`, and `scope`. `state` must be at least 16 characters; compare it on the redirect to stop cross-site request forgery. `rerequest: true` adds `auth_type=rerequest` to ask again for declined permissions. |
+| `exchangeFacebookCode`    | `GET /oauth/access_token` with `code`                         | Exchanges the redirect's `code` for a short-lived user token. `redirectUri` must match the one sent to the dialog exactly. Returns `accessToken`, `tokenType`, and `expiresIn` seconds.                                                                                                              |
+| `exchangeFacebookToken`   | `GET /oauth/access_token` with `grant_type=fb_exchange_token` | Exchanges a short-lived user token for a long-lived one (about 60 days). Page tokens that `discoverFacebookPages` reads with a long-lived user token do not expire, though Meta can still invalidate them. An expired token cannot be exchanged.                                                     |
+| `inspectFacebookToken`    | `GET /debug_token`                                            | Calls with your app access token. Returns `isValid`, `issuedToThisApp` (the token's `app_id` is your app), `type`, `userId`, `scopes`, `granularScopes` (the Page IDs each `pages_*` permission covers), `expiresAt`, and `dataAccessExpiresAt`.                                                     |
+| `listFacebookPermissions` | `GET /me/permissions`                                         | Splits the person's permissions into `granted`, `declined`, and `expired`, so you can explain what is missing and ask again.                                                                                                                                                                         |
+
+The code and token exchanges send your app secret to Meta as `client_secret`, as Meta's manual login flow documents; call them only from your server. The helpers return tokens; store them like any other credential and never log them.
+
+### appsecret_proof and rate-limit usage
+
+```ts
+const backend = facebook({
+  auth: {
+    pageId: process.env["FACEBOOK_PAGE_ID"]!,
+    accessToken: process.env["FACEBOOK_PAGE_ACCESS_TOKEN"]!,
+  },
+  appSecret: process.env["META_APP_SECRET"],
+  onRateLimitUsage: (usage) => {
+    if ((usage.page?.callCount ?? 0) > 80) console.warn("Facebook Page usage is above 80%");
+  },
+});
+```
+
+With `appSecret`, every Graph call from the adapter, including Reels and video uploads on `graph-video.facebook.com`, carries `appsecret_proof`: the hex HMAC-SHA256 of the access token, keyed with the app secret. Apps that turn on Require App Secret in the app dashboard must send it, or every call fails. `discoverFacebookPages` and `listFacebookPermissions` take the same `appSecret`, and `facebookAppSecretProof(token, secret)` computes the value for your own calls. The Reels upload host (`rupload.facebook.com`) is not a Graph endpoint and gets no proof.
+
+Meta reports how close the app is to its rate limits in response headers. With `onRateLimitUsage`, the adapter parses them after every Graph response that carries them: `X-App-Usage` (the app's platform limit) as `app`, `X-Page-Usage` (the Page token's limit) as `page`, and `X-Business-Use-Case-Usage` as `businessUseCase` rows with the `businessId`, the limit `type` (such as `pages` or `messenger`), and `estimatedTimeToRegainAccess` in minutes. `callCount`, `totalCputime`, and `totalTime` are percentages; Meta throttles at 100. The callback only observes: it does not slow requests down, and an error it throws is ignored. `parseFacebookRateLimitUsage(headers)` parses the same headers from any response.
+
+`accounts.get` and `accounts.list` read the configured Page's `id`, `name`, and `username` and return one account record with `displayName` and `handle`. They fail as `unauthorized` if Facebook returns a different Page.
+
+## Native calls
+
+Facebook features outside the normalized API are native methods. Native calls bypass normalized middleware such as tenant authorization, so wrap them in your own policy. Get the typed handle with the explicit acknowledgment and pass a context whose `backendInstance` matches the account reference. The examples below use this `native` and `context`.
+
+```ts
+import type { AdapterOperationContext } from "@opencoredev/social-sdk";
+
+const native = social.native("default", { acknowledgeUnsafe: true });
+if (!native) throw new Error("Facebook native module is unavailable");
+
+const context: AdapterOperationContext = {
+  backendInstance: "default",
+  correlationId: "facebook-job",
+  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },
+};
+```
+
 ## Examples
 
 ### Publish a text or link post
@@ -67,6 +159,60 @@ const result = await social.posts.publish({
 ```
 
 The outcome is `published`, and `post.postId` is the Page post ID (`{page-id}_{post-id}`). A structured `link` becomes Facebook's link preview. It is accepted on text posts only; with media, put the link in the text.
+
+### Publish options
+
+Pass Facebook options in `targets[].options`. Each applies to certain formats, and preparation rejects an option on a format that does not take it (`facebook.option_format`) or an invalid value (`facebook.options.<name>`).
+
+| Option                                     | Wire field                                                                         | Formats                  | What it does                                                                                                                                                                                                                                     |
+| ------------------------------------------ | ---------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `place`                                    | `place`                                                                            | feed, photos, Reels      | Page ID of a location to tag.                                                                                                                                                                                                                    |
+| `tags`                                     | `tags`                                                                             | feed, multi-photo        | User IDs tagged in the post, sent comma-separated. Meta accepts tags only with a `place`, so preparation reports `facebook.tags_place` without one.                                                                                              |
+| `photoTags`                                | `tags` on /photos                                                                  | single photo             | Photo tags, also called user tags: each has `x` and `y` from 0 to 100 (percent from the left and top) and either a `userId` (sent as `tag_uid`) or `text` (`tag_text`).                                                                          |
+| `noStory`                                  | `no_story`                                                                         | single photo, video      | Uploads without creating a feed story.                                                                                                                                                                                                           |
+| `backdatedTime`                            | `backdated_time`                                                                   | feed, photos, video      | A past ISO time to backdate the post to. It cannot be combined with a schedule.                                                                                                                                                                  |
+| `backdatedTimeGranularity`                 | `backdated_time_granularity`                                                       | with `backdatedTime`     | `year`, `month`, `day`, `hour`, or `minute` (sent as `min` for photos and videos).                                                                                                                                                               |
+| `targeting`                                | `targeting`                                                                        | feed, photos, video      | Restricts who can see the post: `ageMin` (13, 15, 18, 21, or 25) and Meta's `geoLocations` object (`geo_locations`).                                                                                                                             |
+| `feedTargeting`                            | `feed_targeting`                                                                   | feed, photos, video      | Changes who is likely to see it in News Feed without restricting it: `ageMin` and `ageMax` (13 to 65), `genders` (1 male, 2 female), `geoLocations`, `locales`.                                                                                  |
+| `callToAction`                             | `call_to_action`                                                                   | feed                     | A button on a link post: `type` such as `LEARN_MORE`, `SHOP_NOW`, or `SIGN_UP`, and `link` (defaults to `content.link`). Some types are limited to ads.                                                                                          |
+| `childAttachments`                         | `child_attachments`                                                                | feed                     | A link carousel of 2 to 5 cards, each with an HTTPS `link` and `picture` and optional `name` and `description`.                                                                                                                                  |
+| `multiShareEndCard`                        | `multi_share_end_card`                                                             | feed                     | Set `false` to hide the carousel's end card.                                                                                                                                                                                                     |
+| `feeling`                                  | `og_action_type_id`, `og_object_id`, `og_icon_id`                                  | feed, multi-photo        | A feeling or activity: `actionTypeId`, `objectId`, and an optional `iconId`.                                                                                                                                                                     |
+| `title`                                    | `title`                                                                            | video, Reels             | The video title.                                                                                                                                                                                                                                 |
+| `secret`                                   | `secret`                                                                           | video                    | Unlisted: hides the video from search and feeds, so only its permalink or embed shows it.                                                                                                                                                        |
+| `embeddable`                               | `embeddable`                                                                       | video                    | Whether other sites can embed the video.                                                                                                                                                                                                         |
+| `hideFromNewsfeed`                         | `hide_from_newsfeed`                                                               | video                    | Publishes the video to the Page without a News Feed story.                                                                                                                                                                                       |
+| `contentCategory`                          | `content_category`                                                                 | video                    | One of Meta's categories, such as `TECHNOLOGY` or `NEWS`.                                                                                                                                                                                        |
+| `contentTags`                              | `content_tags`                                                                     | video                    | Interest IDs that describe the video.                                                                                                                                                                                                            |
+| `customLabels`                             | `custom_labels`                                                                    | video                    | Labels that group the video in Insights only.                                                                                                                                                                                                    |
+| `chunkedUpload`                            | upload session                                                                     | video from a `Blob`      | Forces the chunked upload described below.                                                                                                                                                                                                       |
+| `sponsorId`, `sponsorRelationship`         | `sponsor_id`, `sponsor_relationship`                                               | photo, video             | Branded content: tags the sponsoring business Page as a paid partnership. `sponsorRelationship` is Meta's numeric relationship value and needs `sponsorId`. The sponsor must have approved your Page for branded content in Meta Business Suite. |
+| `albumId`                                  | `POST /{album-id}/photos`                                                          | one photo, published now | Uploads the photo into one of the Page's albums instead of the timeline album. Meta returns no `post_id` for album photos, so the post reference holds the photo ID with `native.objectType: "photo"`.                                           |
+| `allowSphericalPhoto`, `sphericalMetadata` | `allow_spherical_photo`, `spherical_metadata`                                      | photo                    | 360 photos: lets Meta treat an image with Photo Sphere metadata as spherical, and overrides that metadata with Photo Sphere fields such as `ProjectionType` (`equirectangular`, `cylindrical`, or `cubestrip`).                                  |
+| `sphericalVideo`                           | `spherical`, `initial_heading`, `initial_pitch`, `fov`, `original_projection_type` | video                    | 360 video: marks the upload as spherical with its starting view in degrees (pitch from -90 to 90) and projection (`equirectangular`, `cubemap`, or `half_equirectangular`).                                                                      |
+| `multilingual`                             | `multilingual_data`                                                                | video                    | Per-language versions of the description as `{ locale, text }` (for example `es_LA`), sent as `multilingual_status_lang` and `multilingual_status`; viewers see the version for their language.                                                  |
+| `replaceVideoId`                           | `replace_video_id`, `swap_mode: "replace"`                                         | video                    | Replaces the file of an existing Page video while keeping its ID, comments, and reactions.                                                                                                                                                       |
+| `expiration`                               | `expiration` (`time`, `type`)                                                      | video                    | At the ISO `at` time, hides the video (`expire_only`) or deletes it (`expire_and_delete`). The time must be in the future.                                                                                                                       |
+| `reel`, `draft`, `isAiGenerated`           | `video_state`, `is_ai_generated`                                                   | Reels                    | See Reels below.                                                                                                                                                                                                                                 |
+
+```ts
+await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: {
+        place: "110843418940484",
+        tags: ["1001"],
+        targeting: { ageMin: 18, geoLocations: { countries: ["US"] } },
+        callToAction: { type: "SIGN_UP" },
+      },
+    },
+  ],
+  content: { text: "Join the beta", link: { url: "https://example.com/beta" } },
+});
+```
+
+A multi-link carousel uses `childAttachments` instead of media. The `carousel` format in the capability manifest refers to multi-photo posts; `childAttachments` is the link carousel.
 
 ### Publish photos
 
@@ -107,17 +253,60 @@ const video = {
 };
 
 const feedVideo = await social.posts.publish({
-  targets: [{ account }],
+  targets: [{ account, options: { title: "Launch recap" } }],
   content: { text: "Demo", media: [video] },
 });
 
 const reel = await social.posts.publish({
-  targets: [{ account, options: { reel: true } }],
-  content: { text: "Behind the scenes", media: [video] },
+  targets: [{ account, options: { reel: true, title: "Behind the scenes", isAiGenerated: false } }],
+  content: { text: "Behind the scenes #studio", media: [video] },
 });
 ```
 
-A feed video goes to `graph-video.facebook.com` and accepts a URL or a `Blob` up to 1 GiB. A Reel uses Meta's three-phase Reels API and needs a hosted 9:16 video of 3 to 90 seconds. Both return `processing` with a delivery reference, because Facebook processes video after upload. If a Reel upload fails after Facebook has created the Reel, the outcome still carries that delivery reference: `unknown` when the request timed out or its result is unclear, otherwise `failed` with retry disposition `reconcile-first`. Check it with `getDelivery` before publishing again.
+A feed video goes to `graph-video.facebook.com/{page-id}/videos` from a hosted URL (`file_url`) or a `Blob` (`source`). The `title` option sets the video title. A `Blob` up to 1 GiB is sent in one multipart request. A larger `Blob`, or any `Blob` with `chunkedUpload: true`, goes through Meta's chunked (resumable) upload session instead of one request: `upload_phase: "start"` with `file_size` opens a session, each `transfer` sends the byte range Facebook asks for as `video_file_chunk` from `start_offset`, and `finish` publishes with the post fields. If a chunk fails after Facebook created the video, the outcome keeps the delivery reference (`unknown` or `failed` with `reconcile-first`) so you can reconcile it.
+
+Custom thumbnails apply to Page videos only. To set a custom cover on a Page video, pass the image as a `Blob` in the attachment's `thumbnail`. It is sent as the `thumb` part, which turns the request into a multipart upload. Reels do not accept a thumbnail through this adapter.
+
+A Reel uses Meta's three-phase Reels API (`/{page-id}/video_reels`) and needs a video that meets the Reel rows in [Media specifications](#media-specifications): either a hosted 9:16 MP4 at a public HTTPS URL or the same video as a `Blob`. A hosted video is fetched by Facebook through the `file_url` header; a `Blob` is uploaded to `rupload.facebook.com` as the request body with `offset: 0` and `file_size` headers. Videos and Reels return `processing` with a delivery reference, because Facebook processes video after upload. If a Reel upload fails after Facebook has created the Reel, the outcome still carries that delivery reference: `unknown` when the request timed out or its result is unclear, otherwise `failed` with retry disposition `reconcile-first`. Check it with `getDelivery` before publishing again.
+
+Reel options:
+
+- `title` sets the Reel title, and `place` tags a location with a Page ID (find one with Pages Search). The Page must have a valid location.
+- `isAiGenerated: true` sends `is_ai_generated`, Meta's disclosure that the Reel was created or edited with AI. It defaults to false.
+- `draft: true` finishes the upload with `video_state: "DRAFT"`. The Reel stays unpublished, and the outcome is `accepted` with `backendState: "REEL_DRAFT"`, never `published`. A draft cannot also be scheduled.
+
+Meta limits each Page to 30 API-published Reels in a moving 24-hour period and asks apps to enforce it, especially for scheduled Reels. The adapter counts the Reels it starts per instance and refuses the 31st within 24 hours with `rate_limited` and an `after-delay` retry disposition, before any request. It cannot see Reels that another process or person published, so keep one adapter per Page in a long-lived server or track the count yourself.
+
+### Reel collaborators and copyright checks
+
+```ts
+const invite = await native.inviteReelCollaborator({
+  account,
+  videoId: "REEL_ID",
+  collaboratorPageId: "PARTNER_PAGE_ID",
+  context,
+});
+
+const collaborators = await native.listReelCollaborators({ account, videoId: "REEL_ID", context });
+const check = await native.getReelCopyrightCheck({ account, videoId: "REEL_ID", context });
+```
+
+`inviteReelCollaborator` sends `POST /{video-id}/collaborators` with `target_id` set to the collaborator's Page ID and returns `collaboratorId` and `invitationLink`. Meta allows 10 invitations per Page per 24 hours. `listReelCollaborators` reads the same edge, where each row's `invite_status` is `Accepted`, `Declined`, or `Pending`.
+
+`getReelCopyrightCheck` reads the Reel's `copyright_check_information`. `status` is `in_progress` until Meta finishes the check, which can take a few minutes, then `complete`; `matchesFound` says whether it found copyrighted material, and `matches` lists each match's `content_title`, `owner_copyright_policy`, and `matched_segments`. It needs `pages_read_engagement`.
+
+### Crosspost a video
+
+```ts
+await native.crosspostVideo({
+  account,
+  videoId: "SOURCE_VIDEO_ID",
+  description: "From our partner",
+  context,
+});
+```
+
+Crossposting shares a video that another Page published and allowed this Page to crosspost. It sends `crossposted_video_id` to `/{page-id}/videos`, with optional `description`, `title`, and `scheduleAt`, and returns `processing` like any Page video. The two Pages must have a crossposting relationship set up in Meta Business Suite.
 
 ### Reconcile video processing
 
@@ -128,7 +317,7 @@ if (!delivery) throw new Error("Reconcile the submission before retrying.");
 const outcome = await social.posts.getDelivery(delivery);
 ```
 
-`getDelivery` reads the video's `status`. It returns `processing` until the publishing phase completes, then `published` with a post reference whose `native.objectType` is `"video"` once Facebook reports `publish_status: "published"`. A completed phase without that status, such as a draft, returns `unknown`. For feed and photo posts, `getDelivery` reports `published` only when `is_published` is true and `scheduled` only when the post has a publish time. A failed upload, processing, or publishing phase returns `failed` with code `media_error`.
+`getDelivery` reads the video's `status`. It returns `processing` until the publishing phase completes, then `published` with a post reference whose `native.objectType` is `"video"` once Facebook reports `publish_status: "published"`. A completed phase without that status, such as a draft, returns `unknown`. For feed and photo posts, `getDelivery` reports `published` only when `is_published` is true and `scheduled` only when the post has a publish time. An album photo's delivery ID is `photo:{photo-id}`; `getDelivery` reads the photo and reports it `published`. A failed upload, processing, or publishing phase returns `failed` with code `media_error`.
 
 ### Schedule and cancel
 
@@ -143,7 +332,15 @@ const outcome = scheduled.outcomes[0];
 if (outcome?.state === "scheduled") await social.posts.cancelScheduled(outcome.job);
 ```
 
-Scheduling uses Facebook's own `scheduled_publish_time`, so no job runner is required. Meta accepts times between 10 minutes and 30 days after the request; preparation reports `facebook.schedule_window` otherwise. Text, photos, videos, and Reels can all be scheduled.
+Scheduling uses Facebook's own `scheduled_publish_time`, so no job runner is required. The earliest time is 10 minutes after the request, and the latest depends on the format:
+
+| Format                  | Latest schedule time | Source                                                                                     |
+| ----------------------- | -------------------- | ------------------------------------------------------------------------------------------ |
+| Text, link, photo posts | 30 days              | [Pages API posts](https://developers.facebook.com/docs/pages-api/posts)                    |
+| Page videos             | 6 months             | [page/videos](https://developers.facebook.com/docs/graph-api/reference/page/videos)        |
+| Reels                   | 29 days              | [Reels publishing](https://developers.facebook.com/docs/video-api/guides/reels-publishing) |
+
+Preparation reports `facebook.schedule_window` for a time outside the window of the target's format. Meta's page/feed reference mentions 75 days for feed posts, but the Pages posts guide says 30 days, so the adapter keeps the shorter limit.
 
 Cancelling reads the post or video first and deletes it only while Facebook reports it unpublished with a future `scheduled_publish_time`. If the item is published, its time has passed, or it has no publish time, `cancelScheduled` throws `invalid_input` and deletes nothing. A job that was due may already be live, so reconcile it with `getDelivery` instead of cancelling.
 
@@ -151,10 +348,133 @@ Cancelling reads the post or video first and deletes it only while Facebook repo
 
 ```ts
 const page = await social.posts.list(account, { limit: 25 });
+const post = await social.posts.get(platformPostRef);
 await social.posts.removeFromPlatform(platformPostRef);
 ```
 
-`posts.list` reads `/{page-id}/posts` with Graph cursors. `removeFromPlatform` deletes the post and fails as `ambiguous_outcome` if Facebook does not confirm the deletion.
+`posts.list` reads `/{page-id}/posts` with Graph cursors. `posts.get` reads one post. Post rows carry `id`, `message`, `created_time`, `updated_time`, `permalink_url`, `status_type`, `is_published`, and `full_picture`, the URL of the post's largest picture. A post reference whose `native.objectType` is `"video"` reads the video fields instead, and one whose `native.objectType` is `"photo"` (an album upload) reads the Photo fields `id`, `name` (the caption), `created_time`, `updated_time`, and `link`. `removeFromPlatform` deletes the post and fails as `ambiguous_outcome` if Facebook does not confirm the deletion. Only posts the Page created can be deleted.
+
+`posts.list` does not return Reels, because Meta's post edges omit them. List them with `native.listReels`, which reads `/{page-id}/video_reels`.
+
+### Edit, pin, or hide a post
+
+```ts
+await native.updatePost({ account, postId: "PAGE_ID_POST_ID", message: "Updated text", context });
+await native.updatePost({ account, postId: "PAGE_ID_POST_ID", pinned: true, context });
+await native.updatePost({ account, postId: "PAGE_ID_POST_ID", isAiGenerated: true, context });
+```
+
+`updatePost` sends `POST /{post-id}` with any of `message`, `is_pinned`, `is_hidden`, and `is_ai_generated`. `isAiGenerated: true` adds Meta's AI-generated label to the post, `false` removes it, and leaving it out keeps the current label; Meta added this to post edits in Graph API v27.0. Pin a post to put it at the top of the Page; hide one to remove it from the Page's timeline without deleting it. Meta lets an app edit a post's message only when that app created the post. The call fails as `ambiguous_outcome` if Facebook does not return `success: true`, so read the post before retrying.
+
+### Scheduled, tagged, and visitor posts, and Page photos
+
+```ts
+const scheduledPosts = await native.listScheduledPosts({ account, context });
+const tagged = await native.listTaggedPosts({ account, context });
+const visitorPosts = await native.listVisitorPosts({ account, context });
+const photos = await native.listPhotos({ account, limit: 50, context });
+```
+
+| Method               | Endpoint                          | Rows                                                                                                |
+| -------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `listScheduledPosts` | `/{page-id}/scheduled_posts`      | Scheduled posts that have not published yet, with `scheduled_publish_time` (Unix seconds).          |
+| `listTaggedPosts`    | `/{page-id}/tagged`               | Tagged posts: posts by other people or Pages that tag this Page.                                    |
+| `listVisitorPosts`   | `/{page-id}/visitor_posts`        | Visitor posts that people published on the Page.                                                    |
+| `listReels`          | `/{page-id}/video_reels`          | The Page's Reels, with the video fields.                                                            |
+| `listPhotos`         | `/{page-id}/photos?type=uploaded` | List Page photos the Page uploaded: `id`, `name` (the caption), `created_time`, `link`, `alt_text`. |
+
+Each takes `cursor` and `limit` (1 to 100) and returns Graph cursors. Rows keep only scalar fields, so author objects are dropped. They need `pages_read_engagement`, and tagged and visitor posts also need `pages_read_user_content`.
+
+### Publish Stories
+
+```ts
+await native.publishPhotoStory({ account, photoUrl: "https://cdn.example.com/story.jpg", context });
+await native.publishVideoStory({ account, videoUrl: "https://cdn.example.com/story.mp4", context });
+const stories = await native.listStories({ account, status: "PUBLISHED", context });
+```
+
+A photo Story uploads the image to `/{page-id}/photos` with `published: false`, then publishes it through `/{page-id}/photo_stories` with its `photo_id`. The result is `published` with the Story's `post_id`. If Facebook refuses the Story, the adapter deletes the staged photo. The photo can be a public HTTPS URL or a `Blob`, up to 10 MB.
+
+A video Story uses the same three phases as a Reel on `/{page-id}/video_stories`: `start`, the upload to `rupload.facebook.com` (a hosted URL or a `Blob`), and `finish`, with optional `isAiGenerated`. It returns `processing`; check it with `getDelivery`. Story videos are 9:16, 3 to 60 seconds. A photo or video used in a published post cannot be reused for a Story.
+
+`listStories` reads `/{page-id}/stories`, optionally filtered by `status` (`PUBLISHED` or `ARCHIVED`) and `since` and `until` ISO times. Rows carry `post_id`, `status`, `creation_time`, `media_type` (`photo` or `video`), `media_id`, and `url`. Archived Stories appear only when the Page's story archive is on. Stories need `pages_manage_posts`, `pages_read_engagement`, and `pages_show_list`.
+
+### Go live
+
+```ts
+const live = await native.createLiveVideo({
+  account,
+  status: "LIVE_NOW",
+  title: "Launch",
+  context,
+});
+// Stream to live.secureStreamUrl with your encoder, then:
+await native.endLiveVideo({ account, liveVideoId: live.id, context });
+```
+
+`createLiveVideo` creates a live video broadcast on `/{page-id}/live_videos` with `status` `UNPUBLISHED` (a preview the Page can start later) or `LIVE_NOW` (live as soon as the stream arrives), and an optional `title` (up to 254 characters) and `description`. It returns the live video `id` and `secureStreamUrl`, the RTMPS ingest URL. That URL contains the stream key, so treat it as a credential: pass it only to your encoder and never log it. The SDK does not stream video. `endLiveVideo` sends `end_live_video: true` to end the broadcast.
+
+```ts
+const planned = await native.createLiveVideo({
+  account,
+  status: "SCHEDULED_UNPUBLISHED",
+  startAt: "2026-12-01T18:00:00Z",
+  title: "Holiday launch",
+  enableBackupIngest: true,
+  crosspostingActions: [{ pageId: "PARTNER_PAGE_ID", action: "enable_crossposting" }],
+  context,
+});
+await native.updateLiveVideo({
+  account,
+  liveVideoId: planned.id,
+  status: "SCHEDULED_CANCELED",
+  context,
+});
+
+const health = await native.getLiveVideo({ account, liveVideoId: live.id, context });
+const poll = await native.createLivePoll({
+  account,
+  liveVideoId: live.id,
+  question: "Which feature next?",
+  options: ["Themes", "Exports"],
+  context,
+});
+await native.updateLivePoll({ account, pollId: poll.id, action: "SHOW_VOTING", context });
+```
+
+Scheduled broadcasts use `status` `SCHEDULED_UNPUBLISHED` (a planned preview) or `SCHEDULED_LIVE` (announced to followers) with a future `startAt`, which the adapter sends as `event_params.start_time` in Unix seconds, as Meta's scheduling guide shows. The Page reads the planned time back as `planned_start_time`. `updateLiveVideo` posts to `/{live-video-id}` to change the `title`, `description`, or start time, to go live with `LIVE_NOW` (only while the encoder is sending data), or to cancel with `SCHEDULED_CANCELED`; it fails as `ambiguous_outcome` unless Meta confirms.
+
+`createLiveVideo` also takes these broadcast options: `enableBackupIngest` (`enable_backup_ingest`, a second ingest URL for a backup encoder), `stopOnDeleteStream` (`stop_on_delete_stream`, end the broadcast when the encoder sends the RTMP deleteStream command), `contentTags` (`content_tags`), `targeting` (age and location limits, as on posts), `crosspostingActions` (`crossposting_actions`, each a `pageId` and `enable_crossposting`, `disable_crossposting`, or `enable_crossposting_and_create_post` for Pages with a crossposting relationship), and `isSpherical` with `projection` for a 360 broadcast. Broadcast `privacy` is not mapped, because the reference does not define its format for Pages.
+
+`listLiveVideos` reads `/{page-id}/live_videos` with each broadcast's `status`, `title`, `planned_start_time`, `broadcast_start_time`, and `permalink_url`. `getLiveVideo` adds `ingest_streams` with each stream's `stream_health` (bitrates, frame rate, and resolution, refreshed every 2 seconds) and `is_master`; the adapter drops each stream's `stream_url` and `secure_stream_url`, because they contain the stream key. `deleteLiveVideo` deletes a broadcast.
+
+Live polls: `createLivePoll` posts a `question`, at least two `options`, an optional 1-based `correctOption` for quizzes, and `showResults` to `/{live-video-id}/polls`. `updateLivePoll` posts an `action` to `/{video-poll-id}`: `SHOW_VOTING` opens voting, `SHOW_RESULTS` shows results, `CLOSE` closes the poll, `ATTACH_TO_VIDEO` attaches it, and `DELETE_POLL` deletes it. Live videos need `pages_manage_posts` and `pages_read_engagement`, a Page with at least 100 followers, and may need Meta's Live Video API feature.
+
+### Video thumbnails, captions, albums, and video Insights
+
+```ts
+await native.addVideoThumbnail({
+  account,
+  videoId: "VIDEO_ID",
+  image: thumbnailBlob,
+  isPreferred: true,
+  context,
+});
+await native.updateVideoCaptions({
+  account,
+  videoId: "VIDEO_ID",
+  captions: { file: srtBlob, locale: "en_US" },
+  defaultLocale: "en_US",
+  context,
+});
+const reelStats = await native.getVideoInsights({ account, videoId: "REEL_ID", context });
+const albums = await native.listAlbums({ account, context });
+```
+
+- `listVideoThumbnails` reads `/{video-id}/thumbnails` with each thumbnail's `uri`, size, and `is_preferred`. `addVideoThumbnail` uploads a new image (at most 10 MB, ideally the video's aspect ratio) as the `source` part to `POST /{video-id}/thumbnails`; `isPreferred: true` makes it the one Facebook shows. This works on uploaded Page videos, not only during the upload.
+- `updateVideoCaptions` uploads an SRT caption file (SubRip, at most 200 KB) as `captions_file`. Meta reads the language from the file name, so the adapter names it `captions.<locale>.srt` from your `locale`. `defaultLocale` (`default_locale`, or `none`) picks the default track and `localesToDelete` (`locales_to_delete`) removes tracks. `listVideoCaptions` lists the tracks.
+- `getVideoInsights` reads `/{video-id}/video_insights` (`video_insights`) for videos and Reels with `metric`, `period`, `since`, and `until`. Without `metrics` it asks for Meta's Reels metrics with the `lifetime` period: `blue_reels_play_count` (plays, excluding replays), `fb_reels_total_plays`, `fb_reels_replay_count`, `post_impressions_unique`, `post_video_avg_time_watched`, `post_video_view_time`, `post_video_followers`, and `post_video_social_actions`, also exported as `facebookReelInsightMetrics`. For other videos pass metrics such as `total_video_views` or `total_video_avg_time_watched`. It needs `read_insights` and `pages_read_engagement`, and data covers the last 2 years.
+- `listAlbums` reads `/{page-id}/albums`, `getAlbum` reads one album (`name`, `description`, `count`, `link`, `can_upload`), and `listAlbumPhotos` pages through `/{album-id}/photos`. To publish into an album, pass the `albumId` publish option.
 
 ### Read comments and reply
 
@@ -163,7 +483,323 @@ const comments = await social.comments.list(post, { limit: 50 });
 await social.comments.reply(commentRef, { text: "Thanks for the feedback!" });
 ```
 
-Comment rows include `id`, `message`, `created_time`, `like_count`, and `comment_count`. Commenter identities are not returned. To reply to a post rather than a comment, pass a comment reference whose `commentId` is the post ID.
+Comment rows include `id`, `message`, `created_time`, `like_count`, and `comment_count`. The normalized list does not return commenter identities. To reply to a post rather than a comment, pass a comment reference whose `commentId` is the post ID.
+
+### Comment natively: filters, attachments, mentions, and edits
+
+```ts
+import { facebookMention } from "@opencoredev/social-sdk/facebook";
+
+const stream = await native.listComments({
+  account,
+  objectId: "PAGE_ID_POST_ID",
+  filter: "stream",
+  summary: true,
+  context,
+});
+const asker = stream.items[0]?.["from"];
+
+await native.createComment({
+  account,
+  objectId: "COMMENT_ID",
+  message: `${facebookMention(["COMMENTER_PSID"])} here is the guide`,
+  attachmentUrl: "https://cdn.example.com/guide.png",
+  context,
+});
+
+await native.editComment({ account, commentId: "COMMENT_ID", message: "Updated answer", context });
+```
+
+`listComments` reads `/{object-id}/comments` with Meta's `filter`: `toplevel` (the default) returns top-level comments, and `stream` returns every comment, including replies, in chronological order. Rows add `from` (the commenter's Page-scoped ID and name, which a mention or private reply needs) and `parentId` for replies. With `summary: true`, the result also carries `totalCount`, which depends on the filter.
+
+`order` sends Meta's `order` parameter: `chronological` (the default) or `reverse_chronological` for newest first. Each row also carries `is_hidden` and `can_comment`. With `privateReplyFields: true` (which needs `pages_messaging`), rows add `can_reply_privately`, true while the Page may still send the commenter a private reply (`privateReply`), and, once the Page has replied privately, `private_reply_conversation_id` with that Messenger conversation's ID. `attachment` keeps the comment's attachment `type`, `url`, `title`, `description`, `media`, and `target`, and `message_tags` lists the people and Pages tagged in the text with their `offset` and `length`.
+
+`createComment` comments on a post or replies to a comment with a `message` and at most one attachment: `attachmentUrl` (an image URL, sent as `attachment_url`), `attachmentId` (an unpublished photo ID, sent as `attachment_id`), or `attachmentShareUrl` (an animated GIF URL, sent as `attachment_share_url`). It needs at least a message or an attachment.
+
+To edit a comment, `editComment` sends `POST /{comment-id}` with a new `message` or attachment, and fails as `ambiguous_outcome` unless Facebook returns `success: true`.
+
+`facebookMention(ids)` builds mention text: `@[PSID]` in a reply to a post, or `@[PSID,PSID]` to mention several people in a reply to a comment. A Page can mention only people who created or commented on the post, so take the ID from a comment's `from.id`. The Page's settings must allow others to tag it, and the app needs the Page Mentioning feature, `pages_manage_engagement`, `pages_read_engagement`, and `pages_read_user_engagement`.
+
+### Count reactions by type
+
+```ts
+const counts = await native.getReactionCounts({
+  account,
+  objectId: "PAGE_ID_POST_ID",
+  types: ["LIKE", "LOVE"],
+  context,
+});
+// { LIKE: 40, LOVE: 7 }
+```
+
+`getReactionCounts` counts reactions on a post or comment by type. It sends one `GET /{object-id}/reactions?type=TYPE&limit=0&summary=total_count` request per reaction type, one after another, and returns the counts keyed by type, so counting all six types takes six requests. A type whose response has no count is left out. The adapter does not use field aliases (`.as()`), which Meta closed to new apps on 4 November 2026 and removes in Graph API v28.0. The reaction types are Meta's documented `LIKE`, `LOVE`, `WOW`, `HAHA`, `SORRY` (the sad reaction), and `ANGRY`; omit `types` to count all of them. Meta does not return who reacted to a Page post, so the adapter offers counts only.
+
+```ts
+await native.setLike({ account, objectId: "COMMENT_ID", liked: true, context });
+const reshares = await native.listSharedPosts({ account, postId: "PAGE_ID_POST_ID", context });
+```
+
+To like a comment, post, photo, or album as the Page, `setLike` sends `POST /{object-id}/likes`; with `liked: false` it sends `DELETE /{object-id}/likes` to unlike it. Either fails as `ambiguous_outcome` unless Meta returns `success: true`. Liking needs `pages_manage_engagement`. Meta no longer lists who liked a post, so use `getReactionCounts` for counts.
+
+`listSharedPosts` pages through `GET /{post-id}/sharedposts`, the public posts that reshared a Page post, with each share's `id`, `message`, `created_time`, `updated_time`, `permalink_url`, and `full_picture`. Shares made privately or to groups the app cannot see are not listed, so the list can be shorter than the post's `shares` count.
+
+### Manage the Page
+
+```ts
+await native.updatePage({
+  account,
+  about: "Open-source social tooling",
+  website: "https://example.com",
+  context,
+});
+const settings = await native.listPageSettings({ account, context });
+await native.updatePageSetting({ account, setting: "USERS_CAN_MESSAGE", value: true, context });
+const roles = await native.listPageRoles({ account, context });
+const ratings = await native.listRatings({ account, context });
+await native.blockUser({ account, userId: "PSID", context });
+const places = await native.searchPages({ account, query: "Lisbon", context });
+await native.unblockUser({ account, userId: "PSID", context });
+await native.setProfilePicture({
+  account,
+  pictureUrl: "https://cdn.example.com/logo.png",
+  context,
+});
+await native.setCoverPhoto({ account, photoId: "PHOTO_ID", offsetY: 35, context });
+const team = await native.listAssignedUsers({ account, businessId: "BUSINESS_ID", context });
+await native.assignUser({ account, userId: "SYSTEM_USER_ID", tasks: ["CREATE_CONTENT"], context });
+const stores = await native.listLocations({ account, context });
+const playlists = await native.listVideoLists({ account, context });
+```
+
+| Method                       | Endpoint                                      | Notes                                                                                                                                                                                                                                                                                             |
+| ---------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `updatePage`                 | `POST /{page-id}`                             | Update Page details: `about`, `description`, `website`, `phone`, and `emails`. Needs the `MANAGE` task and `pages_manage_metadata`.                                                                                                                                                               |
+| `listPageSettings`           | `GET /{page-id}/settings`                     | Page settings as `{ setting, value }` rows; takes `cursor` and `limit`.                                                                                                                                                                                                                           |
+| `updatePageSetting`          | `POST /{page-id}/settings`                    | Sends `option: { SETTING: "true" }` for one setting, such as `USERS_CAN_MESSAGE` or `USERS_CAN_POST`. Needs `MANAGE`.                                                                                                                                                                             |
+| `listPageRoles`              | `GET /{page-id}/roles`                        | List Page roles: each person's Page-scoped `id`, `name`, and `tasks`. Needs `MANAGE`.                                                                                                                                                                                                             |
+| `respondToChangeProposal`    | `POST /{proposal-id}`                         | Accept or reject proposed Page changes with `accept`. The ID comes from a `page_change_proposal` webhook (`value.id`) or a `page_upcoming_change` webhook (`proposal.id`).                                                                                                                        |
+| `listRatings`                | `GET /{page-id}/ratings`                      | Ratings and reviews: `created_time`, `recommendation_type` (`positive` or `negative`), `review_text`, `has_rating`, and `has_review`. Reviewer identities are dropped. Needs `pages_read_user_content`.                                                                                           |
+| `blockUser`                  | `POST /{page-id}/blocked`                     | Block a person from the Page by Page-scoped ID. Fails as `ambiguous_outcome` unless Facebook confirms it.                                                                                                                                                                                         |
+| `searchPages`                | `GET /pages/search`                           | Pages Search by name, returning `id`, `name`, `link`, `verification_status`, and `location`. Use it to find a `place` ID. Needs the Page Public Metadata Access feature.                                                                                                                          |
+| `listBlockedUsers`           | `GET /{page-id}/blocked`                      | People blocked from the Page, with their Page-scoped `id` and `name`.                                                                                                                                                                                                                             |
+| `unblockUser`                | `DELETE /{page-id}/blocked`                   | Unblock a person by Page-scoped ID (sent as `user`). Fails as `ambiguous_outcome` unless Facebook returns `success: true`.                                                                                                                                                                        |
+| `setProfilePicture`          | `POST /{page-id}/picture`                     | Set the Page profile picture from a hosted HTTPS image (`picture`) or an existing Page photo (`photo`).                                                                                                                                                                                           |
+| `setCoverPhoto`              | `POST /{page-id}`                             | Set the cover photo to a Page photo ID (`cover`), with optional `offset_x` and `offset_y` (percentages from 0 through 100) and `no_feed_story` or `no_notification` to keep the change quiet. Upload the image first with `published: false`. Needs `EDIT_PROFILE` and `business_management`.     |
+| `listAssignedUsers`          | `GET /{page-id}/assigned_users`               | Business and system users assigned to the Page for one `business`, with their `tasks` and `permitted_tasks`. Needs `MANAGE`, `pages_manage_metadata`, and `business_management`.                                                                                                                  |
+| `assignUser`, `unassignUser` | `POST` and `DELETE /{page-id}/assigned_users` | Give a business or system user Page tasks such as `MANAGE`, `CREATE_CONTENT`, `MODERATE`, `MESSAGING`, `ADVERTISE`, or `ANALYZE`, or remove the user from the Page.                                                                                                                               |
+| `listLocations`              | `GET /{page-id}/locations`                    | Location Pages under a main Page (brands with many stores), with `id`, `name`, `store_number`, and `link`.                                                                                                                                                                                        |
+| `addLocation`                | `POST /{page-id}/locations`                   | Attach an existing location Page by `locationPageId`, or create one from `newLocation` (`location` with street, city, country, and coordinates, `placeTopics`, `phone`, and optional `hours`). Meta limits creating new location Pages to selected developers. Each needs your own `storeNumber`. |
+| `removeLocation`             | `DELETE /{page-id}/locations`                 | Detach a location Page by `storeNumber` and `locationPageId`.                                                                                                                                                                                                                                     |
+| `listVideoLists`             | `GET /{page-id}/video_lists`                  | The Page's video playlists, with `id`, `title`, `description`, `creation_time`, `last_modified`, and `season_number`.                                                                                                                                                                             |
+
+### Send and read Messenger messages
+
+```ts
+const conversations = await social.messages.listConversations(account, { limit: 20 });
+const conversation = {
+  kind: "conversation",
+  version: 1,
+  backend: "default",
+  platform: "facebook",
+  accountId: account.accountId,
+  conversationId: "t_123",
+} as const;
+const messages = await social.messages.listMessages(conversation, { limit: 20 });
+await social.messages.send(conversation, { text: "Thanks, we are on it." });
+
+await native.sendMessage({
+  account,
+  recipientId: "PSID",
+  messagingType: "MESSAGE_TAG",
+  tag: "HUMAN_AGENT",
+  attachment: { type: "image", url: "https://cdn.example.com/receipt.png", isReusable: true },
+  context,
+});
+
+await native.privateReply({
+  account,
+  commentId: "COMMENT_ID",
+  text: "We sent you the details.",
+  context,
+});
+```
+
+Page messaging (Messenger Platform) uses the Page access token. `messages.listConversations` reads `/{page-id}/conversations` with `platform=messenger`, returning each conversation's `id`, `updated_time`, counts, and `participants` (Page-scoped ID and name). `messages.listMessages` reads the conversation's `messages` with `id`, `message`, `created_time`, `from`, and `to`. Meta returns message details only for the 20 most recent messages of a conversation.
+
+`messages.send` replies with `messaging_type: "RESPONSE"` to the conversation's one other participant. Meta allows a `RESPONSE` only inside the 24-hour window after the person's last message. A conversation with more or fewer participants is refused rather than guessed; use `native.sendMessage` with the recipient's Page-scoped ID instead.
+
+`native.sendMessage` sends `POST /{page-id}/messages` with an explicit `messaging_type`:
+
+- `RESPONSE` answers a message inside the 24-hour window.
+- `UPDATE` sends a non-promotional update inside that window.
+- `MESSAGE_TAG` with `tag: "HUMAN_AGENT"` lets a person on your team reply manually for up to 7 days after the person's last message. The HUMAN_AGENT tag needs Meta's Human Agent permission. Meta retired the `CONFIRMED_EVENT_UPDATE`, `ACCOUNT_UPDATE`, and `POST_PURCHASE_UPDATE` tags on April 27, 2026, so the adapter accepts only `HUMAN_AGENT`.
+
+A message carries either `text` or one attachment. Message attachments are `image`, `video`, `audio`, or `file`, given by a public HTTPS `url` (with `isReusable: true` to have Meta keep it and return an `attachmentId`) or by a saved `attachmentId`. Generic, button, and media templates are not supported; approved utility templates go through `sendUtilityTemplate`. The result is the `messageId` and `recipientId`; a response without a message ID fails as `ambiguous_outcome`, so reconcile before sending again.
+
+`native.privateReply` sends a private reply to the person who wrote a comment, with `recipient.comment_id`. Meta allows one private reply per comment, within 7 days of the comment; after the person answers, the normal 24-hour window applies. A Page cannot privately reply to another Page.
+
+Messaging needs `pages_messaging`, `pages_manage_metadata`, and `pages_read_engagement`, and a Page token from someone with the `MESSAGING` task. Standard Access apps can message only people with a role on the app; Advanced Access covers everyone else.
+
+### Quick replies, quoting, push behavior, and personas
+
+```ts
+const persona = await native.createPersona({
+  account,
+  name: "Ada L.",
+  profilePictureUrl: "https://cdn.example.com/ada.jpg",
+  context,
+});
+
+await native.sendSenderAction({ account, recipientId: "PSID", action: "typing_on", context });
+
+await native.sendMessage({
+  account,
+  recipientId: "PSID",
+  messagingType: "RESPONSE",
+  text: "Which size?",
+  quickReplies: [
+    { contentType: "text", title: "Small", payload: "SIZE_S" },
+    { contentType: "text", title: "Large", payload: "SIZE_L" },
+    { contentType: "user_email" },
+  ],
+  replyToMessageId: "m_ORIGINAL",
+  notificationType: "SILENT_PUSH",
+  metadata: "ticket-42",
+  personaId: persona.id,
+  context,
+});
+
+await native.sendSenderAction({
+  account,
+  recipientId: "PSID",
+  action: "react",
+  messageId: "m_ORIGINAL",
+  reaction: "👍",
+  context,
+});
+```
+
+`native.sendMessage` takes these Send API options on text and attachment messages:
+
+| Option             | Wire field              | Notes                                                                                                                                                                                                                                |
+| ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `quickReplies`     | `message.quick_replies` | Up to 13 buttons above the composer. A `text` button has a `title` of at most 20 characters, a `payload` of at most 1,000 characters, and an optional `imageUrl`; `user_phone_number` and `user_email` ask for the person's contact. |
+| `replyToMessageId` | `reply_to.mid`          | Quotes an earlier message in the conversation by its message ID.                                                                                                                                                                     |
+| `notificationType` | `notification_type`     | `REGULAR` (Meta's default) plays a sound, `SILENT_PUSH` shows a notification without sound, and `NO_PUSH` sends no notification.                                                                                                     |
+| `metadata`         | `message.metadata`      | Up to 1,000 characters that Meta returns in the `message_echoes` webhook, for tagging your own sends.                                                                                                                                |
+| `personaId`        | `persona_id`            | Sends as a persona; without it the message uses the Page's identity.                                                                                                                                                                 |
+
+When the person taps a text quick reply, the `messages` webhook carries the button title as text and your payload in `message.quick_reply.payload`; for `user_email` and `user_phone_number` the payload is the address or number. Read it from the decoded event's `data`.
+
+`native.sendSenderAction` sends a `sender_action` to `POST /{page-id}/messages` with only the recipient, as Meta requires. `typing_on` and `typing_off` show or hide the typing indicator (they accept a `personaId`), and `mark_seen` marks the person's last message as seen. `react` sets an emoji `reaction` on one message by `messageId`, a repeat call changes it, and `unreact` removes it. Send typing indicators in separate requests from the message that follows.
+
+Personas let a human agent or bot speak inside the Page's conversation with their own name and picture. `native.createPersona` posts `name` (at most 50 characters) and `profile_picture_url` to `POST /{page-id}/personas`, which downloads the image (at most 8 MB). `native.listPersonas` pages through `GET /{page-id}/personas`, and `native.deletePersona` sends `DELETE /{persona-id}`. Deletion is soft: earlier messages keep the persona's name, but it cannot send new ones.
+
+### Reusable attachments, profiles, conversation filters, and message details
+
+```ts
+const { attachmentId } = await native.uploadMessageAttachment({
+  account,
+  type: "image",
+  url: "https://cdn.example.com/menu.png",
+  context,
+});
+
+const profile = await native.getUserProfile({ account, userId: "PSID", context });
+const thread = await native.listConversations({ account, userId: "PSID", context });
+const archived = await native.listConversations({ account, folder: "page_done", context });
+const detail = await native.getMessage({ account, messageId: "m_MESSAGE", context });
+```
+
+- `native.uploadMessageAttachment` saves an `image`, `video`, `audio`, or `file` once through `POST /{page-id}/message_attachments` (the Attachment Upload API) and returns its `attachmentId`, which `sendMessage` can send again by ID. Pass a public HTTPS `url`, which Meta fetches, or the `file` bytes, which go up as the `filedata` multipart part beside the `message` object. The adapter always sets `is_reusable: true`.
+- `native.getUserProfile` calls the User Profile API, `GET /{psid}`, for a person who messaged the Page. It returns `first_name`, `last_name`, and `profile_pic` by default; you can also ask for `name`, `locale`, `timezone`, and `gender`, which need the `pages_user_locale`, `pages_user_timezone`, and `pages_user_gender` permissions. The profile picture URL expires, so do not store it long term. Treat the result as personal data.
+- `native.listConversations` reads `/{page-id}/conversations` (`platform=messenger`) with filters: `userId` sends `user_id` to find the conversation with one Page-scoped ID, and `folder` sends `folder` with `inbox`, `other`, `page_done` (done), or `spam`. Conversations in the requests folder that have been inactive for 30 days are not returned.
+- `native.getMessage` reads one message node (`GET /{message-id}`) with its `attachments` (each with `fileUrl`, `imageData`, or `videoData`), `shares` (shared posts and Reels with `id`, `name`, `description`, `type`, and `url`), `story` (`{ id, link }` for a story reply or mention), `tags` (folder and source names such as `inbox` or `source:chat`), and `reactions` (each emoji with the IDs of the people who sent it). Messenger has no separate sticker field on the message node; an image attachment whose `image_data.render_as_sticker` is true is reported as `sticker` with its image URL. `isUnsupported` is true when the message holds content the API cannot return. Only the 20 most recent messages of a conversation can be read.
+
+### Messenger profile, handover, and labels
+
+```ts
+import { facebookPageInboxAppId } from "@opencoredev/social-sdk/facebook";
+
+await native.setMessengerProfile({
+  account,
+  getStarted: { payload: "GET_STARTED" },
+  greeting: [{ locale: "default", text: "Hi {{user_first_name}}, how can we help?" }],
+  iceBreakers: [
+    {
+      locale: "default",
+      call_to_actions: [{ question: "Where is my order?", payload: "ORDER_STATUS" }],
+    },
+  ],
+  persistentMenu: [
+    {
+      locale: "default",
+      composer_input_disabled: false,
+      call_to_actions: [{ type: "postback", title: "Talk to a person", payload: "HUMAN" }],
+    },
+  ],
+  context,
+});
+
+await native.passThreadControl({
+  account,
+  recipientId: "PSID",
+  targetAppId: facebookPageInboxAppId,
+  metadata: "Customer asked for a person",
+  context,
+});
+
+const vip = await native.createCustomLabel({ account, name: "VIP", context });
+await native.setCustomLabel({ account, labelId: vip.id, userId: "PSID", assigned: true, context });
+```
+
+The Messenger profile (`/{page-id}/messenger_profile`) is the Page's welcome screen and menu. `native.setMessengerProfile` overwrites only the properties you pass: `getStarted` (`get_started`, the postback payload of the Get Started button), `greeting` (welcome text by locale, at most 160 characters each, with a `default` locale), `iceBreakers` (`ice_breakers`, up to 4 starter questions with payloads), `persistentMenu` (`persistent_menu`, the always-available menu), `whitelistedDomains` (`whitelisted_domains`, HTTPS origins for Messenger Extensions and the checkbox plugin), `accountLinkingUrl` (`account_linking_url`), and `commands`. Ice breakers, the persistent menu, and commands take Meta's own objects, such as `{ locale, call_to_actions }`. `native.getMessengerProfile` reads named properties and `native.deleteMessengerProfileFields` deletes them. Writes fail as `ambiguous_outcome` unless Meta answers `result: "success"`. Meta limits Messenger Profile calls to 10 per 10 minutes per Page. Taps on Get Started, ice breakers, and menu items arrive as `messaging_postbacks` webhooks.
+
+The handover protocol lets two apps, or an app and Page Inbox, share one Page's conversations. One app owns a conversation at a time; the others receive its events on the `standby` channel.
+
+| Method                 | Endpoint                                 | Notes                                                                                                                                              |
+| ---------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `passThreadControl`    | `POST /{page-id}/pass_thread_control`    | Hands the conversation with `recipientId` to `targetAppId`. `facebookPageInboxAppId` (`263902037430900`) hands it to people working in Page Inbox. |
+| `requestThreadControl` | `POST /{page-id}/request_thread_control` | Asks the owning app to pass control; the owner sees a `request_thread_control` event.                                                              |
+| `releaseThreadControl` | `POST /{page-id}/release_thread_control` | Releases control so the conversation goes idle and any app may answer.                                                                             |
+| `getThreadOwner`       | `GET /{page-id}/thread_owner`            | Returns the owning `appId`.                                                                                                                        |
+
+Each takes optional `metadata` (at most 1,000 characters) that the other app receives. Writes fail as `ambiguous_outcome` unless Meta answers `success: true`; read the thread owner before retrying. Conversation routing is set up in the Page's settings in Meta Business Suite. `take_thread_control`, which takes a conversation without asking, is not wrapped: Meta limits it to apps it has approved for that role.
+
+Custom labels tag people for your team and Page Inbox. `native.createCustomLabel` posts `page_label_name` to `POST /{page-id}/custom_labels`, `native.listCustomLabels` lists the Page's labels (or one person's with `userId`, `GET /{psid}/custom_labels`), `native.setCustomLabel` assigns a label (`POST /{label-id}/label` with `user`) or removes it with `assigned: false` (`DELETE /{label-id}/label`), and `native.deleteCustomLabel` deletes the label. Labels need `pages_manage_metadata` and a Page admin who accepted the Page Contact Terms; Meta cannot return labels for Messenger accounts created with a phone number.
+
+### Utility messages and calling
+
+```ts
+const template = await native.createUtilityTemplate({
+  account,
+  name: "order_update",
+  language: "en",
+  components: [
+    {
+      type: "BODY",
+      text: "Good news! Your order #{{1}} is on its way.",
+      example: { body_text: [["566701"]] },
+    },
+  ],
+  context,
+});
+
+await native.sendUtilityTemplate({
+  account,
+  recipientId: "PSID",
+  name: "order_update",
+  language: "en",
+  body: [{ text: "566701" }],
+  context,
+});
+
+await native.updateCallSettings({ account, iconEnabled: true, ringTarget: "PARTNERS", context });
+```
+
+Utility messages are approved templates for transactional updates, such as shipping, appointments, or account alerts, that you may send outside the 24-hour window. `native.createUtilityTemplate` submits a template to `POST /{page-id}/message_templates` with `category: "UTILITY"`, a `name` (lowercase letters, digits, and underscores), a `language`, and `components` (`HEADER`, `BODY`, and `BUTTONS` in Meta's shape, with example values); set `parameterFormat: "NAMED"` for `{{order_id}}`-style placeholders. Meta reviews it and returns `status` such as `PENDING` or `APPROVED`; the `messenger_template_status_update` webhook reports changes. `native.listMessageTemplates` reads the Page's templates, filtered by `name`, `status`, or `language`. `native.sendUtilityTemplate` sends an approved template with `messaging_type: "UTILITY"` and `message.template` (`name`, `language.code`, and `header` and `body` text parameters, with `parameterName` for named ones). Parameters may not contain `#`, `$`, or `%`, and utility messages must not contain marketing. All of this needs the `page_utility_messaging` permission.
+
+The Messenger Calling API is in limited release: it works only for Pages in the countries Meta lists, after Meta enables `messenger_api_calling` for the Page. `native.getCallSettings` reads `call_hours` and `call_routing` from `GET /{page-id}/messenger_call_settings`. `native.updateCallSettings` shows or hides the call icon (`icon_enabled`), replaces weekly `call_hours` (an IANA `timezoneId` and per-day `openTime` and `closeTime` in `hhmm`; omitted days are closed), and sets inbound routing with `call_routing.ring_target` (`META` for Meta's inboxes, `PARTNERS` for apps subscribed to the calls webhook). Placing and answering calls is listed under [Not supported](#not-supported).
 
 ### Read metrics and reports
 
@@ -180,25 +816,109 @@ const report = await social.analytics.getReport(account, {
 
 Post metrics are lifetime `reactions`, `comments`, and `shares` read from the post object (videos have no `shares`). Page metrics are `followers_count` and `fan_count`. Reports read daily Page Insights for the metric names you pass, up to 90 days, keyed by Facebook's `end_time`. Meta retires Insights metrics over time, so an unknown name fails upstream rather than returning zeros.
 
+### Post Insights and Page Insights by period
+
+```ts
+const postInsights = await native.getPostInsights({
+  account,
+  postId: "PAGE_ID_POST_ID",
+  metrics: ["post_media_view", "post_clicks", "post_reactions_by_type_total"],
+  period: "lifetime",
+  context,
+});
+
+const monthly = await native.getPageInsights({
+  account,
+  metrics: ["page_media_view", "page_post_engagements"],
+  period: "days_28",
+  datePreset: "last_28d",
+  context,
+});
+```
+
+`getPostInsights` reads Post Insights from `/{post-id}/insights` for the metric names you pass, such as `post_media_view`, `post_clicks`, `post_reactions_by_type_total`, and `post_video_views`. `getPageInsights` reads `/{page-id}/insights` with any `period` Meta defines (`day`, `week`, `days_28`, `month`, `lifetime`, or `total_over_range`) and either a `datePreset` (`last_7d`, `last_28d`, `last_90d`, `this_month`, or `maximum`) or a `since` and `until` range of at most 90 days. Each metric supports only some periods. Both return every series with its `name`, `period`, and `values`; a value is a number, or an object for metrics broken down by source or type, which the normalized `getReport` drops. They need `read_insights` and `pages_read_engagement`, and Page Insights need a Page with 100 or more likes.
+
+Meta deprecated a number of Insights metrics for all API versions on June 15, 2026, including `page_impressions_unique`, `post_impressions`, `post_impressions_unique`, and `post_video_views_unique`; requests for them now fail as invalid metrics. Use current metrics such as `page_media_view`, `page_follows`, and `post_media_view`, and check the [Insights reference](https://developers.facebook.com/docs/graph-api/reference/insights) before relying on a metric name.
+
 ### Receive webhooks
 
-Subscribe your app to the Page's `feed` field. The adapter verifies `X-Hub-Signature-256` with your app secret and decodes `object: "page"` deliveries: new comments become `comment.received`, removed posts become `post.removed`, and Messenger messages become `message.received`. Answer Meta's GET handshake with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`.
+Subscribe your app to the Page's webhook fields with `native.subscribeApp({ account, fields: ["feed", "messages"], context })`, which sends `subscribed_fields` to `POST /{page-id}/subscribed_apps` and needs `pages_manage_metadata`. `native.listSubscribedApps` reads the same edge, with `cursor` and `limit`, to show which apps and fields are subscribed. To unsubscribe the app from the Page, `native.unsubscribeApp` sends `DELETE /{page-id}/subscribed_apps`; it fails as `ambiguous_outcome` unless Meta returns `success: true`. The app itself also needs the Page webhook configured in the Meta app dashboard. The adapter verifies `X-Hub-Signature-256` with your app secret and decodes `object: "page"` deliveries. Answer Meta's GET handshake with `answerMetaWebhookChallenge` from `@opencoredev/social-sdk/server`.
+
+Subscribe to the `feed` field for posts, comments, and reactions, and to the `messages` field for Messenger, plus `message_deliveries`, `message_reads`, and `messaging_postbacks` if you need receipts and button taps. Add `messaging_handovers` and `standby` when you share the inbox with another app, and `message_edits`, `messaging_policy_enforcement`, `messaging_account_linking`, or `response_feedback` for those events. A policy enforcement event carries an `action` of `warning`, `block`, or `unblock` and a `reason`. An account linking event's `authorization_code` is redacted from `data`; read it from the raw verified body if your linking flow needs it. Decoded events map as follows:
+
+| Delivery                                                                                              | `type`             | `originalType`                                                                                    |
+| ----------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------- |
+| `feed` with `item: "comment"`, `verb: "add"`                                                          | `comment.received` | `feed.comment.add`                                                                                |
+| `feed` removing a status, post, photo, video, or share                                                | `post.removed`     | `feed.<item>.remove`                                                                              |
+| Other `feed` changes, such as a reaction, an edited post, or a hidden comment                         | `unknown`          | `feed.<item>.<verb>`, such as `feed.reaction.add` or `feed.status.edited`                         |
+| `mention` (a post or comment mentions the Page)                                                       | `unknown`          | `mention.<item>.<verb>`                                                                           |
+| `ratings` (a new or changed recommendation)                                                           | `unknown`          | `ratings.<item>.<verb>`                                                                           |
+| `page_change_proposal`, `page_upcoming_change`                                                        | `account.updated`  | The field name                                                                                    |
+| A Messenger message                                                                                   | `message.received` | `messages` (echoes of your own messages are `message_echoes`, `unknown`)                          |
+| Messenger reads, deliveries, reactions, postbacks                                                     | `unknown`          | `message_reads`, `message_deliveries`, `message_reactions`, `messaging_postbacks`                 |
+| Message edits, policy enforcement, account linking, feedback                                          | `unknown`          | `message_edits`, `messaging_policy_enforcement`, `messaging_account_linking`, `response_feedback` |
+| Handover events (`pass_thread_control`, `take_thread_control`, `request_thread_control`, `app_roles`) | `unknown`          | `messaging_handovers`                                                                             |
+| Events on the `standby` channel, for apps that do not own the conversation                            | `unknown`          | `standby.<field>`, such as `standby.messages`                                                     |
+| Any other field, such as `live_videos` or `group_feed`                                                | `unknown`          | The field name                                                                                    |
+
+The `<verb>` part is one of Meta's verbs (`add`, `edited`, `hide`, `unhide`, `remove`, and the others in the [Page webhook reference](https://developers.facebook.com/docs/graph-api/webhooks/reference/page)); an unrecognized verb leaves `originalType` as the field name. The cleaned payload stays in `data`, so read the change's `value` for IDs such as `post_id` or `comment_id`.
 
 ## Native operations
 
-| Operation                | Method                      | Notes                                                      |
-| ------------------------ | --------------------------- | ---------------------------------------------------------- |
-| Delete a post            | `native.deletePost`         | Same route as `removeFromPlatform`                         |
-| Delete a comment         | `native.deleteComment`      | Requires `pages_manage_engagement`                         |
-| Hide or unhide a comment | `native.moderateComment`    | Sends `is_hidden`                                          |
-| List comment replies     | `native.listCommentReplies` | Graph cursor pagination                                    |
-| Publish a Reel           | `native.publishReel`        | Same flow as the `reel` option, with optional `scheduleAt` |
+Every method takes `account` and `context`, and refuses an account that is not the configured Page. The sections above describe each one.
+
+| Area             | Methods                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Posts            | `deletePost`, `updatePost`, `listScheduledPosts`, `listTaggedPosts`, `listVisitorPosts`, `listPhotos`                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Video and Reels  | `publishReel`, `listReels`, `crosspostVideo`, `inviteReelCollaborator`, `listReelCollaborators`, `getReelCopyrightCheck`, `listVideoLists`, `listVideoThumbnails`, `addVideoThumbnail`, `listVideoCaptions`, `updateVideoCaptions`, `listAlbums`, `getAlbum`, `listAlbumPhotos`                                                                                                                                                                                                                                                                           |
+| Stories and live | `publishPhotoStory`, `publishVideoStory`, `listStories`, `createLiveVideo`, `updateLiveVideo`, `listLiveVideos`, `getLiveVideo`, `deleteLiveVideo`, `endLiveVideo`, `createLivePoll`, `updateLivePoll`                                                                                                                                                                                                                                                                                                                                                    |
+| Comments         | `listComments`, `listCommentReplies`, `createComment`, `editComment`, `moderateComment`, `deleteComment`, `getReactionCounts`, `setLike`, `listSharedPosts`                                                                                                                                                                                                                                                                                                                                                                                               |
+| Messenger        | `sendMessage`, `sendSenderAction`, `privateReply`, `createPersona`, `listPersonas`, `deletePersona`, `uploadMessageAttachment`, `getUserProfile`, `listConversations`, `getMessage`, `getMessengerProfile`, `setMessengerProfile`, `deleteMessengerProfileFields`, `passThreadControl`, `requestThreadControl`, `releaseThreadControl`, `getThreadOwner`, `createCustomLabel`, `listCustomLabels`, `setCustomLabel`, `deleteCustomLabel`, `createUtilityTemplate`, `listMessageTemplates`, `sendUtilityTemplate`, `getCallSettings`, `updateCallSettings` |
+| Page             | `updatePage`, `listPageSettings`, `updatePageSetting`, `listPageRoles`, `respondToChangeProposal`, `listRatings`, `blockUser`, `listBlockedUsers`, `unblockUser`, `searchPages`, `setProfilePicture`, `setCoverPhoto`, `listAssignedUsers`, `assignUser`, `unassignUser`, `listLocations`, `addLocation`, `removeLocation`                                                                                                                                                                                                                                |
+| Insights         | `getPostInsights`, `getPageInsights`, `getVideoInsights`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Webhooks         | `subscribeApp`, `listSubscribedApps`, `unsubscribeApp`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+`native.moderateComment` sends `is_hidden` to hide or unhide a comment, `native.deleteComment` deletes one and needs `pages_manage_engagement`, and `native.listCommentReplies` pages through a comment's replies with Graph cursors.
 
 ## Limits and requirements
 
 - One Page per adapter instance. Create one adapter per Page and register each under its own backend key.
 - An expired or revoked Page token (Graph error code 190) fails as `reconnect_required` with retry disposition `after-reconnect`.
 - Replies through `posts.publish` are rejected with `reply.use_comments`; use `comments.reply`.
-- Mixed image and video posts, documents, streams, per-attachment captions, custom thumbnails, and video alt text are rejected at preparation.
-- Editing published posts and Page messaging (Messenger Platform) are not implemented.
-- Sources, checked 2026-10-24: [Pages API posts](https://developers.facebook.com/docs/pages-api/posts), [Reels publishing](https://developers.facebook.com/docs/video-api/guides/reels-publishing), and [Page webhooks](https://developers.facebook.com/docs/graph-api/webhooks/reference/page). No live Page was used to verify this adapter.
+- Mixed image and video posts, documents, streams, per-attachment captions, and video alt text are rejected at preparation. Page videos accept custom thumbnails as a `Blob`; photos and Reels do not.
+
+Sources, checked 2026-11-04: [Pages API posts](https://developers.facebook.com/docs/pages-api/posts), [page/feed](https://developers.facebook.com/docs/graph-api/reference/page/feed), [page/photos](https://developers.facebook.com/docs/graph-api/reference/page/photos), [page/videos](https://developers.facebook.com/docs/graph-api/reference/page/videos), [Reels publishing](https://developers.facebook.com/docs/video-api/guides/reels-publishing), [Page Stories](https://developers.facebook.com/docs/page-stories-api), [live videos](https://developers.facebook.com/docs/graph-api/reference/page/live_videos/), [Manage Pages](https://developers.facebook.com/docs/pages-api/manage-pages), [comments](https://developers.facebook.com/docs/graph-api/reference/object/comments), [Messenger send API](https://developers.facebook.com/docs/messenger-platform/send-messages), [Insights](https://developers.facebook.com/docs/graph-api/reference/insights), [Page webhooks](https://developers.facebook.com/docs/graph-api/webhooks/reference/page), the [Graph API v26.0 changelog](https://developers.facebook.com/docs/graph-api/changelog/version26.0), and the [Graph API v27.0 announcement](https://developers.facebook.com/blog/post/2026/11/04/introducing-graph-api-v27-and-marketing-api-v27). All of this is covered by offline contract tests; no live Page was used to verify this adapter.
+
+### Media specifications
+
+`posts.publish` checks how many photos and videos a post carries and where the media comes from. It does not check file types, sizes, dimensions, or duration; Facebook checks those when it fetches or processes the media.
+
+| Media       | Requirement    | Facebook limit                                                                                                  | Checked by the SDK before sending                                                                                           |
+| ----------- | -------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Photo       | Format         | JPEG, BMP, PNG, GIF, or TIFF                                                                                    | No, Facebook only. A Blob needs a `filename`, else `facebook.media_filename`.                                               |
+| Photo       | File size      | 10 MB maximum; Meta recommends PNG files under 1 MB                                                             | No, Facebook only                                                                                                           |
+| Photo       | Per post       | Meta's photo reference gives no count                                                                           | SDK policy: more than ten photos fails as `facebook.media_count`. Two to ten are attached to one feed post.                 |
+| Page video  | Per post       | One video                                                                                                       | Yes: a video with other media fails as `facebook.media_mix`.                                                                |
+| Page video  | Size, duration | The Page videos reference gives no limit                                                                        | No. A Blob over 1 GiB goes through the chunked upload session; that is a transport choice, not a limit.                     |
+| Reel        | Format         | MP4 recommended                                                                                                 | No, Facebook only                                                                                                           |
+| Reel        | Aspect ratio   | 9:16                                                                                                            | No, Facebook only                                                                                                           |
+| Reel        | Resolution     | 540 x 960 px minimum; 1,080 x 1,920 px recommended                                                              | No, Facebook only                                                                                                           |
+| Reel        | Frame rate     | 24 to 60 fps, fixed                                                                                             | No, Facebook only                                                                                                           |
+| Reel        | Duration       | 3 to 90 seconds; 60 seconds maximum for a Reel published as a Page Story                                        | No, Facebook only                                                                                                           |
+| Reel        | Video settings | H.264 or H.265 (VP9 and AV1 also accepted), 4:2:0 chroma subsampling, closed GOP of 2 to 5 seconds, progressive | No, Facebook only                                                                                                           |
+| Reel        | Audio          | AAC Low Complexity, 128 kbps or more, stereo, 48 kHz                                                            | No, Facebook only                                                                                                           |
+| Reel        | Per post       | One video                                                                                                       | Yes: anything else fails as `facebook.reel_media`.                                                                          |
+| Reel        | Rate           | 30 API-published Reels per Page in a moving 24 hours                                                            | Yes, per adapter instance: the 31st fails as `rate_limited` before any request. Reels from other processes are not counted. |
+| Story photo | Format, size   | Same as Page photos                                                                                             | No, Facebook only                                                                                                           |
+| Story video | Specification  | Same as Reels; 60 seconds maximum                                                                               | No, Facebook only                                                                                                           |
+| Story       | Reuse          | The photo or video cannot have been used in an earlier published post                                           | No, Facebook only                                                                                                           |
+
+Sources: Meta's [Page photos reference](https://developers.facebook.com/docs/graph-api/reference/page/photos) (no update date shown), [Reels publishing guide](https://developers.facebook.com/docs/video-api/guides/reels-publishing) (updated July 30, 2026), [Page Stories API](https://developers.facebook.com/docs/page-stories-api) (updated July 30, 2026), and [Page videos reference](https://developers.facebook.com/docs/graph-api/reference/page/videos), checked 2026-11-04.
+
+### Not supported
+
+- Editing published posts through the normalized `posts.update` is not implemented; use `native.updatePost`.
+- Messenger generic, button, and media templates are not implemented; utility templates are.
+- Live Video API features beyond those listed above, such as live comments moderation and Live Online Events, are not implemented.
+- Marketing messages and recurring notifications (`notification_messages_token` opt-ins): Meta deprecated Messenger marketing messages on February 10, 2026, and they are unavailable to new integrations.
+- Placing, accepting, or ending Messenger calls: that flow exchanges WebRTC session descriptions in real time, which belongs in a media server rather than this SDK.

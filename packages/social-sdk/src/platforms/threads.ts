@@ -13,9 +13,12 @@ import {
   type ConnectedAccountRef,
   type PreparedPublishTarget,
   type Page,
+  type PreparationIssue,
   type ProfileRecord,
   profileRef,
   type SearchPostsInput,
+  type ThreadsPublishOptions,
+  type ThreadsTextStyle,
 } from "../core/index.js";
 import { SocialError } from "../core/errors.js";
 import { metaOAuthReconnect } from "../transport/provider-errors.js";
@@ -26,10 +29,13 @@ import {
   object,
   array,
   isJsonArray,
+  isBoolean,
+  isFiniteNumber,
   isJsonObject,
   isString,
   optionalArray,
   optionalNumber,
+  optionalObject,
   optionalString,
   type JsonField,
 } from "../transport/validation.js";
@@ -54,6 +60,11 @@ export interface ThreadsWorkflow {
   readonly options: JsonObject;
   readonly stage: "children" | "parent" | "published" | "unknown";
   readonly backendState?: string;
+  /**
+   * `crossreshare_to_ig_status` from the publish response when `shareToInstagramStory` was set.
+   * `FAILED` means the Threads post exists but the Instagram Story was not created.
+   */
+  readonly instagramStoryStatus?: "SUCCESS" | "FAILED";
 }
 
 export interface ThreadsWorkflowStore {
@@ -75,6 +86,13 @@ export interface ThreadsSearchInput {
   readonly until?: string;
   readonly limit?: number;
   readonly authorUsername?: string;
+  /**
+   * Replaces the default result fields. Meta documents `thumbnail_url`, `children`, `alt_text`,
+   * `link_attachment_url`, `has_replies`, `is_reply`, `root_post`, `replied_to`,
+   * `reply_audience`, `quoted_post`, `reposted_post`, `gif_url`, `poll_attachment`, and
+   * `topic_tag` alongside the defaults.
+   */
+  readonly fields?: readonly string[];
   readonly context: AdapterOperationContext;
 }
 
@@ -124,13 +142,319 @@ export interface ThreadsOptions {
   readonly webhookSecret?: string;
 }
 
+/**
+ * A Threads media list edge read. `since` and `until` take a Unix timestamp or a date Meta can
+ * parse, no earlier than `1688540400`. `cursor` is the `after` cursor; send it or `before`.
+ */
+export interface ThreadsMediaListInput {
+  readonly account: ConnectedAccountRef;
+  /** Replaces the default `fields` list. */
+  readonly fields?: readonly string[];
+  readonly since?: string;
+  readonly until?: string;
+  /** 1 through 100; Meta defaults to 25. */
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly before?: string;
+  readonly context: AdapterOperationContext;
+}
+
+/** Poll results decoded from `poll_attachment`. */
+export interface ThreadsPollResults {
+  readonly options: readonly {
+    readonly text: string;
+    /** Share of votes from 0 to 1, as Meta returns it. */
+    readonly votesPercentage?: number;
+  }[];
+  readonly totalVotes?: number;
+  readonly expiresAt?: string;
+}
+
+export interface ThreadsRecentSearch {
+  readonly query: string;
+  /** Milliseconds since the Unix epoch, as Meta returns it. */
+  readonly timestamp?: number;
+}
+
+export interface ThreadsLocation {
+  readonly id: string;
+  readonly name?: string;
+  readonly address?: string;
+  readonly city?: string;
+  readonly country?: string;
+  readonly latitude?: number;
+  readonly longitude?: number;
+  readonly postalCode?: string;
+}
+
+interface ThreadsCoordinates {
+  readonly latitude: number;
+  readonly longitude: number;
+}
+
+/** Location search needs a query, coordinates, or both. */
+export type ThreadsLocationQuery =
+  | { readonly query: string; readonly coordinates?: ThreadsCoordinates }
+  | { readonly query?: string; readonly coordinates: ThreadsCoordinates };
+
+export type ThreadsUserMetric =
+  | "views"
+  | "likes"
+  | "replies"
+  | "reposts"
+  | "quotes"
+  | "clicks"
+  | "followers_count";
+
+/** One `threads_insights` row with every value Meta returned. */
+export interface ThreadsInsightRow {
+  readonly name: string;
+  readonly period?: string;
+  /** Daily points for time-series metrics such as `views`. */
+  readonly series: readonly { readonly value: number; readonly endTime?: string }[];
+  /** `total_value.value` for total-value metrics. */
+  readonly total?: number;
+  /** Per-URL `clicks` from `link_total_values`. */
+  readonly links: readonly { readonly url: string; readonly value: number }[];
+}
+
+/** A public profile from `GET /profile_lookup`. Counts are omitted when Meta omits them. */
+export interface ThreadsPublicProfile {
+  readonly username: string;
+  readonly name?: string;
+  readonly profilePictureUrl?: string;
+  readonly biography?: string;
+  readonly isVerified?: boolean;
+  /** `follower_count`: total followers. */
+  readonly followerCount?: number;
+  /** `likes_count`: likes on the profile's posts in the past 7 days. */
+  readonly likesCount?: number;
+  /** `quotes_count`: quotes of the profile's posts in the past 7 days. */
+  readonly quotesCount?: number;
+  /** `reposts_count`: reposts of the profile's posts in the past 7 days. */
+  readonly repostsCount?: number;
+  /** `views_count`: views of the profile's posts in the past 7 days. */
+  readonly viewsCount?: number;
+}
+
+export type ThreadsIntentReplyControl =
+  | "everyone"
+  | "accounts_you_follow"
+  | "mentioned_only"
+  | "followers_only";
+
+/** Query parameters for the `https://www.threads.com/intent/post` web intent. */
+export interface ThreadsPostIntent {
+  readonly text?: string;
+  /** Link attachment; must be an `http` or `https` URL. */
+  readonly url?: string;
+  /** Topic tag, up to 50 characters, without newlines, tabs, periods, or ampersands. */
+  readonly tag?: string;
+  readonly replyControl?: ThreadsIntentReplyControl;
+  /** Shortcode of the post to reply to (`reply_post_shortcode`). */
+  readonly replyPostShortcode?: string;
+  /** Shortcode of the post to quote (`quote_post_shortcode`). */
+  readonly quotePostShortcode?: string;
+}
+
+const intentReplyControls: ReadonlySet<string> = new Set([
+  "everyone",
+  "accounts_you_follow",
+  "mentioned_only",
+  "followers_only",
+]);
+
+const intentShortcode = /^[\w-]{1,64}$/u;
+
+function intentError(message: string): never {
+  throw new SocialError({ code: "invalid_input", operation: "threads.intent", message });
+}
+
+/**
+ * Builds a Threads post intent URL. Opening it shows the Threads composer prefilled with these
+ * values; the person still confirms the post. It needs no token and makes no request.
+ */
+export function threadsPostIntentUrl(input: ThreadsPostIntent): string {
+  const intent = new URL("https://www.threads.com/intent/post");
+
+  const { text, url, tag, replyControl, replyPostShortcode, quotePostShortcode } = input;
+
+  if (text !== undefined) intent.searchParams.set("text", text);
+
+  if (url !== undefined) {
+    let link: URL;
+
+    try {
+      link = new URL(url);
+    } catch {
+      intentError("url must be an absolute http or https URL.");
+    }
+
+    if (link.protocol !== "https:" && link.protocol !== "http:")
+      intentError("url must be an absolute http or https URL.");
+    intent.searchParams.set("url", url);
+  }
+
+  if (tag !== undefined) {
+    if (!tag || [...tag].length > 50 || /[\n\r\t.&]/u.test(tag))
+      intentError("tag must be 1 to 50 characters without newlines, tabs, periods, or ampersands.");
+    intent.searchParams.set("tag", tag);
+  }
+
+  if (replyControl !== undefined) {
+    if (!intentReplyControls.has(replyControl))
+      intentError(
+        "replyControl must be everyone, accounts_you_follow, mentioned_only, or followers_only.",
+      );
+    intent.searchParams.set("reply_control", replyControl);
+  }
+
+  if (replyPostShortcode !== undefined) {
+    if (!intentShortcode.test(replyPostShortcode))
+      intentError("replyPostShortcode must be a Threads post shortcode.");
+    intent.searchParams.set("reply_post_shortcode", replyPostShortcode);
+  }
+
+  if (quotePostShortcode !== undefined) {
+    if (!intentShortcode.test(quotePostShortcode))
+      intentError("quotePostShortcode must be a Threads post shortcode.");
+    intent.searchParams.set("quote_post_shortcode", quotePostShortcode);
+  }
+
+  return intent.href;
+}
+
+/** Builds a Threads follow intent URL (`https://www.threads.com/intent/follow?username=`). */
+export function threadsFollowIntentUrl(username: string): string {
+  const handle = username.trim().replace(/^@/u, "");
+
+  if (!/^[\w.]+$/u.test(handle)) intentError("Provide a Threads username.");
+
+  const intent = new URL("https://www.threads.com/intent/follow");
+  intent.searchParams.set("username", handle);
+
+  return intent.href;
+}
+
+export interface ThreadsTokenDebug {
+  readonly type?: string;
+  readonly application?: string;
+  readonly isValid: boolean;
+  readonly expiresAt?: number;
+  readonly dataAccessExpiresAt?: number;
+  readonly issuedAt?: number;
+  readonly scopes: readonly string[];
+  readonly userId?: string;
+}
+
+export interface ThreadsOEmbed {
+  readonly html: string;
+  readonly providerName?: string;
+  readonly providerUrl?: string;
+  readonly type?: string;
+  readonly version?: string;
+  readonly width?: number;
+}
+
 export interface ThreadsNative {
-  /** Reads the authenticated profile's rolling Threads publishing quota. */
+  /**
+   * Reads the authenticated profile's rolling quotas from `threads_publishing_limit`: posts
+   * (`quota_usage`, 250), replies (`reply_quota_usage`, 1,000), and deletions
+   * (`delete_quota_usage`, 100). Pass `fields` to add `location_search_quota_usage` and
+   * `location_search_config`.
+   */
   readonly publishingLimit: (input: {
     readonly account: ConnectedAccountRef;
+    readonly fields?: readonly string[];
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
-  readonly getPost: (id: string, context: AdapterOperationContext) => Promise<JsonObject>;
+  /** Reads one media object. `fields` replaces the default field list. */
+  readonly getPost: (
+    id: string,
+    context: AdapterOperationContext,
+    fields?: readonly string[],
+  ) => Promise<JsonObject>;
+  /** Reads a post's poll from `poll_attachment`, including `total_votes`. */
+  readonly getPollResults: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<ThreadsPollResults | undefined>;
+  /** `GET /{threads-user-id}/threads`: the authorized user's posts. */
+  readonly listThreads: (input: ThreadsMediaListInput) => Promise<JsonObject>;
+  /** `GET /{threads-user-id}/replies`: replies the authorized user published. */
+  readonly listOwnReplies: (input: ThreadsMediaListInput) => Promise<JsonObject>;
+  /** `GET /{threads-user-id}/ghost_posts`: the authorized user's ghost posts. */
+  readonly listGhostPosts: (input: ThreadsMediaListInput) => Promise<JsonObject>;
+  /** `GET /profile_posts`: a public profile's posts. Needs `threads_profile_discovery`. */
+  readonly profilePosts: (
+    input: ThreadsMediaListInput & { readonly username: string },
+  ) => Promise<JsonObject>;
+  /**
+   * `GET /profile_lookup`: an exact-username public profile with `follower_count` and the
+   * 7-day `likes_count`, `quotes_count`, `reposts_count`, and `views_count`. Needs
+   * `threads_profile_discovery`.
+   */
+  readonly lookupProfile: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly username: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<ThreadsPublicProfile>;
+  /** `recently_searched_keywords` on the authorized user. */
+  readonly recentlySearchedKeywords: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly ThreadsRecentSearch[]>;
+  /** `is_eligible_for_geo_gating` on the authorized user. */
+  readonly geoGatingEligibility: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context: AdapterOperationContext;
+  }) => Promise<boolean>;
+  /** `GET /location_search`. Needs `threads_location_tagging`. */
+  readonly locationSearch: (
+    input: ThreadsLocationQuery & {
+      readonly account: ConnectedAccountRef;
+      readonly context: AdapterOperationContext;
+    },
+  ) => Promise<readonly ThreadsLocation[]>;
+  /** `GET /{location-id}`. Needs `threads_location_tagging`. */
+  readonly getLocation: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly locationId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<ThreadsLocation>;
+  /**
+   * `GET /{threads-user-id}/threads_insights` with every returned value. `range` takes Unix
+   * seconds no earlier than `1712991600`; `followers_count` does not accept a range.
+   */
+  readonly userInsights: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly metrics: readonly [ThreadsUserMetric, ...ThreadsUserMetric[]];
+    readonly range?: { readonly since: number; readonly until: number };
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly ThreadsInsightRow[]>;
+  /** `follower_demographics` with one breakdown. Needs at least 100 followers. */
+  readonly followerDemographics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly breakdown: "country" | "city" | "age" | "gender";
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /**
+   * `GET /debug_token` for `inputToken` (default: this adapter's token). The caller is this
+   * adapter's token unless `appAccessToken` (`TH|<APP_ID>|<APP_SECRET>`) is given.
+   */
+  readonly debugToken: (input: {
+    readonly inputToken?: string;
+    readonly appAccessToken?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<ThreadsTokenDebug>;
+  /** `GET /oembed` for a public post or profile URL. */
+  readonly oembed: (input: {
+    readonly url: string;
+    /** 320 through 658 pixels. */
+    readonly maxWidth?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<ThreadsOEmbed>;
   readonly getContainer: (id: string, context: AdapterOperationContext) => Promise<JsonObject>;
   readonly resumePublication: (
     account: ConnectedAccountRef,
@@ -154,11 +478,8 @@ export interface ThreadsNative {
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
   readonly search: (input: ThreadsSearchInput) => Promise<JsonObject>;
-  readonly mentions: (input: {
-    readonly account: ConnectedAccountRef;
-    readonly cursor?: string;
-    readonly context: AdapterOperationContext;
-  }) => Promise<JsonObject>;
+  /** `GET /{threads-user-id}/mentions`. Needs `threads_manage_mentions`. */
+  readonly mentions: (input: ThreadsMediaListInput) => Promise<JsonObject>;
   readonly getProfile: (input: {
     readonly account: ConnectedAccountRef;
     readonly context: AdapterOperationContext;
@@ -179,16 +500,36 @@ export interface ThreadsNative {
     readonly commentId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /** `GET /{threads-media-id}/replies`: top-level replies with every documented field. */
+  readonly listReplies: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly mediaId: string;
+    readonly cursor?: string;
+    readonly before?: string;
+    /** `reverse`: `true` (Meta's default) lists newest first; `false` lists oldest first. */
+    readonly reverse?: boolean;
+    readonly fields?: readonly string[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
+  /** `GET /{threads-media-id}/conversation`. `fields` replaces the default field list. */
   readonly listConversation: (input: {
     readonly account: ConnectedAccountRef;
     readonly mediaId: string;
     readonly cursor?: string;
+    readonly before?: string;
+    /** `reverse`: `true` (Meta's default) lists newest first; `false` lists oldest first. */
+    readonly reverse?: boolean;
+    readonly fields?: readonly string[];
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /** `GET /{threads-media-id}/pending_replies`. `fields` replaces the default field list. */
   readonly listPendingReplies: (input: {
     readonly account: ConnectedAccountRef;
     readonly mediaId: string;
     readonly cursor?: string;
+    readonly before?: string;
+    readonly reverse?: boolean;
+    readonly fields?: readonly string[];
     readonly approvalStatus?: "pending" | "ignored";
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
@@ -213,6 +554,26 @@ function fail(
   });
 }
 
+/**
+ * A dispatched write whose answer cannot be read may still have taken effect, so it is
+ * uncertain: the caller reconciles before retrying instead of repeating the write.
+ */
+function uncertain(operation: string, message: string): never {
+  throw new SocialError({
+    code: "ambiguous_outcome",
+    operation,
+    message: `${message} Reconcile before retrying.`,
+    retryDisposition: { kind: "reconcile-first" },
+  });
+}
+
+/** Threads answers moderation and deletion writes with `{ success: true }`. */
+function confirmWrite(result: JsonObject, operation: string, message: string): JsonObject {
+  if (result["success"] !== true) uncertain(operation, message);
+
+  return result;
+}
+
 // Meta counts emoji as UTF-8 bytes; ordinary Unicode remains character-counted.
 // RGI_Emoji includes flags, keycaps, modifiers and joined emoji sequences.
 function threadsTextLength(text: string): number {
@@ -227,6 +588,603 @@ function threadsTextLength(text: string): number {
   });
 
   return Array.from(ordinary).length + emojiBytes;
+}
+
+type ThreadsReplyControl = NonNullable<ThreadsPublishOptions["replyControl"]>;
+
+const replyControlWire: Readonly<Record<ThreadsReplyControl, string>> = {
+  everyone: "everyone",
+  accountsYouFollow: "accounts_you_follow",
+  mentionedOnly: "mentioned_only",
+  parentPostAuthorOnly: "parent_post_author_only",
+  followersOnly: "followers_only",
+};
+
+function isReplyControl(value: JsonField): value is ThreadsReplyControl {
+  return isString(value) && Object.hasOwn(replyControlWire, value);
+}
+
+const textStyles: ReadonlySet<string> = new Set<ThreadsTextStyle>([
+  "bold",
+  "italic",
+  "highlight",
+  "underline",
+  "strikethrough",
+]);
+
+/** Public `ThreadsPublishOptions` keys. Internal workflow keys start with `_`. */
+const threadsOptionKeys: ReadonlySet<string> = new Set([
+  "replyControl",
+  "enableReplyApprovals",
+  "topicTag",
+  "quotePostId",
+  "poll",
+  "gif",
+  "isMadeWithAi",
+  "isSpoilerMedia",
+  "spoilers",
+  "textAttachment",
+  "isGhostPost",
+  "locationId",
+  "allowlistedCountryCodes",
+  "shareToInstagramStory",
+  "autoPublishText",
+]);
+
+interface ThreadsDraftPost {
+  readonly text: string;
+  readonly mediaCount: number;
+  readonly linkUrl: string | undefined;
+  readonly isReply: boolean;
+}
+
+interface ThreadsOptionIssue {
+  readonly code: string;
+  readonly message: string;
+}
+
+/** `text_attachment` as Threads documents it. */
+interface ThreadsTextAttachmentWire {
+  readonly plaintext: string;
+  readonly link_attachment_url?: string;
+  readonly text_with_styling_info?: readonly {
+    readonly offset: number;
+    readonly length: number;
+    readonly styling_info: readonly string[];
+  }[];
+}
+
+interface ThreadsContainerFields {
+  readonly fields: Readonly<Record<string, string>>;
+  readonly issues: readonly ThreadsOptionIssue[];
+}
+
+const isCount = (value: JsonField, min: number): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= min;
+
+interface DecodedRange {
+  readonly offset: number;
+  readonly length: number;
+  readonly entry: JsonObject;
+}
+
+/** Reads a list of ranges, or undefined when any entry is not an integer range inside `limit`. */
+function textRanges(value: JsonField, limit: number): readonly DecodedRange[] | undefined {
+  if (!isJsonArray(value)) return undefined;
+
+  const ranges: DecodedRange[] = [];
+
+  for (const entry of value) {
+    if (!isJsonObject(entry)) return undefined;
+
+    const offset = entry["offset"],
+      length = entry["length"];
+
+    if (!isCount(offset, 0) || !isCount(length, 1) || offset + length > limit) return undefined;
+    ranges.push({ offset, length, entry });
+  }
+
+  return ranges;
+}
+
+// Meta counts unique URLs across text, link_attachment, and text_attachment.link_attachment_url.
+// Source, accessed 2026-11-04: https://developers.facebook.com/docs/threads/posts#links
+function uniqueLinkCount(text: string, extra: readonly (string | undefined)[]): number {
+  const found = text.match(/(?:https?:\/\/|www\.)[^\s<>"]+/giu) ?? [];
+
+  const normalized = [...found, ...extra.filter((url) => url !== undefined)].map((url) =>
+    url
+      .replace(/[.,!?;:)\]}'"]+$/u, "")
+      .replace(/^https?:\/\//iu, "")
+      .replace(/\/$/u, "")
+      .toLowerCase(),
+  );
+
+  return new Set(normalized).size;
+}
+
+/**
+ * Maps `ThreadsPublishOptions` to `POST /{threads-user-id}/threads` fields for the parent
+ * container, and reports every option that Threads would reject for this post shape.
+ * Source, accessed 2026-11-04: https://developers.facebook.com/documentation/threads/reference/publishing
+ */
+function threadsContainerFields(o: JsonObject, post: ThreadsDraftPost): ThreadsContainerFields {
+  const fields: Record<string, string> = {};
+
+  const issues: ThreadsOptionIssue[] = [];
+
+  const add = (code: string, message: string) => issues.push({ code, message });
+
+  const textOnly = post.mediaCount === 0;
+
+  const flag = (key: string, wire: string) => {
+    const value = o[key];
+
+    if (value === undefined) return false;
+
+    if (!isBoolean(value)) {
+      add(`options.${wire}`, `${key} must be a boolean.`);
+
+      return false;
+    }
+
+    fields[wire] = String(value);
+
+    return value;
+  };
+
+  const replyControl = o["replyControl"];
+
+  if (replyControl !== undefined) {
+    if (isReplyControl(replyControl)) fields["reply_control"] = replyControlWire[replyControl];
+    else add("options.reply_control", "Unsupported Threads reply control.");
+  }
+
+  flag("enableReplyApprovals", "enable_reply_approvals");
+
+  const topicTag = o["topicTag"];
+
+  if (topicTag !== undefined) {
+    const length = isString(topicTag) ? Array.from(topicTag).length : 0;
+
+    if (!isString(topicTag) || length < 1 || length > 50 || /[.&]/u.test(topicTag))
+      add(
+        "options.topic_tag",
+        "Threads topic tags are 1 to 50 characters and cannot contain periods or ampersands.",
+      );
+    else fields["topic_tag"] = topicTag;
+  }
+
+  const quotePostId = o["quotePostId"];
+
+  if (quotePostId !== undefined) {
+    if (!isString(quotePostId) || !/^\d+$/u.test(quotePostId))
+      add("options.quote_post_id", "quotePostId must be a numeric Threads media ID.");
+    else fields["quote_post_id"] = quotePostId;
+  }
+
+  const poll = o["poll"];
+
+  if (poll !== undefined) {
+    const options = isJsonObject(poll) ? poll["options"] : undefined;
+
+    const choices = isJsonArray(options) ? options.filter(isString) : [];
+
+    if (
+      !isJsonArray(options) ||
+      choices.length !== options.length ||
+      choices.length < 2 ||
+      choices.length > 4 ||
+      choices.some((choice) => Array.from(choice).length < 1 || Array.from(choice).length > 25)
+    )
+      add(
+        "options.poll_attachment",
+        "Threads polls need two to four options of 1 to 25 characters each.",
+      );
+    else if (!textOnly)
+      add("options.poll_attachment", "Threads polls can be attached to text-only posts only.");
+    else {
+      const keys = ["option_a", "option_b", "option_c", "option_d"] as const;
+
+      fields["poll_attachment"] = JSON.stringify(
+        Object.fromEntries(choices.map((choice, index) => [keys[index], choice])),
+      );
+    }
+  }
+
+  const gif = o["gif"];
+
+  if (gif !== undefined) {
+    const gifId = isJsonObject(gif) ? gif["gifId"] : undefined;
+
+    if (!isJsonObject(gif) || !isString(gifId) || !gifId.trim() || gif["provider"] !== "GIPHY")
+      add(
+        "options.gif_attachment",
+        "Threads GIFs need a GIPHY gifId; GIPHY is the only supported provider.",
+      );
+    else if (!textOnly)
+      add("options.gif_attachment", "Threads GIFs can be attached to text-only posts only.");
+    else fields["gif_attachment"] = JSON.stringify({ gif_id: gifId, provider: "GIPHY" });
+  }
+
+  flag("isMadeWithAi", "is_made_with_ai");
+
+  if (flag("isSpoilerMedia", "is_spoiler_media") && textOnly)
+    add("options.is_spoiler_media", "Media spoilers need an image, video, or carousel post.");
+
+  const spoilers = o["spoilers"];
+
+  if (spoilers !== undefined) {
+    const ranges = textRanges(spoilers, post.text.length);
+
+    if (ranges === undefined || ranges.length < 1 || ranges.length > 10)
+      add(
+        "options.text_entities",
+        "Text spoilers need one to ten integer ranges that fall inside the post text.",
+      );
+    else
+      fields["text_entities"] = JSON.stringify(
+        ranges.map(({ offset, length }) => ({ entity_type: "SPOILER", offset, length })),
+      );
+  }
+
+  const attachment = o["textAttachment"];
+
+  let attachmentLink: string | undefined;
+
+  if (attachment !== undefined) {
+    const plaintext = isJsonObject(attachment) ? attachment["plaintext"] : undefined;
+
+    const link = isJsonObject(attachment) ? attachment["linkAttachmentUrl"] : undefined;
+
+    const styling = isJsonObject(attachment) ? attachment["styling"] : undefined;
+
+    const plaintextLength = isString(plaintext) ? Array.from(plaintext).length : 0;
+
+    const ranges =
+      styling === undefined || !isString(plaintext)
+        ? []
+        : textRanges(styling, plaintext.length)?.flatMap((range) => {
+            const styles = range.entry["styles"];
+
+            const named = isJsonArray(styles) ? styles.filter(isString) : [];
+
+            return isJsonArray(styles) &&
+              named.length === styles.length &&
+              named.length > 0 &&
+              named.every((style) => textStyles.has(style))
+              ? [{ offset: range.offset, length: range.length, styles: named }]
+              : [];
+          });
+
+    const sorted = [...(ranges ?? [])].sort((a, b) => a.offset - b.offset);
+
+    const overlaps = sorted.some((range, index) => {
+      const previous = index > 0 ? sorted[index - 1] : undefined;
+
+      return previous !== undefined && range.offset < previous.offset + previous.length;
+    });
+
+    let linkValid = link === undefined;
+
+    if (isString(link))
+      try {
+        httpsUrl(link);
+        linkValid = true;
+      } catch {
+        linkValid = false;
+      }
+
+    if (!isString(plaintext) || plaintextLength < 1 || plaintextLength > 10_000)
+      add("options.text_attachment", "Text attachments need plaintext of 1 to 10,000 characters.");
+    else if (!linkValid)
+      add("options.text_attachment", "Text attachment links must be public HTTPS URLs.");
+    else if (
+      styling !== undefined &&
+      (ranges === undefined || !isJsonArray(styling) || ranges.length !== styling.length)
+    )
+      add(
+        "options.text_attachment",
+        "Text attachment styling needs ranges inside the plaintext with bold, italic, highlight, underline, or strikethrough styles.",
+      );
+    else if (overlaps)
+      add("options.text_attachment", "Text attachment styling ranges cannot overlap.");
+    else if (!textOnly)
+      add("options.text_attachment", "Text attachments can be added to text-only posts only.");
+    else if (poll !== undefined)
+      add("options.text_attachment", "Text attachments cannot be combined with a poll.");
+    else if (isString(link) && post.linkUrl !== undefined)
+      add(
+        "options.text_attachment",
+        "A post with a link attachment cannot also put a link in its text attachment.",
+      );
+    else {
+      attachmentLink = isString(link) ? link : undefined;
+
+      const wire: ThreadsTextAttachmentWire = {
+        plaintext,
+        ...definedFields({
+          link_attachment_url: attachmentLink,
+          text_with_styling_info: sorted.length
+            ? sorted.map(({ offset, length, styles }) => ({ offset, length, styling_info: styles }))
+            : undefined,
+        }),
+      };
+
+      fields["text_attachment"] = JSON.stringify(wire);
+    }
+  }
+
+  // Ghost posts are text-only, cannot reply, and support text spoilers as their only feature.
+  // Source, accessed 2026-11-04: https://developers.facebook.com/documentation/threads/create-posts/ghost-posts
+  if (flag("isGhostPost", "is_ghost_post")) {
+    const others = Object.keys(o).filter(
+      (key) => threadsOptionKeys.has(key) && key !== "isGhostPost" && key !== "spoilers",
+    );
+
+    if (!textOnly || post.isReply || post.linkUrl !== undefined || others.length > 0)
+      add(
+        "options.is_ghost_post",
+        "Ghost posts are text-only, cannot be replies, and support only text spoilers.",
+      );
+  }
+
+  // auto_publish_text publishes on container creation and works only for text posts.
+  // Source, accessed 2026-11-04: https://developers.facebook.com/documentation/threads/reference/publishing
+  if (flag("autoPublishText", "auto_publish_text") && !textOnly)
+    add("options.auto_publish_text", "autoPublishText works only on text posts without media.");
+
+  const locationId = o["locationId"];
+
+  if (locationId !== undefined) {
+    if (!isString(locationId) || !/^\d+$/u.test(locationId))
+      add("options.location_id", "locationId must be a numeric Threads location ID.");
+    else fields["location_id"] = locationId;
+  }
+
+  const countries = o["allowlistedCountryCodes"];
+
+  if (countries !== undefined) {
+    const codes = isJsonArray(countries) ? countries.filter(isString) : [];
+
+    if (
+      !isJsonArray(countries) ||
+      codes.length !== countries.length ||
+      codes.length === 0 ||
+      codes.some((code) => !/^[A-Z]{2}$/u.test(code)) ||
+      new Set(codes).size !== codes.length
+    )
+      add(
+        "options.allowlisted_country_codes",
+        "allowlistedCountryCodes must be unique uppercase ISO 3166-1 alpha-2 codes.",
+      );
+    else fields["allowlisted_country_codes"] = codes.join(",");
+  }
+
+  const story = o["shareToInstagramStory"];
+
+  if (story !== undefined) {
+    if (story === "light") fields["crossreshare_to_ig"] = "true";
+    else if (story === "dark") fields["crossreshare_to_ig_dark_mode"] = "true";
+    else add("options.crossreshare_to_ig", 'shareToInstagramStory must be "light" or "dark".');
+  }
+
+  if (uniqueLinkCount(post.text, [post.linkUrl, attachmentLink]) > 5)
+    add(
+      "link.limit_exceeded",
+      "Threads rejects posts with more than five unique links across text, the link attachment, and the text attachment.",
+    );
+
+  return { fields, issues };
+}
+
+const pollAttachmentField =
+  "poll_attachment{option_a,option_b,option_c,option_d,option_a_votes_percentage,option_b_votes_percentage,option_c_votes_percentage,option_d_votes_percentage,total_votes,expiration_timestamp}";
+
+// Media fields Meta documents for posts, accessed 2026-11-04:
+// https://developers.facebook.com/documentation/threads/retrieve-and-discover-posts/retrieve-posts
+const mediaFields = [
+  "id",
+  "media_product_type",
+  "media_type",
+  "media_url",
+  "permalink",
+  "username",
+  "text",
+  "timestamp",
+  "shortcode",
+  "thumbnail_url",
+  "children",
+  "is_quote_post",
+  "quoted_post",
+  "reposted_post",
+  "alt_text",
+  "link_attachment_url",
+  "gif_url",
+  pollAttachmentField,
+  "topic_tag",
+  "is_spoiler_media",
+  "text_entities",
+  "text_attachment",
+  "is_verified",
+  "profile_picture_url",
+] as const;
+
+// Reply fields Meta documents for /{threads-user-id}/replies and /{threads-media-id}/replies:
+// https://developers.facebook.com/documentation/threads/reference/user
+const searchFields =
+  "id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post";
+
+const replyFields = [
+  "id",
+  "media_product_type",
+  "media_type",
+  "media_url",
+  "permalink",
+  "username",
+  "text",
+  "timestamp",
+  "shortcode",
+  "thumbnail_url",
+  "children",
+  "is_quote_post",
+  "has_replies",
+  "root_post",
+  "replied_to",
+  "is_reply",
+  "is_reply_owned_by_me",
+  "reply_audience",
+  "quoted_post",
+  "reposted_post",
+  "gif_url",
+  "is_verified",
+  "profile_picture_url",
+] as const;
+
+const ghostPostFields = [...mediaFields, "ghost_post_status", "ghost_post_expiration_timestamp"];
+
+const conversationFields = [
+  "id",
+  "text",
+  "username",
+  "permalink",
+  "timestamp",
+  "is_reply",
+  "hide_status",
+] as const;
+
+const pendingReplyFields = [
+  "id",
+  "text",
+  "username",
+  "timestamp",
+  "is_reply",
+  "hide_status",
+  "reply_approval_status",
+] as const;
+
+const mentionFields = [
+  "id",
+  "text",
+  "username",
+  "media_type",
+  "media_url",
+  "permalink",
+  "timestamp",
+];
+
+// Scalar fields that posts.list keeps; native.listThreads returns nested fields too.
+const listedPostFields = [
+  "id",
+  "text",
+  "username",
+  "media_type",
+  "media_product_type",
+  "media_url",
+  "thumbnail_url",
+  "permalink",
+  "shortcode",
+  "timestamp",
+  "is_quote_post",
+  "alt_text",
+  "link_attachment_url",
+  "gif_url",
+  "topic_tag",
+  "is_spoiler_media",
+];
+
+const locationFields = "id,address,name,city,country,latitude,longitude,postal_code";
+
+// Graph field names, with an optional `{subfield,...}` selection.
+const fieldName = /^[a-z_]+(?:\{[a-z_,]+\})?$/u;
+
+const insightsFloor = 1_712_991_600;
+
+type MediaPageKey = "fields" | "since" | "until" | "limit" | "cursor" | "before";
+
+/** The paging and filter part of `ThreadsMediaListInput`, accepting explicit `undefined`. */
+type MediaPageInput = { readonly [K in MediaPageKey]?: ThreadsMediaListInput[K] | undefined };
+
+function decodeLocation(value: JsonField, operation: string): ThreadsLocation {
+  const row = object(value);
+
+  const rawId = row["id"];
+
+  const id = isString(rawId) ? rawId : isFiniteNumber(rawId) ? String(rawId) : undefined;
+
+  if (id === undefined) fail(operation, "Threads returned a location without an ID.");
+
+  return {
+    id,
+    ...definedFields({
+      name: optionalString(row["name"]),
+      address: optionalString(row["address"]),
+      city: optionalString(row["city"]),
+      country: optionalString(row["country"]),
+      latitude: optionalNumber(row["latitude"]),
+      longitude: optionalNumber(row["longitude"]),
+      postalCode: optionalString(row["postal_code"]),
+    }),
+  };
+}
+
+function decodeInsightRow(value: JsonField): ThreadsInsightRow | undefined {
+  const row = object(value);
+
+  const name = optionalString(row["name"]);
+
+  if (name === undefined) return undefined;
+
+  const series = (optionalArray(row["values"]) ?? []).flatMap((entry) => {
+    const point = isJsonObject(entry) ? entry : {};
+
+    const pointValue = optionalNumber(point["value"]);
+
+    return pointValue === undefined || !Number.isFinite(pointValue)
+      ? []
+      : [{ value: pointValue, ...definedFields({ endTime: optionalString(point["end_time"]) }) }];
+  });
+
+  const links = (optionalArray(row["link_total_values"]) ?? []).flatMap((entry) => {
+    const link = isJsonObject(entry) ? entry : {};
+
+    const url = optionalString(link["link_url"]),
+      clicks = optionalNumber(link["value"]);
+
+    return url === undefined || clicks === undefined || !Number.isFinite(clicks)
+      ? []
+      : [{ url, value: clicks }];
+  });
+
+  const total = optionalObject(row["total_value"]);
+
+  return {
+    name,
+    series,
+    links,
+    ...definedFields({
+      period: optionalString(row["period"]),
+      total: optionalNumber(total?.["value"]),
+    }),
+  };
+}
+
+// Accepted oEmbed URL forms, accessed 2026-11-04:
+// https://developers.facebook.com/documentation/threads/reference/oembed
+function isThreadsPermalink(value: string): boolean {
+  try {
+    const url = new URL(value);
+
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "www.threads.com" &&
+      url.username === "" &&
+      url.password === "" &&
+      /^\/(?:@[\w.]+(?:\/post\/[\w-]+)?|t\/[\w-]+)\/?$/u.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 const accountRef = (backend: string, accountId: string) =>
@@ -249,6 +1207,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     init: RequestInit,
     operation: string,
     context: AdapterOperationContext,
+    client: typeof http = http,
   ): Promise<JsonObject> {
     const [raw = "", qs] = path.split("?", 2);
 
@@ -256,7 +1215,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
     try {
       return object(
-        await http(
+        await client(
           `/${raw.replace(/^\//, "")}`,
           context,
           init.method === "POST" ? {} : undefined,
@@ -268,8 +1227,29 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       );
     } catch (e) {
       if (e instanceof SocialError) throw metaOAuthReconnect(e);
+
+      // The transport already reports a lost, unreadable or 5xx write answer as uncertain. A 2xx
+      // write answer that is not an object may still mean the write took effect.
+      if (init.method !== undefined && init.method !== "GET")
+        uncertain(operation, "Threads returned an unreadable answer to the write.");
       fail(operation, "Threads API request failed.");
     }
+  }
+
+  // https://developers.facebook.com/documentation/threads/threads-profiles (accessed 2026-11-04):
+  // the five counts are documented profile_lookup fields; likes, quotes, reposts, and views
+  // cover the past 7 days.
+  function profileLookup(
+    username: string,
+    operation: string,
+    context: AdapterOperationContext,
+  ): Promise<JsonObject> {
+    return request(
+      `profile_lookup?username=${encodeURIComponent(username)}&fields=username,name,profile_picture_url,biography,is_verified,follower_count,likes_count,quotes_count,reposts_count,views_count`,
+      { method: "GET" },
+      operation,
+      context,
+    );
   }
 
   function authorize(ref: { backend: string; platform: string; accountId: string }, op: string) {
@@ -278,6 +1258,48 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   }
 
   const account = accountRef(backend, auth.userId);
+
+  function fieldList(operation: string, fields: readonly string[] | undefined): string | undefined {
+    if (fields === undefined) return undefined;
+
+    if (fields.length === 0 || fields.some((field) => !fieldName.test(field)))
+      fail(operation, "fields must be Threads field names.", "invalid_input");
+
+    return fields.join(",");
+  }
+
+  function mediaListQuery(
+    operation: string,
+    defaults: readonly string[],
+    input: MediaPageInput,
+  ): string {
+    const { since, until, limit, cursor, before } = input;
+
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 100))
+      fail(operation, "Threads list limit must be an integer from 1 through 100.", "invalid_input");
+
+    if (cursor !== undefined && before !== undefined)
+      fail(operation, "Send cursor (after) or before, not both.", "invalid_input");
+
+    if ([since, until].some((value) => value !== undefined && !value.trim()))
+      fail(operation, "since and until must be non-empty.", "invalid_input");
+
+    const query = new URLSearchParams({
+      fields: fieldList(operation, input.fields) ?? defaults.join(","),
+    });
+
+    if (since !== undefined) query.set("since", since);
+
+    if (until !== undefined) query.set("until", until);
+
+    if (limit !== undefined) query.set("limit", String(limit));
+
+    if (before !== undefined) query.set("before", before);
+
+    if (cursor !== undefined) query.set("after", cursor);
+
+    return query.toString();
+  }
 
   function pageFrom(result: JsonObject): Page<JsonObject> {
     const items = array(result["data"]).map((entry) => object(entry));
@@ -334,9 +1356,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         "invalid_input",
       );
 
-    const query = new URLSearchParams({
-      fields: "id,text,username,media_type,permalink,timestamp",
-    });
+    const query = new URLSearchParams({ fields: listedPostFields.join(",") });
 
     if (input.cursor !== undefined) query.set("after", input.cursor);
 
@@ -349,9 +1369,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       context,
     );
 
-    const items = array(result["data"]).map((entry) =>
-      publicFields(entry, ["id", "text", "username", "media_type", "permalink", "timestamp"]),
-    );
+    const items = array(result["data"]).map((entry) => publicFields(entry, listedPostFields));
 
     const paging = result["paging"] === undefined ? {} : object(result["paging"]);
 
@@ -501,10 +1519,26 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     ...outcomeFields(a, id, backendState),
   });
 
-  const published = (a: ConnectedAccountRef, id: string, postId: string): DeliveryOutcome => ({
+  const storyCrossShareFailed: PreparationIssue = {
+    code: "FAILED",
+    path: "crossreshare_to_ig_status",
+    message: "The Threads post was published, but the Instagram Story cross-share failed.",
+    severity: "warning",
+  };
+
+  const published = (
+    a: ConnectedAccountRef,
+    id: string,
+    postId: string,
+    instagramStoryStatus?: ThreadsWorkflow["instagramStoryStatus"],
+  ): DeliveryOutcome => ({
     state: "published",
     ...outcomeFields(a, id, "PUBLISHED"),
     post: platformPostRef({ backend, platform: "threads", accountId: a.accountId, postId }),
+    // The Threads post is live, so a failed Story cross-share is a warning, not a failure.
+    ...definedFields({
+      issues: instagramStoryStatus === "FAILED" ? [storyCrossShareFailed] : undefined,
+    }),
   });
 
   const ambiguous = (
@@ -527,14 +1561,6 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     retryDisposition: { kind: "never" },
   });
 
-  function replyControlParam(value: string): string {
-    if (value === "accountsYouFollow") return "accounts_you_follow";
-
-    if (value === "mentionedOnly") return "mentioned_only";
-
-    return "everyone";
-  }
-
   function parentMediaType(childCount: number, singleKind: JsonField): string {
     if (childCount) return "CAROUSEL";
 
@@ -550,7 +1576,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     a: ConnectedAccountRef,
     c: AdapterOperationContext,
   ): Promise<DeliveryOutcome> {
-    if (w.nativeId) return published(a, w.id, w.nativeId);
+    if (w.nativeId) return published(a, w.id, w.nativeId, w.instagramStoryStatus);
 
     if (w.stage === "unknown")
       return ambiguous(
@@ -593,7 +1619,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       const childId = optionalString(child["id"]);
 
       if (childId === undefined)
-        fail("threads.container.child", "Threads did not return a child container ID.");
+        uncertain("threads.container.child", "Threads did not return a child container ID.");
       cur = await store.update(cur.id, {
         childIds: [...cur.childIds, childId],
         stage: "children",
@@ -615,7 +1641,23 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const singleUrl = optionalString(cur.options["_mediaUrl"]);
 
-      const replyControl = optionalString(cur.options["replyControl"]);
+      const replyToId = optionalString(cur.options["_replyToId"]);
+
+      const linkAttachment = optionalString(cur.options["_linkAttachment"]);
+
+      const native = threadsContainerFields(cur.options, {
+        text: cur.caption,
+        mediaCount: cur.childIds.length || (singleUrl === undefined ? 0 : 1),
+        linkUrl: linkAttachment,
+        isReply: replyToId !== undefined,
+      });
+
+      if (native.issues.length)
+        fail(
+          "threads.container.create",
+          "Stored Threads publish options are invalid; no container was created.",
+          "invalid_input",
+        );
 
       const p = new URLSearchParams({
         media_type: parentMediaType(cur.childIds.length, singleKind),
@@ -625,10 +1667,10 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           image_url: singleKind === "video" ? undefined : singleUrl,
           alt_text: optionalString(cur.options["_altText"]),
           text: cur.caption === "" ? undefined : cur.caption,
-          reply_control: replyControl === undefined ? undefined : replyControlParam(replyControl),
-          reply_to_id: optionalString(cur.options["_replyToId"]),
-          link_attachment: optionalString(cur.options["_linkAttachment"]),
+          reply_to_id: replyToId,
+          link_attachment: linkAttachment,
         }),
+        ...native.fields,
       });
 
       // Persist ambiguity before dispatch so a process crash cannot recreate a
@@ -645,7 +1687,22 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       const parentId = optionalString(parent["id"]);
 
       if (parentId === undefined)
-        fail("threads.container.create", "Threads did not return a container ID.");
+        uncertain("threads.container.create", "Threads did not return a container ID.");
+
+      // With auto_publish_text, Threads publishes during container creation. Its reference does
+      // not say whether the returned ID is the container or the post, so the SDK neither calls
+      // threads_publish nor claims a published post; the ID stays a container reference.
+      if (cur.options["autoPublishText"] === true) {
+        await store.update(cur.id, { parentId, stage: "unknown", backendState: "AUTO_PUBLISHED" });
+
+        return ambiguous(
+          a,
+          cur.id,
+          "AUTO_PUBLISHED",
+          "Threads publishes auto_publish_text posts when the container is created and does not document which ID it returns; find the post with native.listThreads.",
+        );
+      }
+
       cur = await store.update(cur.id, { parentId, stage: "parent" });
     }
 
@@ -690,9 +1747,22 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         );
       }
 
-      await store.update(cur.id, { nativeId, stage: "published", backendState: "PUBLISHED" });
+      // Threads publishes the post even when the Story cross-share fails, so the status is kept
+      // beside the published outcome. Source, accessed 2026-11-04:
+      // https://developers.facebook.com/documentation/threads/create-posts/share-to-ig-stories
+      const storyField = pub["crossreshare_to_ig_status"];
 
-      return published(a, cur.id, nativeId);
+      const instagramStoryStatus =
+        storyField === "SUCCESS" || storyField === "FAILED" ? storyField : undefined;
+
+      await store.update(cur.id, {
+        nativeId,
+        stage: "published",
+        backendState: "PUBLISHED",
+        ...definedFields({ instagramStoryStatus }),
+      });
+
+      return published(a, cur.id, nativeId, instagramStoryStatus);
     } catch (e) {
       // Code 190 rejects the token before publication, so the container stays publishable.
       if (e instanceof SocialError && e.code === "reconnect_required") {
@@ -718,7 +1788,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       { operation: "accounts.read", platform: "threads", availability: "available" },
       webhookCapability(
         "threads",
-        "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies, mentions, publish, and delete deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
+        "Verifies Meta X-Hub-Signature-256 with the app secret and decodes replies (comment.received), mentions (mention.received), publish (post.published, with no owner ID), and delete (post.removed) deliveries. Answer the GET handshake with answerMetaWebhookChallenge.",
       ),
       {
         operation: "posts.publish",
@@ -733,7 +1803,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
           allowedMimeTypes: ["image/jpeg", "image/png", "video/mp4", "video/quicktime"],
         },
         notes:
-          "content.link.url is sent as link_attachment on text posts; posts with media reject a link.",
+          "content.link.url is sent as link_attachment on text posts; posts with media reject a link. ThreadsPublishOptions map reply controls, reply approvals, topic tags, quotes, polls, GIPHY GIFs, AI labels, spoilers, text attachments, ghost posts, location tags, geo-gating, and Instagram Story cross-sharing. locationId also needs threads_location_tagging; shareToInstagramStory also needs threads_share_to_instagram.",
       },
       {
         operation: "posts.schedule",
@@ -772,11 +1842,15 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         availability: "available",
         requiredScopes: ["threads_basic", "threads_read_replies"],
       },
+      // Source, accessed 2026-11-04:
+      // https://developers.facebook.com/documentation/threads/retrieve-and-manage-replies/create-replies
       {
         operation: "comments.write",
         platform: "threads",
         availability: "available",
-        requiredScopes: ["threads_basic", "threads_content_publish"],
+        requiredScopes: ["threads_basic", "threads_content_publish", "threads_manage_replies"],
+        notes:
+          "Meta requires threads_manage_replies for reply_to_id. Replying to another user's post also needs that post to come from keyword search or mentions.",
       },
       {
         operation: "comments.moderate",
@@ -881,6 +1955,57 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         availability: "available",
         requiredScopes: ["threads_basic", "threads_manage_mentions"],
       },
+      // Sources, accessed 2026-11-04: https://developers.facebook.com/documentation/threads/reference/user,
+      // .../create-posts/location-tagging, .../insights, .../troubleshooting/debug-access-token,
+      // and .../reference/oembed.
+      {
+        operation: "replies.own.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_read_replies"],
+      },
+      {
+        operation: "posts.ghost.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic"],
+      },
+      {
+        operation: "profiles.posts.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_profile_discovery"],
+        notes:
+          "Standard access returns posts from @meta, @threads, @instagram, and @facebook only; profiles need at least 100 followers.",
+      },
+      {
+        operation: "locations.search",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_location_tagging"],
+        notes:
+          'Before threads_location_tagging approval, location_search only matches the query "Menlo Park". Meta allows 500 searches per 24 hours.',
+      },
+      {
+        operation: "analytics.demographics.read",
+        platform: "threads",
+        availability: "available",
+        requiredScopes: ["threads_basic", "threads_manage_insights"],
+        notes: "follower_demographics needs at least 100 followers and one breakdown.",
+      },
+      {
+        operation: "tokens.debug",
+        platform: "threads",
+        availability: "available",
+        notes:
+          "debug_token accepts an app access token, or a Threads tester's user token, from the same app as the inspected token.",
+      },
+      {
+        operation: "posts.embed",
+        platform: "threads",
+        availability: "available",
+        notes: "oEmbed needs no access token since March 3, 2026; the adapter still sends its own.",
+      },
       {
         operation: "messages.read",
         platform: "threads",
@@ -898,23 +2023,399 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
   };
 
   const native: ThreadsNative = {
-    publishingLimit: async ({ account: selected, context }) => {
+    publishingLimit: async ({ account: selected, fields, context }) => {
       authorize(selected, "threads.publishing.limit.read");
 
+      // Quota fields, accessed 2026-11-04:
+      // https://developers.facebook.com/documentation/threads/troubleshooting#retrieve-quota-limits
+      const query = new URLSearchParams({
+        fields:
+          fieldList("threads.publishing.limit.read", fields) ??
+          "quota_usage,config,reply_quota_usage,reply_config,delete_quota_usage,delete_config",
+      });
+
       return request(
-        `${encodeURIComponent(selected.accountId)}/threads_publishing_limit?fields=quota_usage,config`,
+        `${encodeURIComponent(selected.accountId)}/threads_publishing_limit?${query.toString()}`,
         { method: "GET" },
         "threads.publishing.limit.read",
         context,
       );
     },
-    getPost: (id, c) =>
+    getPost: (id, c, fields) =>
       request(
-        `${encodeURIComponent(id)}?fields=id,text,username,media_type,permalink`,
+        `${encodeURIComponent(id)}?${new URLSearchParams({ fields: fieldList("threads.posts.get", fields) ?? mediaFields.join(",") }).toString()}`,
         { method: "GET", ...definedFields({ signal: c.signal }) },
         "threads.posts.get",
         c,
       ),
+    async getPollResults({ account: selected, postId, context }) {
+      authorize(selected, "threads.posts.poll");
+
+      const result = await request(
+        `${encodeURIComponent(postId)}?fields=id,${pollAttachmentField}`,
+        { method: "GET" },
+        "threads.posts.poll",
+        context,
+      );
+
+      const poll = optionalObject(result["poll_attachment"]);
+
+      if (poll === undefined) return undefined;
+
+      // Meta returns option C and D only when the poll has them.
+      const options = (["a", "b", "c", "d"] as const).flatMap((letter) => {
+        const text = optionalString(poll[`option_${letter}`]);
+
+        return text === undefined
+          ? []
+          : [
+              {
+                text,
+                ...definedFields({
+                  votesPercentage: optionalNumber(poll[`option_${letter}_votes_percentage`]),
+                }),
+              },
+            ];
+      });
+
+      return {
+        options,
+        ...definedFields({
+          totalVotes: optionalNumber(poll["total_votes"]),
+          expiresAt: optionalString(poll["expiration_timestamp"]),
+        }),
+      };
+    },
+    async listThreads({ account: selected, context, ...page }) {
+      authorize(selected, "threads.posts.list");
+
+      return request(
+        `${encodeURIComponent(selected.accountId)}/threads?${mediaListQuery("threads.posts.list", [...mediaFields, "owner"], page)}`,
+        { method: "GET" },
+        "threads.posts.list",
+        context,
+      );
+    },
+    async listOwnReplies({ account: selected, context, ...page }) {
+      authorize(selected, "threads.replies.own");
+
+      return request(
+        `${encodeURIComponent(selected.accountId)}/replies?${mediaListQuery("threads.replies.own", replyFields, page)}`,
+        { method: "GET" },
+        "threads.replies.own",
+        context,
+      );
+    },
+    async listGhostPosts({ account: selected, context, ...page }) {
+      authorize(selected, "threads.posts.ghost");
+
+      return request(
+        `${encodeURIComponent(selected.accountId)}/ghost_posts?${mediaListQuery("threads.posts.ghost", ghostPostFields, page)}`,
+        { method: "GET" },
+        "threads.posts.ghost",
+        context,
+      );
+    },
+    async lookupProfile({ account: selected, username, context }) {
+      authorize(selected, "threads.profile.lookup");
+
+      const handle = username.trim().replace(/^@/u, "");
+
+      if (!/^[\w.]+$/u.test(handle))
+        fail("threads.profile.lookup", "Provide an exact Threads username.", "invalid_input");
+
+      const result = await profileLookup(handle, "threads.profile.lookup", context);
+
+      const count = (key: string): number | undefined => {
+        const value = result[key];
+
+        if (value === undefined) return undefined;
+
+        if (!isCount(value, 0))
+          fail("threads.profile.lookup", `Threads returned a malformed ${key}.`);
+
+        return value;
+      };
+
+      const isVerified = result["is_verified"];
+
+      return {
+        username: optionalString(result["username"]) ?? handle,
+        ...definedFields({
+          name: optionalString(result["name"]),
+          profilePictureUrl: optionalString(result["profile_picture_url"]),
+          biography: optionalString(result["biography"]),
+          isVerified: isBoolean(isVerified) ? isVerified : undefined,
+          followerCount: count("follower_count"),
+          likesCount: count("likes_count"),
+          quotesCount: count("quotes_count"),
+          repostsCount: count("reposts_count"),
+          viewsCount: count("views_count"),
+        }),
+      };
+    },
+    async profilePosts({ account: selected, username, context, ...page }) {
+      authorize(selected, "threads.profile.posts");
+
+      const handle = username.trim().replace(/^@/u, "");
+
+      if (!/^[\w.]+$/u.test(handle))
+        fail("threads.profile.posts", "Provide an exact Threads username.", "invalid_input");
+
+      return request(
+        `profile_posts?username=${encodeURIComponent(handle)}&${mediaListQuery("threads.profile.posts", mediaFields, page)}`,
+        { method: "GET" },
+        "threads.profile.posts",
+        context,
+      );
+    },
+    async recentlySearchedKeywords({ account: selected, context }) {
+      authorize(selected, "threads.search.recent");
+
+      const result = await request(
+        `${encodeURIComponent(selected.accountId)}?fields=id,recently_searched_keywords`,
+        { method: "GET" },
+        "threads.search.recent",
+        context,
+      );
+
+      return (optionalArray(result["recently_searched_keywords"]) ?? []).flatMap((entry) => {
+        const row = isJsonObject(entry) ? entry : {};
+
+        const query = optionalString(row["query"]);
+
+        return query === undefined
+          ? []
+          : [{ query, ...definedFields({ timestamp: optionalNumber(row["timestamp"]) }) }];
+      });
+    },
+    async geoGatingEligibility({ account: selected, context }) {
+      authorize(selected, "threads.geo_gating.read");
+
+      const result = await request(
+        `${encodeURIComponent(selected.accountId)}?fields=id,is_eligible_for_geo_gating`,
+        { method: "GET" },
+        "threads.geo_gating.read",
+        context,
+      );
+
+      const eligible = result["is_eligible_for_geo_gating"];
+
+      if (!isBoolean(eligible))
+        fail("threads.geo_gating.read", "Threads did not return geo-gating eligibility.");
+
+      return eligible;
+    },
+    async locationSearch({ account: selected, query, coordinates, context }) {
+      authorize(selected, "threads.locations.search");
+
+      const params = new URLSearchParams();
+
+      if (query !== undefined) {
+        if (!query.trim())
+          fail("threads.locations.search", "A location query is required.", "invalid_input");
+        params.set("q", query.trim());
+      }
+
+      if (coordinates !== undefined) {
+        const { latitude, longitude } = coordinates;
+
+        if (
+          !Number.isFinite(latitude) ||
+          !Number.isFinite(longitude) ||
+          Math.abs(latitude) > 90 ||
+          Math.abs(longitude) > 180
+        )
+          fail(
+            "threads.locations.search",
+            "Latitude must be within ±90 and longitude within ±180.",
+            "invalid_input",
+          );
+        params.set("latitude", String(latitude));
+        params.set("longitude", String(longitude));
+      }
+
+      if (!params.size)
+        fail("threads.locations.search", "Provide a query or coordinates.", "invalid_input");
+
+      // Not paginated. Source, accessed 2026-11-04:
+      // https://developers.facebook.com/documentation/threads/create-posts/location-tagging
+      const result = await request(
+        `location_search?${params.toString()}`,
+        { method: "GET" },
+        "threads.locations.search",
+        context,
+      );
+
+      return array(result["data"]).map((entry) =>
+        decodeLocation(entry, "threads.locations.search"),
+      );
+    },
+    async getLocation({ account: selected, locationId, context }) {
+      authorize(selected, "threads.locations.read");
+
+      if (!/^\d+$/u.test(locationId))
+        fail("threads.locations.read", "Provide a numeric Threads location ID.", "invalid_input");
+
+      return decodeLocation(
+        await request(
+          `${encodeURIComponent(locationId)}?fields=${locationFields}`,
+          { method: "GET" },
+          "threads.locations.read",
+          context,
+        ),
+        "threads.locations.read",
+      );
+    },
+    async userInsights({ account: selected, metrics, range, context }) {
+      authorize(selected, "threads.insights.user");
+
+      const metric = [...new Set(metrics)].join(",");
+
+      if (range !== undefined) {
+        const { since, until } = range;
+
+        if (
+          !Number.isSafeInteger(since) ||
+          !Number.isSafeInteger(until) ||
+          since < insightsFloor ||
+          since >= until
+        )
+          fail(
+            "threads.insights.user",
+            "Insights ranges need Unix seconds with since at or after 1712991600 and before until.",
+            "invalid_input",
+          );
+
+        if (metrics.includes("followers_count"))
+          fail(
+            "threads.insights.user",
+            "followers_count does not accept a since/until range.",
+            "invalid_input",
+          );
+      }
+
+      // Source, accessed 2026-11-04: https://developers.facebook.com/documentation/threads/insights
+      const result = await request(
+        range === undefined
+          ? `${encodeURIComponent(selected.accountId)}/threads_insights?metric=${metric}`
+          : `${encodeURIComponent(selected.accountId)}/threads_insights?metric=${metric}&since=${range.since}&until=${range.until}`,
+        { method: "GET" },
+        "threads.insights.user",
+        context,
+      );
+
+      return array(result["data"]).flatMap((entry) => decodeInsightRow(entry) ?? []);
+    },
+    async followerDemographics({ account: selected, breakdown, context }) {
+      authorize(selected, "threads.insights.demographics");
+
+      if (!["country", "city", "age", "gender"].includes(breakdown))
+        fail(
+          "threads.insights.demographics",
+          "breakdown must be country, city, age, or gender.",
+          "invalid_input",
+        );
+
+      return request(
+        `${encodeURIComponent(selected.accountId)}/threads_insights?metric=follower_demographics&breakdown=${breakdown}`,
+        { method: "GET" },
+        "threads.insights.demographics",
+        context,
+      );
+    },
+    async debugToken({ inputToken, appAccessToken, context }) {
+      if (appAccessToken !== undefined && !/^TH\|\d+\|\S+$/u.test(appAccessToken))
+        fail(
+          "threads.tokens.debug",
+          "appAccessToken must use the TH|<APP_ID>|<APP_SECRET> format.",
+          "invalid_input",
+        );
+
+      if (inputToken !== undefined && !inputToken.trim())
+        fail("threads.tokens.debug", "inputToken must be non-empty.", "invalid_input");
+
+      const client =
+        appAccessToken === undefined
+          ? http
+          : managedHttp(`https://graph.threads.net/${version}`, {
+              apiKey: appAccessToken,
+              ...definedFields({ fetch: options.fetch }),
+            });
+
+      // Source, accessed 2026-11-04:
+      // https://developers.facebook.com/documentation/threads/troubleshooting/debug-access-token
+      const result = await request(
+        `/debug_token?${new URLSearchParams({ input_token: inputToken ?? auth.accessToken }).toString()}`,
+        { method: "GET" },
+        "threads.tokens.debug",
+        context,
+        client,
+      );
+
+      const data = object(result["data"]);
+
+      const valid = data["is_valid"];
+
+      if (!isBoolean(valid)) fail("threads.tokens.debug", "Threads did not return token validity.");
+
+      return {
+        isValid: valid,
+        scopes: (optionalArray(data["scopes"]) ?? []).filter(isString),
+        ...definedFields({
+          type: optionalString(data["type"]),
+          application: optionalString(data["application"]),
+          expiresAt: optionalNumber(data["expires_at"]),
+          dataAccessExpiresAt: optionalNumber(data["data_access_expires_at"]),
+          issuedAt: optionalNumber(data["issued_at"]),
+          userId: optionalString(data["user_id"]),
+        }),
+      };
+    },
+    async oembed({ url, maxWidth, context }) {
+      if (!isThreadsPermalink(url))
+        fail(
+          "threads.oembed",
+          "Provide a https://www.threads.com post, /t/ short link, or profile URL.",
+          "invalid_input",
+        );
+
+      if (
+        maxWidth !== undefined &&
+        (!Number.isSafeInteger(maxWidth) || maxWidth < 320 || maxWidth > 658)
+      )
+        fail(
+          "threads.oembed",
+          "maxWidth must be an integer from 320 through 658.",
+          "invalid_input",
+        );
+
+      const params = new URLSearchParams({ url });
+
+      if (maxWidth !== undefined) params.set("maxwidth", String(maxWidth));
+
+      const result = await request(
+        `oembed?${params.toString()}`,
+        { method: "GET" },
+        "threads.oembed",
+        context,
+      );
+
+      const html = optionalString(result["html"]);
+
+      if (html === undefined) fail("threads.oembed", "Threads did not return embed HTML.");
+
+      return {
+        html,
+        ...definedFields({
+          providerName: optionalString(result["provider_name"]),
+          providerUrl: optionalString(result["provider_url"]),
+          type: optionalString(result["type"]),
+          version: optionalString(result["version"]),
+          width: optionalNumber(result["width"]),
+        }),
+      };
+    },
     getContainer: (id, c) => status(id, c),
     resumePublication: async (a, id, c) => {
       authorize(a, "threads.posts.resume");
@@ -939,8 +2440,10 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     async quotePost({ account, postId, text, context }) {
       authorize(account, "threads.posts.quote");
 
+      const params = new URLSearchParams({ media_type: "TEXT", text, quote_post_id: postId });
+
       const container = await request(
-        `${encodeURIComponent(account.accountId)}/threads?media_type=TEXT&text=${encodeURIComponent(text)}&quote_post_id=${encodeURIComponent(postId)}`,
+        `${encodeURIComponent(account.accountId)}/threads?${params.toString()}`,
         { method: "POST" },
         "threads.posts.quote",
         context,
@@ -949,33 +2452,52 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       const creationId = optionalString(container["id"]);
 
       if (creationId === undefined)
-        fail("threads.posts.quote", "Threads did not return a quote container ID.");
+        uncertain("threads.posts.quote", "Threads did not return a quote container ID.");
 
-      return request(
+      const result = await request(
         `${encodeURIComponent(account.accountId)}/threads_publish?creation_id=${encodeURIComponent(creationId)}`,
         { method: "POST" },
         "threads.posts.quote",
         context,
       );
+
+      if (optionalString(result["id"]) === undefined)
+        uncertain("threads.posts.quote", "Threads did not return the quote post ID.");
+
+      return result;
     },
     async repost({ account, postId, context }) {
       authorize(account, "threads.posts.repost");
 
-      return request(
+      if (!/^\d+$/u.test(postId))
+        fail("threads.posts.repost", "Provide a numeric Threads media ID.", "invalid_input");
+
+      const result = await request(
         `${encodeURIComponent(postId)}/repost`,
         { method: "POST" },
         "threads.posts.repost",
         context,
       );
+
+      // The response carries the new repost's ID. Source, accessed 2026-11-04:
+      // https://developers.facebook.com/documentation/threads/posts/reposts
+      if (optionalString(result["id"]) === undefined)
+        uncertain("threads.posts.repost", "Threads did not return a repost ID.");
+
+      return result;
     },
     async deletePost({ account, postId, context }) {
       authorize(account, "threads.posts.delete");
 
-      await request(
-        encodeURIComponent(postId),
-        { method: "DELETE" },
+      confirmWrite(
+        await request(
+          encodeURIComponent(postId),
+          { method: "DELETE" },
+          "threads.posts.delete",
+          context,
+        ),
         "threads.posts.delete",
-        context,
+        "Threads did not confirm the post deletion.",
       );
     },
     async search({
@@ -989,6 +2511,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
       until,
       limit,
       authorUsername,
+      fields,
       context,
     }) {
       authorize(account, "threads.search");
@@ -1006,7 +2529,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
       const params = new URLSearchParams({
         q,
-        fields: "id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post",
+        fields: fieldList("threads.search", fields) ?? searchFields,
       });
 
       if (searchType !== undefined) params.set("search_type", searchType);
@@ -1032,11 +2555,11 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         context,
       );
     },
-    async mentions({ account, cursor, context }) {
+    async mentions({ account, fields, since, until, limit, cursor, before, context }) {
       authorize(account, "threads.mentions");
 
       return request(
-        `${encodeURIComponent(account.accountId)}/mentions?fields=id,text,username,media_type,media_url,permalink,timestamp${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`,
+        `${encodeURIComponent(account.accountId)}/mentions?${mediaListQuery("threads.mentions", mentionFields, { fields, since, until, limit, cursor, before })}`,
         { method: "GET" },
         "threads.mentions",
         context,
@@ -1055,11 +2578,15 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     async hideReply({ account, replyId, hide, context }) {
       authorize(account, "threads.comments.moderate");
 
-      return request(
-        `${encodeURIComponent(replyId)}/manage_reply?hide=${String(hide)}`,
-        { method: "POST" },
+      return confirmWrite(
+        await request(
+          `${encodeURIComponent(replyId)}/manage_reply?hide=${String(hide)}`,
+          { method: "POST" },
+          "threads.comments.moderate",
+          context,
+        ),
         "threads.comments.moderate",
-        context,
+        "Threads did not confirm the reply visibility change.",
       );
     },
     async deleteComment({ account, commentId, context }) {
@@ -1081,29 +2608,79 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         context,
       );
 
-      if (result["success"] !== true)
-        fail("threads.comments.delete", "Threads did not confirm the reply deletion.");
+      confirmWrite(
+        result,
+        "threads.comments.delete",
+        "Threads did not confirm the reply deletion.",
+      );
     },
-    async listConversation({ account, mediaId, cursor, context }) {
-      authorize(account, "threads.comments.conversation");
+    async listReplies({ account, mediaId, cursor, before, reverse, fields, context }) {
+      authorize(account, "threads.comments.list");
+
+      const query = new URLSearchParams(
+        mediaListQuery("threads.comments.list", [...replyFields, "hide_status", "topic_tag"], {
+          fields,
+          cursor,
+          before,
+        }),
+      );
+
+      if (reverse !== undefined) query.set("reverse", String(reverse));
 
       return request(
-        `${encodeURIComponent(mediaId)}/conversation?fields=id,text,username,permalink,timestamp,is_reply,hide_status${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`,
+        `${encodeURIComponent(mediaId)}/replies?${query.toString()}`,
+        { method: "GET" },
+        "threads.comments.list",
+        context,
+      );
+    },
+    async listConversation({ account, mediaId, cursor, before, reverse, fields, context }) {
+      authorize(account, "threads.comments.conversation");
+
+      const selected =
+        fieldList("threads.comments.conversation", fields) ?? conversationFields.join(",");
+
+      if (cursor !== undefined && before !== undefined)
+        fail(
+          "threads.comments.conversation",
+          "Send cursor (after) or before, not both.",
+          "invalid_input",
+        );
+
+      const query = new URLSearchParams();
+
+      if (before !== undefined) query.set("before", before);
+
+      if (cursor !== undefined) query.set("after", cursor);
+
+      if (reverse !== undefined) query.set("reverse", String(reverse));
+
+      return request(
+        `${encodeURIComponent(mediaId)}/conversation?fields=${selected}${query.size ? `&${query.toString()}` : ""}`,
         { method: "GET" },
         "threads.comments.conversation",
         context,
       );
     },
-    async listPendingReplies({ account, mediaId, cursor, approvalStatus, context }) {
+    async listPendingReplies({
+      account,
+      mediaId,
+      cursor,
+      before,
+      reverse,
+      approvalStatus,
+      fields,
+      context,
+    }) {
       authorize(account, "threads.comments.pending");
 
-      const params = new URLSearchParams({
-        fields: "id,text,username,timestamp,is_reply,hide_status,reply_approval_status",
-      });
-
-      if (cursor !== undefined) params.set("after", cursor);
+      const params = new URLSearchParams(
+        mediaListQuery("threads.comments.pending", pendingReplyFields, { fields, cursor, before }),
+      );
 
       if (approvalStatus !== undefined) params.set("approval_status", approvalStatus);
+
+      if (reverse !== undefined) params.set("reverse", String(reverse));
 
       return request(
         `${encodeURIComponent(mediaId)}/pending_replies?${params.toString()}`,
@@ -1115,11 +2692,15 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
     async managePendingReply({ account, replyId, approve, context }) {
       authorize(account, "threads.comments.moderate");
 
-      return request(
-        `${encodeURIComponent(replyId)}/manage_pending_reply?approve=${String(approve)}`,
-        { method: "POST" },
+      return confirmWrite(
+        await request(
+          `${encodeURIComponent(replyId)}/manage_pending_reply?approve=${String(approve)}`,
+          { method: "POST" },
+          "threads.comments.moderate",
+          context,
+        ),
         "threads.comments.moderate",
-        context,
+        "Threads did not confirm the pending reply decision.",
       );
     },
   };
@@ -1148,12 +2729,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         let result: JsonObject;
 
         if (input.handle !== undefined) {
-          result = await request(
-            `profile_lookup?username=${encodeURIComponent(input.handle)}&fields=username,name,profile_picture_url,biography,is_verified`,
-            { method: "GET" },
-            "profiles.read",
-            context,
-          );
+          result = await profileLookup(input.handle, "profiles.read", context);
         } else {
           const profileId = input.profileId ?? account.accountId;
 
@@ -1219,8 +2795,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const params = new URLSearchParams({
           q: query,
-          fields:
-            "id,text,media_type,media_url,permalink,timestamp,username,shortcode,is_quote_post",
+          fields: searchFields,
         });
 
         if (input.limit !== undefined) {
@@ -1328,22 +2903,18 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
             add("media.alt_text", "Alt text is limited to 1,000 characters.");
         }
 
-        if (target.options !== undefined) {
-          const o = optionsObject(target);
+        const o = optionsObject(target);
 
-          if (Object.keys(o).some((key) => key !== "replyControl"))
-            add("options.unmapped", "A supplied option has no Threads mapping.");
+        if (Object.keys(o).some((key) => !threadsOptionKeys.has(key)))
+          add("options.unmapped", "A supplied option has no Threads mapping.");
 
-          const replyControl = o["replyControl"];
-
-          if (
-            replyControl !== undefined &&
-            replyControl !== "everyone" &&
-            replyControl !== "accountsYouFollow" &&
-            replyControl !== "mentionedOnly"
-          )
-            add("options.reply_control", "Unsupported Threads reply control.");
-        }
+        for (const issue of threadsContainerFields(o, {
+          text: target.content.text ?? "",
+          mediaCount: media.length,
+          linkUrl: link?.url,
+          isReply: target.replyTo !== undefined,
+        }).issues)
+          add(issue.code, issue.message);
 
         if (target.schedule)
           add("schedule.unsupported", "Threads scheduling requires an application-owned runner.");
@@ -1438,7 +3009,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const owner = accountRef(backend, ref.accountId);
 
-        if (w.nativeId) return published(owner, w.id, w.nativeId);
+        if (w.nativeId) return published(owner, w.id, w.nativeId, w.instagramStoryStatus);
 
         if (w.stage === "unknown")
           return ambiguous(owner, w.id, w.backendState, "Explicit resumePublication is required.");
@@ -1495,7 +3066,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         const creationId = optionalString(container["id"]);
 
         if (creationId === undefined)
-          fail("threads.comments.reply", "Threads did not return a reply container ID.");
+          uncertain("threads.comments.reply", "Threads did not return a reply container ID.");
 
         const result = await request(
           `${encodeURIComponent(comment.accountId)}/threads_publish?creation_id=${encodeURIComponent(creationId)}`,

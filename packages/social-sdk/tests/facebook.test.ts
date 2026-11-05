@@ -131,7 +131,7 @@ describe("facebook pages adapter", () => {
 
     assert.equal(outcome?.state, "published");
     assert.equal(outcome?.state === "published" ? outcome.post.postId : undefined, "123_456");
-    assert.equal(calls[0]?.url.href, "https://graph.facebook.com/v25.0/123/feed");
+    assert.equal(calls[0]?.url.href, "https://graph.facebook.com/v27.0/123/feed");
     assert.equal(calls[0]?.headers.get("authorization"), "Bearer page-token");
     assert.deepEqual(calls[0]?.body, { message: "Hello", link: "https://example.com/launch" });
   });
@@ -190,7 +190,7 @@ describe("facebook pages adapter", () => {
       result.outcomes[0]?.state === "published" ? result.outcomes[0].post.postId : undefined,
       "123_900",
     );
-    assert.equal(calls[0]?.url.pathname, "/v25.0/123/photos");
+    assert.equal(calls[0]?.url.pathname, "/v27.0/123/photos");
     assert.deepEqual(calls[0]?.body, {
       url: "https://cdn.example.com/bike.jpg",
       caption: "Photo",
@@ -299,7 +299,7 @@ describe("facebook pages adapter", () => {
           return true;
         },
       );
-      assert.deepEqual(calls.slice(2), ["DELETE /v25.0/p1"]);
+      assert.deepEqual(calls.slice(2), ["DELETE /v27.0/p1"]);
     });
 
     it("keeps the IDs of staged photos it could not remove", async () => {
@@ -319,7 +319,7 @@ describe("facebook pages adapter", () => {
       const { calls, adapter: fb } = graph({ secondUpload: "ok", feed: "rejected", deletes: "ok" });
 
       await assert.rejects(fb.posts!.publishTarget(album, context), { code: "upstream_failure" });
-      assert.deepEqual(calls.slice(3), ["DELETE /v25.0/p1", "DELETE /v25.0/p2"]);
+      assert.deepEqual(calls.slice(3), ["DELETE /v27.0/p1", "DELETE /v27.0/p2"]);
     });
 
     it("keeps staged photos and reports unknown when the post request is ambiguous", async () => {
@@ -376,7 +376,7 @@ describe("facebook pages adapter", () => {
     const outcome = result.outcomes[0];
 
     assert.equal(outcome?.state, "processing");
-    assert.equal(calls[0]?.url.href, "https://graph-video.facebook.com/v25.0/123/videos");
+    assert.equal(calls[0]?.url.href, "https://graph-video.facebook.com/v27.0/123/videos");
     assert.deepEqual(calls[0]?.body, {
       file_url: "https://cdn.example.com/clip.mp4",
       description: "Clip",
@@ -435,7 +435,7 @@ describe("facebook pages adapter", () => {
 
   it("publishes a Reel through start, hosted upload, and finish phases", async () => {
     const { calls, adapter: fb } = adapter([
-      { video_id: "reel1", upload_url: "https://rupload.facebook.com/video-upload/v25.0/reel1" },
+      { video_id: "reel1", upload_url: "https://rupload.facebook.com/video-upload/v27.0/reel1" },
       { success: true },
       { success: true },
     ]);
@@ -458,7 +458,7 @@ describe("facebook pages adapter", () => {
 
     assert.equal(result.outcomes[0]?.state, "processing");
     assert.deepEqual(calls[0]?.body, { upload_phase: "start" });
-    assert.equal(calls[1]?.url.href, "https://rupload.facebook.com/video-upload/v25.0/reel1");
+    assert.equal(calls[1]?.url.href, "https://rupload.facebook.com/video-upload/v27.0/reel1");
     assert.equal(calls[1]?.headers.get("authorization"), "OAuth page-token");
     assert.equal(calls[1]?.headers.get("file_url"), "https://cdn.example.com/reel.mp4");
     assert.deepEqual(calls[2]?.body, {
@@ -544,7 +544,7 @@ describe("facebook pages adapter", () => {
     );
   });
 
-  it("lists posts with Graph cursors and refuses another Page's reference", async () => {
+  it("lists posts from /{page-id}/posts with Graph cursors and refuses another Page's reference [feature:facebook.read.posts]", async () => {
     const { calls, adapter: fb } = adapter([
       {
         data: [{ id: "123_1", message: "Hi", from: { id: "secret" } }],
@@ -555,6 +555,7 @@ describe("facebook pages adapter", () => {
     const result = await fb.posts!.list!(page, { limit: 10 }, context);
 
     assert.deepEqual(result, { items: [{ id: "123_1", message: "Hi" }], nextCursor: "c2" });
+    assert.equal(calls[0]?.url.pathname, "/v27.0/123/posts");
     assert.equal(calls[0]?.url.searchParams.get("limit"), "10");
 
     await assert.rejects(fb.posts!.list!({ ...page, accountId: "999" }, {}, context), {
@@ -562,7 +563,28 @@ describe("facebook pages adapter", () => {
     });
   });
 
-  it("reads, replies to, hides, and deletes comments", async () => {
+  it("lists replies to a comment from /{comment-id}/comments with a cursor [feature:facebook.comments.replies.read]", async () => {
+    const { calls, adapter: fb } = adapter([
+      { data: [{ id: "c9", message: "Agreed" }], paging: { cursors: { after: "r2" }, next: "x" } },
+    ]);
+
+    assert.ok(fb.native);
+
+    const replies = await fb.native.listCommentReplies({
+      account: page,
+      commentId: "123_1_c1",
+      limit: 5,
+      context,
+    });
+
+    assert.equal(calls[0]?.method, "GET");
+    assert.equal(calls[0]?.url.pathname, "/v27.0/123_1_c1/comments");
+    assert.equal(calls[0]?.url.searchParams.get("limit"), "5");
+    assert.equal(replies.items[0]?.["id"], "c9");
+    assert.equal(replies.nextCursor, "r2");
+  });
+
+  it("reads, replies to, hides, and deletes comments [feature:facebook.comments.write]", async () => {
     const { calls, adapter: fb } = adapter([
       { data: [{ id: "c1", message: "Nice" }], paging: { cursors: { after: "x" } } },
       { id: "c2" },
@@ -601,7 +623,7 @@ describe("facebook pages adapter", () => {
     );
 
     assert.equal(reply.commentId, "c2");
-    assert.equal(calls[1]?.url.pathname, "/v25.0/c1/comments");
+    assert.equal(calls[1]?.url.pathname, "/v27.0/c1/comments");
 
     await fb.native!.moderateComment({ account: page, commentId: "c1", hidden: true, context });
     assert.deepEqual(calls[2]?.body, { is_hidden: true });
@@ -645,7 +667,7 @@ describe("facebook pages adapter", () => {
       "id,is_published,scheduled_publish_time",
     );
     assert.equal(calls[1]?.method, "DELETE");
-    assert.equal(calls[1]?.url.pathname, "/v25.0/123_789");
+    assert.equal(calls[1]?.url.pathname, "/v27.0/123_789");
   });
 
   it("cancels a scheduled video only while it is unpublished with a future time", async () => {
@@ -742,7 +764,7 @@ describe("facebook pages adapter", () => {
       status: 200,
       body: {
         video_id: "reel7",
-        upload_url: "https://rupload.facebook.com/video-upload/v25.0/reel7",
+        upload_url: "https://rupload.facebook.com/video-upload/v27.0/reel7",
       },
     };
 
@@ -892,7 +914,7 @@ describe("facebook pages adapter", () => {
       ],
     );
     assert.equal(result.nextCursor, "n");
-    assert.equal(calls[0]?.url.pathname, "/v25.0/me/accounts");
+    assert.equal(calls[0]?.url.pathname, "/v27.0/me/accounts");
     assert.equal(calls[0]?.headers.get("authorization"), "Bearer user-token");
   });
 

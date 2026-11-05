@@ -158,7 +158,7 @@ test("Instagram account feeds use the after cursor and selected media fields", a
     instagramContext,
   );
 
-  assert.equal(requested?.pathname, "/v25.0/ig1/media");
+  assert.equal(requested?.pathname, "/v27.0/ig1/media");
   assert.equal(requested?.searchParams.get("after"), "cursor-instagram");
   assert.equal(requested?.searchParams.get("limit"), "6");
   assert.equal(page.nextCursor, "next-instagram");
