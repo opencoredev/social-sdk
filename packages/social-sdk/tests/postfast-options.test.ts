@@ -885,5 +885,5 @@ it("PostFast publishes one MP4 video to Bluesky as a VIDEO media item [feature:p
 
   assert.equal(items.length, 1);
   assert.equal(items[0]?.["type"], "VIDEO");
-  assert.equal(typeof items[0]?.["key"], "string");
+  assert.match(String(items[0]?.["key"]), /^video\//);
 });
