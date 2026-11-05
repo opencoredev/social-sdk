@@ -9351,7 +9351,7 @@
           "operation": "webhooks.verify",
           "platform": "bluesky",
           "availability": "unsupported-by-platform",
-          "notes": "Bluesky has no signed webhook delivery. Read the connected account inbox with notifications.list and markSeen. The firehose and Jetstream are network indexing streams; filtering by the connected DID watches its authored records, not inbound mentions or replies."
+          "notes": "Bluesky has no signed webhook delivery. Read the connected account inbox with notifications.list and markSeen. The firehose and Jetstream are network indexing streams; filtering by the connected DID watches its authored records, not inbound mentions or replies. blueskyJetstreamSubscription builds a Jetstream URL and parseBlueskyJetstreamEvent decodes frames; the SDK opens no sockets."
         },
         {
           "operation": "accounts.read",
@@ -9369,13 +9369,13 @@
             "video"
           ],
           "constraints": {
-            "maxItems": 4,
+            "maxItems": 10,
             "allowedMimeTypes": [
               "image/*",
               "video/mp4"
             ]
           },
-          "notes": "App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
+          "notes": "One to four images use app.bsky.embed.images; five to ten use app.bsky.embed.gallery and need width and height. Reply controls and quote blocking write a threadgate and postgate with the post in one com.atproto.repo.applyWrites call. App passwords authorize through the PDS. OAuth requires atproto plus appropriate repo:<collection>?action=... or rpc:<method> permissions, or the broad transition:generic grant. These are alternatives; inspect the returned grant."
         },
         {
           "operation": "posts.schedule",
@@ -9480,6 +9480,41 @@
           ]
         },
         {
+          "operation": "posts.draft",
+          "platform": "bluesky",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.createDraft, listDrafts, updateDraft, and deleteDraft store private app.bsky.draft drafts. Drafts do not publish on a schedule; image, gallery, and video draft embeds hold device-local paths, not media bytes."
+        },
+        {
+          "operation": "bookmarks.read",
+          "platform": "bluesky",
+          "availability": "available",
+          "surface": "native",
+          "notes": "Private bookmarks through app.bsky.bookmark; post records only."
+        },
+        {
+          "operation": "bookmarks.write",
+          "platform": "bluesky",
+          "availability": "available",
+          "surface": "native",
+          "notes": "Private bookmarks through app.bsky.bookmark; post records only."
+        },
+        {
+          "operation": "labels.read",
+          "platform": "bluesky",
+          "availability": "available",
+          "surface": "native",
+          "notes": "native.getLabelerServices and native.queryLabels read labeler views and labels."
+        },
+        {
+          "operation": "messages.group.write",
+          "platform": "bluesky",
+          "availability": "available",
+          "surface": "native",
+          "notes": "Bluesky marks chat.bsky.group endpoints unstable while under active development. Group creation is not idempotent."
+        },
+        {
           "operation": "comments.read",
           "platform": "bluesky",
           "availability": "available"
@@ -9529,7 +9564,7 @@
           "formats": [
             "video"
           ],
-          "notes": "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token. Returns the processing job ID as the media reference."
+          "notes": "Uploads one video/mp4 Blob of at most 300,000,000 bytes to the Bluesky video service with a PDS service token: one uploadVideo request up to 50,000,000 bytes, the multipart upload above that. Returns the processing job ID as the media reference."
         },
         {
           "operation": "media.video",
@@ -9538,7 +9573,7 @@
           "formats": [
             "video"
           ],
-          "notes": "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job."
+          "notes": "native.uploadVideo sends one app.bsky.video.uploadVideo request and returns the job. native.uploadVideoMultipart sends startUpload, each uploadPart in order, and finishUpload; startVideoUpload, uploadVideoPart, finishVideoUpload, getVideoUploadStatus, and abortVideoUpload expose each step for resuming."
         },
         {
           "operation": "media.status",

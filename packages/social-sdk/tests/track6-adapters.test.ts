@@ -823,6 +823,6 @@ it("declares machine-readable publish media constraints that match prepareTarget
         fetch,
       }),
     )?.maxItems,
-    4,
+    10,
   );
 });

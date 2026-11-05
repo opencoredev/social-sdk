@@ -88,7 +88,7 @@ test("Bluesky exact image byte boundaries hold for Blob, stream and remote input
   }
 });
 
-test("Bluesky rejects explicit link cards without dispatch", async () => {
+test("Bluesky rejects a link card combined with media without dispatch", async () => {
   let calls = 0;
 
   const social = createSocial({
@@ -102,18 +102,25 @@ test("Bluesky rejects explicit link cards without dispatch", async () => {
     }),
   });
 
-  const prepared = await social.posts.prepare({
-    targets: [{ account }],
-    content: { text: "link", link: { url: "https://example.com" } },
-  });
+  const content = {
+    text: "link",
+    link: { url: "https://example.com" },
+    media: [
+      {
+        kind: "image" as const,
+        source: {
+          kind: "blob" as const,
+          blob: new Blob([new Uint8Array([1])], { type: "image/png" }),
+          fingerprint: "fixture",
+        },
+      },
+    ],
+  };
 
-  assert.ok(prepared.issues.some((issue) => issue.severity === "error"));
-  await assert.rejects(
-    social.posts.publish({
-      targets: [{ account }],
-      content: { text: "link", link: { url: "https://example.com" } },
-    }),
-  );
+  const prepared = await social.posts.prepare({ targets: [{ account }], content });
+
+  assert.ok(prepared.issues.some((issue) => issue.code === "link.with_media"));
+  await assert.rejects(social.posts.publish({ targets: [{ account }], content }));
   assert.equal(calls, 0);
 });
 
