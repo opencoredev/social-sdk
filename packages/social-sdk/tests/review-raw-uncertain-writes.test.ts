@@ -52,7 +52,7 @@ describe("Graph raw writes that read the object back", () => {
     platform: "facebook" | "instagram",
     response: () => Response,
     method: "GET" | "POST",
-    query: Readonly<Record<string, string>>,
+    query: Readonly<Record<string, string | readonly string[]>>,
   ) => {
     let calls = 0;
 
@@ -138,6 +138,13 @@ describe("Graph raw writes that read the object back", () => {
 
     assert.equal(write.code, "upstream_failure");
     assert.deepEqual(write.retryDisposition, { kind: "never" });
+
+    // An empty fields list sends no fields parameter, so nothing is read back.
+    const emptyFields = await rejection(
+      send("facebook", () => json(graphError(100), 400), "POST", { fields: [] }).work,
+    );
+
+    assert.equal(emptyFields.code, "upstream_failure");
 
     const read = await rejection(
       send("facebook", () => json(graphError(100), 400), "GET", { fields: "id" }).work,

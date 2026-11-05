@@ -394,7 +394,8 @@ export async function rawProviderRequest<THost extends string>(
   const readsBack =
     method !== "GET" &&
     method !== "HEAD" &&
-    Object.keys(input.query ?? {}).some((key) => readAfterWrite.has(key.toLowerCase()));
+    // The URL actually sent decides: an empty list adds no parameter.
+    [...url.searchParams.keys()].some((key) => readAfterWrite.has(key.toLowerCase()));
 
   const reserved = new Set([...sharedReservedHeaders, ...(config.reservedHeaders ?? [])]);
   const headers = new Headers();
