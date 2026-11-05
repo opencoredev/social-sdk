@@ -4687,9 +4687,20 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
     context: AdapterOperationContext,
     operation: string,
   ): Promise<JsonObject> {
-    return object(
-      object(await requireUserToken(operation)(path, context, body, {}, method))["data"],
-    );
+    const result = await requireUserToken(operation)(path, context, body, {}, method);
+
+    const data = isJsonObject(result) ? result["data"] : undefined;
+
+    // The request was dispatched, so an unreadable envelope leaves the change uncertain.
+    if (!isJsonObject(data))
+      throw new SocialError({
+        code: "ambiguous_outcome",
+        operation,
+        message: "X did not confirm the broadcast change. Read its state before retrying.",
+        retryDisposition: { kind: "reconcile-first" },
+      });
+
+    return data;
   }
 
   const epochMs = (value: string, name: string, operation: string) => {
@@ -7671,7 +7682,8 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           operation: "x.lists.memberships",
           credential: "user-or-app",
           query: {
-            "list.fields": "id,name,description,private,member_count,follower_count,owner_id",
+            "list.fields": "id,name,description,private,member_count,follower_count",
+            expansions: "owner_id",
           },
           cursor,
           limit,
@@ -8129,7 +8141,7 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           credential: "user",
           query: {
             "dm_event.fields":
-              "id,text,event_type,created_at,dm_conversation_id,sender_id,attachments,entities",
+              "id,text,event_type,created_at,dm_conversation_id,attachments,entities",
             expansions: "sender_id,attachments.media_keys",
           },
         });
@@ -8586,20 +8598,17 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         authorize(account, context);
         requireId(articleId, "articleId", "x.articles.publish");
 
-        const result = object(
-          await requireUserToken("x.articles.publish")(
-            `/2/articles/${articleId}/publish`,
-            context,
-            undefined,
-            {},
-            "POST",
-          ),
+        const result = await requireUserToken("x.articles.publish")(
+          `/2/articles/${articleId}/publish`,
+          context,
+          undefined,
+          {},
+          "POST",
         );
 
-        const postId =
-          result["data"] === undefined
-            ? undefined
-            : optionalString(object(result["data"])["post_id"]);
+        const data = isJsonObject(result) ? result["data"] : undefined;
+
+        const postId = isJsonObject(data) ? optionalString(data["post_id"]) : undefined;
 
         if (postId === undefined)
           throw new SocialError({
@@ -9501,19 +9510,13 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
           // X can answer HTTP 200 with only `errors`; that segment was not accepted.
           const appendErrors = isJsonObject(appended) ? appended["errors"] : undefined;
 
-          if (isJsonArray(appendErrors) && appendErrors.length > 0) {
-            const first = appendErrors[0];
-
-            const detail = isJsonObject(first)
-              ? (optionalString(first["detail"]) ?? optionalString(first["title"]))
-              : undefined;
-
+          // Provider prose can echo request values, so the message keeps only the segment position.
+          if (isJsonArray(appendErrors) && appendErrors.length > 0)
             throw new SocialError({
               code: "upstream_failure",
               operation,
-              message: `X rejected chat media segment ${index + 1} of ${parts}${detail === undefined ? "." : `: ${detail}`}`,
+              message: `X rejected chat media segment ${index + 1} of ${parts}.`,
             });
-          }
         }
 
         await chatWrite({
@@ -10466,7 +10469,27 @@ export function x(options: XOptions): import("../core/adapter.js").SocialAdapter
         if (!name.trim() || !/^[a-z]{2}-[a-z]+-[0-9]$/.test(region))
           throw invalid("x.sources.create", "Give a source name and a region such as us-east-1.");
 
-        return broadcastWrite("/2/sources", { name, region }, "POST", context, "x.sources.create");
+        const source = await broadcastWrite(
+          "/2/sources",
+          { name, region },
+          "POST",
+          context,
+          "x.sources.create",
+        );
+
+        // X's CreateSourceResponseData requires both; without them the source cannot be used.
+        if (
+          optionalString(source["id"]) === undefined ||
+          optionalString(source["stream_key"]) === undefined
+        )
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "x.sources.create",
+            message: "X did not return the new stream source. List sources before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        return source;
       },
       async deleteStreamSource({ account, sourceId, context }) {
         authorize(account, context);

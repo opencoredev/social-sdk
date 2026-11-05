@@ -252,7 +252,7 @@ it("reads affiliates, List followers and List memberships [feature:x.graph.affil
   ]);
   assert.equal(
     seen[2]?.href,
-    "https://api.x.com/2/users/11/list_memberships?list.fields=id%2Cname%2Cdescription%2Cprivate%2Cmember_count%2Cfollower_count%2Cowner_id",
+    "https://api.x.com/2/users/11/list_memberships?list.fields=id%2Cname%2Cdescription%2Cprivate%2Cmember_count%2Cfollower_count&expansions=owner_id",
   );
 });
 

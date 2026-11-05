@@ -211,7 +211,9 @@ it("lists X Chat conversations, reads events and sends plaintext or XDK messages
 it("schedules, runs and moderates live broadcasts through /2/broadcasts [feature:x.broadcasts]", async () => {
   const { native, seen } = fake({
     "GET /2/sources": { data: [{ id: "fixture-source", name: "Studio", region: "us-east-1" }] },
-    "POST /2/sources": { data: { id: "fixture-source", name: "Studio", region: "us-east-1" } },
+    "POST /2/sources": {
+      data: { id: "fixture-source", name: "Studio", region: "us-east-1", stream_key: "fixture" },
+    },
     "POST /2/broadcasts/scheduled": {
       data: { broadcast_id: "1yNGaQLWpejGj", manual_publish: true },
     },
