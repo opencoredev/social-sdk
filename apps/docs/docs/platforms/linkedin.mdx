@@ -24,7 +24,7 @@ const social = createSocial({
       accessToken: process.env.LINKEDIN_ACCESS_TOKEN!,
       author: "urn:li:person:abc123",
     },
-    apiVersion: "202609",
+    apiVersion: "202610",
   }),
 });
 
@@ -42,7 +42,7 @@ const result = await social.posts.publish({
 
 Replace `urn:li:person:abc123` with the member URN of the token's owner, or use an `urn:li:organization:` URN for a Page. The setup below covers app approval, scopes and version upkeep.
 
-The direct LinkedIn adapter supports account reads, normalized text, article links, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, image, video and document status checks, and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
+The direct LinkedIn adapter supports account reads, normalized text, article links, single-image, multi-image, single-video, and document publishing, native post reads, comment reads/replies, and returned social-action counts. Its typed native module adds administered-organization discovery, polls, reactions, reshares, updates, deletion, image, video and document status checks (single and batch), and organization analytics operations. Configure a member or organization author URN and an explicit monthly API version. Existing authorization is server-owned; this adapter does not grant organization roles or perform account selection for you.
 
 ## Setup
 
@@ -60,11 +60,14 @@ The direct LinkedIn adapter supports account reads, normalized text, article lin
     webhooks are unavailable in Development.
     See [LinkedIn access tiers](https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access).
     The SDK's default [OAuth setup](/authentication) requests `openid`, `profile`, and
-    `w_member_social`, which does not grant organization publishing or feed access.
+    `w_member_social`, which does not grant organization publishing or feed access. Member
+    analytics need the Community Management scopes `r_member_postAnalytics` and
+    `r_member_profileAnalytics`; add them to `scopes` when you use those methods.
 
     Comments, reactions, and social-action counters use `r_member_social_feed` or
     `r_organization_social_feed` for reads and `w_member_social_feed` or
-    `w_organization_social_feed` for writes. The adapter's comment and counter preflights also read
+    `w_organization_social_feed` for writes. LinkedIn restricts `r_member_social_feed` to select
+    developers, so most apps cannot read a member's comments or reactions at all. The adapter's comment and counter preflights also read
     the post, and replies read the parent comment before writing, so replies need both feed read
     and feed write grants. Member post reads require the closed `r_member_social` grant, which new
     apps cannot obtain; publishing permission does not grant read permission. Account reads need `openid` and
@@ -73,7 +76,8 @@ The direct LinkedIn adapter supports account reads, normalized text, article lin
   </Step>
   <Step title="Pick the author URN and API version">
     Configure a member or organization author URN and an explicit monthly API version such as
-    `202609`. Monthly versions sunset and need maintenance. Review the
+    `202610`, the latest version as of 2026-11-04. Monthly versions sunset and need maintenance:
+    LinkedIn sunsets `202511` on 2026-11-16, and the examples on this page use `202610`. Review the
     [version guidance](https://learn.microsoft.com/en-us/linkedin/marketing/versioning) and
     [migration notes](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/recent-changes)
     before choosing or upgrading a supported header.
@@ -93,7 +97,7 @@ const social = createSocial({
       accessToken: process.env["LINKEDIN_ACCESS_TOKEN"]!,
       author: "urn:li:organization:123",
     },
-    apiVersion: "202609",
+    apiVersion: "202610",
   }),
 });
 
@@ -138,24 +142,149 @@ A `403` becomes `missing_permission` with the required scopes in the message. A 
 `reconnect_required`. A returned member or organization that differs from the configured author
 becomes `unauthorized`.
 
+#### Check token health
+
+`introspectLinkedInOAuthToken(options, { accessToken })` from `@opencoredev/social-sdk/server`
+calls LinkedIn token introspection, `POST https://www.linkedin.com/oauth/v2/introspectToken`, with
+the app's `clientId`, `clientSecret` and the token as a form. Run it on your server, since it needs
+the client secret. It returns `active` (false for expired, revoked or another app's tokens),
+`status` (`active`, `expired` or `revoked`), `scopes` (only for 3-legged member tokens), `clientId`,
+`authType` (`3L`, `2L` or `Enterprise_User`), and `createdAt`, `authorizedAt` and `expiresAt` as ISO
+strings converted from LinkedIn's epoch seconds. It does not refresh or change the token, so use it
+for connection health checks.
+
+```ts
+import { introspectLinkedInOAuthToken } from "@opencoredev/social-sdk/server";
+
+const health = await introspectLinkedInOAuthToken(
+  { clientId: linkedInClientId, clientSecret: linkedInClientSecret },
+  { accessToken: storedToken },
+);
+if (!health.active) console.log("reconnect", health.status, health.expiresAt);
+```
+
+Source: [Token introspection](https://learn.microsoft.com/en-us/linkedin/shared/authentication/token-introspection), accessed 2026-11-04.
+
+#### Read member profiles
+
+The Profile API returns more than OpenID Connect `userinfo`, such as headline, vanity name and
+location, but LinkedIn restricts it to approved developers. It needs `r_liteprofile` (name and
+photo) or `r_basicprofile` (adds headline and `vanityName`). Both methods send no `Linkedin-Version`
+header, because the Profile API lives under `/v2`.
+
+- `native.getProfile({ account, projection?, context })` calls `GET /v2/me` for a member author and
+  checks that the returned `id` matches the author URN.
+- `native.getPeople({ account, people, projection?, context })` reads other members by person URN,
+  for example commenters: `GET /v2/people/(id:{id})` for one, or
+  `GET /v2/people?ids=List((id:{id1}),(id:{id2}))` for up to 50 (an SDK bound; LinkedIn documents no
+  batch size). Missing members are listed in `errors`. Person IDs are scoped to your app.
+
+Each profile has `personUrn`, `firstName`, `lastName`, `headline`, `vanityName` (public URL
+`https://www.linkedin.com/in/{vanityName}`), `profilePictureUrn`, `geoLocation` (`geo` URN and
+`autoGenerated`), and `fields` with every returned field. From API version 202608 LinkedIn reports
+location in `geoLocation` instead of `location`; resolve the geo URN with the Geo API or decorate it
+with `projection: "(id,geoLocation(geo~,autoGenerated))"`. A projection is a parenthesized Rest.li
+field list and is validated before sending. LinkedIn's terms forbid storing profile data of members
+other than the authenticated member.
+
+Source: [Profile API](https://learn.microsoft.com/en-us/linkedin/shared/integrations/people/profile-api), accessed 2026-11-04.
+
 ### Find administered organizations
 
-A member token with `rw_organization_admin` or `r_organization_admin` can list the organizations
-the member administers through the `organizationAcls` roleAssignee finder. Only approved
-`ADMINISTRATOR` roles are returned. Pagination uses the returned offset cursor with a page size from
-1 to 100.
+A member token with `rw_organization_admin` or `r_organization_admin` can list the member's
+organizations through the `organizationAcls` roleAssignee finder. `role` defaults to
+`ADMINISTRATOR` and `state` to `APPROVED`. Pass `role: "CONTENT_ADMINISTRATOR"` or
+`"DIRECT_SPONSORED_CONTENT_POSTER"` to find Pages the member can post to without administering
+them. Other roles are `RECRUITING_POSTER`, `LEAD_CAPTURE_ADMINISTRATOR`,
+`LEAD_GEN_FORMS_MANAGER`, `ANALYST` and `CURATOR`; states are `APPROVED`, `REQUESTED`, `REJECTED`
+and `REVOKED`. Pagination uses the returned offset cursor with a page size from 1 to 100.
 
 ```ts
 const organizations = await native.listAdministeredOrganizations({
   account,
+  role: "CONTENT_ADMINISTRATOR",
   limit: 25,
   context: createOperationContext(),
 });
-for (const item of organizations.items) console.log(item.organization);
+for (const item of organizations.items) console.log(item.organization, item.role);
 ```
 
 This adapter instance still acts only as its configured author. To publish or read as one of the
 returned organizations, create another `linkedin` backend with that organization URN as its author.
+
+For an access audit, an organization author can call `native.listOrganizationRoles`, which uses the
+organization finder `GET /rest/organizationAcls?q=organization&organization={orgUrn}` with optional
+`role` and `state` filters. Each item has the `roleAssignee` person URN, `role` and `state`. It
+needs `rw_organization_admin` and an `ADMINISTRATOR` role, and stops with `unauthorized` if
+LinkedIn returns a role for another organization.
+
+#### Check what a member may do for a Page
+
+Instead of inferring permissions from roles, ask LinkedIn directly with the Organization
+Authorizations API (`rw_organization_admin`). A key has a person `impersonator`, a numeric
+`organization` URN and an `action` with a `group` and `actionType`:
+
+| `group`                                      | `actionType` values                                                                                                                                                                                                    |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `organizationRoleAuthorizationAction`        | `ADMINISTRATOR_READ`, `ADMINISTRATOR_WRITE`, `DIRECT_SPONSORED_CONTENT_POSTER_READ`/`_WRITE`, `PIPELINE_BUILDER_READ`/`_WRITE`, `PENDING_ADMIN_READ`/`_WRITE`, `PENDING_DIRECT_SPONSORED_CONTENT_POSTER_READ`/`_WRITE` |
+| `organizationContentAuthorizationAction`     | `ORGANIC_SHARE_VIEW_AS_AUTHOR`, `ORGANIC_SHARE_CREATE`, `ORGANIC_SHARE_EDIT`, `ORGANIC_SHARE_DELETE`, `DARK_SHARE_CREATE`, `DARK_SHARE_EDIT`, `DARK_SHARE_DELETE`, `DARK_SHARE_VIEW_AS_AUTHOR`                         |
+| `organizationProfileAuthorizationAction`     | `ADMINISTRATION_PAGE_VIEW`                                                                                                                                                                                             |
+| `organizationActivityAuthorizationAction`    | `ORGANIZATION_ACTIVITY_READ`                                                                                                                                                                                           |
+| `organizationAnalyticsAuthorizationAction`   | `VISITOR_ANALYTICS_READ`, `FOLLOWER_ANALYTICS_READ`, `UPDATE_ANALYTICS_READ`                                                                                                                                           |
+| `organizationApplicationAuthorizationAction` | `APPLICATION_ASSOCIATE`                                                                                                                                                                                                |
+
+- `native.getOrganizationAuthorization({ account, key, context })` sends
+  `GET /rest/organizationAuthorizations/(impersonator:...,organization:...,action:(...))`.
+- `native.getOrganizationAuthorizations({ account, keys, context })` batch gets up to 100 keys with
+  `organizationAuthorizations?ids=List(...)`. LinkedIn reorders the fields of its result keys, so the
+  SDK matches results by impersonator, organization and action type, and lists unmatched keys in
+  `missing`.
+- `native.findOrganizationAuthorizations({ account, actions, context })` uses the batch finder
+  `bq=authorizationActionsAndImpersonator` for the authenticated member and 1 to 20 actions (an SDK
+  bound). It returns one list per requested action, covering each organization LinkedIn reports.
+
+Each authorization has `impersonator`, `organization`, `actionType`, `approved` (true for
+`com.linkedin.organization.Approved`), `status` (`Approved` or `Denied`) and `reasons` such as
+`MEMBER_HAS_INSUFFICIENT_PERMISSIONS_IN_ACCESS_CONTROL`.
+
+```ts
+const check = await native.getOrganizationAuthorization({
+  account,
+  key: {
+    impersonator: "urn:li:person:abc123",
+    organization: "urn:li:organization:2414183",
+    action: { group: "organizationContentAuthorizationAction", actionType: "ORGANIC_SHARE_CREATE" },
+  },
+  context: createOperationContext(),
+});
+console.log(check.approved, check.reasons);
+```
+
+### Look up organizations
+
+These lookups help you find mention targets and public Page details. They need
+`rw_organization_admin` and work for member or organization authors.
+
+- `native.lookupOrganizations({ account, organizations, context })` batch-reads up to 100
+  organizations you do not need to administer through `organizationsLookup`
+  (`/rest/organizationsLookup?ids=List(...)`). LinkedIn returns only the non-admin fields; the
+  adapter keeps `localizedName`, `vanityName`, `localizedWebsite` and `primaryOrganizationType`,
+  and lists IDs LinkedIn could not return in `errors` with their status.
+- `native.findOrganizationByVanityName({ account, vanityName, context })` uses
+  `/rest/organizations?q=vanityName`. It also finds schools; `primaryOrganizationType` is
+  `SCHOOL`, `BRAND` or `NONE`.
+- `native.listOrganizationBrands({ account, parent, context })` finds showcase pages (brands) under
+  a parent organization with `q=parentOrganization`. LinkedIn returns only the brands the member
+  administers.
+
+```ts
+const { organizations } = await native.lookupOrganizations({
+  account,
+  organizations: ["urn:li:organization:2414183"],
+  context: createOperationContext(),
+});
+console.log(organizations[0]?.localizedName);
+```
 
 ### Publish a text post
 
@@ -228,7 +357,7 @@ const result = await social.posts.publish({
 });
 ```
 
-The SDK applies a local 20 MiB image byte cap; this is SDK policy, not a LinkedIn provider limit. Known empty or oversized files fail before upload initialization, and streams remain bounded while uploading. LinkedIn accepts JPEG, PNG, and GIF images under 36,152,320 pixels, and GIFs of up to 250 frames. The adapter cannot check pixel or frame counts on an uploaded reference, so LinkedIn enforces those limits. The API creates organic multi-image posts only; sponsored multi-image posts are not supported.
+The SDK applies a local 20 MiB image byte cap; this is SDK policy, not a LinkedIn provider limit. Known empty or oversized files fail before upload initialization, and streams remain bounded while uploading. LinkedIn's pixel and GIF frame limits are in [Media specifications](#media-specifications); the adapter cannot check them on an uploaded reference, so LinkedIn enforces them. The API creates organic multi-image posts only; sponsored multi-image posts are not supported.
 
 ### Upload a video, then publish it
 
@@ -238,7 +367,43 @@ LinkedIn processes the video after the upload and does not document how long tha
 
 Publishing does not wait. It reads the status once and creates no post unless the video is `AVAILABLE`. A video that is still processing gives a `failed` outcome with a `media_error` code and an `after-delay` retry disposition: no post exists, so publishing again later is safe. The SDK does not retry for you. If you configured an idempotency store, use a new idempotency key for that retry, because the store replays the saved `failed` outcome for a key it has already seen. A `PROCESSING_FAILED` video gives a `failed` outcome with a `never` disposition and has to be uploaded again.
 
-A video post carries exactly one video and no images. The attachment `caption`, when it is not blank, becomes the video's `title` in the Posts API; LinkedIn requires a title only for documents. Video posts do not accept alt text, and thumbnails and subtitle files are not implemented. The image 403 exception does not apply to video: the adapter creates a video post only after LinkedIn reports the video `AVAILABLE`.
+A video post carries exactly one video and no images. The attachment `caption`, when it is not blank, becomes the video's `title` in the Posts API; LinkedIn requires a title only for documents. Video posts do not accept alt text. The image 403 exception does not apply to video: the adapter creates a video post only after LinkedIn reports the video `AVAILABLE`.
+
+#### Custom thumbnail, captions and attribution
+
+Set the attachment's `thumbnail` to a JPEG or PNG Blob (`{ kind: "blob", blob, fingerprint }`) to
+upload a custom thumbnail. The adapter sets `uploadThumbnail: true` on `initializeUpload` and, after
+the video parts, sends the image with `PUT` to the returned `thumbnailUploadUrl` with the
+`media-type-family: STILLIMAGE` header. Without a thumbnail, LinkedIn may generate one.
+
+`native.uploadVideo` uploads a video the same way and adds two Videos API options:
+
+- `captions`: one SRT file as a Blob. The adapter sets `uploadCaptions: true` and posts the file as
+  multipart form data to the returned `captionsUploadUrl`, with LinkedIn's documented metadata
+  (`format: "SRT"`, `transcriptType: "CLOSED_CAPTION"`, US English locale). LinkedIn supports one
+  English caption file per video; a feed video still plays if caption processing fails.
+- Media attribution: `templateName` names a third-party template used to make the video, and
+  `linkbackContext` (for example a URL) links back to it. LinkedIn accepts these fields from API
+  version `202602`; the adapter rejects them on earlier versions.
+
+LinkedIn documents no size limit for thumbnails or captions; the SDK caps each at 20 MiB. A missing
+upload URL in LinkedIn's response stops the upload before any video bytes are sent.
+
+```ts
+const videoRef = await native.uploadVideo({
+  account,
+  media: {
+    kind: "video",
+    source: { kind: "blob", blob, fingerprint: contentHash },
+    mimeType: "video/mp4",
+    thumbnail: { kind: "blob", blob: coverJpeg, fingerprint: coverHash },
+  },
+  captions: srtBlob,
+  templateName: "Sunshine birthday wishes",
+  linkbackContext: "https://example.com/templates/sunshine",
+  context: createOperationContext(),
+});
+```
 
 ```ts
 const videoRef = await social.media.upload(
@@ -337,6 +502,11 @@ or uniquely identified. Do not automatically resubmit an uncertain create.
 
 ### Read comments and reply
 
+`social.comments.list` and `social.comments.reply` read the post first, and replies also read the
+parent comment. A member author therefore needs `r_member_social_feed`, which LinkedIn grants to
+select developers only, as well as `w_member_social_feed`; organization authors need
+`r_organization_social_feed` and `w_organization_social_feed`.
+
 Replies require the complete composite `commentUrn` returned by comment reads, with an activity, share, or ugcPost root and the comment identifier. The numeric `id` alone is not a reply reference. A readable post with an empty comment collection returns `items: []`. After a comments-collection 404, the SDK re-checks the parent post before returning an empty page. A post deleted between the first read and the comments request returns `not_found`; other re-check failures propagate.
 
 ```ts
@@ -349,6 +519,169 @@ await social.comments.reply(
   { ...postRef, kind: "comment", commentId },
   { text: "Appreciate the feedback." },
 );
+```
+
+### Write, edit and moderate comments
+
+`native.createComment` writes a top-level comment on a post: `POST
+/rest/socialActions/{postUrn}/comments` with the configured author as `actor` and the post as
+`object`. It does not pre-read the post, so it needs only the feed write scope. Set
+`parentCommentId` to a complete `commentUrn` to write a nested reply instead; the adapter then posts
+to `/rest/socialActions/{commentUrn}/comments` with `parentComment`. Comment text is 1 to 1,250
+characters.
+
+Two extras work on both forms:
+
+- Comment mentions: each `{ start, length, urn }` becomes a `message.attributes` entry that links
+  that range of the text to a member (`urn:li:person:`) or organization (`urn:li:organization:`).
+  Ranges must sit inside the text and not overlap.
+- Images: for comments with an image, pass one uploaded `urn:li:image` reference as `image`. The adapter reads
+  the image first (a foreign owner or a status other than `AVAILABLE` stops the write) and sends it
+  as `content[].entity.image`.
+
+```ts
+const comment = await native.createComment({
+  account,
+  postId: "urn:li:share:6305471423242596352",
+  text: "Thanks Devtestco for the help!",
+  mentions: [{ start: 7, length: 9, urn: "urn:li:organization:2414183" }],
+  image: imageRef,
+  context: createOperationContext(),
+});
+console.log(comment.commentUrn);
+```
+
+A missing `commentUrn` in the response becomes `ambiguous_outcome` with a `reconcile-first`
+disposition; do not resubmit before checking.
+
+`native.editComment` edits a comment: it sends a `PARTIAL_UPDATE` that sets `message.text` and
+`message.attributes`, the only fields LinkedIn lets you change. Leaving out `mentions` clears the
+old attributes so stale links cannot point at the wrong text. Organization authors are sent as the
+`actor` query parameter.
+
+```ts
+await native.editComment({
+  account,
+  postId: "urn:li:share:6305471423242596352",
+  commentId: comment.commentUrn,
+  text: "Thanks again for the help!",
+  context: createOperationContext(),
+});
+```
+
+`native.listCommentReplies` lists nested replies to a comment. It reads the parent comment under
+`postId` first and stops with `unauthorized` if it belongs to another post, then reads
+`/rest/socialActions/{commentUrn}/comments` with offset paging (page size 1 to 100).
+
+To close comments on a post, `native.setCommentsState({ account, postId, state: "CLOSED", context })`
+sets the Social Metadata `commentsState`. Closing comments deletes every existing comment on the
+post (reactions stay); `OPEN` allows new comments again. LinkedIn answers `202 Accepted`. LinkedIn
+has no way to hide a single comment.
+
+### Reactions and social metadata
+
+`native.react` creates a reaction with `POST /rest/reactions?actor={author}`. `reactionType` is
+one of `LIKE`, `PRAISE` (Celebrate), `EMPATHY` (Love), `INTEREST` (Insightful), `APPRECIATION`
+(Support) or `ENTERTAINMENT` (Funny). The deprecated `MAYBE` type is rejected before sending,
+because LinkedIn returns 400 for it.
+
+`native.deleteReaction({ account, entity, context })` removes the configured author's reaction with
+`DELETE /rest/reactions/(actor:{author},entity:{urn})`, Rest.li-encoding both URNs. LinkedIn
+returns `204`.
+
+`native.listReactions` uses the `q=entity` finder on `/rest/reactions/(entity:{urn})` with `sort`
+`REVERSE_CHRONOLOGICAL` (default), `CHRONOLOGICAL` or `RELEVANCE`, and offset paging. Each item
+has `reactionType`, the reaction `id`, the `actor` and `createdAt` from `created`, and `root`.
+
+`native.getSocialMetadata({ account, entity, context })` reads `/rest/socialMetadata/{urn}` for a
+post or comment. It returns `reactions` (the `reactionSummaries` count per type, such as
+`{ LIKE: 7, EMPATHY: 1 }`), `comments.total` (including replies) and `comments.topLevel`, and
+`commentsState`. These reads need the feed read scope; member reads need the restricted
+`r_member_social_feed`.
+
+```ts
+await native.react({
+  account,
+  postId: "urn:li:share:123",
+  reaction: "PRAISE",
+  context: createOperationContext(),
+});
+const metadata = await native.getSocialMetadata({
+  account,
+  entity: "urn:li:share:123",
+  context: createOperationContext(),
+});
+console.log(metadata.reactions, metadata.comments?.topLevel);
+```
+
+To check whether one account reacted, `native.getReaction({ account, entity, actor?, context })`
+reads `GET /rest/reactions/(actor:{actor},entity:{urn})`. `actor` defaults to the configured
+author and can be any person or organization URN. It returns the reaction (`reactionType`, `id`,
+`actor`, `createdAt`, `root`), or `undefined` when LinkedIn answers 404 because that actor has no
+reaction on the entity. `native.getReactions({ account, keys, context })` batch gets up to 100
+`{ actor, entity }` keys with `GET /rest/reactions?ids=List((actor:...,entity:...),...)`; it returns
+`reactions` (each key with its decoded `reaction`) and `errors` (each key LinkedIn did not return,
+with its per-key `status`).
+
+#### Batch social reads
+
+Each of these sends one Rest.li BATCH_GET for 1 to 100 distinct post (`urn:li:share`,
+`urn:li:ugcPost`) or comment URNs, which saves calls against Development-tier rate limits. Results
+are keyed by the requested URN, and keys LinkedIn did not return are listed in `errors` with their
+per-key HTTP `status`.
+
+- `native.getSocialMetadataBatch({ account, entities, context })` calls
+  `GET /rest/socialMetadata?ids=List(...)` and decodes each entry like `getSocialMetadata`.
+- `native.getSocialActionsBatch({ account, entities, context })` calls
+  `GET /rest/socialActions?ids=List(...)`. Each entry has `likes` (`total`, `aggregatedTotal`,
+  `likedByCurrentUser`) and `comments` (`firstLevel`, `aggregatedTotal`, `state`). A post with no
+  social activity comes back as an empty object.
+- `native.getComments({ account, target, commentIds, context })` calls
+  `GET /rest/socialActions/{target}/comments?ids=List({commentId},...)`. Pass complete commentUrns;
+  the SDK sends their numeric IDs and checks that each returned `commentUrn` matches.
+
+The same feed read scopes apply as for single reads: `r_organization_social_feed`, or the restricted
+`r_member_social_feed` for members.
+
+```ts
+const batch = await native.getSocialMetadataBatch({
+  account,
+  entities: ["urn:li:share:123", "urn:li:ugcPost:456"],
+  context: createOperationContext(),
+});
+console.log(batch.results["urn:li:share:123"]?.reactions, batch.errors);
+```
+
+### Read posts
+
+`social.posts.get` reads one post of the configured author and returns its scalar fields (`id`,
+`author`, `commentary`, `visibility`, `lifecycleState`, `createdAt`, `publishedAt`,
+`lastModifiedAt`, `isReshareDisabledByAuthor`) plus the URN-only `content` and `reshareContext`
+objects. `social.posts.list` reads the author feed with the `q=author` finder, sorted by
+`LAST_MODIFIED`, with offset paging (page size 1 to 100). Member feeds need the restricted
+`r_member_social` grant; organization feeds need `r_organization_social` and an `ADMINISTRATOR`,
+`CONTENT_ADMIN` or `DIRECT_SPONSORED_CONTENT_POSTER` role.
+
+`native.getPost({ account, postId, viewContext, context })` returns a typed post. `viewContext`
+`READER` (default) reads the published version; `AUTHOR` reads the latest version, which can still
+be a draft or processing. For a poll post, `poll` holds the poll results: the question, each
+option's `voteCount` (absent when LinkedIn hides counts from the viewer), `uniqueVotersCount`, and
+the duration.
+
+`native.getPosts` batch gets up to 100 posts in one `BATCH_GET` request
+(`/rest/posts?ids=List(...)` with `X-RestLi-Method: BATCH_GET`). It returns the decoded `posts`
+and, for IDs LinkedIn could not return, `errors` with the per-post status. LinkedIn does not allow
+batch get in the Development tier. Every read stops with `unauthorized` if LinkedIn returns a post
+by another author.
+
+```ts
+const post = await native.getPost({
+  account,
+  postId: "urn:li:ugcPost:6924414938606112768",
+  viewContext: "AUTHOR",
+  context: createOperationContext(),
+});
+console.log(post.poll?.uniqueVotersCount);
 ```
 
 ### Publish an article link
@@ -372,6 +705,239 @@ const result = await social.posts.publish({
 });
 ```
 
+### Find member URNs for mentions
+
+A mention needs the member's person URN. LinkedIn's People Typeahead API offers two lookups for
+organization Page admins, both limited to the Page's followers and needing
+`r_organization_followers`. LinkedIn restricts these endpoints to select developers.
+
+- Keyword search, `GET /rest/peopleTypeahead?q=organizationFollowers&keywords=...`, is not
+  implemented: LinkedIn grants the People Typeahead endpoint only to select developers.
+- `native.resolveMemberVanityUrl({ account, vanityUrl, context })` resolves an exact profile URL
+  (`https://www.linkedin.com/in/{vanityName}`) with
+  `GET /rest/vanityUrl?q=vanityUrlAsOrganization&organization={author}`. It works only for an
+  organization author and returns the person URN, or `undefined` when LinkedIn finds no match.
+
+```ts
+const urn = await native.resolveMemberVanityUrl({
+  account,
+  vanityUrl: "https://www.linkedin.com/in/jane-doe",
+  context: createOperationContext(),
+});
+```
+
+### Publishing options
+
+LinkedIn-specific settings go in the target's `options`. Preparation checks them and sends no
+request when one is invalid.
+
+| Option                      | Wire field                        | Notes                                                                                         |
+| --------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `visibility: "connections"` | `visibility: "CONNECTIONS"`       | A member author's first-degree network. Organization authors keep `PUBLIC`. Default `public`. |
+| `disableReshare: true`      | `isReshareDisabledByAuthor: true` | Nobody can reshare the post. Default `false`.                                                 |
+| `annotations`               | `commentary` little text          | Mentions and hashtags over `content.text`, described below.                                   |
+| `targeting`                 | `distribution.targetEntities`     | Organization authors only.                                                                    |
+| `articleThumbnail`          | `content.article.thumbnail`       | An uploaded `urn:li:image` reference for a `content.link` post.                               |
+
+Without annotations, `content.text` stays literal: the adapter escapes every little-text reserved
+character, so `#` and `@` never become links. An annotation marks a range of the text by
+JavaScript string offsets (`start`, `length`):
+
+- `{ kind: "mention", start, length, urn }` renders the covered text as
+  `@[Devtestco](urn:li:organization:2414183)`. The text must match the member's or organization's
+  name on LinkedIn (case-sensitive; a member may match on first or last name alone), or LinkedIn
+  shows it as plain text. Mention text cannot contain little-text reserved characters.
+- `{ kind: "hashtag", start, length }` covers `#` plus letters or digits and renders the hashtag
+  template `{hashtag|\#|coding}`, which is also how LinkedIn returns hashtags on reads.
+
+Ranges must be integers, inside the text, and must not overlap. Posting needs the same
+`w_member_social` or `w_organization_social` scope as any post.
+
+```ts
+await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: {
+        disableReshare: true,
+        annotations: [
+          { kind: "mention", start: 6, length: 9, urn: "urn:li:organization:2414183" },
+          { kind: "hashtag", start: 22, length: 7 },
+        ],
+      },
+    },
+  ],
+  content: { text: "Hello Devtestco, read #coding tips" },
+});
+```
+
+Organization authors can target an organic post at a subset of their followers. `targeting` takes
+non-empty arrays of `geoLocations` (`urn:li:geo:`), `seniorities` (`urn:li:seniority:`),
+`industries` (`urn:li:industry:`), `jobFunctions` (`urn:li:function:`), `degrees`
+(`urn:li:degree:`), `fieldsOfStudy` (`urn:li:fieldOfStudy:`), school `organizations`
+(`urn:li:organization:`), and `staffCountRanges` (`SIZE_1` to `SIZE_10001_OR_MORE`). The adapter
+sends them as one `targetEntities` element. `interfaceLocales` targets members by the language of
+their LinkedIn interface: it takes Locale records with a lowercase ISO-639 `language` and an optional
+uppercase ISO-3166 `country`, such as `[{ language: "en", country: "US" }]`, and rejects any other
+field. The deprecated `schools` facet is not accepted; LinkedIn replaced it with school
+`organizations`. LinkedIn requires the targeted audience to exceed 300 members; the SDK cannot count
+it offline, so check it first with LinkedIn's Audience Counts API.
+
+```ts
+await social.posts.publish({
+  targets: [
+    {
+      account,
+      options: {
+        targeting: { geoLocations: ["urn:li:geo:103644278"], seniorities: ["urn:li:seniority:3"] },
+      },
+    },
+  ],
+  content: { text: "For our US senior followers" },
+});
+```
+
+For an article post, upload the thumbnail image with `social.media.upload` and pass its reference as
+`articleThumbnail`. Before creating the post, the adapter reads the image and stops if another
+author owns it or its returned status is not `AVAILABLE`.
+
+### Create and post events
+
+The Events API lets a Page or member organize LinkedIn events. LinkedIn grants it separately from
+the Marketing API program: reads need `r_events`, writes need `rw_events`, and an organization
+organizer needs an `ADMINISTRATOR` or `CONTENT_ADMINISTRATOR` role. The organizer is always the
+configured author.
+
+1. Optionally upload a background image. `native.uploadEventBackgroundImage({ account, image,
+mimeType, context })` takes a JPEG or PNG Blob, registers it with
+   `POST /rest/assets?action=registerUpload` (recipe
+   `urn:li:digitalmediaRecipe:event-background-image`, synchronous upload), uploads the bytes to
+   the returned URL with the bearer token, and returns the `urn:li:digitalmediaAsset` URN. The SDK
+   only sends to `api.linkedin.com` upload URLs and applies its own 20 MiB cap; LinkedIn documents
+   no size limit. Without `backgroundImage`, LinkedIn uses a default image.
+2. `native.createEvent` sends `POST /rest/events` with `name`, an optional `description`,
+   `startsAt` and a `type`: `liveVideo` (streamed on LinkedIn, optional create-only `testEvent`
+   visible only to admins), `external` (streamed elsewhere, HTTPS `url`) or `inPerson` (optional
+   `url`, `address` and `venueDetails`). Every type takes `endsAt` in epoch milliseconds, which the
+   SDK requires to be after `startsAt`. Optional fields are `vanityName`, `backgroundImage`,
+   `discoveryMode` (`LISTED` or `URL_ONLY`), a create-only `leadGenForm` (`privacyPolicyUrl` for a
+   templated form or an approved `leadGenForm` URN, not both), and `locale` (default `en_US`) for
+   the localized text. Event IDs exceed JavaScript's safe integer range, so the SDK keeps them as
+   strings in `eventUrn` (`urn:li:event:{id}`).
+3. Post the event with `native.createEventPost({ account, reference, text?, context })`. It creates
+   a post whose `content.reference.id` is the event's `postReference`: the `urn:li:liveVideo` URN
+   for a live video event, or `urn:li:event:{id}` for external and in-person events. An event cannot
+   be read or updated until it is posted.
+
+```ts
+const backgroundImage = await native.uploadEventBackgroundImage({
+  account,
+  image: coverJpeg,
+  mimeType: "image/jpeg",
+  context: createOperationContext(),
+});
+const event = await native.createEvent({
+  account,
+  name: "Product launch",
+  type: {
+    kind: "external",
+    endsAt: Date.parse("2026-12-01T18:00:00Z"),
+    url: "https://example.com/live",
+  },
+  startsAt: Date.parse("2026-12-01T17:00:00Z"),
+  backgroundImage,
+  context: createOperationContext(),
+});
+if (event.postReference)
+  await native.createEventPost({
+    account,
+    reference: event.postReference,
+    text: "Join our launch",
+    context: createOperationContext(),
+  });
+```
+
+After posting:
+
+- `native.getEvent({ account, event, context })` reads `GET /rest/events/{id}` and checks the
+  organizer. The result includes `ugcPost`, the event's feed post.
+- `native.updateEvent({ account, event, changes, context })` sends a partial update
+  (`X-RestLi-Method: PARTIAL_UPDATE`, `patch.$set`) of `name`, `description`, `vanityName`,
+  `startsAt`, `backgroundImage`, `discoveryMode` and the sub-fields of the existing `type`
+  (`endsAt`, plus `url` for external, and `url`, `address` and `venueDetails` for in-person). The
+  type itself, the organizer, `testEvent` and the lead form are create-only. LinkedIn rejects any
+  update once `startsAt` has passed (400) or after cancellation (403).
+- `native.listEvents` uses the `eventsByOrganizer` finder with optional `excludeCancelled`,
+  `timeBasedFilter` (`{ lifeCycleState: "UPCOMING" | "ONGOING" | "PAST" }`,
+  `{ ongoingTimeRange: { start, end } }` or `{ startTimeRange: { start?, end? } }`, sent unencoded
+  as LinkedIn requires), `entryCriteria` (`PUBLIC` or `GATED`) and `sortOrder` (`START_TIME_ASC` or
+  `END_TIME_DESC`), with offset paging.
+- To delete an event, delete its post: `native.deletePost({ account, postId: event.ugcPost, context })`.
+
+Events backed only by a dark post (`hasDarkUgc`) are listed under [Not supported](#not-supported).
+
+Source: [Events API](https://learn.microsoft.com/en-us/linkedin/marketing/event-management/events?view=li-lms-2026-10), accessed 2026-11-04.
+
+### Create a poll
+
+`native.createPoll` creates an organic poll post. `text` is the post commentary and `question`
+(defaulting to `text`) is the poll question. LinkedIn allows a question of at most 140 characters,
+2 to 4 options of at most 30 characters each, and a `duration` of `ONE_DAY`, `THREE_DAYS`
+(default), `SEVEN_DAYS` or `FOURTEEN_DAYS`. The adapter checks these limits before sending.
+LinkedIn does not allow editing a poll, and API partners can create only non-sponsored polls.
+
+```ts
+const poll = await native.createPoll({
+  account,
+  text: "Help us pick the next feature",
+  question: "Which should we build first?",
+  options: ["Scheduling", "Analytics", "Inbox"],
+  duration: "SEVEN_DAYS",
+  context: createOperationContext(),
+});
+console.log(poll["id"]);
+```
+
+### Reshare a post
+
+`native.reshare` creates a post with `reshareContext.parent` set to a `urn:li:share` or
+`urn:li:ugcPost` URN. Optional `text` becomes the reshare commentary (quote-style) and is escaped
+like `content.text`. LinkedIn derives the read-only `reshareContext.root`.
+
+```ts
+await native.reshare({
+  account,
+  postId: "urn:li:share:6957408550713184256",
+  text: "Worth a read",
+  context: createOperationContext(),
+});
+```
+
+### Edit or delete a post
+
+`native.updatePost` sends a Posts API `PARTIAL_UPDATE`. With typed `changes`, the adapter escapes
+`text` like a publish (with optional `annotations`) and sends it as `commentary`, along with
+`contentCallToActionLabel` (for example `LEARN_MORE`) and an HTTPS `contentLandingPage`. A raw
+`body` is still accepted and sent as `patch.$set` unchanged, so you must write little text
+yourself in that form.
+
+```ts
+await native.updatePost({
+  account,
+  postId: "urn:li:share:123",
+  changes: { text: "Updated launch notes" },
+  context: createOperationContext(),
+});
+```
+
+`social.posts.removeFromPlatform(postRef)` and `native.deletePost({ account, postId, context })`
+both send `DELETE /rest/posts/{urn}`. LinkedIn treats deletion as idempotent: deleting a post that
+is already gone returns `204` again.
+
+```ts
+await social.posts.removeFromPlatform(postRef);
+```
+
 ### Read organization metrics
 
 Organization account metrics and native `getOrganizationFollowerCount` read the configured
@@ -380,9 +946,10 @@ organization's total follower count from `/rest/networkSizes/{orgUrn}` with
 any organization; the SDK still binds the request to its configured organization author. Administrator
 requirements on follower, page, and share statistics are separate from this count endpoint.
 
-`getPostMetrics` returns social-action likes and comments only. Organization counts and reports are
-organization-only in this adapter. Separate member creator post, profile, and video analytics exist
-upstream but are not implemented here.
+A member author's account metrics read the lifetime member follower count from
+`memberFollowersCount?q=me`, which needs the Community Management `r_member_profileAnalytics`
+scope. `getPostMetrics` returns social-action likes and comments only; use the native methods below
+for impressions, reach and clicks.
 
 ```ts
 const metrics = await social.analytics.getAccountMetrics(account);
@@ -456,6 +1023,89 @@ It accepts `q: "organizationalEntity"`, the configured `organizationalEntity`, a
 Omit `query` for lifetime totals. Unsupported fields, including per-post filters, fail locally;
 they are not silently ignored.
 
+### Read statistics for specific Page posts
+
+`native.getOrganizationPostStatistics({ account, postIds, context })` reads lifetime organic
+statistics for up to 100 of the organization's posts. The adapter splits the URNs into
+`shares=List(...)` and `ugcPosts=List(...)` on `organizationalEntityShareStatistics`. Each item
+has the `post` URN and `metrics` such as `impressionCount`, `uniqueImpressionsCount`,
+`clickCount`, `likeCount`, `commentCount`, `shareCount` and `engagement`. LinkedIn omits posts with
+no activity, which means zero counts. It needs `rw_organization_admin` and an `ADMINISTRATOR` role.
+
+### Read showcase page statistics
+
+`native.getBrandPageStatistics({ account, interval, context })` reads `brandPageStatistics` for
+the configured organization as a showcase (brand) page, sending its ID as
+`urn:li:organizationBrand:{id}`. It accepts the same `DAY` or `MONTH` interval as page statistics
+and returns the same view and click shape, with the brand URN in `organization`. LinkedIn maps
+brand URNs to organization URNs, so configure the showcase page's `urn:li:organization:` URN as the
+author.
+
+### Read organization video analytics
+
+`native.getOrganizationVideoAnalytics` reads `GET /rest/videoAnalytics?q=entity` for one Page video
+post (`urn:li:ugcPost:...`). It needs `r_organization_social` and an organization author with an
+`ADMINISTRATOR` or `DIRECT_SPONSORED_CONTENT_POSTER` role; member authors use
+`getMemberVideoAnalytics` instead. `metric` is `VIDEO_VIEW` (plays of at least 3 seconds), `VIEWER`
+(unique viewers), `TIME_WATCHED` (milliseconds, including auto-loops) or
+`TIME_WATCHED_FOR_VIDEO_VIEWS` (milliseconds for plays of at least 3 seconds; LinkedIn's UI shows it
+as Watch Time). `aggregation` is `ALL` (default), `DAY` or `WEEK` (Sunday to Saturday). An optional
+`timeRange` takes epoch-millisecond `start` (inclusive) and `end` (exclusive); without it LinkedIn
+returns the video's lifetime, and only 10 day or week rows by default, so page with the returned
+offset cursor. LinkedIn keeps `VIDEO_VIEW` and `VIEWER` data for six months. Likes and comments
+come from social metadata, not this API. Each item has `metric`, `value` and the returned
+`timeRange`.
+
+```ts
+const watchTime = await native.getOrganizationVideoAnalytics({
+  account,
+  postId: "urn:li:ugcPost:6426130460119830528",
+  metric: "TIME_WATCHED_FOR_VIDEO_VIEWS",
+  aggregation: "DAY",
+  timeRange: { start: Date.parse("2026-10-01"), end: Date.parse("2026-10-08") },
+  context: createOperationContext(),
+});
+```
+
+Source: [Video Analytics API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/video-analytics-api?view=li-lms-2026-10), accessed 2026-11-04.
+
+### Read member analytics
+
+LinkedIn's member creator post, profile, and video analytics exist upstream as Community
+Management endpoints separate from the organization statistics above. Member authors can read
+their own through these native methods. These calls need the Community Management
+scopes `r_member_postAnalytics` (posts and video) or `r_member_profileAnalytics` (followers), and
+fail with `unsupported_capability` for organization accounts. A `dateRange` takes `start` and
+`end` as `{ year, month, day }`; start is inclusive and end exclusive.
+
+- `native.getMemberPostAnalytics` reads `memberCreatorPostAnalytics` for one post (`postId`, sent
+  as `entity=(share:...)` or `(ugc:...)`) or, without `postId`, for all the member's posts.
+  `metric` is `IMPRESSION`, `MEMBERS_REACHED`, `RESHARE`, `REACTION` or `COMMENT`; from version
+  `202604` also `POST_SAVE`, `POST_SEND`, `LINK_CLICKS`, `PREMIUM_CTA_CLICKS`,
+  `FOLLOWER_GAINED_FROM_CONTENT` and `PROFILE_VIEW_FROM_CONTENT`. `aggregation` is `TOTAL`
+  (default) or `DAILY`; LinkedIn does not support `DAILY` for `MEMBERS_REACHED`, `LINK_CLICKS`,
+  `FOLLOWER_GAINED_FROM_CONTENT` or `PROFILE_VIEW_FROM_CONTENT`, and the adapter rejects those
+  combinations.
+- `native.getMemberVideoAnalytics` reads `memberCreatorVideoAnalytics` for a post with a video:
+  `VIDEO_PLAY`, `VIDEO_VIEWER` or `VIDEO_WATCH_TIME` (milliseconds). Only `VIDEO_PLAY` supports
+  `DAILY` or a `dateRange`. Play and viewer data stop being available a year after the post.
+- `native.getMemberFollowerCount` returns the lifetime member follower count, or daily counts
+  within a `dateRange`.
+
+Each analytics point has `metric`, `count`, and the `post` and `dateRange` when LinkedIn returns
+them. LinkedIn describes these numbers as best-effort.
+
+```ts
+const reactions = await native.getMemberPostAnalytics({
+  account,
+  postId: "urn:li:share:7325786486870552578",
+  metric: "REACTION",
+  aggregation: "DAILY",
+  dateRange: { start: { year: 2026, month: 10, day: 1 }, end: { year: 2026, month: 10, day: 8 } },
+  context: createOperationContext(),
+});
+```
+
 ### Read organization notifications
 
 `social.notifications.list` pulls social-action notifications for an organization page: likes,
@@ -472,19 +1122,59 @@ The adapter calls `organizationalEntityNotifications` with the criteria finder a
 types. Each item keeps `notificationId`, `organizationalEntity`, `action`, `sourcePost`,
 `generatedActivity`, and `lastModifiedAt`. The cursor is a Rest.li offset. LinkedIn keeps
 notifications for 60 days and recommends webhooks for ongoing delivery, so treat this read as a
-backfill or recovery path. For push delivery, see [events](/events): obtain portal approval,
-register and validate the webhook, then create the organization's subscription externally with
-`PUT /rest/eventSubscriptions`. This package does not create or renew subscriptions. Authorization
-expiry or loss of administrator eligibility terminates the subscription; signature verification
-alone does not start delivery. LinkedIn has no seen state, so `notifications.seen` is
-`unsupported-by-platform`.
+backfill or recovery path. `notifications.seen` is listed under [Not supported](#not-supported).
+
+`native.listOrganizationNotifications` adds filters: `actions` (a subset of the seven),
+`timeRange` (`start` inclusive and `end` exclusive, in epoch milliseconds, sent as
+`timeRange=(start:...,end:...)`), and `sourcePost` (an `urn:li:activity:` URN; LinkedIn then
+accepts exactly one action). Use it to recover what a webhook missed since the last notification
+you stored.
+
+```ts
+const missed = await native.listOrganizationNotifications({
+  account,
+  actions: ["COMMENT"],
+  timeRange: { start: lastSeenAt },
+  context: createOperationContext(),
+});
+```
+
+#### Manage webhook subscriptions
+
+LinkedIn delivers organization notifications to your webhook only after an administrator's
+subscription exists. Obtain portal approval and register and validate the webhook first (see
+[events](/events)); then, with that administrator's token (`rw_organization_admin`):
+
+- `native.subscribeOrganizationNotifications({ account, developerApplication, member, webhook, context })`
+  sends `PUT /rest/eventSubscriptions/(developerApplication:...,user:...,entity:...,eventType:ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS)`
+  with `{ webhook }`. `developerApplication` is your app's `urn:li:developerApplication:` URN,
+  `member` is the administrator's person URN, and the entity is the configured organization. Calling
+  it again updates the webhook URL.
+- `native.listOrganizationNotificationSubscriptions` lists the member's subscriptions with
+  `q=subscriberAndEventType` and keeps those for the configured organization, including
+  `expiresAt`.
+- `native.unsubscribeOrganizationNotifications` deletes the subscription.
+
+A subscription ends when the member's grant expires or is revoked, or when the member stops being an
+administrator. The SDK does not renew subscriptions on its own: track the last notification you
+received, check subscriptions on your own schedule, resubscribe with a valid token, and backfill
+with `listOrganizationNotifications`. Webhook signature verification alone does not start
+delivery.
 
 ## Native operations
 
-The native module covers administered-organization discovery, polls, reactions, reshares, updates, deletion, comment deletion, image, video and document status checks, and organization analytics. Multi-image, video, document, and article-link posts go through `social.posts.publish`. `articles.create` is available through the generic `content.link` contract. `profile.update` remains
+The native module covers administered-organization discovery, events (create, background image, post, get, update, list), typed post reads and batch gets, polls, reactions (create, get, batch get, list, delete), social metadata and batch social reads, mention lookups by profile URL, reshares, updates, deletion, comment creation, editing, nested-reply reads, deletion and comment closing, video upload with captions and attribution, image, video and document status checks (single and batch), organization lookups, roles and authorization checks, member profiles, organization, showcase, video and member analytics, filtered notification pulls, and webhook subscription management. Multi-image, video, document, and article-link posts go through `social.posts.publish`. `articles.create` is available through the generic `content.link` contract. `profile.update` remains
 `not-implemented-by-adapter` because LinkedIn restricts the Profile Edit API to approved developers.
 Profile editing also has a separate upstream approval requirement. Approval does not add an absent
 SDK method.
+
+`native.mediaStatuses({ account, media, context })` reads the status of up to 100 uploaded
+references at once, for example the 20 images of a multi-image post. It groups them by type and
+sends one `GET /rest/images?ids=List(...)`, `GET /rest/videos?ids=List(...)` or
+`GET /rest/documents?ids=List(...)` per type present. Each result has `mediaId`, `owner` and
+`status`, plus `processingFailureReason` and `duration` for videos; signed download URLs are dropped.
+References LinkedIn did not return are listed in `errors` with their per-key status, and a result
+owned by another author fails with `unauthorized`.
 
 `media.read` covers the native `imageStatus`, `videoStatus`, and `documentStatus` helpers.
 Its declaration uses notes rather than a single required-scopes list because permissions differ:
@@ -508,20 +1198,61 @@ on 2026-10-18 for API version 202609.
 
 ## Limits and requirements
 
-- Commentary is limited to 3,000 characters and publication uses public visibility only.
-- Shared `content.text` preserves literal text: `#` and `@` do not create annotations. The adapter
-  escapes LinkedIn little-text syntax. Native `updatePost` accepts raw provider JSON, so callers
-  must supply intentional little-text markup themselves.
-- Post reads return only `id`, `author`, `commentary`, `visibility`, `lifecycleState`, `createdAt`,
-  and `lastModifiedAt`; they do not return content-rich media or link objects.
+- Commentary is limited to 3,000 characters. Organization posts use public visibility only;
+  member authors can choose `CONNECTIONS` through the `visibility` option.
+- Shared `content.text` preserves literal text: `#` and `@` do not create annotations unless you
+  pass `annotations`. The adapter escapes LinkedIn little-text syntax. Native `updatePost` with a
+  raw `body` sends provider JSON as is, so callers must supply intentional little-text markup.
+- Post reads return only URNs for media, articles and thumbnails, not signed download URLs; use
+  the image, video and document status helpers for asset details.
 - Article links through `content.link` are supported with HTTPS source URLs, explicit title and
-  description, and no media. Post replies and scheduling are not implemented. Comment replies are
-  supported.
+  description, and no media. Comment replies are supported.
 - Member post reads need the closed `r_member_social` grant, unavailable to new apps. This differs
   from `w_member_social` publishing and the separate feed permissions.
-- LinkedIn has a restricted partner Messages API, but this adapter implements no send method.
 - Native `videoStatus` reports `duration` in milliseconds. `processingFailureReason` is returned
   only when the provider supplies it.
 - Current evidence is offline contract tests; no account, app approval, or live post has been verified.
+
+### Media specifications
+
+`media.upload` checks the declared MIME type and the byte size before it asks LinkedIn for an upload URL, and `posts.publish` checks the attachment count and alt text length. LinkedIn checks pixel counts, frame counts, duration, and page counts after upload, while it processes the asset.
+
+| Media       | Requirement | LinkedIn limit                                                            | Checked by the SDK before sending                                                                                                      |
+| ----------- | ----------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Image       | Format      | JPG, GIF, or PNG                                                          | Declared MIME type must be `image/jpeg`, `image/png`, or `image/gif`, as a Blob or replayable stream, else `invalid_input`.            |
+| Image       | Pixel count | Fewer than 36,152,320 pixels                                              | No, LinkedIn only                                                                                                                      |
+| Image       | GIF frames  | 250 frames maximum                                                        | No, LinkedIn only                                                                                                                      |
+| Image       | File size   | LinkedIn gives none                                                       | SDK policy, not a LinkedIn limit: an empty file or one over 20 MiB fails as `invalid_input`.                                           |
+| Image       | Alt text    | 4,086 characters maximum; LinkedIn recommends under 120                   | Yes: longer alt text fails as `linkedin.alt_text`.                                                                                     |
+| Multi-image | Items       | 2 to 20 images                                                            | Yes: more than 20 attachments fails as `linkedin.media_count`. One image publishes as a single-image post.                             |
+| Video       | Format      | MP4                                                                       | Declared MIME type must be `video/mp4`, as a Blob, else `invalid_input`.                                                               |
+| Video       | Duration    | 3 seconds to 30 minutes                                                   | No, LinkedIn only                                                                                                                      |
+| Video       | File size   | 75 KB to 500 MB for feed video; `initializeUpload` takes files up to 5 GB | Yes: outside 75,000 to 524,288,000 bytes (500 MiB) fails as `invalid_input`.                                                           |
+| Video       | Per post    | One video and no other media                                              | Yes: a video with other media fails as `linkedin.media_count`; alt text on a video fails as `linkedin.video_alt_text`.                 |
+| Video       | Thumbnail   | LinkedIn gives no size limit                                              | Must be a non-empty JPEG or PNG Blob of at most 20 MiB, the SDK's own cap, else `invalid_input`.                                       |
+| Video       | Captions    | One SRT file; LinkedIn gives no size limit                                | `native.uploadVideo` only: a non-empty Blob of at most 20 MiB, the SDK's own cap, else `invalid_input`. The SRT format is not checked. |
+| Document    | Format      | PDF, PPT, PPTX, DOC, or DOCX                                              | Declared MIME type must be one of the five, as a Blob or replayable stream, else `invalid_input`.                                      |
+| Document    | Size        | 100 MB and 300 pages maximum                                              | Size only: an empty file or one over 100,000,000 bytes fails as `invalid_input`. Pages are not counted.                                |
+| Document    | Per post    | One document and no other media; a title is required                      | Yes: `linkedin.document_count`, `linkedin.document_title`, and `linkedin.document_alt_text`.                                           |
+
+Sources: LinkedIn's [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api?view=li-lms-2026-10) (updated June 24, 2026), [MultiImage API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-10) (updated April 30, 2026), [Videos API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-10) (updated March 2, 2026), and [Documents API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api?view=li-lms-2026-10) (updated June 24, 2026), API version 202610, checked 2026-11-04.
+
+### Not supported
+
+- Celebration posts: LinkedIn returns them on reads (`content.celebration`) but rejects creation
+  through the API with a 400, so the adapter cannot create them.
+- Sponsored polls, sponsored multi-image posts and organic carousels: the Posts API allows only
+  organic polls and multi-image posts, and carousels only as sponsored content.
+- Event Ads events (`hasDarkUgc: true`) and the lead-form-only event finder
+  (`q=organizerLeadGenFormEnabledEvents`): the first is part of the sponsored ads workflow, and the
+  second is not implemented; filter `listEvents` results on `leadGenForm` instead.
+- People Typeahead keyword search (`/rest/peopleTypeahead?q=organizationFollowers`): LinkedIn grants
+  it to select developers only ([People Typeahead API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-atmention-search-api?view=li-lms-2026-10),
+  accessed 2026-11-04). Use `resolveMemberVanityUrl` when you have the profile URL.
+- Post replies and scheduling: the adapter does not implement them. Comment replies are supported.
+- Messages: LinkedIn has a restricted partner Messages API, but this adapter implements no send method.
+- Batch post delete: each removal is one `DELETE /rest/posts/{urn}` request.
+- Time-bound statistics for specific posts: `native.getOrganizationPostStatistics` returns lifetime totals only, because LinkedIn offers no time-bound statistics for specific posts.
+- `notifications.seen`: LinkedIn has no seen state for organization notifications, so it is `unsupported-by-platform`.
 
 Sources: [Sign In with LinkedIn using OpenID Connect](https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2), [Organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role), [Organization lookup](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api), [Follower statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/follower-statistics), [Page statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/page-statistics), [Share statistics](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/share-statistics), [Organization follower count](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-lookup-api#retrieve-organization-follower-count), [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api), [Images API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/images-api), [MultiImage API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api), [Videos API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api), [Documents API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/documents-api), [Post API schema](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema), [Comments API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api), [Organization social action notifications](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications) (API version 202609, accessed 2026-09-24).

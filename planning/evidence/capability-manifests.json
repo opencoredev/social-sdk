@@ -10989,7 +10989,7 @@
               "video/*"
             ]
           },
-          "notes": "Unaudited projects may be restricted to private visibility. Upload completion and video processing are separate."
+          "notes": "Since 2026-11-02 YouTube no longer forces uploads from unverified API projects to private; channel settings can still default an upload to private. Upload completion and video processing are separate."
         },
         {
           "operation": "posts.schedule",
@@ -11174,7 +11174,16 @@
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ],
-          "notes": "Native access to liveChatMessages list, insert, and delete. The YouTube authorization determines whether the caller may act on the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership."
+          "notes": "Native access to liveChatMessages list, insert, delete, and closePoll (liveChatMessages.transition, 20 units). The YouTube authorization determines whether the caller may act on the selected chat; the adapter validates the supplied chat ID and body but cannot independently verify chat ownership."
+        },
+        {
+          "operation": "live.chat.stream",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Native liveChatStream: liveChatMessages.streamList over HTTP (GET /youtube/v3/liveChat/messages/stream, 5 units). Parses Google's streamed JSON-array framing; offline contract-tested only. Never reconnects; resume with nextPageToken."
         },
         {
           "operation": "live.chat.moderators",
@@ -11230,13 +11239,139 @@
           "notes": "Reports require an explicit bounded date range and provider-supported metrics."
         },
         {
+          "operation": "analytics.groups",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/yt-analytics.readonly"
+          ],
+          "notes": "Native analyticsGroups and analyticsGroupItems on the YouTube Analytics API (/v2/groups, /v2/groupItems). Filter reports with filters=group==ID."
+        },
+        {
+          "operation": "analytics.reporting.bulk",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/yt-analytics.readonly"
+          ],
+          "notes": "Native reportTypes, reportingJobs, reports, and downloadReport on the YouTube Reporting API (youtubereporting.googleapis.com). Downloads are bounded by the caller's budget and only follow Reporting API media URLs."
+        },
+        {
+          "operation": "channel.banner.write",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.upload"
+          ],
+          "notes": "Native uploadChannelBanner (channelBanners.insert, 50 units, 16:9, at most 6 MiB). Apply the returned url with updateProfile brandingSettings.image.bannerExternalUrl, which needs the youtube scope."
+        },
+        {
+          "operation": "channel.watermark.write",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Native watermarks set (at most 10 MiB) and unset, 50 units each."
+        },
+        {
+          "operation": "playlists.images.write",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Native playlistImages list, insert, update, and delete: a square playlist thumbnail of at most 50 MB."
+        },
+        {
+          "operation": "members.read",
+          "platform": "youtube",
+          "availability": "approval-dependent",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.channel-memberships.creator"
+          ],
+          "notes": "Native members and membershipsLevels. Only creators granted access through a Google or YouTube representative may call them, for their own memberships-enabled channel."
+        },
+        {
+          "operation": "videos.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Native videos (videos.list by ID, chart=mostPopular, or myRating) and batchGetStats (videos.batchGetStats, its own 10,000-unit daily bucket). Reads any public video, not only the configured channel's."
+        },
+        {
+          "operation": "channels.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Native channels: channels.list by ID, forHandle, or forUsername."
+        },
+        {
+          "operation": "reference.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Native videoCategories and i18n (i18nLanguages.list, i18nRegions.list)."
+        },
+        {
+          "operation": "comments.create",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.force-ssl"
+          ],
+          "notes": "Native commentThreads: insert posts a top-level comment (50 units); list exposes searchTerms, order, textFormat, and moderationStatus including likelySpam."
+        },
+        {
+          "operation": "comments.replies.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Native commentReplies: comments.list with parentId."
+        },
+        {
+          "operation": "moderation.report",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.force-ssl"
+          ],
+          "notes": "Native reportAbuse (videos.reportAbuse, 50 units) with reason IDs from videoAbuseReportReasons. Native abuseReports calls the beta abuseReports.insert from the discovery document, which has no reference page."
+        },
+        {
           "operation": "live.broadcasts",
           "platform": "youtube",
           "availability": "available",
           "requiredScopes": [
             "https://www.googleapis.com/auth/youtube"
           ],
-          "notes": "The channel must have live streaming enabled in YouTube Studio. Use native access: liveBroadcasts."
+          "notes": "The channel must have live streaming enabled in YouTube Studio. Native liveBroadcasts lists (by id, mine, or broadcastStatus, with broadcastType and paging), inserts, updates, deletes, binds, inserts ad cuepoints, and transitions broadcasts."
+        },
+        {
+          "operation": "live.streams",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube"
+          ],
+          "notes": "Native liveStreams list, insert, update, and delete. cdn.ingestionInfo contains the secret stream name."
+        },
+        {
+          "operation": "live.superChat.read",
+          "platform": "youtube",
+          "availability": "available",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/youtube.readonly"
+          ],
+          "notes": "Native superChatEvents: purchases from the channel's live streams in the last 30 days."
         }
       ]
     }
@@ -11301,6 +11436,7 @@
               "https-url"
             ],
             "maxItems": 35,
+            "maxBytes": 20971520,
             "allowedMimeTypes": [
               "image/jpeg",
               "image/webp"
@@ -11406,6 +11542,15 @@
           "requiredScopes": [
             "user.info.basic"
           ]
+        },
+        {
+          "platform": "tiktok",
+          "operation": "profiles.read",
+          "availability": "available",
+          "requiredScopes": [
+            "user.info.basic"
+          ],
+          "notes": "Reads the authorized creator only. Set userInfoProfile when user.info.profile was granted to add username, bio, profile link and verification."
         },
         {
           "platform": "tiktok",
@@ -11699,7 +11844,7 @@
             ],
             "maxItems": 20
           },
-          "notes": "Explicit member author and public visibility. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts."
+          "notes": "Explicit member author with public or connections visibility, annotations and reshare control. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts."
         },
         {
           "platform": "linkedin",
@@ -11806,6 +11951,108 @@
         },
         {
           "platform": "linkedin",
+          "operation": "media.video",
+          "availability": "available",
+          "formats": [
+            "video"
+          ],
+          "requiredScopes": [
+            "w_member_social"
+          ],
+          "notes": "Native uploadVideo uploads an MP4 like media.upload, plus an English SRT captions file and templateName/linkbackContext attribution (API version 202602+). A JPEG or PNG media.thumbnail Blob becomes the custom thumbnail on both paths."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "webhooks.subscriptions.write",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Native subscribeOrganizationNotifications and unsubscribeOrganizationNotifications PUT and DELETE the eventSubscriptions key for the configured organization and one administrator. Needs an approved webhook use case, a validated webhook and an ADMINISTRATOR role; the subscription ends with that member's grant or role."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "webhooks.subscriptions.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Native listOrganizationNotificationSubscriptions lists the authenticated member's subscriptions for the configured organization. Needs an approved webhook use case, a validated webhook and an ADMINISTRATOR role; the subscription ends with that member's grant or role."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "posts.read.batch",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_social"
+          ],
+          "notes": "Native getPosts sends BATCH_GET for up to 100 of the author's posts; native getPost reads one with viewContext READER or AUTHOR. LinkedIn does not allow BATCH_GET in the Development tier."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "social-metadata.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_social_feed"
+          ],
+          "notes": "Native getSocialMetadata returns reactionSummaries per type, comment totals and commentsState. LinkedIn restricts member r_member_social_feed to select developers."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "reactions.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_social_feed"
+          ],
+          "notes": "Native listReactions uses the q=entity finder with offset paging. LinkedIn restricts member r_member_social_feed to select developers."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "comments.replies.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_social_feed"
+          ],
+          "notes": "Native listCommentReplies checks the parent comment belongs to the post, then lists its replies. LinkedIn restricts member r_member_social_feed to select developers."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "reactions.delete",
+          "availability": "available",
+          "requiredScopes": [
+            "w_member_social_feed"
+          ],
+          "notes": "Native deleteReaction removes the configured author's reaction."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "comments.state.write",
+          "availability": "available",
+          "requiredScopes": [
+            "w_member_social_feed"
+          ],
+          "notes": "Native setCommentsState sets commentsState OPEN or CLOSED. Closing deletes all existing comments."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "comments.create",
+          "availability": "available",
+          "requiredScopes": [
+            "w_member_social_feed"
+          ],
+          "notes": "Native createComment writes a top-level comment or nested reply with optional mentions and one image, without pre-reading the post."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "comments.edit",
+          "availability": "available",
+          "requiredScopes": [
+            "w_member_social_feed"
+          ],
+          "notes": "Native editComment replaces message text and mention attributes."
+        },
+        {
+          "platform": "linkedin",
           "operation": "analytics.organization.read",
           "availability": "account-ineligible",
           "requiredScopes": [
@@ -11817,7 +12064,7 @@
           "platform": "linkedin",
           "operation": "articles.create",
           "availability": "available",
-          "notes": "Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. Thumbnail URNs are not exposed by the generic LinkMetadata contract."
+          "notes": "Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. The LinkedIn articleThumbnail option sends an uploaded image URN as the thumbnail."
         },
         {
           "platform": "linkedin",
@@ -11847,7 +12094,7 @@
           "requiredScopes": [
             "rw_organization_admin"
           ],
-          "notes": "Organization social-action notifications from the last 60 days, pulled with offset paging. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API."
+          "notes": "Organization social-action notifications from the last 60 days, pulled with offset paging; native listOrganizationNotifications adds action, sourcePost and timeRange filters. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API."
         },
         {
           "platform": "linkedin",
@@ -11858,11 +12105,148 @@
         {
           "platform": "linkedin",
           "operation": "analytics.account.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_profileAnalytics"
+          ],
+          "notes": "Lifetime follower count for the configured member from memberFollowersCount (q=me). Requires the Community Management r_member_profileAnalytics scope."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.member.posts.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_postAnalytics"
+          ],
+          "notes": "Native getMemberPostAnalytics (memberCreatorPostAnalytics) and getMemberVideoAnalytics (memberCreatorVideoAnalytics) for the configured member. Organization accounts are not eligible."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.member.followers.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_profileAnalytics"
+          ],
+          "notes": "Native getMemberFollowerCount reads memberFollowersCount, lifetime or daily within a dateRange."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.brand.read",
           "availability": "account-ineligible",
           "requiredScopes": [
             "rw_organization_admin"
           ],
-          "notes": "Total followers for the configured organization from networkSizes with COMPANY_FOLLOWED_BY_MEMBER. The provider documents this count for any organization; SDK author binding still applies. No member-profile analytics claimed."
+          "notes": "Native getBrandPageStatistics reads brandPageStatistics for the configured organization as a showcase page. Requires an ADMINISTRATOR role."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.shares.posts.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Native getOrganizationPostStatistics reads lifetime share statistics for specific posts with shares=List(...) and ugcPosts=List(...). Requires an ADMINISTRATOR role."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "organizations.roles.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Native listOrganizationRoles uses the organizationAcls organization finder for the configured organization. Requires an ADMINISTRATOR role."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "organizations.read",
+          "availability": "available",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Native lookupOrganizations (organizationsLookup), findOrganizationByVanityName (q=vanityName) and listOrganizationBrands (q=parentOrganization). Lookups return non-admin fields; brand discovery returns only brands the member administers."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "social.batch.read",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_social_feed"
+          ],
+          "notes": "Native getSocialMetadataBatch (socialMetadata?ids=List), getSocialActionsBatch (socialActions?ids=List) and getComments (comments?ids=List) read up to 100 posts or comments per request. LinkedIn restricts member r_member_social_feed to select developers."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "reactions.get",
+          "availability": "available",
+          "requiredScopes": [
+            "r_member_social_feed"
+          ],
+          "notes": "Native getReaction reads one reaction by (actor, entity) and returns undefined on 404; getReactions batch gets up to 100 keys. LinkedIn restricts member r_member_social_feed to select developers."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "media.read.batch",
+          "availability": "available",
+          "formats": [
+            "image",
+            "video",
+            "document"
+          ],
+          "notes": "Native mediaStatuses reads up to 100 of the author's images, videos and documents with one images?ids=List, videos?ids=List or documents?ids=List request per type. Scopes match media.read."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "events.write",
+          "availability": "approval-dependent",
+          "requiredScopes": [
+            "rw_events"
+          ],
+          "notes": "Native createEvent (POST /rest/events), updateEvent (partial update while upcoming), uploadEventBackgroundImage (assets registerUpload) and createEventPost (content.reference). Delete an event by deleting its ugcPost with deletePost. LinkedIn grants the Events API separately from the Marketing API program; organization organizers need an ADMINISTRATOR or CONTENT_ADMINISTRATOR role."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "events.read",
+          "availability": "approval-dependent",
+          "requiredScopes": [
+            "r_events"
+          ],
+          "notes": "Native getEvent and listEvents (q=eventsByOrganizer with excludeCancelled, timeBasedFilter, entryCriteria and sortOrder). Events are readable only after they are posted. LinkedIn grants the Events API separately from the Marketing API program; organization organizers need an ADMINISTRATOR or CONTENT_ADMINISTRATOR role."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "analytics.video.read",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "r_organization_social"
+          ],
+          "notes": "Native getOrganizationVideoAnalytics reads videoAnalytics (VIDEO_VIEW, VIEWER, TIME_WATCHED, TIME_WATCHED_FOR_VIDEO_VIEWS) for one ugcPost video with DAY, WEEK or ALL aggregation and an optional timeRange. Member accounts use getMemberVideoAnalytics."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "organizations.authorizations.read",
+          "availability": "available",
+          "requiredScopes": [
+            "rw_organization_admin"
+          ],
+          "notes": "Native getOrganizationAuthorization, getOrganizationAuthorizations (BATCH_GET) and findOrganizationAuthorizations (bq=authorizationActionsAndImpersonator) ask LinkedIn whether a member may take an action, such as ORGANIC_SHARE_CREATE or UPDATE_ANALYTICS_READ, for an organization."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "profile.read",
+          "availability": "approval-dependent",
+          "requiredScopes": [
+            "r_liteprofile"
+          ],
+          "notes": "Native getProfile (GET /v2/me, member authors only) and getPeople (GET /v2/people/(id:...) or /v2/people?ids=List(...), up to 50) with optional projections. LinkedIn restricts the Profile API to approved developers; r_basicprofile adds headline and vanityName. Store other members' profile data only as LinkedIn's terms allow."
+        },
+        {
+          "platform": "linkedin",
+          "operation": "mentions.resolve",
+          "availability": "account-ineligible",
+          "requiredScopes": [
+            "r_organization_followers"
+          ],
+          "notes": "Native resolveMemberVanityUrl maps a follower's profile URL to a person URN with vanityUrl q=vanityUrlAsOrganization. LinkedIn restricts the People Typeahead endpoints to select developers; keyword search (peopleTypeahead) is not implemented."
         },
         {
           "platform": "linkedin",

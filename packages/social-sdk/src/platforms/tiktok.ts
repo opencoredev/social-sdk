@@ -9,13 +9,17 @@ import type {
   PreparedPublishTarget,
   MetricValue,
   PlatformPostRef,
+  ProfileRecord,
 } from "../core/types.js";
+import { profileRef } from "../core/types.js";
 import { managedHttp, optionsObject, publicFields } from "../cloud/common.js";
 import { readJson, retryDelay } from "../transport/http.js";
+import { fetchWithoutRedirects } from "../transport/redirect.js";
 import {
   array,
   isBoolean,
   isFiniteNumber,
+  isJsonArray,
   isJsonObject,
   isString,
   object,
@@ -52,9 +56,122 @@ export interface TikTokOptions {
   readonly webhookToleranceSeconds?: number;
   /** Preferred FILE_UPLOAD chunk size, 5 to 64 MiB. Defaults to 10 MiB. */
   readonly uploadChunkBytes?: number;
+  /**
+   * Set when the creator granted `user.info.profile`. `graph.getProfile` then also requests
+   * `username`, `bio_description`, `profile_deep_link` and `is_verified`.
+   */
+  readonly userInfoProfile?: boolean;
+}
+
+/**
+ * Fields of `GET /v2/user/info/`, grouped by the scope each needs.
+ * Source, accessed 2026-11-04: https://developers.tiktok.com/doc/tiktok-api-v2-get-user-info
+ */
+export const tiktokUserInfoFields = {
+  "user.info.basic": [
+    "open_id",
+    "union_id",
+    "avatar_url",
+    "avatar_url_100",
+    "avatar_large_url",
+    "display_name",
+  ],
+  "user.info.profile": ["bio_description", "profile_deep_link", "is_verified", "username"],
+  "user.info.stats": ["follower_count", "following_count", "likes_count", "video_count"],
+} as const;
+
+export type TikTokUserInfoField =
+  (typeof tiktokUserInfoFields)[keyof typeof tiktokUserInfoFields][number];
+
+const userInfoFieldNames: ReadonlySet<string> = new Set(Object.values(tiktokUserInfoFields).flat());
+
+function isTikTokUserInfoField(value: string): value is TikTokUserInfoField {
+  return userInfoFieldNames.has(value);
+}
+
+/** Data categories of the Data Portability API's add-data request. */
+export type TikTokPortabilityCategory =
+  | "all_data"
+  | "video"
+  | "profile"
+  | "activity"
+  | "direct_message";
+
+export type TikTokPortabilityState = "pending" | "downloading" | "expired" | "cancelled";
+
+const portabilityCategories: ReadonlySet<string> = new Set([
+  "all_data",
+  "video",
+  "profile",
+  "activity",
+  "direct_message",
+]);
+
+const portabilityStates: readonly TikTokPortabilityState[] = [
+  "pending",
+  "downloading",
+  "expired",
+  "cancelled",
+];
+
+function isPortabilityState(value: JsonField): value is TikTokPortabilityState {
+  return portabilityStates.some((state) => state === value);
+}
+
+export interface TikTokDataRequest {
+  /** Decimal `request_id`, limited to safe integers so it can be sent back exactly. */
+  readonly requestId: string;
+  /** `unknown` when TikTok reports a status this SDK version does not know; see `providerStatus`. */
+  readonly state: TikTokPortabilityState | "unknown";
+  readonly providerStatus: string;
+  readonly appliedAt?: string;
+  readonly collectionStartedAt?: string;
+  readonly dataFormat?: string;
+  readonly categories: readonly string[];
 }
 
 export interface TikTokNative {
+  /**
+   * Data Portability API (`POST /v2/user/data/add/`): ask TikTok to prepare an export of the
+   * creator's data. Needs a matching `portability.*` scope and TikTok's approval.
+   */
+  readonly addDataRequest: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly dataFormat: "text" | "json";
+    readonly categories: readonly [TikTokPortabilityCategory, ...TikTokPortabilityCategory[]];
+    readonly context: AdapterOperationContext;
+  }) => Promise<{ readonly requestId: string }>;
+  /** `POST /v2/user/data/check/`: read the state of an export request. */
+  readonly checkDataRequest: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly requestId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<TikTokDataRequest>;
+  /** `POST /v2/user/data/cancel/`: cancel an export request. */
+  readonly cancelDataRequest: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly requestId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  /**
+   * `POST /v2/user/data/download/`: stream the prepared zip archive. The caller owns the stream
+   * and must consume or cancel it. TikTok keeps the archive for four days after it is ready.
+   */
+  readonly downloadDataRequest: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly requestId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<ReadableStream<Uint8Array>>;
+
+  /**
+   * Read `GET /v2/user/info/` for the authorized creator with exactly the requested fields.
+   * Each field needs its scope from `tiktokUserInfoFields`; `open_id` is always requested.
+   */
+  readonly userInfo: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly fields: readonly TikTokUserInfoField[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<JsonObject>;
   readonly creatorInfo: (
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
@@ -81,7 +198,179 @@ export interface TikTokNative {
     readonly publishId: string;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /**
+   * `POST /v2/post/publish/cancel/`: ask TikTok to stop a slow PULL_FROM_URL download for a
+   * Direct Post or inbox upload. Needs `video.publish` or `video.upload`. Cancellation is best
+   * effort: TikTok cannot stop a download that is nearly done or already processing, and a
+   * resolved call does not mean the post was stopped. Poll `publishStatus` until it reports
+   * `FAILED` with `fail_reason` `publish_cancelled`, or a final success.
+   */
+  readonly cancelPublish: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly publishId: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
 }
+
+/**
+ * Embed Player query parameters. Each is sent as `1` (true) or `0` (false); omitted ones keep
+ * TikTok's default, shown in brackets.
+ * Source, accessed 2026-11-04: https://developers.tiktok.com/doc/embed-player
+ */
+export interface TikTokEmbedPlayerOptions {
+  /** `controls` [on]. Off hides the progress bar and every control button. */
+  readonly controls?: boolean;
+  /** `progress_bar` [on], videos only. */
+  readonly progressBar?: boolean;
+  /** `play_button` [on], videos only. */
+  readonly playButton?: boolean;
+  /** `volume_control` [on]. */
+  readonly volumeControl?: boolean;
+  /** `fullscreen_button` [on]. */
+  readonly fullscreenButton?: boolean;
+  /** `timestamp` [on], videos only: current playback time and duration. */
+  readonly timestamp?: boolean;
+  /** `loop` [off], videos only. */
+  readonly loop?: boolean;
+  /** `autoplay` [off], videos only. */
+  readonly autoplay?: boolean;
+  /** `music_info` [off]: show the sound's details. */
+  readonly musicInfo?: boolean;
+  /** `description` [off]: show the post's description. */
+  readonly description?: boolean;
+  /** `rel` [on], videos only: on shows related videos, off shows the author's own videos. */
+  readonly rel?: boolean;
+  /** `native_context_menu` [on]: the browser's right-click menu. */
+  readonly nativeContextMenu?: boolean;
+  /** `closed_caption` [on], videos only. */
+  readonly closedCaption?: boolean;
+  /** `force_muted` [off]: volume 0 and the viewer cannot change it. */
+  readonly forceMuted?: boolean;
+}
+
+const embedPlayerParams = [
+  ["controls", "controls"],
+  ["progressBar", "progress_bar"],
+  ["playButton", "play_button"],
+  ["volumeControl", "volume_control"],
+  ["fullscreenButton", "fullscreen_button"],
+  ["timestamp", "timestamp"],
+  ["loop", "loop"],
+  ["autoplay", "autoplay"],
+  ["musicInfo", "music_info"],
+  ["description", "description"],
+  ["rel", "rel"],
+  ["nativeContextMenu", "native_context_menu"],
+  ["closedCaption", "closed_caption"],
+  ["forceMuted", "force_muted"],
+] as const satisfies readonly (readonly [keyof TikTokEmbedPlayerOptions, string])[];
+
+/**
+ * Builds an Embed Player URL, `https://www.tiktok.com/player/v1/{post_id}`, for an iframe `src`.
+ * Embed Player replaces oEmbed and needs no access token.
+ */
+export function tiktokEmbedPlayerUrl(
+  postId: string,
+  options: TikTokEmbedPlayerOptions = {},
+): string {
+  if (!/^\d{1,32}$/.test(postId))
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "tiktok.embedPlayer",
+      message: "TikTok post IDs are decimal digits.",
+    });
+
+  const url = new URL(`https://www.tiktok.com/player/v1/${postId}`);
+
+  for (const [option, param] of embedPlayerParams) {
+    const value = options[option];
+
+    if (value !== undefined) url.searchParams.set(param, value ? "1" : "0");
+  }
+
+  return url.toString();
+}
+
+/** Host-to-player commands for `iframe.contentWindow.postMessage`. */
+export type TikTokPlayerCommand =
+  | { readonly type: "play" | "pause" | "mute" | "unMute" }
+  /** Seconds from 0 to the video's length. */
+  | { readonly type: "seekTo"; readonly value: number }
+  /** Image posts only: image index from 0. */
+  | { readonly type: "navigateTo"; readonly value: number };
+
+/** Builds the `{ type, value, "x-tiktok-player": true }` message the Embed Player accepts. */
+export function tiktokPlayerMessage(command: TikTokPlayerCommand): JsonObject {
+  if (
+    "value" in command &&
+    (!Number.isFinite(command.value) ||
+      command.value < 0 ||
+      (command.type === "navigateTo" && !Number.isSafeInteger(command.value)))
+  )
+    throw new SocialError({
+      code: "invalid_input",
+      operation: "tiktok.embedPlayer",
+      message: "TikTok player seek and navigation values must be nonnegative numbers.",
+    });
+
+  return "value" in command
+    ? { type: command.type, value: command.value, "x-tiktok-player": true }
+    : { type: command.type, "x-tiktok-player": true };
+}
+
+/** Player-to-host events from the Embed Player, decoded by {@link parseTikTokPlayerEvent}. */
+export type TikTokPlayerEvent =
+  | { readonly type: "onPlayerReady" }
+  /** -1 init, 0 ended, 1 playing, 2 paused, 3 buffering. */
+  | { readonly type: "onStateChange"; readonly value: number }
+  | { readonly type: "onCurrentTime"; readonly currentTime: number; readonly duration: number }
+  | { readonly type: "onMute"; readonly value: boolean }
+  | { readonly type: "onVolumeChange"; readonly value: number }
+  | { readonly type: "onImageChange"; readonly value: number }
+  | { readonly type: "onPlayerError"; readonly errorCode: number; readonly errorType?: string };
+
+/**
+ * Decodes a `message` event's `data` from the Embed Player. Returns `undefined` for messages
+ * without `"x-tiktok-player": true` or with a shape TikTok does not document. Check the event's
+ * `origin` is `https://www.tiktok.com` before calling this.
+ */
+export function parseTikTokPlayerEvent(data: JsonField): TikTokPlayerEvent | undefined {
+  if (!isJsonObject(data) || data["x-tiktok-player"] !== true) return undefined;
+
+  const type = data["type"];
+  const value = data["value"];
+
+  if (type === "onPlayerReady") return { type };
+
+  if (
+    (type === "onStateChange" || type === "onVolumeChange" || type === "onImageChange") &&
+    isFiniteNumber(value)
+  )
+    return { type, value };
+
+  if (type === "onMute" && isBoolean(value)) return { type, value };
+
+  if (type === "onCurrentTime" && isJsonObject(value)) {
+    const currentTime = value["currentTime"];
+    const duration = value["duration"];
+
+    if (isFiniteNumber(currentTime) && isFiniteNumber(duration))
+      return { type, currentTime, duration };
+  }
+
+  if (type === "onPlayerError" && isJsonObject(value) && isFiniteNumber(value["errorCode"]))
+    return {
+      type,
+      errorCode: value["errorCode"],
+      ...definedFields({ errorType: optionalString(value["errorType"]) }),
+    };
+
+  return undefined;
+}
+
+// Source, accessed 2026-11-04: https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide
+// Each photo may be at most 20 MB.
+const tiktokMaxPhotoBytes = 20 * 1024 * 1024;
 
 const videoFields = [
   "id",
@@ -243,7 +532,7 @@ export function tiktok(
       });
   };
 
-  const data = (value: JsonField): JsonObject => {
+  const checked = (value: JsonField): JsonObject => {
     const response = object(value);
     const error = object(response["error"]);
 
@@ -269,8 +558,29 @@ export function tiktok(
             : { kind: "never" },
       });
 
-    return object(response["data"]);
+    return response;
   };
+
+  const data = (value: JsonField): JsonObject => object(checked(value)["data"]);
+
+  // Data Portability request IDs are int64. Only safe integers survive a JSON number round trip.
+  const portabilityRequestId = (requestId: string): number => {
+    const id = Number(requestId);
+
+    if (!/^[1-9]\d*$/.test(requestId) || !Number.isSafeInteger(id))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "native",
+        message: "TikTok data request IDs must be positive decimal integers.",
+      });
+
+    return id;
+  };
+
+  const unixSeconds = (value: JsonField): string | undefined =>
+    isFiniteNumber(value) && Number.isSafeInteger(value) && value > 0
+      ? new Date(value * 1000).toISOString()
+      : undefined;
 
   const creatorInfo = async (
     account: ConnectedAccountRef,
@@ -285,12 +595,47 @@ export function tiktok(
       fetchedAt: now(),
       username: string(creator["creator_username"]),
       nickname: string(creator["creator_nickname"]),
+      // TikTok signs this URL for two hours; refresh creator info instead of storing it.
+      avatarUrl: optionalString(creator["creator_avatar_url"]) ?? null,
       privacyLevels: array(creator["privacy_level_options"]).map(string),
       commentDisabled: creator["comment_disabled"] === true,
       duetDisabled: creator["duet_disabled"] === true,
       stitchDisabled: creator["stitch_disabled"] === true,
       maxVideoDurationSeconds: optionalNumber(creator["max_video_post_duration_sec"]) ?? null,
     };
+  };
+
+  const userInfo = async (input: {
+    readonly account: ConnectedAccountRef;
+    readonly fields: readonly string[];
+    readonly operation: string;
+    readonly context: AdapterOperationContext;
+  }): Promise<JsonObject> => {
+    authorize(input.account, input.context);
+
+    if (input.fields.some((field) => !isTikTokUserInfoField(field)))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: input.operation,
+        message: "Request only fields that TikTok documents for /v2/user/info/.",
+      });
+
+    const fields = [...new Set(["open_id", ...input.fields])];
+
+    const response = data(
+      await request("/v2/user/info/", input.context, undefined, { fields: fields.join(",") }),
+    );
+
+    const user = object(response["user"]);
+
+    if (user["open_id"] !== input.account.accountId)
+      throw new SocialError({
+        code: "unauthorized",
+        operation: input.operation,
+        message: "TikTok creator identity mismatch.",
+      });
+
+    return publicFields(user, fields);
   };
 
   const prepare = (target: PreparedPublishTarget) => {
@@ -307,7 +652,6 @@ export function tiktok(
     for (const [key, message] of [
       ["description", "description is only supported by the Zernio managed adapter."],
       ["mediaType", "mediaType is only supported by the Zernio managed adapter."],
-      ["autoAddMusic", "autoAddMusic is only supported by the Zernio managed adapter."],
     ] as const)
       if (config[key] !== undefined) fail(`tiktok.${key}`, message);
 
@@ -377,6 +721,34 @@ export function tiktok(
     if (video && title !== undefined)
       fail("tiktok.title", "Video captions use content.text; title is a photo-only option.");
 
+    // TikTok documents auto_add_music as a photo post_info field for DIRECT_POST only.
+    const autoAddMusic = config["autoAddMusic"];
+
+    if (autoAddMusic !== undefined && (!isBoolean(autoAddMusic) || video || draft))
+      fail(
+        "tiktok.autoAddMusic",
+        "autoAddMusic is a boolean for photo Direct Posts only (draft: false).",
+      );
+
+    // video_cover_timestamp_ms is an int32 post_info field of video Direct Post.
+    const coverMs = config["videoCoverTimestampMs"];
+    const durationMs = (media[0]?.durationSeconds ?? Number.POSITIVE_INFINITY) * 1000;
+
+    if (
+      coverMs !== undefined &&
+      (!video ||
+        draft ||
+        !isFiniteNumber(coverMs) ||
+        !Number.isSafeInteger(coverMs) ||
+        coverMs < 0 ||
+        coverMs > 2_147_483_647 ||
+        coverMs > durationMs)
+    )
+      fail(
+        "tiktok.videoCover",
+        "videoCoverTimestampMs must be whole milliseconds within the video, for video Direct Posts only.",
+      );
+
     const photoCoverIndex = config["photoCoverIndex"];
 
     if (
@@ -389,6 +761,9 @@ export function tiktok(
       fail("tiktok.cover", "Select a photo cover index within the attached images.");
 
     for (const item of media) {
+      if (item.kind === "image" && (item.byteSize ?? 0) > tiktokMaxPhotoBytes)
+        fail("tiktok.photo_size", "TikTok accepts photos up to 20 MB each.");
+
       if (
         item.kind === "video" &&
         (!Number.isFinite(item.durationSeconds) || (item.durationSeconds ?? 0) <= 0)
@@ -486,6 +861,7 @@ export function tiktok(
           constraints: {
             mediaSources: ["https-url"],
             maxItems: 35,
+            maxBytes: tiktokMaxPhotoBytes,
             allowedMimeTypes: ["image/jpeg", "image/webp"],
           },
           notes:
@@ -575,6 +951,14 @@ export function tiktok(
         },
         {
           platform: "tiktok",
+          operation: "profiles.read",
+          availability: "available" as const,
+          requiredScopes: ["user.info.basic"],
+          notes:
+            "Reads the authorized creator only. Set userInfoProfile when user.info.profile was granted to add username, bio, profile link and verification.",
+        },
+        {
+          platform: "tiktok",
           operation: "analytics.account.read",
           availability: "available" as const,
           requiredScopes: ["user.info.stats"],
@@ -655,6 +1039,46 @@ export function tiktok(
           ref: account,
           displayName: string(user["display_name"]),
           status: "connected" as const,
+        };
+      },
+    },
+    graph: {
+      async getProfile(account, input, context): Promise<ProfileRecord> {
+        // TikTok's Display API reads only the user who granted the token.
+        if (
+          input.handle !== undefined ||
+          (input.profileId !== undefined && input.profileId !== account.accountId)
+        )
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "profiles.read",
+            message: "TikTok profile reads are limited to the authorized creator.",
+          });
+
+        const user = await userInfo({
+          account,
+          fields: [
+            ...tiktokUserInfoFields["user.info.basic"],
+            ...(options.userInfoProfile === true ? tiktokUserInfoFields["user.info.profile"] : []),
+          ],
+          operation: "profiles.read",
+          context,
+        });
+
+        return {
+          ref: profileRef({
+            backend: account.backend,
+            platform: "tiktok",
+            accountId: account.accountId,
+            profileId: account.accountId,
+          }),
+          ...definedFields({
+            displayName: optionalString(user["display_name"]),
+            handle: optionalString(user["username"]),
+            avatarUrl: optionalString(user["avatar_url"]),
+            bio: optionalString(user["bio_description"]),
+          }),
+          native: user,
         };
       },
     },
@@ -819,8 +1243,8 @@ export function tiktok(
             message: "Video exceeds this creator's allowed duration.",
           });
 
-        const postInfo: JsonObject = {
-          title: target.content.text ?? "",
+        // TikTok documents these post_info fields for DIRECT_POST only.
+        const directPostInfo: JsonObject = {
           privacy_level: string(config["privacy"]),
           disable_comment: config["disableComments"] === true,
           brand_content_toggle: config["brandedContent"] === true,
@@ -839,10 +1263,14 @@ export function tiktok(
                   post_info: draft
                     ? undefined
                     : {
-                        ...postInfo,
+                        title: target.content.text ?? "",
+                        ...directPostInfo,
                         disable_duet: config["disableDuet"] === true,
                         disable_stitch: config["disableStitch"] === true,
                         is_aigc: config["aiGenerated"] === true,
+                        ...definedFields({
+                          video_cover_timestamp_ms: optionalNumber(config["videoCoverTimestampMs"]),
+                        }),
                       },
                 }),
                 source_info: local
@@ -859,15 +1287,22 @@ export function tiktok(
               },
             ),
           );
-        else
+        else {
+          const photoText: JsonObject = {
+            title: optionalString(config["title"]) ?? "",
+            description: target.content.text ?? "",
+          };
+
           result = data(
             await request("/v2/post/publish/content/init/", context, {
-              post_info: {
-                ...postInfo,
-                title: optionalString(config["title"]) ?? "",
-                description: target.content.text ?? "",
-                auto_add_music: false,
-              },
+              // MEDIA_UPLOAD sends only the text; the creator finishes the post in TikTok.
+              post_info: draft
+                ? photoText
+                : {
+                    ...photoText,
+                    ...directPostInfo,
+                    auto_add_music: config["autoAddMusic"] === true,
+                  },
               source_info: {
                 source: "PULL_FROM_URL",
                 photo_cover_index: optionalNumber(config["photoCoverIndex"]) ?? 0,
@@ -880,6 +1315,7 @@ export function tiktok(
               is_aigc: config["aiGenerated"] === true,
             }),
           );
+        }
 
         const accepted = {
           account: target.account,
@@ -1015,14 +1451,22 @@ export function tiktok(
         if (state === "SEND_TO_USER_INBOX") return { ...base, state: "accepted" };
 
         if (state === "PUBLISH_COMPLETE") {
+          // One inbox publish_id can produce several public posts. Large int64 IDs
+          // arrive as strings because the JSON reader keeps unsafe integers exact.
           const ids = result["publicaly_available_post_id"];
-          const id = Array.isArray(ids) && ids.length === 1 ? ids[0] : undefined;
 
-          const nativeId = isString(id)
-            ? id
-            : isFiniteNumber(id) && Number.isSafeInteger(id)
-              ? String(id)
-              : undefined;
+          const postIds = (Array.isArray(ids) ? ids : []).flatMap((id) =>
+            isString(id) && /^\d+$/.test(id)
+              ? [id]
+              : isFiniteNumber(id) && Number.isSafeInteger(id) && id >= 0
+                ? [String(id)]
+                : [],
+          );
+
+          const decoded = Array.isArray(ids) && postIds.length === ids.length;
+          const nativeId = decoded && postIds.length === 1 ? postIds[0] : undefined;
+
+          if (decoded && postIds.length > 1) return { ...base, state: "accepted", postIds };
 
           if (nativeId)
             return {
@@ -1149,6 +1593,175 @@ export function tiktok(
       },
     },
     native: {
+      // Data Portability API, accessed 2026-11-04:
+      // https://developers.tiktok.com/doc/data-portability-api-get-started
+      async addDataRequest({ account, dataFormat, categories, context }) {
+        authorize(account, context);
+
+        if (
+          (dataFormat !== "text" && dataFormat !== "json") ||
+          categories.length === 0 ||
+          categories.some((category) => !portabilityCategories.has(category))
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "native",
+            message:
+              "Choose data_format text or json and at least one documented portability category.",
+          });
+
+        const result = data(
+          await request(
+            "/v2/user/data/add/",
+            context,
+            { data_format: dataFormat, category_selection_list: [...new Set(categories)] },
+            { fields: "request_id" },
+          ),
+        );
+
+        const requestId = result["request_id"];
+
+        if (!isFiniteNumber(requestId) || !Number.isSafeInteger(requestId) || requestId <= 0)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "native",
+            message:
+              "TikTok returned a data request ID that cannot be sent back exactly. Track it in TikTok instead.",
+          });
+
+        return { requestId: String(requestId) };
+      },
+      async checkDataRequest({ account, requestId, context }) {
+        authorize(account, context);
+
+        const result = data(
+          await request(
+            "/v2/user/data/check/",
+            context,
+            { request_id: portabilityRequestId(requestId) },
+            {
+              fields:
+                "request_id,status,apply_time,collect_time,data_format,category_selection_list",
+            },
+          ),
+        );
+
+        const providerStatus = string(result["status"]);
+        const categories = result["category_selection_list"];
+
+        return {
+          requestId,
+          state: isPortabilityState(providerStatus) ? providerStatus : "unknown",
+          providerStatus,
+          categories: isJsonArray(categories) ? categories.filter(isString) : [],
+          ...definedFields({
+            appliedAt: unixSeconds(result["apply_time"]),
+            collectionStartedAt: unixSeconds(result["collect_time"]),
+            dataFormat: optionalString(result["data_format"]),
+          }),
+        };
+      },
+      async cancelDataRequest({ account, requestId, context }) {
+        authorize(account, context);
+        checked(
+          await request("/v2/user/data/cancel/", context, {
+            request_id: portabilityRequestId(requestId),
+          }),
+        );
+      },
+      async downloadDataRequest({ account, requestId, context }) {
+        authorize(account, context);
+
+        const body = JSON.stringify({ request_id: portabilityRequestId(requestId) });
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+
+        if (context.signal?.aborted)
+          throw new SocialError({
+            code: "cancelled",
+            operation: "native",
+            message: "The TikTok data download was cancelled.",
+          });
+        // The budget covers the wait for response headers; the caller paces the body stream.
+        const timeoutMs = remainingBudget(context);
+        context.signal?.addEventListener("abort", abort, { once: true });
+        const timer = setTimeout(abort, timeoutMs);
+        let response: Response;
+
+        try {
+          response = await fetchWithoutRedirects(
+            options.fetch ?? globalThis.fetch,
+            "https://open.tiktokapis.com/v2/user/data/download/",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${options.auth.accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body,
+              signal: controller.signal,
+            },
+          );
+        } catch (error) {
+          context.signal?.removeEventListener("abort", abort);
+          throw new SocialError({
+            code: context.signal?.aborted
+              ? "cancelled"
+              : controller.signal.aborted
+                ? "timeout"
+                : "upstream_failure",
+            operation: "native",
+            message: "The TikTok data download request did not complete.",
+            cause: error,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+
+        const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+
+        // Errors arrive as the usual JSON envelope; the archive itself is not JSON.
+        if (contentType.includes("json") || !response.ok || !response.body) {
+          if (response.status === 429) {
+            context.signal?.removeEventListener("abort", abort);
+
+            throw new SocialError({
+              code: "rate_limited",
+              operation: "native",
+              message: "TikTok rejected the operation because its rate limit was exceeded.",
+              upstreamStatus: 429,
+              retryDisposition: { kind: "after-delay", delayMs: 60_000 },
+            });
+          }
+
+          let envelope: JsonField;
+
+          // Cancellation and the remaining budget still apply while the error body is read.
+          const readTimer = setTimeout(abort, remainingBudget(context));
+
+          try {
+            envelope = await readJson(response, 16 * 1024, controller.signal);
+          } catch {
+            envelope = undefined;
+          } finally {
+            clearTimeout(readTimer);
+            context.signal?.removeEventListener("abort", abort);
+          }
+
+          if (isJsonObject(envelope) && isJsonObject(envelope["error"])) checked(envelope);
+
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "native",
+            message: "TikTok did not return the data archive.",
+            upstreamStatus: response.status,
+          });
+        }
+
+        return response.body;
+      },
+      userInfo: ({ account, fields, context }) =>
+        userInfo({ account, fields, operation: "native", context }),
       creatorInfo,
       async queryVideos({ account, videoIds, context }) {
         authorize(account, context);
@@ -1213,6 +1826,18 @@ export function tiktok(
         return data(
           await request("/v2/post/publish/status/fetch/", context, { publish_id: publishId }),
         );
+      },
+      async cancelPublish({ account, publishId, context }) {
+        authorize(account, context);
+
+        if (!publishId.trim() || publishId.length > 256)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "native",
+            message: "A TikTok publish_id is required.",
+          });
+
+        checked(await request("/v2/post/publish/cancel/", context, { publish_id: publishId }));
       },
     },
   });

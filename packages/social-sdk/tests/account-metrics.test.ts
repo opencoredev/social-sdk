@@ -176,7 +176,7 @@ it("reads TikTok account stats and post metrics with ownership checks", async ()
   assert.deepEqual(queryBody, { filters: { video_ids: ["v"] } });
 });
 
-it("LinkedIn organization counts use versioned networkSizes and reject member/cross-account calls", async () => {
+it("LinkedIn account counts use versioned networkSizes or memberFollowersCount and reject cross-account calls", async () => {
   let calls = 0;
   let url = "";
   let count: number | undefined = 0;
@@ -214,18 +214,28 @@ it("LinkedIn organization counts use versioned networkSizes and reject member/cr
     ),
   );
 
+  assert.equal(calls, before);
+
+  let memberUrl = "";
+
   const member = linkedin({
     auth: { accessToken: "token", author: "urn:li:person:123" },
     apiVersion: "202609",
-    fetch,
+    fetch: async (input) => {
+      memberUrl = String(input);
+
+      return json({ elements: [{ memberFollowersCount: 42 }] });
+    },
   });
 
-  await assert.rejects(
-    member.analytics!.getAccountMetrics!(
-      { ...account, accountId: "urn:li:person:123" },
-      context("linkedin"),
-    ),
-    /organization follower/,
+  const memberMetrics = await member.analytics!.getAccountMetrics!(
+    { ...account, accountId: "urn:li:person:123" },
+    context("linkedin"),
   );
-  assert.equal(calls, before);
+
+  assert.equal(memberUrl, "https://api.linkedin.com/rest/memberFollowersCount?q=me");
+  assert.deepEqual(
+    memberMetrics.map((metric) => [metric.name, metric.value, metric.period]),
+    [["followers", 42, "lifetime"]],
+  );
 });

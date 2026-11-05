@@ -9,6 +9,7 @@ import type {
   ConnectedAccountRef,
   JsonObject,
   JsonValue,
+  LinkedInAnnotation,
   MediaAttachment,
   MediaRef,
   MetricValue,
@@ -19,10 +20,15 @@ import type {
 import { createHttp, HttpError } from "../transport/http.js";
 import {
   array,
+  isFiniteNumber,
   isJsonObject,
   isJsonArray,
+  isString,
   object,
+  optionalArray,
+  optionalObject,
   string,
+  optionalBoolean,
   optionalString,
   optionalNumber,
   type JsonField,
@@ -111,11 +117,154 @@ export interface LinkedInShareStatistics {
   readonly metrics: Readonly<Record<string, number>>;
 }
 
-/** One approved organization role returned by LinkedIn's `organizationAcls` roleAssignee finder. */
+/** Organization roles from the Organization Access Control API. */
+export type LinkedInOrganizationRoleType =
+  | "ADMINISTRATOR"
+  | "DIRECT_SPONSORED_CONTENT_POSTER"
+  | "RECRUITING_POSTER"
+  | "LEAD_CAPTURE_ADMINISTRATOR"
+  | "LEAD_GEN_FORMS_MANAGER"
+  | "ANALYST"
+  | "CURATOR"
+  | "CONTENT_ADMINISTRATOR";
+
+export type LinkedInRoleState = "APPROVED" | "REJECTED" | "REQUESTED" | "REVOKED";
+
+const linkedInOrganizationRoles: readonly LinkedInOrganizationRoleType[] = [
+  "ADMINISTRATOR",
+  "DIRECT_SPONSORED_CONTENT_POSTER",
+  "RECRUITING_POSTER",
+  "LEAD_CAPTURE_ADMINISTRATOR",
+  "LEAD_GEN_FORMS_MANAGER",
+  "ANALYST",
+  "CURATOR",
+  "CONTENT_ADMINISTRATOR",
+];
+
+const linkedInRoleStates: readonly LinkedInRoleState[] = [
+  "APPROVED",
+  "REJECTED",
+  "REQUESTED",
+  "REVOKED",
+];
+
+const isOrganizationRole = (value: JsonField): value is LinkedInOrganizationRoleType =>
+  linkedInOrganizationRoles.some((role) => role === value);
+
+const isRoleState = (value: JsonField): value is LinkedInRoleState =>
+  linkedInRoleStates.some((state) => state === value);
+
+/** One organization role returned by LinkedIn's `organizationAcls` roleAssignee finder. */
 export interface LinkedInOrganizationRole {
   readonly organization: `urn:li:organization:${string}`;
-  readonly role: "ADMINISTRATOR";
-  readonly state: "APPROVED";
+  readonly role: LinkedInOrganizationRoleType;
+  readonly state: LinkedInRoleState;
+}
+
+/** One role holder returned by the `organizationAcls` organization finder. */
+export interface LinkedInOrganizationRoleAssignment extends LinkedInOrganizationRole {
+  readonly roleAssignee: string;
+}
+
+/** Fields LinkedIn returns to non-administrators from organization lookups. */
+export interface LinkedInOrganizationSummary {
+  readonly organization: `urn:li:organization:${string}`;
+  readonly localizedName?: string;
+  readonly vanityName?: string;
+  readonly localizedWebsite?: string;
+  /** `SCHOOL`, `BRAND` (showcase page) or `NONE`. */
+  readonly primaryOrganizationType?: string;
+}
+
+export interface LinkedInPostStatistics {
+  readonly post: string;
+  readonly metrics: Readonly<Record<string, number>>;
+}
+
+export type LinkedInMemberPostMetric =
+  | "IMPRESSION"
+  | "MEMBERS_REACHED"
+  | "RESHARE"
+  | "REACTION"
+  | "COMMENT"
+  | "POST_SAVE"
+  | "POST_SEND"
+  | "LINK_CLICKS"
+  | "PREMIUM_CTA_CLICKS"
+  | "FOLLOWER_GAINED_FROM_CONTENT"
+  | "PROFILE_VIEW_FROM_CONTENT";
+
+export type LinkedInMemberVideoMetric = "VIDEO_PLAY" | "VIDEO_VIEWER" | "VIDEO_WATCH_TIME";
+
+export interface LinkedInDate {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+}
+
+/** Start is inclusive and end is exclusive. */
+export interface LinkedInDateRange {
+  readonly start?: LinkedInDate;
+  readonly end?: LinkedInDate;
+}
+
+export interface LinkedInMemberAnalyticsPoint {
+  readonly metric: string;
+  readonly count: number;
+  readonly post?: string;
+  readonly dateRange?: LinkedInDateRange;
+}
+
+export interface LinkedInMemberFollowerCount {
+  readonly count: number;
+  readonly dateRange?: LinkedInDateRange;
+}
+
+/** Reactions API types. `MAYBE` is deprecated and LinkedIn rejects it on create. */
+export type LinkedInReactionType =
+  | "LIKE"
+  | "PRAISE"
+  | "EMPATHY"
+  | "INTEREST"
+  | "APPRECIATION"
+  | "ENTERTAINMENT";
+
+const linkedInReactionTypes: readonly LinkedInReactionType[] = [
+  "LIKE",
+  "PRAISE",
+  "EMPATHY",
+  "INTEREST",
+  "APPRECIATION",
+  "ENTERTAINMENT",
+];
+
+const isLinkedInReactionType = (value: string): value is LinkedInReactionType =>
+  linkedInReactionTypes.some((type) => type === value);
+
+/** Posts API `contentCallToActionLabel` values. `BUY_NOW` and `SHOP_NOW` need version 202504+. */
+export type LinkedInCallToActionLabel =
+  | "APPLY"
+  | "DOWNLOAD"
+  | "VIEW_QUOTE"
+  | "LEARN_MORE"
+  | "SIGN_UP"
+  | "SUBSCRIBE"
+  | "REGISTER"
+  | "JOIN"
+  | "ATTEND"
+  | "REQUEST_DEMO"
+  | "SEE_MORE"
+  | "BUY_NOW"
+  | "SHOP_NOW";
+
+/** Typed fields for a Posts API PARTIAL_UPDATE. At least one field is required. */
+export interface LinkedInPostChanges {
+  /** New commentary, escaped as literal text except for `annotations`. At most 3,000 characters. */
+  readonly text?: string;
+  readonly annotations?: readonly LinkedInAnnotation[];
+  readonly contentCallToActionLabel?: LinkedInCallToActionLabel;
+  /** HTTPS landing page opened from the post content. */
+  readonly contentLandingPage?: string;
 }
 
 export interface LinkedInNative {
@@ -128,8 +277,44 @@ export interface LinkedInNative {
     readonly account: ConnectedAccountRef;
     readonly cursor?: string;
     readonly limit?: number;
+    /** Defaults to `ADMINISTRATOR`; `CONTENT_ADMINISTRATOR` and others can also post. */
+    readonly role?: LinkedInOrganizationRoleType;
+    /** Defaults to `APPROVED`. */
+    readonly state?: LinkedInRoleState;
     readonly context: AdapterOperationContext;
   }) => Promise<Page<LinkedInOrganizationRole>>;
+  /** Lists role holders of the configured organization (organizationAcls organization finder). */
+  readonly listOrganizationRoles: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly role?: LinkedInOrganizationRoleType;
+    readonly state?: LinkedInRoleState;
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<LinkedInOrganizationRoleAssignment>>;
+  /** Non-administrator batch lookup (organizationsLookup) of up to 100 organizations. */
+  readonly lookupOrganizations: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly organizations: readonly `urn:li:organization:${string}`[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<{
+    readonly organizations: readonly LinkedInOrganizationSummary[];
+    readonly errors: readonly { readonly organization: string; readonly status?: number }[];
+  }>;
+  /** Finds organizations, schools and showcase pages by vanity name (q=vanityName). */
+  readonly findOrganizationByVanityName: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly vanityName: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInOrganizationSummary[]>;
+  /** Lists showcase (brand) pages under a parent organization that the member administers. */
+  readonly listOrganizationBrands: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly parent: `urn:li:organization:${string}`;
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<LinkedInOrganizationSummary>>;
   readonly imageStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
   /**
    * Reads one uploaded video's owner and processing status with a single GET. Call it again later
@@ -149,6 +334,17 @@ export interface LinkedInNative {
     context: AdapterOperationContext,
     options?: LinkedInVideoWaitOptions,
   ) => Promise<JsonObject>;
+  /**
+   * Uploads one MP4 like `social.media.upload`, with optional captions and media attribution.
+   * A JPEG or PNG `media.thumbnail` Blob is uploaded as the custom thumbnail on both paths.
+   */
+  readonly uploadVideo: (
+    input: {
+      readonly account: ConnectedAccountRef;
+      readonly media: MediaAttachment;
+      readonly context: AdapterOperationContext;
+    } & LinkedInVideoUploadExtras,
+  ) => Promise<MediaRef>;
   /** Reads `id`, `owner` and `status` (`WAITING_UPLOAD`, `PROCESSING`, `AVAILABLE`, `PROCESSING_FAILED`). */
   readonly documentStatus: (ref: MediaRef, context: AdapterOperationContext) => Promise<JsonObject>;
   /**
@@ -160,9 +356,14 @@ export interface LinkedInNative {
     readonly byteSize: number;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
+  /**
+   * Creates an organic poll post. `text` is the post commentary; `question` (at most 140
+   * characters) defaults to `text`. LinkedIn takes 2 to 4 options of at most 30 characters each.
+   */
   readonly createPoll: (input: {
     readonly account: ConnectedAccountRef;
     readonly text: string;
+    readonly question?: string;
     readonly options: readonly string[];
     readonly duration?: "ONE_DAY" | "THREE_DAYS" | "SEVEN_DAYS" | "FOURTEEN_DAYS";
     readonly context: AdapterOperationContext;
@@ -170,20 +371,30 @@ export interface LinkedInNative {
   readonly react: (input: {
     readonly account: ConnectedAccountRef;
     readonly postId: string;
-    readonly reaction: string;
+    readonly reaction: LinkedInReactionType;
     readonly context: AdapterOperationContext;
   }) => Promise<void>;
+  /** Reshares a post through `reshareContext.parent`, with optional commentary (quote-style). */
   readonly reshare: (input: {
     readonly account: ConnectedAccountRef;
     readonly postId: string;
+    readonly text?: string;
     readonly context: AdapterOperationContext;
   }) => Promise<JsonObject>;
-  readonly updatePost: (input: {
-    readonly account: ConnectedAccountRef;
-    readonly postId: string;
-    readonly body: JsonObject;
-    readonly context: AdapterOperationContext;
-  }) => Promise<JsonObject>;
+  /**
+   * Partially updates a post. Pass typed `changes` (the commentary is escaped and annotated like a
+   * publish), or a raw `body` that is sent as `patch.$set` unchanged.
+   */
+  readonly updatePost: (
+    input: {
+      readonly account: ConnectedAccountRef;
+      readonly postId: string;
+      readonly context: AdapterOperationContext;
+    } & (
+      | { readonly changes: LinkedInPostChanges; readonly body?: never }
+      | { readonly body: JsonObject; readonly changes?: never }
+    ),
+  ) => Promise<JsonObject>;
   readonly deletePost: (input: {
     readonly account: ConnectedAccountRef;
     readonly postId: string;
@@ -225,6 +436,683 @@ export interface LinkedInNative {
     readonly account: ConnectedAccountRef;
     readonly context: AdapterOperationContext;
   }) => Promise<number | undefined>;
+  /**
+   * Lifetime organic statistics for up to 100 of the organization's posts. Posts with no activity
+   * are omitted by LinkedIn and have zero counts.
+   */
+  readonly getOrganizationPostStatistics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postIds: readonly string[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInPostStatistics[]>;
+  /** Page statistics for the configured organization read as a brand (showcase) page. */
+  readonly getBrandPageStatistics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly interval?: LinkedInPageShareTimeInterval;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInPageStatistics[]>;
+  /** Member creator post analytics for one post (`postId`) or all the member's posts. */
+  readonly getMemberPostAnalytics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId?: string;
+    readonly metric: LinkedInMemberPostMetric;
+    readonly aggregation?: "TOTAL" | "DAILY";
+    readonly dateRange?: LinkedInDateRange;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInMemberAnalyticsPoint[]>;
+  /** Member video analytics for one post that contains a video. */
+  readonly getMemberVideoAnalytics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly metric: LinkedInMemberVideoMetric;
+    readonly aggregation?: "TOTAL" | "DAILY";
+    readonly dateRange?: LinkedInDateRange;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInMemberAnalyticsPoint[]>;
+  /** Lifetime member follower count, or daily counts within `dateRange`. */
+  readonly getMemberFollowerCount: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly dateRange?: LinkedInDateRange;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInMemberFollowerCount[]>;
+  /**
+   * Reads one post by URN, including `content`, poll results and reshare context. `viewContext`
+   * `AUTHOR` returns the latest version, which may still be a draft or processing.
+   */
+  readonly getPost: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly viewContext?: "READER" | "AUTHOR";
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInPost>;
+  /** BATCH_GET for up to 100 posts. Development-tier apps cannot call it. */
+  readonly getPosts: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postIds: readonly string[];
+    readonly viewContext?: "READER" | "AUTHOR";
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInPostBatch>;
+  /** Per-type reaction counts, comment counts and comment state for a post or comment. */
+  readonly getSocialMetadata: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly entity: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInSocialMetadata>;
+  /** BATCH_GET of social metadata for up to 100 posts or comments in one request. */
+  readonly getSocialMetadataBatch: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly entities: readonly string[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInSocialMetadataBatch>;
+  /** BATCH_GET of Social Actions like and comment summaries for up to 100 posts or comments. */
+  readonly getSocialActionsBatch: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly entities: readonly string[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInSocialActionsBatch>;
+  /**
+   * BATCH_GET of up to 100 comments on one post or comment. `commentIds` are complete commentUrns
+   * from comment reads; the request sends their numeric IDs.
+   */
+  readonly getComments: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly target: string;
+    readonly commentIds: readonly string[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInCommentBatch>;
+  /**
+   * Reads the reaction of `actor` (defaults to the configured author) on a post or comment.
+   * Returns undefined when LinkedIn answers 404: that actor has no reaction there.
+   */
+  readonly getReaction: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly entity: string;
+    readonly actor?: `urn:li:person:${string}` | `urn:li:organization:${string}`;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInReaction | undefined>;
+  /** BATCH_GET of up to 100 reactions by (actor, entity) key. */
+  readonly getReactions: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly keys: readonly LinkedInReactionKey[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInReactionBatch>;
+  /**
+   * Status of up to 100 uploaded images, videos and documents with one BATCH_GET per media type.
+   * Every reference must belong to this author.
+   */
+  readonly mediaStatuses: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly media: readonly MediaRef[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInMediaStatusBatch>;
+  /**
+   * Resolves a member profile URL to a person URN in the configured organization's context
+   * (vanityUrl q=vanityUrlAsOrganization), for building @mentions. Organization authors only;
+   * needs r_organization_followers. Returns undefined when LinkedIn finds no match.
+   */
+  readonly resolveMemberVanityUrl: (input: {
+    readonly account: ConnectedAccountRef;
+    /** `https://www.linkedin.com/in/{vanityName}`. */
+    readonly vanityUrl: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<`urn:li:person:${string}` | undefined>;
+  /**
+   * Reads the authenticated member's profile with `GET /v2/me`, optionally with a Rest.li
+   * `projection` such as `(id,firstName,lastName)`. Member authors only. Needs `r_liteprofile` or
+   * `r_basicprofile`, which LinkedIn grants only to approved developers.
+   */
+  readonly getProfile: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly projection?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInProfile>;
+  /**
+   * Reads other members' profiles: `GET /v2/people/(id:...)` for one person URN, or
+   * `GET /v2/people?ids=List((id:...),...)` for up to 50. Person IDs are app-scoped; LinkedIn
+   * forbids storing profile data of members other than the authenticated one.
+   */
+  readonly getPeople: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly people: readonly `urn:li:person:${string}`[];
+    readonly projection?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInProfileBatch>;
+  /**
+   * Asks LinkedIn whether a member may take one action for an organization
+   * (`GET /rest/organizationAuthorizations/(impersonator,organization,action)`). Needs
+   * `rw_organization_admin`.
+   */
+  readonly getOrganizationAuthorization: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly key: LinkedInOrganizationAuthorizationKey;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInOrganizationAuthorization>;
+  /** BATCH_GET of up to 100 organization authorization keys. */
+  readonly getOrganizationAuthorizations: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly keys: readonly LinkedInOrganizationAuthorizationKey[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInOrganizationAuthorizationBatch>;
+  /**
+   * For the authenticated member, lists each organization's authorization for each action
+   * (`bq=authorizationActionsAndImpersonator`). The result has one list per requested action.
+   */
+  readonly findOrganizationAuthorizations: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly actions: readonly LinkedInOrganizationAuthorizationAction[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly (readonly LinkedInOrganizationAuthorization[])[]>;
+  /**
+   * Organization video analytics for one ugcPost video (`GET /rest/videoAnalytics?q=entity`).
+   * Organization authors only; needs `r_organization_social`. LinkedIn keeps VIDEO_VIEW and VIEWER
+   * data for six months.
+   */
+  readonly getOrganizationVideoAnalytics: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly metric: LinkedInVideoAnalyticsMetric;
+    /** Defaults to `ALL`. Weeks run Sunday to Saturday. */
+    readonly aggregation?: "DAY" | "WEEK" | "ALL";
+    /** Epoch milliseconds; start inclusive, end exclusive. Omit for the video's lifetime. */
+    readonly timeRange?: { readonly start?: number; readonly end?: number };
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<LinkedInVideoAnalyticsPoint>>;
+  /**
+   * Creates an event organized by the configured author (`POST /rest/events`). Needs `rw_events`
+   * and an ADMINISTRATOR or CONTENT_ADMINISTRATOR role for organization organizers. The event is
+   * not visible, readable or updatable until you post it with `createEventPost`.
+   */
+  readonly createEvent: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly name: string;
+    readonly description?: string;
+    readonly type: LinkedInEventType;
+    readonly startsAt: number;
+    readonly vanityName?: string;
+    readonly backgroundImage?: `urn:li:digitalmediaAsset:${string}`;
+    readonly discoveryMode?: "LISTED" | "URL_ONLY";
+    /** Attach a templated lead form (`privacyPolicyUrl`) or an approved existing form. */
+    readonly leadGenForm?:
+      | { readonly privacyPolicyUrl: string }
+      | { readonly leadGenForm: `urn:li:versionedLeadGenForm:${string}` };
+    /** Locale key for name and description, such as `en_US` (default). */
+    readonly locale?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInEvent>;
+  /** Reads one posted event and checks that the configured author organizes it. Needs `r_events`. */
+  readonly getEvent: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly event: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInEvent>;
+  /**
+   * Partially updates a posted, upcoming event. LinkedIn rejects updates once `startsAt` has passed
+   * (400) or after cancellation (403).
+   */
+  readonly updateEvent: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly event: string;
+    readonly changes: LinkedInEventChanges;
+    readonly locale?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Lists the configured author's events with the `eventsByOrganizer` finder. Needs `r_events`. */
+  readonly listEvents: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly excludeCancelled?: boolean;
+    readonly timeBasedFilter?: LinkedInEventTimeFilter;
+    readonly entryCriteria?: "PUBLIC" | "GATED";
+    readonly sortOrder?: "START_TIME_ASC" | "END_TIME_DESC";
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<LinkedInEvent>>;
+  /**
+   * Uploads a JPEG or PNG event background image (`assets?action=registerUpload` with the
+   * event-background-image recipe, then the returned upload URL) and returns its asset URN.
+   */
+  readonly uploadEventBackgroundImage: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly image: Blob;
+    readonly mimeType: "image/jpeg" | "image/png";
+    readonly context: AdapterOperationContext;
+  }) => Promise<`urn:li:digitalmediaAsset:${string}`>;
+  /**
+   * Posts an event with `content.reference`: pass `postReference` from `createEvent` (a
+   * `urn:li:event` or, for live video, a `urn:li:liveVideo`). Returns the new post URN.
+   */
+  readonly createEventPost: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly reference: string;
+    readonly text?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<{ readonly postId?: string }>;
+  /** Opens or closes comments on a post. Closing deletes every existing comment on it. */
+  readonly setCommentsState: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly state: "OPEN" | "CLOSED";
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  readonly listReactions: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly entity: string;
+    readonly sort?: "CHRONOLOGICAL" | "REVERSE_CHRONOLOGICAL" | "RELEVANCE";
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<LinkedInReaction>>;
+  /** Removes the configured author's reaction from a post or comment. */
+  readonly deleteReaction: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly entity: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Lists replies to one comment, after checking that the comment belongs to `postId`. */
+  readonly listCommentReplies: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly commentId: string;
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  /**
+   * Creates a top-level comment on a post, or a nested reply when `parentCommentId` is set, with
+   * optional mentions and one uploaded image. It does not pre-read the post.
+   */
+  readonly createComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly text: string;
+    readonly mentions?: readonly LinkedInCommentMention[];
+    readonly image?: MediaRef;
+    readonly parentCommentId?: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<LinkedInCreatedComment>;
+  /**
+   * Pulls the configured organization's social-action notifications (kept 60 days) with optional
+   * action, `sourcePost` and `timeRange` filters.
+   */
+  readonly listOrganizationNotifications: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly actions?: readonly LinkedInNotificationAction[];
+    /** An activity URN. LinkedIn then accepts exactly one action. */
+    readonly sourcePost?: string;
+    /** Epoch milliseconds; start inclusive, end exclusive. */
+    readonly timeRange?: { readonly start?: number; readonly end?: number };
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly context: AdapterOperationContext;
+  }) => Promise<Page<JsonObject>>;
+  /**
+   * Creates or updates the organization's ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS subscription
+   * for one administrator. The webhook must already be registered and validated.
+   */
+  readonly subscribeOrganizationNotifications: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly developerApplication: `urn:li:developerApplication:${string}`;
+    /** The person URN of the member whose token authorizes the subscription. */
+    readonly member: `urn:li:person:${string}`;
+    readonly webhook: string;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Lists the authenticated member's subscriptions for the configured organization. */
+  readonly listOrganizationNotificationSubscriptions: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly context: AdapterOperationContext;
+  }) => Promise<readonly LinkedInEventSubscription[]>;
+  readonly unsubscribeOrganizationNotifications: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly developerApplication: `urn:li:developerApplication:${string}`;
+    readonly member: `urn:li:person:${string}`;
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+  /** Replaces a comment's text and mentions with a PARTIAL_UPDATE. */
+  readonly editComment: (input: {
+    readonly account: ConnectedAccountRef;
+    readonly postId: string;
+    readonly commentId: string;
+    readonly text: string;
+    readonly mentions?: readonly LinkedInCommentMention[];
+    readonly context: AdapterOperationContext;
+  }) => Promise<void>;
+}
+
+export type LinkedInNotificationAction =
+  | "LIKE"
+  | "COMMENT"
+  | "SHARE"
+  | "SHARE_MENTION"
+  | "ADMIN_COMMENT"
+  | "COMMENT_EDIT"
+  | "COMMENT_DELETE";
+
+const linkedInNotificationActions: readonly LinkedInNotificationAction[] = [
+  "LIKE",
+  "COMMENT",
+  "SHARE",
+  "SHARE_MENTION",
+  "ADMIN_COMMENT",
+  "COMMENT_EDIT",
+  "COMMENT_DELETE",
+];
+
+export interface LinkedInEventSubscription {
+  readonly entity: string;
+  readonly eventType: string;
+  readonly user?: string;
+  readonly webhook?: string;
+  /** Epoch milliseconds. */
+  readonly expiresAt?: number;
+}
+
+export interface LinkedInPollResults {
+  readonly question: string;
+  /** `voteCount` is absent when LinkedIn hides per-option counts from the viewer. */
+  readonly options: readonly { readonly text: string; readonly voteCount?: number }[];
+  readonly uniqueVotersCount?: number;
+  readonly duration?: string;
+  readonly voteSelectionType?: string;
+}
+
+export interface LinkedInPost {
+  readonly id: string;
+  readonly author: string;
+  readonly commentary?: string;
+  readonly visibility?: string;
+  readonly lifecycleState?: string;
+  readonly createdAt?: number;
+  readonly publishedAt?: number;
+  readonly lastModifiedAt?: number;
+  readonly isReshareDisabledByAuthor?: boolean;
+  readonly isEditedByAuthor?: boolean;
+  readonly reshareContext?: { readonly parent: string; readonly root?: string };
+  /** The provider `content` object: media, multiImage, article, poll or celebration URNs. */
+  readonly content?: JsonObject;
+  readonly poll?: LinkedInPollResults;
+}
+
+export interface LinkedInPostBatch {
+  readonly posts: readonly LinkedInPost[];
+  readonly errors: readonly { readonly postId: string; readonly status?: number }[];
+}
+
+export interface LinkedInSocialMetadata {
+  readonly entity?: string;
+  readonly commentsState?: string;
+  /** Count per reaction type, keyed by LinkedIn's enum (for example `LIKE`, `EMPATHY`). */
+  readonly reactions: Readonly<Record<string, number>>;
+  /** `total` includes replies; `topLevel` excludes them. */
+  readonly comments?: { readonly total?: number; readonly topLevel?: number };
+}
+
+export interface LinkedInReaction {
+  readonly id?: string;
+  readonly reactionType: string;
+  readonly actor?: string;
+  readonly root?: string;
+  readonly createdAt?: number;
+}
+
+/** A per-key failure from a Rest.li BATCH_GET: `status` is LinkedIn's per-key HTTP status. */
+export interface LinkedInBatchError {
+  readonly id: string;
+  readonly status?: number;
+}
+
+export interface LinkedInSocialMetadataBatch {
+  /** Keyed by the requested post or comment URN. */
+  readonly results: Readonly<Record<string, LinkedInSocialMetadata>>;
+  readonly errors: readonly LinkedInBatchError[];
+}
+
+/** Social Actions summary (`likesSummary`, `commentsSummary`) for one post or comment. */
+export interface LinkedInSocialActionsSummary {
+  readonly target?: string;
+  readonly likes?: {
+    readonly total?: number;
+    readonly aggregatedTotal?: number;
+    readonly likedByCurrentUser?: boolean;
+  };
+  readonly comments?: {
+    readonly firstLevel?: number;
+    readonly aggregatedTotal?: number;
+    readonly state?: string;
+  };
+}
+
+export interface LinkedInSocialActionsBatch {
+  /** Keyed by the requested post or comment URN; absent when LinkedIn returns no entry. */
+  readonly results: Readonly<Record<string, LinkedInSocialActionsSummary>>;
+  readonly errors: readonly LinkedInBatchError[];
+}
+
+export interface LinkedInCommentBatch {
+  readonly comments: readonly JsonObject[];
+  /** `id` is the requested comment URN. */
+  readonly errors: readonly LinkedInBatchError[];
+}
+
+/** The (actor, entity) key of one reaction. */
+export interface LinkedInReactionKey {
+  readonly actor: `urn:li:person:${string}` | `urn:li:organization:${string}`;
+  readonly entity: string;
+}
+
+export interface LinkedInReactionBatch {
+  readonly reactions: readonly (LinkedInReactionKey & { readonly reaction: LinkedInReaction })[];
+  readonly errors: readonly (LinkedInReactionKey & { readonly status?: number })[];
+}
+
+/** One uploaded asset's status from a media BATCH_GET. */
+export interface LinkedInMediaStatus {
+  readonly mediaId: string;
+  readonly owner: string;
+  readonly status?: string;
+  /** Videos only. */
+  readonly processingFailureReason?: string;
+  /** Videos only, in milliseconds. */
+  readonly duration?: number;
+}
+
+export interface LinkedInMediaStatusBatch {
+  readonly media: readonly LinkedInMediaStatus[];
+  /** `id` is the requested media URN. */
+  readonly errors: readonly LinkedInBatchError[];
+}
+
+/** Lite or basic Profile API fields, subject to the member's privacy settings. */
+export interface LinkedInProfile {
+  readonly personUrn: `urn:li:person:${string}`;
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly headline?: string;
+  /** Public profile URL is `https://www.linkedin.com/in/{vanityName}`. */
+  readonly vanityName?: string;
+  /** `profilePicture.displayImage`, a digital media asset URN. */
+  readonly profilePictureUrn?: string;
+  /** Bing Geo location (`geoLocation`), which replaces `location` from API version 202608. */
+  readonly geoLocation?: { readonly geo: string; readonly autoGenerated?: boolean };
+  /** Every returned field, including projected ones the SDK does not decode. */
+  readonly fields: JsonObject;
+}
+
+export interface LinkedInProfileBatch {
+  readonly profiles: readonly LinkedInProfile[];
+  /** `id` is the requested person URN. */
+  readonly errors: readonly LinkedInBatchError[];
+}
+
+/*
+ * Organization Authorizations action enums (li-lms-2026-10, accessed 2026-11-04):
+ * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-authorizations/organization-authorizations?view=li-lms-2026-10
+ */
+const linkedInAuthorizationActions = {
+  organizationRoleAuthorizationAction: [
+    "ADMINISTRATOR_READ",
+    "ADMINISTRATOR_WRITE",
+    "DIRECT_SPONSORED_CONTENT_POSTER_READ",
+    "DIRECT_SPONSORED_CONTENT_POSTER_WRITE",
+    "PIPELINE_BUILDER_READ",
+    "PIPELINE_BUILDER_WRITE",
+    "PENDING_ADMIN_READ",
+    "PENDING_ADMIN_WRITE",
+    "PENDING_DIRECT_SPONSORED_CONTENT_POSTER_READ",
+    "PENDING_DIRECT_SPONSORED_CONTENT_POSTER_WRITE",
+  ],
+  organizationContentAuthorizationAction: [
+    "ORGANIC_SHARE_VIEW_AS_AUTHOR",
+    "ORGANIC_SHARE_CREATE",
+    "ORGANIC_SHARE_EDIT",
+    "ORGANIC_SHARE_DELETE",
+    "DARK_SHARE_CREATE",
+    "DARK_SHARE_EDIT",
+    "DARK_SHARE_DELETE",
+    "DARK_SHARE_VIEW_AS_AUTHOR",
+  ],
+  organizationProfileAuthorizationAction: ["ADMINISTRATION_PAGE_VIEW"],
+  organizationActivityAuthorizationAction: ["ORGANIZATION_ACTIVITY_READ"],
+  organizationAnalyticsAuthorizationAction: [
+    "VISITOR_ANALYTICS_READ",
+    "FOLLOWER_ANALYTICS_READ",
+    "UPDATE_ANALYTICS_READ",
+  ],
+  organizationApplicationAuthorizationAction: ["APPLICATION_ASSOCIATE"],
+} as const;
+
+type LinkedInAuthorizationActionGroups = typeof linkedInAuthorizationActions;
+
+/** One action to check, such as `{ organizationContentAuthorizationAction: "ORGANIC_SHARE_CREATE" }`. */
+export type LinkedInOrganizationAuthorizationAction = {
+  [Group in keyof LinkedInAuthorizationActionGroups]: {
+    readonly group: Group;
+    readonly actionType: LinkedInAuthorizationActionGroups[Group][number];
+  };
+}[keyof LinkedInAuthorizationActionGroups];
+
+export interface LinkedInOrganizationAuthorizationKey {
+  readonly impersonator: `urn:li:person:${string}`;
+  readonly organization: `urn:li:organization:${string}`;
+  readonly action: LinkedInOrganizationAuthorizationAction;
+}
+
+export interface LinkedInOrganizationAuthorization {
+  readonly impersonator: string;
+  readonly organization: string;
+  readonly actionType: string;
+  /** True when LinkedIn returns `com.linkedin.organization.Approved`. */
+  readonly approved: boolean;
+  /** The status record name without its namespace, such as `Approved` or `Denied`. */
+  readonly status: string;
+  /** Denial reasons, such as `MEMBER_HAS_INSUFFICIENT_PERMISSIONS_IN_ACCESS_CONTROL`. */
+  readonly reasons: readonly string[];
+}
+
+export interface LinkedInOrganizationAuthorizationBatch {
+  readonly authorizations: readonly LinkedInOrganizationAuthorization[];
+  /** Requested keys LinkedIn returned no result for. */
+  readonly missing: readonly LinkedInOrganizationAuthorizationKey[];
+}
+
+export type LinkedInVideoAnalyticsMetric =
+  | "VIDEO_VIEW"
+  | "VIEWER"
+  | "TIME_WATCHED"
+  | "TIME_WATCHED_FOR_VIDEO_VIEWS";
+
+export interface LinkedInVideoAnalyticsPoint {
+  readonly metric: string;
+  /** Views or viewers, or milliseconds for the TIME_WATCHED metrics. */
+  readonly value: number;
+  /** Epoch milliseconds, start inclusive and end exclusive. Absent for lifetime totals. */
+  readonly timeRange?: { readonly start?: number; readonly end?: number };
+}
+
+/** A postal address for an in-person event. `country` is an ISO-3166 two-letter code. */
+export interface LinkedInEventAddress {
+  readonly line1?: string;
+  readonly line2?: string;
+  readonly city?: string;
+  readonly geographicArea?: string;
+  readonly postalCode?: string;
+  readonly country?: string;
+}
+
+/** Event format; `endsAt` is epoch milliseconds and must follow `startsAt`. */
+export type LinkedInEventType =
+  | { readonly kind: "liveVideo"; readonly endsAt: number; readonly testEvent?: boolean }
+  | { readonly kind: "external"; readonly endsAt: number; readonly url: string }
+  | {
+      readonly kind: "inPerson";
+      readonly endsAt: number;
+      readonly url?: string;
+      readonly address?: LinkedInEventAddress;
+      readonly venueDetails?: string;
+    };
+
+/** Updatable sub-fields of the event's existing type; the type itself cannot change. */
+export type LinkedInEventTypeChanges =
+  | { readonly kind: "liveVideo"; readonly endsAt?: number }
+  | { readonly kind: "external"; readonly endsAt?: number; readonly url?: string }
+  | {
+      readonly kind: "inPerson";
+      readonly endsAt?: number;
+      readonly url?: string;
+      readonly address?: LinkedInEventAddress;
+      readonly venueDetails?: string;
+    };
+
+export interface LinkedInEventChanges {
+  readonly name?: string;
+  readonly description?: string;
+  readonly vanityName?: string;
+  readonly startsAt?: number;
+  /** A `urn:li:digitalmediaAsset` from `uploadEventBackgroundImage`. */
+  readonly backgroundImage?: `urn:li:digitalmediaAsset:${string}`;
+  readonly discoveryMode?: "LISTED" | "URL_ONLY";
+  readonly type?: LinkedInEventTypeChanges;
+}
+
+export interface LinkedInEvent {
+  readonly eventUrn: `urn:li:event:${string}`;
+  readonly organizer?: string;
+  readonly name?: string;
+  readonly startsAt?: number;
+  readonly endsAt?: number;
+  readonly kind?: "liveVideo" | "external" | "inPerson";
+  readonly vanityName?: string;
+  readonly discoveryMode?: string;
+  readonly backgroundImage?: string;
+  /** The event's feed post, set once it is posted. Delete it to delete the event. */
+  readonly ugcPost?: string;
+  /** `urn:li:liveVideo` of a live video event; returned only by create. */
+  readonly liveVideo?: string;
+  readonly leadGenForm?: string;
+  /** The `content.reference.id` to post the event with: the live video URN or the event URN. */
+  readonly postReference?: string;
+  /** Every returned field. */
+  readonly fields: JsonObject;
+}
+
+/** One `timeBasedFilter` union member for `listEvents`. Times are epoch milliseconds. */
+export type LinkedInEventTimeFilter =
+  | { readonly lifeCycleState: "UPCOMING" | "ONGOING" | "PAST" }
+  | { readonly ongoingTimeRange: { readonly start: number; readonly end: number } }
+  | { readonly startTimeRange: { readonly start?: number; readonly end?: number } };
+
+/** A comment mention over JavaScript string offsets of the comment text. */
+export interface LinkedInCommentMention {
+  readonly start: number;
+  readonly length: number;
+  readonly urn: `urn:li:person:${string}` | `urn:li:organization:${string}`;
+}
+
+export interface LinkedInCreatedComment {
+  readonly commentUrn: string;
+  readonly id?: string;
 }
 
 /*
@@ -242,6 +1130,19 @@ const linkedInVideoMinBytes = 75_000;
 const linkedInVideoMaxBytes = 500 * 1024 * 1024;
 
 const linkedInVideoUrn = /^urn:li:video:[a-zA-Z0-9_-]+$/;
+
+/* LinkedIn documents no thumbnail or caption size limit; this cap is the SDK's own. */
+const linkedInVideoExtraMaxBytes = 20 * 1024 * 1024;
+
+/** Optional Videos API extras for native uploadVideo. */
+export interface LinkedInVideoUploadExtras {
+  /** One English SRT captions file. */
+  readonly captions?: Blob;
+  /** Third-party template used to make the video (API version 202602+). */
+  readonly templateName?: string;
+  /** Context, such as a URL, that links back to the attribution (API version 202602+). */
+  readonly linkbackContext?: string;
+}
 
 const linkedInImageUrn = /^urn:li:image:[a-zA-Z0-9_-]+$/;
 
@@ -281,6 +1182,331 @@ export function linkedin(
 
   const escapeCommentary = (text: string) => text.replace(/[|{}@()[\]<>#\\*_~]/g, "\\$&");
 
+  const linkedInMemberOrOrganization = /^urn:li:(?:person|organization):[a-zA-Z0-9_-]+$/;
+
+  /*
+   * little text format, Posts API "Mentions and Hashtags using Posts commentary" (li-lms-2026-10,
+   * accessed 2026-11-04): a mention is @[Name](urn) and must match the member or organization name;
+   * LinkedIn returns hashtags as {hashtag|\#|tag}.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api?view=li-lms-2026-10
+   */
+  const renderCommentary = (
+    text: string,
+    annotations: readonly LinkedInAnnotation[],
+  ):
+    | { readonly kind: "ok"; readonly commentary: string }
+    | { readonly kind: "error"; readonly message: string } => {
+    let commentary = "";
+    let cursor = 0;
+
+    for (const annotation of [...annotations].sort((left, right) => left.start - right.start)) {
+      const end = annotation.start + annotation.length;
+
+      if (
+        !Number.isSafeInteger(annotation.start) ||
+        !Number.isSafeInteger(annotation.length) ||
+        annotation.start < cursor ||
+        annotation.length < 1 ||
+        end > text.length
+      )
+        return {
+          kind: "error",
+          message:
+            "LinkedIn annotations need integer, non-overlapping start/length ranges inside the text.",
+        };
+
+      const covered = text.slice(annotation.start, end);
+      commentary += escapeCommentary(text.slice(cursor, annotation.start));
+
+      if (annotation.kind === "hashtag") {
+        const tag = /^#([\p{L}\p{N}]+)$/u.exec(covered)?.[1];
+
+        if (tag === undefined)
+          return {
+            kind: "error",
+            message: "A LinkedIn hashtag annotation must cover # followed by letters or digits.",
+          };
+        commentary += `{hashtag|\\#|${tag}}`;
+      } else {
+        if (!linkedInMemberOrOrganization.test(annotation.urn))
+          return {
+            kind: "error",
+            message: "A LinkedIn mention needs a urn:li:person or urn:li:organization URN.",
+          };
+
+        if (!covered.trim() || /[|{}@()[\]<>#\\*_~\n]/.test(covered))
+          return {
+            kind: "error",
+            message:
+              "LinkedIn mention text must be the member or organization name, without little-text reserved characters.",
+          };
+        commentary += `@[${covered}](${annotation.urn})`;
+      }
+
+      cursor = end;
+    }
+
+    return { kind: "ok", commentary: commentary + escapeCommentary(text.slice(cursor)) };
+  };
+
+  const decodeAnnotations = (value: JsonField): LinkedInAnnotation[] | undefined => {
+    if (value === undefined) return [];
+
+    if (!isJsonArray(value)) return undefined;
+    const annotations: LinkedInAnnotation[] = [];
+
+    for (const item of value) {
+      if (!isJsonObject(item)) return undefined;
+      const start = optionalNumber(item["start"]);
+      const length = optionalNumber(item["length"]);
+      const urn = optionalString(item["urn"]);
+
+      if (start === undefined || length === undefined) return undefined;
+
+      if (item["kind"] === "hashtag") annotations.push({ kind: "hashtag", start, length });
+      else if (item["kind"] === "mention" && urn !== undefined && urn.startsWith("urn:li:person:"))
+        annotations.push({ kind: "mention", start, length, urn: `urn:li:person:${urn.slice(14)}` });
+      else if (
+        item["kind"] === "mention" &&
+        urn !== undefined &&
+        urn.startsWith("urn:li:organization:")
+      )
+        annotations.push({
+          kind: "mention",
+          start,
+          length,
+          urn: `urn:li:organization:${urn.slice(20)}`,
+        });
+      else return undefined;
+    }
+
+    return annotations;
+  };
+
+  /*
+   * Post schema targetEntities facets (li-lms-2026-10, accessed 2026-11-04). The audience must
+   * exceed 300 members; LinkedIn enforces that, the SDK cannot count it offline.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/post-api-schema?view=li-lms-2026-10
+   */
+  const targetingFacets: readonly (readonly [string, string])[] = [
+    ["geoLocations", "urn:li:geo:"],
+    ["seniorities", "urn:li:seniority:"],
+    ["industries", "urn:li:industry:"],
+    ["jobFunctions", "urn:li:function:"],
+    ["degrees", "urn:li:degree:"],
+    ["fieldsOfStudy", "urn:li:fieldOfStudy:"],
+    ["organizations", "urn:li:organization:"],
+  ];
+
+  const staffCountRanges = [
+    "SIZE_1",
+    "SIZE_2_TO_10",
+    "SIZE_11_TO_50",
+    "SIZE_51_TO_200",
+    "SIZE_201_TO_500",
+    "SIZE_501_TO_1000",
+    "SIZE_1001_TO_5000",
+    "SIZE_5001_TO_10000",
+    "SIZE_10001_OR_MORE",
+  ];
+
+  /*
+   * interfaceLocales is an array of Locale records: a lowercase ISO-639 `language` and an optional
+   * uppercase ISO-3166 `country` (Object types "Locale", li-lms-2026-10, accessed 2026-11-04).
+   * https://learn.microsoft.com/en-us/linkedin/shared/references/v2/object-types?view=li-lms-2026-10#locale
+   */
+  const decodeInterfaceLocales = (entries: JsonField): JsonObject[] | undefined => {
+    if (!isJsonArray(entries) || entries.length === 0) return undefined;
+    const locales: JsonObject[] = [];
+
+    for (const entry of entries) {
+      if (!isJsonObject(entry)) return undefined;
+      const language = optionalString(entry["language"]);
+      const country = entry["country"] === undefined ? "" : optionalString(entry["country"]);
+
+      if (
+        Object.keys(entry).some((key) => key !== "language" && key !== "country") ||
+        language === undefined ||
+        !/^[a-z]{2}$/.test(language) ||
+        country === undefined ||
+        (country !== "" && !/^[A-Z]{2}$/.test(country))
+      )
+        return undefined;
+      locales.push(country === "" ? { language } : { country, language });
+    }
+
+    return locales;
+  };
+
+  /** Returns the wire targetEntities element, or undefined when the targeting is malformed. */
+  const decodeTargeting = (value: JsonField): JsonObject | undefined => {
+    if (!isJsonObject(value)) return undefined;
+    const known = new Set([...targetingFacets.map(([field]) => field), "staffCountRanges"]);
+    const entity: Record<string, JsonValue> = {};
+
+    for (const [field, entries] of Object.entries(value)) {
+      if (field === "interfaceLocales") {
+        const locales = decodeInterfaceLocales(entries);
+
+        if (locales === undefined) return undefined;
+        entity[field] = locales;
+        continue;
+      }
+
+      const prefix = targetingFacets.find(([name]) => name === field)?.[1];
+
+      if (
+        !known.has(field) ||
+        !isJsonArray(entries) ||
+        entries.length === 0 ||
+        !entries.every(
+          (entry) =>
+            isString(entry) &&
+            (prefix === undefined
+              ? staffCountRanges.includes(entry)
+              : entry.startsWith(prefix) && entry.length > prefix.length),
+        )
+      )
+        return undefined;
+      entity[field] = entries;
+    }
+
+    return Object.keys(entity).length === 0 ? undefined : entity;
+  };
+
+  /** Decodes an account-bound image reference that arrived through JSON publish options. */
+  const decodeImageRef = (value: JsonField, account: ConnectedAccountRef): MediaRef | undefined => {
+    if (!isJsonObject(value)) return undefined;
+    const mediaId = optionalString(value["mediaId"]);
+
+    if (
+      value["kind"] !== "media" ||
+      value["version"] !== 1 ||
+      value["backend"] !== account.backend ||
+      value["platform"] !== "linkedin" ||
+      value["accountId"] !== account.accountId ||
+      mediaId === undefined ||
+      !linkedInImageUrn.test(mediaId)
+    )
+      return undefined;
+
+    return {
+      kind: "media",
+      version: 1,
+      backend: account.backend,
+      platform: "linkedin",
+      accountId: account.accountId,
+      mediaId,
+    };
+  };
+
+  interface PublishSettings {
+    readonly visibility: "PUBLIC" | "CONNECTIONS";
+    readonly disableReshare: boolean;
+    readonly annotations: readonly LinkedInAnnotation[];
+    readonly targetEntities: readonly JsonObject[];
+    readonly articleThumbnail?: MediaRef;
+  }
+
+  interface DecodedPublishSettings {
+    readonly settings: PublishSettings;
+    readonly issues: readonly [string, string][];
+  }
+
+  /** Decodes LinkedIn publish options. Every problem becomes a prepare-time issue. */
+  const publishSettings = (target: PreparedPublishTarget): DecodedPublishSettings => {
+    const raw = optionsObject(target);
+    const issues: [string, string][] = [];
+
+    const organization = target.account.accountId.startsWith("urn:li:organization:");
+
+    const allowed = [
+      "visibility",
+      "disableReshare",
+      "annotations",
+      "targeting",
+      "articleThumbnail",
+    ];
+
+    for (const key of Object.keys(raw))
+      if (!allowed.includes(key))
+        issues.push(["linkedin.options", `LinkedIn publish option ${key} is not supported.`]);
+
+    const visibility = raw["visibility"] ?? "public";
+
+    if (visibility !== "public" && visibility !== "connections")
+      issues.push(["linkedin.visibility", "LinkedIn visibility must be public or connections."]);
+    else if (visibility === "connections" && organization)
+      issues.push([
+        "linkedin.visibility",
+        "CONNECTIONS visibility targets a member's first-degree network; use it with a member author.",
+      ]);
+
+    const disableReshare =
+      raw["disableReshare"] === undefined ? false : optionalBoolean(raw["disableReshare"]);
+
+    if (disableReshare === undefined)
+      issues.push(["linkedin.disable_reshare", "disableReshare must be a boolean."]);
+
+    const annotations = decodeAnnotations(raw["annotations"]);
+
+    if (annotations === undefined)
+      issues.push([
+        "linkedin.annotations",
+        "Annotations need kind mention (with a person or organization URN) or hashtag, and integer start/length.",
+      ]);
+    else if (annotations.length > 0) {
+      const rendered = renderCommentary(target.content.text ?? "", annotations);
+
+      if (rendered.kind === "error") issues.push(["linkedin.annotations", rendered.message]);
+    }
+
+    let targetEntities: JsonObject[] = [];
+
+    if (raw["targeting"] !== undefined) {
+      const entity = decodeTargeting(raw["targeting"]);
+
+      if (!organization)
+        issues.push(["linkedin.targeting", "Targeted organic posts need an organization author."]);
+
+      if (entity === undefined)
+        issues.push([
+          "linkedin.targeting",
+          "Targeting needs non-empty facet arrays of the documented URN types, staff-count ranges or interfaceLocales { language, country? } locales.",
+        ]);
+      else targetEntities = [entity];
+    }
+
+    let articleThumbnail: MediaRef | undefined;
+
+    if (raw["articleThumbnail"] !== undefined) {
+      articleThumbnail = decodeImageRef(raw["articleThumbnail"], target.account);
+
+      if (articleThumbnail === undefined)
+        issues.push([
+          "linkedin.article_thumbnail",
+          "articleThumbnail must be an urn:li:image reference uploaded by this author.",
+        ]);
+
+      if (target.content.link === undefined)
+        issues.push([
+          "linkedin.article_thumbnail",
+          "articleThumbnail applies only to an article post with content.link.",
+        ]);
+    }
+
+    return {
+      settings: {
+        visibility: visibility === "connections" ? "CONNECTIONS" : "PUBLIC",
+        disableReshare: disableReshare === true,
+        annotations: annotations ?? [],
+        targetEntities,
+        ...definedFields({ articleThumbnail }),
+      },
+      issues,
+    };
+  };
+
   const authorize = (
     ref: { backend: string; platform: string; accountId: string },
     context: AdapterOperationContext,
@@ -310,7 +1536,7 @@ export function linkedin(
         timeoutMs: remainingBudget(context),
         url: new URL(`https://api.linkedin.com${path}`),
         headers: path.startsWith("/v2/")
-          ? { Authorization: `Bearer ${options.auth.accessToken}` }
+          ? { Authorization: `Bearer ${options.auth.accessToken}`, ...extraHeaders }
           : {
               Authorization: `Bearer ${options.auth.accessToken}`,
               "Content-Type": "application/json",
@@ -489,9 +1715,24 @@ export function linkedin(
   }
 
   async function listAdministeredOrganizations(
-    input: { readonly cursor?: string; readonly limit?: number },
+    input: {
+      readonly cursor?: string;
+      readonly limit?: number;
+      readonly role?: LinkedInOrganizationRoleType;
+      readonly state?: LinkedInRoleState;
+    },
     context: AdapterOperationContext,
   ): Promise<Page<LinkedInOrganizationRole>> {
+    const role = input.role ?? "ADMINISTRATOR";
+    const state = input.state ?? "APPROVED";
+
+    if (!isOrganizationRole(role) || !isRoleState(state))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "accounts.read",
+        message: "Use a documented organization role and role state.",
+      });
+
     const start = input.cursor === undefined ? 0 : Number(input.cursor);
     const count = input.limit ?? 25;
 
@@ -521,7 +1762,7 @@ export function linkedin(
 
     const result = object(
       await accountRequest(
-        `/rest/organizationAcls?q=roleAssignee&roleAssignee=${encodeURIComponent(memberUrn)}&role=ADMINISTRATOR&state=APPROVED&start=${start}&count=${count}`,
+        `/rest/organizationAcls?q=roleAssignee&roleAssignee=${encodeURIComponent(memberUrn)}&role=${role}&state=${state}&start=${start}&count=${count}`,
         context,
         "rw_organization_admin or r_organization_admin",
       ),
@@ -538,14 +1779,14 @@ export function linkedin(
       if (
         organization === undefined ||
         !/^urn:li:organization:[0-9]+$/.test(organization) ||
-        row["role"] !== "ADMINISTRATOR" ||
-        row["state"] !== "APPROVED"
+        row["role"] !== role ||
+        row["state"] !== state
       )
         continue;
       items.push({
         organization: `urn:li:organization:${organization.slice("urn:li:organization:".length)}`,
-        role: "ADMINISTRATOR",
-        state: "APPROVED",
+        role,
+        state,
       });
     }
 
@@ -767,11 +2008,56 @@ export function linkedin(
     });
   }
 
+  /*
+   * Videos API thumbnail and caption uploads (li-lms-2026-10, accessed 2026-11-04): set
+   * uploadThumbnail/uploadCaptions on initializeUpload, PUT the image to thumbnailUploadUrl with
+   * media-type-family: STILLIMAGE, and POST the SRT file as multipart form data with caption
+   * metadata to captionsUploadUrl. templateName and linkbackContext need version 202602+.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api?view=li-lms-2026-10
+   */
+  async function sendVideoExtra(
+    kind: "thumbnail" | "captions",
+    url: string,
+    body: Blob,
+    mimeType: string,
+    context: AdapterOperationContext,
+  ) {
+    try {
+      await upload({
+        url,
+        source: { mimeType, size: body.size, body, open: () => body.stream() },
+        allowHost: (host) => host === "www.linkedin.com",
+        maxBytes: linkedInVideoExtraMaxBytes,
+        timeoutMs: remainingBudget(context),
+        ...(kind === "thumbnail"
+          ? { headers: { "media-type-family": "STILLIMAGE" } }
+          : { method: "POST" as const }),
+        ...definedFields({ fetch: options.fetch, signal: context.signal }),
+      });
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+
+      throw new SocialError({
+        code:
+          error.kind === "timeout"
+            ? "timeout"
+            : error.kind === "cancelled"
+              ? "cancelled"
+              : "media_error",
+        operation: "media.upload",
+        message: `LinkedIn did not accept the video ${kind}. Start a new upload; no post was created.`,
+        upstreamStatus: error.status,
+        retryDisposition: { kind: "never" },
+      });
+    }
+  }
+
   /** Initializes, uploads every part and finalizes one video. It never waits for processing. */
   async function uploadVideo(
     media: MediaAttachment,
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
+    extras: LinkedInVideoUploadExtras = {},
   ): Promise<MediaRef> {
     authorize(account, context);
     const source = media.source;
@@ -783,11 +2069,35 @@ export function linkedin(
         message: "Provide one MP4 video as a Blob with mimeType video/mp4.",
       });
 
-    if (media.thumbnail !== undefined)
+    const thumbnail = media.thumbnail?.kind === "blob" ? media.thumbnail.blob : undefined;
+    const captions = extras.captions;
+
+    if (
+      (media.thumbnail !== undefined &&
+        (thumbnail === undefined ||
+          !["image/jpeg", "image/png"].includes(thumbnail.type) ||
+          thumbnail.size < 1 ||
+          thumbnail.size > linkedInVideoExtraMaxBytes)) ||
+      (captions !== undefined && (captions.size < 1 || captions.size > linkedInVideoExtraMaxBytes))
+    )
       throw new SocialError({
         code: "invalid_input",
         operation: "media.upload",
-        message: "LinkedIn video thumbnails are not implemented by this adapter.",
+        message:
+          "A LinkedIn video thumbnail must be a non-empty JPEG or PNG Blob, and captions a non-empty SRT Blob, each within the SDK's 20 MiB cap.",
+      });
+
+    if (
+      (extras.templateName !== undefined || extras.linkbackContext !== undefined) &&
+      (options.apiVersion < "202602" ||
+        extras.templateName?.trim() === "" ||
+        extras.linkbackContext?.trim() === "")
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "media.upload",
+        message:
+          "templateName and linkbackContext need API version 202602 or later and non-blank values.",
       });
 
     const blob = source.blob;
@@ -823,8 +2133,12 @@ export function linkedin(
             initializeUploadRequest: {
               owner: account.accountId,
               fileSizeBytes: blob.size,
-              uploadCaptions: false,
-              uploadThumbnail: false,
+              uploadCaptions: captions !== undefined,
+              uploadThumbnail: thumbnail !== undefined,
+              ...definedFields({
+                templateName: extras.templateName?.trim(),
+                linkbackContext: extras.linkbackContext?.trim(),
+              }),
             },
           }),
         )["value"],
@@ -861,6 +2175,12 @@ export function linkedin(
         plan.push({ url: part.url, firstByte, lastByte });
         nextByte = lastByte + 1;
       }
+
+      const thumbnailUploadUrl =
+        thumbnail === undefined ? undefined : string(initialized["thumbnailUploadUrl"]);
+
+      const captionsUploadUrl =
+        captions === undefined ? undefined : string(initialized["captionsUploadUrl"]);
 
       if (
         !linkedInVideoUrn.test(mediaId) ||
@@ -914,6 +2234,37 @@ export function linkedin(
             retryDisposition: { kind: "never" },
           });
         uploadedPartIds.push(etag);
+      }
+
+      if (thumbnail !== undefined && thumbnailUploadUrl !== undefined)
+        await sendVideoExtra(
+          "thumbnail",
+          thumbnailUploadUrl,
+          thumbnail,
+          "application/octet-stream",
+          context,
+        );
+
+      if (captions !== undefined && captionsUploadUrl !== undefined) {
+        // Only English captions are supported; the metadata mirrors LinkedIn's documented sample.
+        const form = new FormData();
+
+        form.append(
+          "metadata",
+          JSON.stringify({
+            format: "SRT",
+            formattedForEasyReader: true,
+            largeText: true,
+            source: "USER_PROVIDED",
+            locale: { variant: "AMERICAN", country: "US", language: "EN" },
+            transcriptType: "CLOSED_CAPTION",
+          }),
+        );
+        form.append("file", new Blob([captions], { type: "text/plain" }), "captions.srt");
+        // Serializing through Response yields the bytes and the boundary in the Blob type.
+        const body = await new Response(form).blob();
+
+        await sendVideoExtra("captions", captionsUploadUrl, body, body.type, context);
       }
 
       await request("/rest/videos?action=finalizeUpload", context, {
@@ -1145,6 +2496,922 @@ export function linkedin(
     return { media: { id: media.source.ref.mediaId, title: documentTitle(media) } };
   }
 
+  /**
+   * Reads one image before it is referenced elsewhere (an article thumbnail or a comment image).
+   * A foreign owner or a returned status other than AVAILABLE stops the write. A member token's
+   * 403 on the versioned image read is tolerated, as for image posts.
+   */
+  async function assertImageUsable(
+    mediaId: string,
+    account: ConnectedAccountRef,
+    context: AdapterOperationContext,
+  ) {
+    let image: JsonObject | undefined;
+
+    try {
+      image = object(await request(`/rest/images/${encodeURIComponent(mediaId)}`, context));
+    } catch (error) {
+      if (
+        !(error instanceof SocialError) ||
+        error.code !== "missing_permission" ||
+        !account.accountId.startsWith("urn:li:person:")
+      )
+        throw error;
+    }
+
+    if (image?.["owner"] !== undefined && image["owner"] !== account.accountId)
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "media.read",
+        message: "LinkedIn image belongs to a different author.",
+      });
+
+    if (image?.["status"] !== undefined && image["status"] !== "AVAILABLE")
+      throw new SocialError({
+        code: "media_error",
+        operation: "media.read",
+        message: "Image is not AVAILABLE. Check it with native imageStatus before using it.",
+      });
+  }
+
+  /** Normalized post read: scalar fields plus the URN-only `content` and `reshareContext` objects. */
+  const postRecord = (row: JsonObject): JsonObject => ({
+    ...publicFields(row, [
+      "id",
+      "author",
+      "commentary",
+      "visibility",
+      "lifecycleState",
+      "createdAt",
+      "publishedAt",
+      "lastModifiedAt",
+      "isReshareDisabledByAuthor",
+    ]),
+    ...definedFields({
+      content: optionalObject(row["content"]),
+      reshareContext: optionalObject(row["reshareContext"]),
+    }),
+  });
+
+  /*
+   * Poll API (li-lms-2026-10, accessed 2026-11-04): reads return per-option voteCount (hidden from
+   * some viewers) and uniqueVotersCount.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/poll-post-api?view=li-lms-2026-10
+   */
+  const decodePoll = (value: JsonField): LinkedInPollResults | undefined => {
+    const poll = optionalObject(value);
+    const question = optionalString(poll?.["question"]);
+
+    if (poll === undefined || question === undefined) return undefined;
+    const settings = optionalObject(poll["settings"]);
+
+    return {
+      question,
+      options: (optionalArray(poll["options"]) ?? []).flatMap((entry) => {
+        const option = optionalObject(entry);
+        const text = optionalString(option?.["text"]);
+
+        return text === undefined
+          ? []
+          : [{ text, ...definedFields({ voteCount: optionalNumber(option?.["voteCount"]) }) }];
+      }),
+      ...definedFields({
+        uniqueVotersCount: optionalNumber(poll["uniqueVotersCount"]),
+        duration: optionalString(settings?.["duration"]),
+        voteSelectionType: optionalString(settings?.["voteSelectionType"]),
+      }),
+    };
+  };
+
+  const decodePost = (row: JsonObject): LinkedInPost => {
+    const content = optionalObject(row["content"]);
+    const reshare = optionalObject(row["reshareContext"]);
+    const parent = optionalString(reshare?.["parent"]);
+
+    return {
+      id: string(row["id"]),
+      author: string(row["author"]),
+      ...definedFields({
+        commentary: optionalString(row["commentary"]),
+        visibility: optionalString(row["visibility"]),
+        lifecycleState: optionalString(row["lifecycleState"]),
+        createdAt: optionalNumber(row["createdAt"]),
+        publishedAt: optionalNumber(row["publishedAt"]),
+        lastModifiedAt: optionalNumber(row["lastModifiedAt"]),
+        isReshareDisabledByAuthor: optionalBoolean(row["isReshareDisabledByAuthor"]),
+        isEditedByAuthor: optionalBoolean(
+          optionalObject(row["lifecycleStateInfo"])?.["isEditedByAuthor"],
+        ),
+        reshareContext:
+          parent === undefined
+            ? undefined
+            : { parent, ...definedFields({ root: optionalString(reshare?.["root"]) }) },
+        content,
+        poll: decodePoll(content?.["poll"]),
+      }),
+    };
+  };
+
+  const linkedInPostUrn = /^urn:li:(?:share|ugcPost):\d+$/;
+
+  /** Rest.li 2.0 encodes reserved characters, including the parentheses of a composite URN. */
+  const restliEncode = (urn: string) =>
+    encodeURIComponent(urn).replaceAll("(", "%28").replaceAll(")", "%29");
+
+  const linkedInCommentUrn = /^urn:li:comment:\((urn:li:(?:activity|share|ugcPost):\d+),(\d+)\)$/;
+
+  /** Validates a returned-offset cursor and a page size from 1 to 100. */
+  const offsetPage = (
+    input: { readonly cursor?: string; readonly limit?: number },
+    operation: string,
+  ) => {
+    const start = input.cursor === undefined ? 0 : Number(input.cursor);
+    const count = input.limit ?? 25;
+
+    if (
+      (input.cursor !== undefined && !/^(?:0|[1-9][0-9]{0,8})$/.test(input.cursor)) ||
+      !Number.isSafeInteger(count) ||
+      count < 1 ||
+      count > 100
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "LinkedIn requires a returned offset and page size from 1 to 100.",
+      });
+
+    return { start, count };
+  };
+
+  /** The next offset cursor from Rest.li paging, or undefined at the end. */
+  const nextOffset = (result: JsonObject, start: number, returned: number) => {
+    const paging = optionalObject(result["paging"]) ?? {};
+    const total = optionalNumber(paging["total"]);
+
+    const hasNext = (optionalArray(paging["links"]) ?? []).some(
+      (link) => optionalObject(link)?.["rel"] === "next",
+    );
+
+    return returned > 0 && (hasNext || (total !== undefined && start + returned < total))
+      ? String(start + returned)
+      : undefined;
+  };
+
+  /** Keeps authorship, timestamps, threading, and engagement records for normalization. */
+  const commentRecord = (value: JsonValue) => {
+    const row = object(value);
+    const nested: Record<string, JsonValue> = {};
+
+    for (const field of [
+      "message",
+      "created",
+      "lastModified",
+      "parentComment",
+      "content",
+      "likesSummary",
+      "commentsSummary",
+    ]) {
+      const entry = row[field];
+
+      if (entry !== undefined) nested[field] = entry;
+    }
+
+    return normalizeComment({
+      ...publicFields(row, ["id", "actor", "commentUrn", "object", "agent"]),
+      ...nested,
+      text: string(object(row["message"])["text"]),
+    });
+  };
+
+  /*
+   * Comments API mention attributes (li-lms-2026-10, accessed 2026-11-04): start, length and a
+   * value of { person: { person } } or { organization: { organization } }.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api?view=li-lms-2026-10
+   */
+  const commentAttributes = (
+    text: string,
+    mentions: readonly LinkedInCommentMention[],
+    operation: string,
+  ): JsonObject[] | undefined => {
+    if (!text.trim() || text.length > 1250)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Provide a comment of 1 to 1,250 characters.",
+      });
+
+    let cursor = 0;
+
+    for (const mention of [...mentions].sort((left, right) => left.start - right.start)) {
+      if (
+        !Number.isSafeInteger(mention.start) ||
+        !Number.isSafeInteger(mention.length) ||
+        mention.start < cursor ||
+        mention.length < 1 ||
+        mention.start + mention.length > text.length ||
+        !linkedInMemberOrOrganization.test(mention.urn)
+      )
+        throw new SocialError({
+          code: "invalid_input",
+          operation,
+          message:
+            "Comment mentions need non-overlapping start/length ranges inside the text and a person or organization URN.",
+        });
+      cursor = mention.start + mention.length;
+    }
+
+    return mentions.length === 0
+      ? undefined
+      : mentions.map((mention) => ({
+          start: mention.start,
+          length: mention.length,
+          value: mention.urn.startsWith("urn:li:person:")
+            ? { person: { person: mention.urn } }
+            : { organization: { organization: mention.urn } },
+        }));
+  };
+
+  /** The `?actor=` query LinkedIn requires when an organization edits or deletes a comment. */
+  const organizationActor = () =>
+    options.auth.author.startsWith("urn:li:organization:")
+      ? `?actor=${encodeURIComponent(options.auth.author)}`
+      : "";
+
+  /** First value of a MultiLocaleString, preferring the flattened `localized{Field}` form. */
+  const localizedText = (row: JsonObject, field: string, flattened: string) => {
+    const direct = optionalString(row[flattened]);
+
+    if (direct !== undefined) return direct;
+
+    const localized = optionalObject(optionalObject(row[field])?.["localized"]);
+
+    return localized === undefined
+      ? undefined
+      : Object.values(localized).find((value): value is string => isString(value));
+  };
+
+  const decodeProfile = (row: JsonObject): LinkedInProfile => {
+    const id = string(row["id"]);
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(id))
+      throw new SocialError({
+        code: "upstream_failure",
+        operation: "profile.read",
+        message: "LinkedIn returned a profile without a valid person ID.",
+      });
+
+    const geoLocation = optionalObject(row["geoLocation"]);
+    const geo = optionalString(geoLocation?.["geo"]);
+
+    return {
+      personUrn: `urn:li:person:${id}`,
+      fields: row,
+      ...definedFields({
+        firstName: localizedText(row, "firstName", "localizedFirstName"),
+        lastName: localizedText(row, "lastName", "localizedLastName"),
+        headline: localizedText(row, "headline", "localizedHeadline"),
+        vanityName: optionalString(row["vanityName"]),
+        profilePictureUrn: optionalString(optionalObject(row["profilePicture"])?.["displayImage"]),
+        geoLocation:
+          geo === undefined
+            ? undefined
+            : {
+                geo,
+                ...definedFields({
+                  autoGenerated: optionalBoolean(geoLocation?.["autoGenerated"]),
+                }),
+              },
+      }),
+    };
+  };
+
+  /** Validates a Rest.li field projection: field names, `~` decoration, commas, balanced parens. */
+  const projectionQuery = (projection: string | undefined, operation: string) => {
+    if (projection === undefined) return "";
+
+    let depth = 0;
+
+    for (const character of projection) {
+      depth += character === "(" ? 1 : character === ")" ? -1 : 0;
+
+      if (depth < 0) break;
+    }
+
+    if (projection.length > 1000 || !/^\([A-Za-z0-9_~,()]+\)$/.test(projection) || depth !== 0)
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "A projection is a parenthesized Rest.li field list, such as (id,firstName).",
+      });
+
+    // The decoder checks the member identity, so a projection always asks for `id` too.
+    let level = 0;
+
+    let field = "";
+
+    const topLevel: string[] = [];
+
+    for (const character of projection.slice(1, -1)) {
+      if (character === "(") level++;
+      else if (character === ")") level--;
+      else if (character === "," && level === 0) {
+        topLevel.push(field);
+        field = "";
+      } else if (level === 0) field += character;
+    }
+
+    topLevel.push(field);
+
+    const withIdentity = topLevel.includes("id") ? projection : `(id,${projection.slice(1)}`;
+
+    return `projection=${withIdentity}`;
+  };
+
+  const isAuthorizationAction = (action: LinkedInOrganizationAuthorizationAction) => {
+    const allowed: readonly string[] = Object.hasOwn(linkedInAuthorizationActions, action.group)
+      ? linkedInAuthorizationActions[action.group]
+      : [];
+
+    return allowed.includes(action.actionType);
+  };
+
+  const authorizationAction = (action: LinkedInOrganizationAuthorizationAction) =>
+    `(${action.group}:(actionType:${action.actionType}))`;
+
+  const authorizationKey = (key: LinkedInOrganizationAuthorizationKey) =>
+    `(impersonator:${restliEncode(key.impersonator)},organization:${restliEncode(key.organization)},action:${authorizationAction(key.action)})`;
+
+  const isAuthorizationKey = (key: LinkedInOrganizationAuthorizationKey) =>
+    /^urn:li:person:[a-zA-Z0-9_-]+$/.test(key.impersonator) &&
+    /^urn:li:organization:[1-9][0-9]*$/.test(key.organization) &&
+    isAuthorizationAction(key.action);
+
+  /** LinkedIn names the returned action record inconsistently; read its one `actionType`. */
+  const decodeAuthorization = (value: JsonField): LinkedInOrganizationAuthorization => {
+    const row = object(value);
+
+    const actionType = Object.values(object(row["action"]))
+      .map((entry) => optionalString(optionalObject(entry)?.["actionType"]))
+      .find((entry) => entry !== undefined);
+
+    const status = Object.entries(object(row["status"]))[0];
+
+    if (actionType === undefined || status === undefined)
+      throw new SocialError({
+        code: "upstream_failure",
+        operation: "organizations.authorizations.read",
+        message: "LinkedIn returned an organization authorization without an action or status.",
+      });
+
+    const name = status[0].slice(status[0].lastIndexOf(".") + 1);
+
+    return {
+      impersonator: string(row["impersonator"]),
+      organization: string(row["organization"]),
+      actionType,
+      approved: status[0] === "com.linkedin.organization.Approved",
+      status: name,
+      reasons: (optionalArray(optionalObject(status[1])?.["reasons"]) ?? []).filter(isString),
+    };
+  };
+
+  const linkedInEventUrn = /^urn:li:event:(\d+)$/;
+
+  /** Event IDs exceed Number.MAX_SAFE_INTEGER; the JSON reader keeps those as digit strings. */
+  const longId = (value: JsonField) =>
+    isString(value) && /^\d+$/.test(value)
+      ? value
+      : isFiniteNumber(value) && Number.isSafeInteger(value) && value > 0
+        ? String(value)
+        : undefined;
+
+  const eventLocale = (locale: string | undefined) => {
+    const key = locale ?? "en_US";
+
+    if (!/^[a-z]{2}(?:_[A-Z]{2})?$/.test(key))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "events.write",
+        message: "An event locale is a key such as en_US.",
+      });
+
+    return key;
+  };
+
+  const multiLocale = (text: string, locale: string) => ({ localized: { [locale]: text } });
+
+  const richText = (text: string, locale: string) => ({
+    localized: { [locale]: { rawText: text } },
+  });
+
+  const eventInstant = (value: number | undefined) =>
+    value === undefined || (Number.isSafeInteger(value) && value > 0);
+
+  const eventHttpsUrl = (value: string | undefined) => {
+    if (value === undefined) return true;
+
+    try {
+      return new URL(value).protocol === "https:";
+    } catch {
+      return false;
+    }
+  };
+
+  const eventAddress = (address: LinkedInEventAddress) => {
+    if (address.country !== undefined && !/^[A-Z]{2}$/.test(address.country))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "events.write",
+        message: "Event address fields are strings and country is an ISO-3166 two-letter code.",
+      });
+
+    return definedFields({
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      geographicArea: address.geographicArea,
+      postalCode: address.postalCode,
+      country: address.country,
+    });
+  };
+
+  /** Wire `type` for a create (full type) or update (changed sub-fields of the same type). */
+  const eventTypeWire = (type: LinkedInEventType | LinkedInEventTypeChanges, locale: string) => {
+    if (!eventInstant(type.endsAt))
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "events.write",
+        message: "Event endsAt must be positive epoch milliseconds.",
+      });
+
+    switch (type.kind) {
+      case "liveVideo":
+        return {
+          online: {
+            format: {
+              liveVideo: definedFields({
+                endsAt: type.endsAt,
+                testEvent: "testEvent" in type ? type.testEvent : undefined,
+              }),
+            },
+          },
+        };
+      case "external":
+        if (!eventHttpsUrl(type.url))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.write",
+            message: "An external event url must be HTTPS.",
+          });
+
+        return {
+          online: { format: { external: definedFields({ endsAt: type.endsAt, url: type.url }) } },
+        };
+      case "inPerson":
+        if (!eventHttpsUrl(type.url))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.write",
+            message: "An in-person event url must be HTTPS.",
+          });
+
+        return {
+          inPerson: definedFields({
+            endsAt: type.endsAt,
+            url: type.url,
+            address: type.address === undefined ? undefined : eventAddress(type.address),
+            venueDetails:
+              type.venueDetails === undefined ? undefined : richText(type.venueDetails, locale),
+          }),
+        };
+      default: {
+        const exhaustive: never = type;
+
+        return exhaustive;
+      }
+    }
+  };
+
+  const decodeEvent = (row: JsonObject, fallbackId?: string): LinkedInEvent => {
+    const id = longId(row["id"]) ?? fallbackId;
+
+    if (id === undefined)
+      throw new SocialError({
+        code: "upstream_failure",
+        operation: "events.read",
+        message: "LinkedIn returned an event without an ID.",
+      });
+
+    const type = optionalObject(row["type"]);
+    const format = optionalObject(optionalObject(type?.["online"])?.["format"]);
+    const liveVideo = optionalObject(format?.["liveVideo"]);
+    const external = optionalObject(format?.["external"]);
+    const inPerson = optionalObject(type?.["inPerson"]);
+    const detail = liveVideo ?? external ?? inPerson;
+    const liveVideoUrn = optionalString(liveVideo?.["liveVideo"]);
+    const eventUrn: `urn:li:event:${string}` = `urn:li:event:${id}`;
+
+    return {
+      eventUrn,
+      fields: row,
+      ...definedFields({
+        organizer: optionalString(row["organizer"]),
+        name: localizedText(row, "name", "localizedName"),
+        startsAt: optionalNumber(row["startsAt"]),
+        endsAt: optionalNumber(detail?.["endsAt"]),
+        kind:
+          liveVideo !== undefined
+            ? ("liveVideo" as const)
+            : external !== undefined
+              ? ("external" as const)
+              : inPerson !== undefined
+                ? ("inPerson" as const)
+                : undefined,
+        vanityName: optionalString(row["vanityName"]),
+        discoveryMode: optionalString(row["discoveryMode"]),
+        backgroundImage: optionalString(row["backgroundImage"]),
+        ugcPost: optionalString(row["ugcPost"]),
+        liveVideo: liveVideoUrn,
+        leadGenForm: optionalString(row["leadGenForm"]),
+        postReference: liveVideo === undefined ? eventUrn : liveVideoUrn,
+      }),
+    };
+  };
+
+  const eventPath = (event: string) => {
+    const id = linkedInEventUrn.exec(event)?.[1];
+
+    if (id === undefined)
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "events.read",
+        message: "Identify the event by its urn:li:event URN.",
+      });
+
+    return `/rest/events/${id}`;
+  };
+
+  const decodeSocialMetadata = (result: JsonObject): LinkedInSocialMetadata => {
+    const reactions: Record<string, number> = {};
+
+    for (const [type, summary] of Object.entries(
+      optionalObject(result["reactionSummaries"]) ?? {},
+    )) {
+      const count = optionalNumber(optionalObject(summary)?.["count"]);
+
+      if (count !== undefined) reactions[type] = count;
+    }
+
+    const comments = optionalObject(result["commentSummary"]);
+
+    return {
+      reactions,
+      ...definedFields({
+        entity: optionalString(result["entity"]),
+        commentsState: optionalString(result["commentsState"]),
+        comments:
+          comments === undefined
+            ? undefined
+            : definedFields({
+                total: optionalNumber(comments["count"]),
+                topLevel: optionalNumber(comments["topLevelCount"]),
+              }),
+      }),
+    };
+  };
+
+  /**
+   * Splits a Rest.li BATCH_GET response into rows for the requested keys and per-key failures.
+   * `key` maps a requested id to the key LinkedIn uses in `results`, `statuses` and `errors`.
+   */
+  const batchRows = (
+    result: JsonObject,
+    ids: readonly string[],
+    key: (id: string) => string = (id) => id,
+  ) => {
+    const results = optionalObject(result["results"]) ?? {};
+    const statuses = optionalObject(result["statuses"]) ?? {};
+    const failures = optionalObject(result["errors"]) ?? {};
+    const rows: (readonly [string, JsonObject])[] = [];
+    const errors: LinkedInBatchError[] = [];
+
+    for (const id of ids) {
+      const row = optionalObject(results[key(id)]);
+
+      if (row !== undefined) {
+        rows.push([id, row]);
+        continue;
+      }
+
+      const status =
+        optionalNumber(statuses[key(id)]) ??
+        optionalNumber(optionalObject(failures[key(id)])?.["status"]);
+
+      errors.push({ id, ...definedFields({ status }) });
+    }
+
+    return { rows, errors };
+  };
+
+  /** Validates 1 to 100 distinct post or comment URNs for a social BATCH_GET. */
+  const socialBatchIds = (entities: readonly string[], operation: string) => {
+    const ids = [...new Set(entities)];
+
+    if (
+      ids.length === 0 ||
+      ids.length > 100 ||
+      !ids.every((id) => linkedInPostUrn.test(id) || linkedInCommentUrn.test(id))
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Batch read 1 to 100 share, ugcPost or comment URNs.",
+      });
+
+    return ids;
+  };
+
+  const decodeReaction = (row: JsonObject): LinkedInReaction => {
+    const created = optionalObject(row["created"]);
+
+    return {
+      reactionType: string(row["reactionType"]),
+      ...definedFields({
+        id: optionalString(row["id"]),
+        actor: optionalString(created?.["actor"]),
+        root: optionalString(row["root"]),
+        createdAt: optionalNumber(created?.["time"]),
+      }),
+    };
+  };
+
+  /** Rest.li compound key of a reaction, with both URNs encoded as LinkedIn documents. */
+  const reactionKey = (key: LinkedInReactionKey) =>
+    `(actor:${restliEncode(key.actor)},entity:${restliEncode(key.entity)})`;
+
+  const isReactionKey = (key: LinkedInReactionKey) =>
+    linkedInMemberOrOrganization.test(key.actor) &&
+    (linkedInPostUrn.test(key.entity) || linkedInCommentUrn.test(key.entity));
+
+  const decodeOrganizationSummary = (value: JsonField): LinkedInOrganizationSummary[] => {
+    const row = optionalObject(value);
+    const id = optionalNumber(row?.["id"]);
+
+    if (row === undefined || id === undefined || !Number.isSafeInteger(id) || id < 1) return [];
+
+    return [
+      {
+        organization: `urn:li:organization:${id}`,
+        ...definedFields({
+          localizedName: optionalString(row["localizedName"]),
+          vanityName: optionalString(row["vanityName"]),
+          localizedWebsite: optionalString(row["localizedWebsite"]),
+          primaryOrganizationType: optionalString(row["primaryOrganizationType"]),
+        }),
+      },
+    ];
+  };
+
+  const memberOnly = (
+    account: ConnectedAccountRef,
+    context: AdapterOperationContext,
+    operation: string,
+  ) => {
+    authorize(account, context);
+
+    if (!account.accountId.startsWith("urn:li:person:"))
+      throw new SocialError({
+        code: "unsupported_capability",
+        operation,
+        message: "LinkedIn member analytics require a member account, not an organization account.",
+      });
+  };
+
+  const validDate = (date: LinkedInDate | undefined) =>
+    date === undefined ||
+    (Number.isSafeInteger(date.year) &&
+      date.year >= 2000 &&
+      date.year <= 9999 &&
+      Number.isSafeInteger(date.month) &&
+      date.month >= 1 &&
+      date.month <= 12 &&
+      Number.isSafeInteger(date.day) &&
+      date.day >= 1 &&
+      date.day <= 31);
+
+  /** Rest.li record form, for example (start:(year:2024,month:5,day:4),end:(...)). */
+  const dateRangeParam = (range: LinkedInDateRange, operation: string) => {
+    if (!validDate(range.start) || !validDate(range.end) || (!range.start && !range.end))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "dateRange needs a start or end with integer year, month (1-12) and day (1-31).",
+      });
+
+    const part = (name: string, date: LinkedInDate | undefined) =>
+      date === undefined ? [] : [`${name}:(year:${date.year},month:${date.month},day:${date.day})`];
+
+    return `(${[...part("start", range.start), ...part("end", range.end)].join(",")})`;
+  };
+
+  const decodeDate = (value: JsonField): LinkedInDate | undefined => {
+    const date = optionalObject(value);
+    const year = optionalNumber(date?.["year"]);
+    const month = optionalNumber(date?.["month"]);
+    const day = optionalNumber(date?.["day"]);
+
+    return year === undefined || month === undefined || day === undefined
+      ? undefined
+      : { year, month, day };
+  };
+
+  const decodeDateRange = (value: JsonField): LinkedInDateRange | undefined => {
+    const range = optionalObject(value);
+
+    if (range === undefined) return undefined;
+
+    const decoded = definedFields({
+      start: decodeDate(range["start"]),
+      end: decodeDate(range["end"]),
+    });
+
+    return decoded.start === undefined && decoded.end === undefined ? undefined : decoded;
+  };
+
+  /*
+   * Member post and video statistics (li-lms-2026-10, accessed 2026-11-04). Versions before 202605
+   * wrap metricType in an object keyed by its Pegasus type; both shapes decode.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/members/post-statistics?view=li-lms-2026-10
+   */
+  const memberAnalyticsPoints = (result: JsonObject): LinkedInMemberAnalyticsPoint[] =>
+    array(result["elements"]).map((value) => {
+      const row = object(value);
+      const metricType = row["metricType"];
+
+      const metric = isString(metricType)
+        ? metricType
+        : Object.values(optionalObject(metricType) ?? {}).find(isString);
+
+      const count = optionalNumber(row["count"]);
+
+      if (metric === undefined || count === undefined)
+        throw new SocialError({
+          code: "upstream_failure",
+          operation: "analytics.member.read",
+          message: "LinkedIn returned a member analytics element without a metric and count.",
+        });
+
+      return {
+        metric,
+        count,
+        ...definedFields({
+          post: Object.values(optionalObject(row["targetEntity"]) ?? {}).find(isString),
+          dateRange: decodeDateRange(row["dateRange"]),
+        }),
+      };
+    });
+
+  /** The memberCreator analytics `entity` parameter: (share:{urn}) or (ugc:{urn}). */
+  const memberAnalyticsEntity = (postId: string, operation: string) => {
+    if (!linkedInPostUrn.test(postId))
+      throw new SocialError({
+        code: "invalid_input",
+        operation,
+        message: "Member analytics need a urn:li:share or urn:li:ugcPost post.",
+      });
+
+    return `(${postId.startsWith("urn:li:share:") ? "share" : "ugc"}:${restliEncode(postId)})`;
+  };
+
+  /*
+   * Member follower statistics (li-lms-2026-10, accessed 2026-11-04): q=me returns the lifetime
+   * count; q=dateRange returns daily counts. Needs r_member_profileAnalytics.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/members/follower-statistics?view=li-lms-2026-10
+   */
+  async function memberFollowerCounts(
+    dateRange: LinkedInDateRange | undefined,
+    context: AdapterOperationContext,
+  ): Promise<LinkedInMemberFollowerCount[]> {
+    const query =
+      dateRange === undefined
+        ? "q=me"
+        : `q=dateRange&dateRange=${dateRangeParam(dateRange, "analytics.member.followers.read")}`;
+
+    const result = object(await request(`/rest/memberFollowersCount?${query}`, context));
+
+    return array(result["elements"]).flatMap((value) => {
+      const row = object(value);
+      const count = optionalNumber(row["memberFollowersCount"]);
+
+      return count === undefined
+        ? []
+        : [{ count, ...definedFields({ dateRange: decodeDateRange(row["dateRange"]) }) }];
+    });
+  }
+
+  /*
+   * Organization social action notifications, criteria finder (li-lms-2026-10, accessed
+   * 2026-11-04): actions are required, timeRange.start is inclusive and end exclusive, and
+   * sourcePost allows a single action. Notifications are kept for 60 days.
+   * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications?view=li-lms-2026-10
+   */
+  async function pullNotifications(
+    account: ConnectedAccountRef,
+    input: {
+      readonly cursor?: string;
+      readonly limit?: number;
+      readonly actions?: readonly LinkedInNotificationAction[];
+      readonly sourcePost?: string;
+      readonly timeRange?: { readonly start?: number; readonly end?: number };
+    },
+    context: AdapterOperationContext,
+  ): Promise<Page<JsonObject>> {
+    const { start, count } = offsetPage(input, "notifications.read");
+    const actions = input.actions ?? linkedInNotificationActions;
+    const range = input.timeRange;
+
+    const bound = (value: number | undefined) =>
+      value === undefined || (Number.isSafeInteger(value) && value >= 0);
+
+    if (
+      actions.length === 0 ||
+      !actions.every((action) => linkedInNotificationActions.includes(action)) ||
+      (input.sourcePost !== undefined &&
+        (actions.length !== 1 || !/^urn:li:activity:\d+$/.test(input.sourcePost))) ||
+      (range !== undefined &&
+        (!bound(range.start) ||
+          !bound(range.end) ||
+          (range.start === undefined && range.end === undefined) ||
+          (range.start !== undefined && range.end !== undefined && range.end <= range.start)))
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "notifications.read",
+        message:
+          "Use documented notification actions, one action with an urn:li:activity sourcePost, and a timeRange of nonnegative epoch milliseconds with end after start.",
+      });
+
+    const timeRange =
+      range === undefined
+        ? ""
+        : `&timeRange=(${[
+            ...(range.start === undefined ? [] : [`start:${range.start}`]),
+            ...(range.end === undefined ? [] : [`end:${range.end}`]),
+          ].join(",")})`;
+
+    const sourcePost =
+      input.sourcePost === undefined ? "" : `&sourcePost=${restliEncode(input.sourcePost)}`;
+
+    const result = object(
+      await request(
+        `/rest/organizationalEntityNotifications?q=criteria&actions=List(${actions.join(",")})&organizationalEntity=${encodeURIComponent(account.accountId)}${timeRange}${sourcePost}&start=${start}&count=${count}`,
+        context,
+      ),
+    );
+
+    const rows = array(result["elements"]).map(object);
+
+    if (rows.some((row) => row["organizationalEntity"] !== account.accountId))
+      throw new SocialError({
+        code: "unauthorized",
+        operation: "notifications.read",
+        message: "LinkedIn returned a notification for another organization.",
+      });
+
+    const items = rows.map((row) =>
+      publicFields(row, [
+        "notificationId",
+        "organizationalEntity",
+        "action",
+        "sourcePost",
+        "generatedActivity",
+        "lastModifiedAt",
+      ]),
+    );
+
+    return { items, ...definedFields({ nextCursor: nextOffset(result, start, items.length) }) };
+  }
+
+  /** The eventSubscriptions key for the configured organization and one administrator. */
+  const subscriptionPath = (
+    account: ConnectedAccountRef,
+    developerApplication: string,
+    member: string,
+  ) => {
+    if (
+      !/^urn:li:developerApplication:\d+$/.test(developerApplication) ||
+      !/^urn:li:person:[a-zA-Z0-9_-]+$/.test(member)
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: "webhooks.subscriptions.write",
+        message:
+          "Provide a urn:li:developerApplication URN and the administrator's urn:li:person URN.",
+      });
+
+    return `/rest/eventSubscriptions/(developerApplication:${restliEncode(developerApplication)},user:${restliEncode(member)},entity:${restliEncode(account.accountId)},eventType:ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS)`;
+  };
+
   const organizationOnly = (
     account: ConnectedAccountRef,
     context: AdapterOperationContext,
@@ -1156,18 +3423,18 @@ export function linkedin(
       throw new SocialError({
         code: "unsupported_capability",
         operation,
-        message:
-          "LinkedIn organization analytics require an organization account, not a member account.",
+        message: "This LinkedIn operation requires an organization account, not a member account.",
       });
   };
 
   const statisticsPath = (
     path: string,
-    finder: "organization" | "organizationalEntity",
+    finder: "organization" | "organizationalEntity" | "brand",
     account: ConnectedAccountRef,
     interval?: LinkedInTimeInterval,
+    entity: string = account.accountId,
   ) => {
-    const params = [`q=${finder}`, `${finder}=${encodeURIComponent(account.accountId)}`];
+    const params = [`q=${finder}`, `${finder}=${encodeURIComponent(entity)}`];
 
     if (interval) {
       if (
@@ -1384,6 +3651,7 @@ export function linkedin(
   const parsePageStatistics = (
     result: JsonObject,
     requestedGranularity?: LinkedInTimeInterval["granularity"],
+    entityField: "organization" | "brand" = "organization",
   ): LinkedInPageStatistics[] =>
     array(result["elements"]).map((value) => {
       const row = object(value);
@@ -1392,7 +3660,7 @@ export function linkedin(
         row["totalPageStatistics"] === undefined ? {} : object(row["totalPageStatistics"]);
 
       return {
-        organization: string(row["organization"]),
+        organization: string(row[entityField]),
         ...definedFields({ interval: parseInterval(row, requestedGranularity) }),
         views: numberMap(total["views"]),
         clicks: numberMap(total["clicks"]),
@@ -1442,8 +3710,8 @@ export function linkedin(
           // Mirrors prepareTarget: account-bound media references, at most 20 images per post.
           constraints: { mediaSources: ["media-ref" as const], maxItems: 20 },
           notes: options.auth.author.startsWith("urn:li:organization:")
-            ? "Explicit organization author and public visibility. Requires product approval and ADMINISTRATOR, CONTENT_ADMIN (ACL CONTENT_ADMINISTRATOR) or DIRECT_SPONSORED_CONTENT_POSTER role. Supports image, multi-image, video and document posts."
-            : "Explicit member author and public visibility. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts.",
+            ? "Explicit organization author with public visibility, optional targetEntities targeting, annotations and reshare control. Requires product approval and ADMINISTRATOR, CONTENT_ADMIN (ACL CONTENT_ADMINISTRATOR) or DIRECT_SPONSORED_CONTENT_POSTER role. Supports image, multi-image, video and document posts."
+            : "Explicit member author with public or connections visibility, annotations and reshare control. Requires w_member_social from Share on LinkedIn; no organization role is needed. Supports image, multi-image, video and document posts.",
         },
         {
           platform: "linkedin",
@@ -1547,6 +3815,101 @@ export function linkedin(
         },
         {
           platform: "linkedin",
+          operation: "media.video",
+          availability: "available" as const,
+          formats: ["video" as const],
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "w_organization_social"
+              : "w_member_social",
+          ],
+          notes:
+            "Native uploadVideo uploads an MP4 like media.upload, plus an English SRT captions file and templateName/linkbackContext attribution (API version 202602+). A JPEG or PNG media.thumbnail Blob becomes the custom thumbnail on both paths.",
+        },
+        ...(
+          [
+            [
+              "webhooks.subscriptions.write",
+              "Native subscribeOrganizationNotifications and unsubscribeOrganizationNotifications PUT and DELETE the eventSubscriptions key for the configured organization and one administrator.",
+            ],
+            [
+              "webhooks.subscriptions.read",
+              "Native listOrganizationNotificationSubscriptions lists the authenticated member's subscriptions for the configured organization.",
+            ],
+          ] as const
+        ).map(([operation, notes]) => ({
+          platform: "linkedin" as const,
+          operation,
+          availability: options.auth.author.startsWith("urn:li:organization:")
+            ? ("approval-dependent" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["rw_organization_admin"],
+          notes: `${notes} Needs an approved webhook use case, a validated webhook and an ADMINISTRATOR role; the subscription ends with that member's grant or role.`,
+        })),
+        {
+          platform: "linkedin",
+          operation: "posts.read.batch",
+          availability: "available" as const,
+          requiredScopes: [
+            options.auth.author.startsWith("urn:li:organization:")
+              ? "r_organization_social"
+              : "r_member_social",
+          ],
+          notes:
+            "Native getPosts sends BATCH_GET for up to 100 of the author's posts; native getPost reads one with viewContext READER or AUTHOR. LinkedIn does not allow BATCH_GET in the Development tier.",
+        },
+        ...(
+          [
+            [
+              "social-metadata.read",
+              "r",
+              "Native getSocialMetadata returns reactionSummaries per type, comment totals and commentsState.",
+            ],
+            [
+              "reactions.read",
+              "r",
+              "Native listReactions uses the q=entity finder with offset paging.",
+            ],
+            [
+              "comments.replies.read",
+              "r",
+              "Native listCommentReplies checks the parent comment belongs to the post, then lists its replies.",
+            ],
+            [
+              "reactions.delete",
+              "w",
+              "Native deleteReaction removes the configured author's reaction.",
+            ],
+            [
+              "comments.state.write",
+              "w",
+              "Native setCommentsState sets commentsState OPEN or CLOSED. Closing deletes all existing comments.",
+            ],
+            [
+              "comments.create",
+              "w",
+              "Native createComment writes a top-level comment or nested reply with optional mentions and one image, without pre-reading the post.",
+            ],
+            [
+              "comments.edit",
+              "w",
+              "Native editComment replaces message text and mention attributes.",
+            ],
+          ] as const
+        ).map(([operation, access, notes]) => ({
+          platform: "linkedin" as const,
+          operation,
+          availability: "available" as const,
+          requiredScopes: [
+            `${access}_${options.auth.author.startsWith("urn:li:organization:") ? "organization" : "member"}_social_feed`,
+          ],
+          notes:
+            access === "r"
+              ? `${notes} LinkedIn restricts member r_member_social_feed to select developers.`
+              : notes,
+        })),
+        {
+          platform: "linkedin",
           operation: "analytics.organization.read",
           availability: options.auth.author.startsWith("urn:li:organization:")
             ? ("available" as const)
@@ -1560,7 +3923,7 @@ export function linkedin(
           operation: "articles.create",
           availability: "available" as const,
           notes:
-            "Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. Thumbnail URNs are not exposed by the generic LinkMetadata contract.",
+            "Publishes an article-link post through the Posts API. LinkedIn does not scrape article URLs; title and description are required by this adapter. The LinkedIn articleThumbnail option sends an uploaded image URN as the thumbnail.",
         },
         {
           platform: "linkedin",
@@ -1592,7 +3955,7 @@ export function linkedin(
             : ("account-ineligible" as const),
           requiredScopes: ["rw_organization_admin"],
           notes:
-            "Organization social-action notifications from the last 60 days, pulled with offset paging. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API.",
+            "Organization social-action notifications from the last 60 days, pulled with offset paging; native listOrganizationNotifications adds action, sourcePost and timeRange filters. Requires the Community Management API product and organization administrator access. LinkedIn has no member notification API.",
         },
         {
           platform: "linkedin",
@@ -1603,12 +3966,151 @@ export function linkedin(
         {
           platform: "linkedin",
           operation: "analytics.account.read",
+          availability: "available" as const,
+          requiredScopes: options.auth.author.startsWith("urn:li:organization:")
+            ? ["rw_organization_admin"]
+            : ["r_member_profileAnalytics"],
+          notes: options.auth.author.startsWith("urn:li:organization:")
+            ? "Total followers for the configured organization from networkSizes with COMPANY_FOLLOWED_BY_MEMBER. The provider documents this count for any organization; SDK author binding still applies."
+            : "Lifetime follower count for the configured member from memberFollowersCount (q=me). Requires the Community Management r_member_profileAnalytics scope.",
+        },
+        {
+          platform: "linkedin",
+          operation: "analytics.member.posts.read",
+          availability: options.auth.author.startsWith("urn:li:person:")
+            ? ("available" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["r_member_postAnalytics"],
+          notes:
+            "Native getMemberPostAnalytics (memberCreatorPostAnalytics) and getMemberVideoAnalytics (memberCreatorVideoAnalytics) for the configured member. Organization accounts are not eligible.",
+        },
+        {
+          platform: "linkedin",
+          operation: "analytics.member.followers.read",
+          availability: options.auth.author.startsWith("urn:li:person:")
+            ? ("available" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["r_member_profileAnalytics"],
+          notes:
+            "Native getMemberFollowerCount reads memberFollowersCount, lifetime or daily within a dateRange.",
+        },
+        ...(
+          [
+            [
+              "analytics.brand.read",
+              "Native getBrandPageStatistics reads brandPageStatistics for the configured organization as a showcase page.",
+            ],
+            [
+              "analytics.shares.posts.read",
+              "Native getOrganizationPostStatistics reads lifetime share statistics for specific posts with shares=List(...) and ugcPosts=List(...).",
+            ],
+            [
+              "organizations.roles.read",
+              "Native listOrganizationRoles uses the organizationAcls organization finder for the configured organization.",
+            ],
+          ] as const
+        ).map(([operation, notes]) => ({
+          platform: "linkedin" as const,
+          operation,
           availability: options.auth.author.startsWith("urn:li:organization:")
             ? ("available" as const)
             : ("account-ineligible" as const),
           requiredScopes: ["rw_organization_admin"],
+          notes: `${notes} Requires an ADMINISTRATOR role.`,
+        })),
+        {
+          platform: "linkedin",
+          operation: "organizations.read",
+          availability: "available" as const,
+          requiredScopes: ["rw_organization_admin"],
           notes:
-            "Total followers for the configured organization from networkSizes with COMPANY_FOLLOWED_BY_MEMBER. The provider documents this count for any organization; SDK author binding still applies. No member-profile analytics claimed.",
+            "Native lookupOrganizations (organizationsLookup), findOrganizationByVanityName (q=vanityName) and listOrganizationBrands (q=parentOrganization). Lookups return non-admin fields; brand discovery returns only brands the member administers.",
+        },
+        ...(
+          [
+            [
+              "social.batch.read",
+              "r",
+              "Native getSocialMetadataBatch (socialMetadata?ids=List), getSocialActionsBatch (socialActions?ids=List) and getComments (comments?ids=List) read up to 100 posts or comments per request.",
+            ],
+            [
+              "reactions.get",
+              "r",
+              "Native getReaction reads one reaction by (actor, entity) and returns undefined on 404; getReactions batch gets up to 100 keys.",
+            ],
+          ] as const
+        ).map(([operation, access, notes]) => ({
+          platform: "linkedin" as const,
+          operation,
+          availability: "available" as const,
+          requiredScopes: [
+            `${access}_${options.auth.author.startsWith("urn:li:organization:") ? "organization" : "member"}_social_feed`,
+          ],
+          notes: `${notes} LinkedIn restricts member r_member_social_feed to select developers.`,
+        })),
+        {
+          platform: "linkedin",
+          operation: "media.read.batch",
+          availability: "available" as const,
+          formats: ["image" as const, "video" as const, "document" as const],
+          notes:
+            "Native mediaStatuses reads up to 100 of the author's images, videos and documents with one images?ids=List, videos?ids=List or documents?ids=List request per type. Scopes match media.read.",
+        },
+        ...(
+          [
+            [
+              "events.write",
+              "rw_events",
+              "Native createEvent (POST /rest/events), updateEvent (partial update while upcoming), uploadEventBackgroundImage (assets registerUpload) and createEventPost (content.reference). Delete an event by deleting its ugcPost with deletePost.",
+            ],
+            [
+              "events.read",
+              "r_events",
+              "Native getEvent and listEvents (q=eventsByOrganizer with excludeCancelled, timeBasedFilter, entryCriteria and sortOrder). Events are readable only after they are posted.",
+            ],
+          ] as const
+        ).map(([operation, scope, notes]) => ({
+          platform: "linkedin" as const,
+          operation,
+          availability: "approval-dependent" as const,
+          requiredScopes: [scope],
+          notes: `${notes} LinkedIn grants the Events API separately from the Marketing API program; organization organizers need an ADMINISTRATOR or CONTENT_ADMINISTRATOR role.`,
+        })),
+        {
+          platform: "linkedin",
+          operation: "analytics.video.read",
+          availability: options.auth.author.startsWith("urn:li:organization:")
+            ? ("available" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["r_organization_social"],
+          notes:
+            "Native getOrganizationVideoAnalytics reads videoAnalytics (VIDEO_VIEW, VIEWER, TIME_WATCHED, TIME_WATCHED_FOR_VIDEO_VIEWS) for one ugcPost video with DAY, WEEK or ALL aggregation and an optional timeRange. Member accounts use getMemberVideoAnalytics.",
+        },
+        {
+          platform: "linkedin",
+          operation: "organizations.authorizations.read",
+          availability: "available" as const,
+          requiredScopes: ["rw_organization_admin"],
+          notes:
+            "Native getOrganizationAuthorization, getOrganizationAuthorizations (BATCH_GET) and findOrganizationAuthorizations (bq=authorizationActionsAndImpersonator) ask LinkedIn whether a member may take an action, such as ORGANIC_SHARE_CREATE or UPDATE_ANALYTICS_READ, for an organization.",
+        },
+        {
+          platform: "linkedin",
+          operation: "profile.read",
+          availability: "approval-dependent" as const,
+          requiredScopes: ["r_liteprofile"],
+          notes:
+            "Native getProfile (GET /v2/me, member authors only) and getPeople (GET /v2/people/(id:...) or /v2/people?ids=List(...), up to 50) with optional projections. LinkedIn restricts the Profile API to approved developers; r_basicprofile adds headline and vanityName. Store other members' profile data only as LinkedIn's terms allow.",
+        },
+        {
+          platform: "linkedin",
+          operation: "mentions.resolve",
+          availability: options.auth.author.startsWith("urn:li:organization:")
+            ? ("approval-dependent" as const)
+            : ("account-ineligible" as const),
+          requiredScopes: ["r_organization_followers"],
+          notes:
+            "Native resolveMemberVanityUrl maps a follower's profile URL to a person URN with vanityUrl q=vanityUrlAsOrganization. LinkedIn restricts the People Typeahead endpoints to select developers; keyword search (peopleTypeahead) is not implemented.",
         },
         ...["analytics.followers.read", "analytics.page.read", "analytics.shares.read"].map(
           (operation) => ({
@@ -1754,16 +4256,7 @@ export function linkedin(
             fail("linkedin.article_media", "LinkedIn article posts cannot include media.");
         }
 
-        const settings = optionsObject(target);
-
-        if (
-          Object.keys(settings).some((key) => key !== "visibility") ||
-          (settings["visibility"] !== undefined && settings["visibility"] !== "public")
-        )
-          fail(
-            "linkedin.options",
-            "This slice supports public visibility only; other native options require explicit implementation.",
-          );
+        for (const [code, message] of publishSettings(target).issues) fail(code, message);
 
         const media = target.content.media ?? [];
 
@@ -1908,11 +4401,27 @@ export function linkedin(
         const document = media.find((item) => item.kind === "document");
         let content: JsonObject | undefined;
 
+        const { settings, issues } = publishSettings(target);
+        const rendered = renderCommentary(target.content.text ?? "", settings.annotations);
+
+        if (issues[0] !== undefined || rendered.kind === "error")
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.publish",
+            message: issues[0]?.[1] ?? (rendered.kind === "error" ? rendered.message : ""),
+          });
+
+        if (settings.articleThumbnail !== undefined) {
+          authorize(settings.articleThumbnail, context);
+          await assertImageUsable(settings.articleThumbnail.mediaId, target.account, context);
+        }
+
         if (target.content.link !== undefined)
           content = {
             article: {
               source: target.content.link.url,
               ...definedFields({
+                thumbnail: settings.articleThumbnail?.mediaId,
                 title: target.content.link.title?.trim(),
                 description: target.content.link.description?.trim(),
               }),
@@ -1928,15 +4437,15 @@ export function linkedin(
             context,
             {
               author: target.account.accountId,
-              commentary: escapeCommentary(target.content.text ?? ""),
-              visibility: "PUBLIC",
+              commentary: rendered.commentary,
+              visibility: settings.visibility,
               distribution: {
                 feedDistribution: "MAIN_FEED",
-                targetEntities: [],
+                targetEntities: [...settings.targetEntities],
                 thirdPartyDistributionChannels: [],
               },
               lifecycleState: "PUBLISHED",
-              isReshareDisabledByAuthor: false,
+              isReshareDisabledByAuthor: settings.disableReshare,
               ...definedFields({ content }),
             },
             ["x-restli-id"],
@@ -1974,15 +4483,7 @@ export function linkedin(
         };
       },
       async get(ref: PlatformPostRef, context: AdapterOperationContext) {
-        return publicFields(await readPost(ref, context), [
-          "id",
-          "author",
-          "commentary",
-          "visibility",
-          "lifecycleState",
-          "createdAt",
-          "lastModifiedAt",
-        ]);
+        return postRecord(await readPost(ref, context));
       },
       async list(
         account: ConnectedAccountRef,
@@ -2025,17 +4526,7 @@ export function linkedin(
             message: "LinkedIn returned a post from another author.",
           });
 
-        const items = rows.map((row) =>
-          publicFields(row, [
-            "id",
-            "author",
-            "commentary",
-            "visibility",
-            "lifecycleState",
-            "createdAt",
-            "lastModifiedAt",
-          ]),
-        );
+        const items = rows.map(postRecord);
 
         const paging = result["paging"] === undefined ? {} : object(result["paging"]);
 
@@ -2120,32 +4611,7 @@ export function linkedin(
           throw error;
         }
 
-        const items = array(result["elements"]).map((value) => {
-          const row = object(value);
-
-          const nested: Record<string, JsonValue> = {};
-
-          // Keep authorship, timestamps, threading, and engagement records for normalization.
-          for (const field of [
-            "message",
-            "created",
-            "lastModified",
-            "parentComment",
-            "content",
-            "likesSummary",
-            "commentsSummary",
-          ]) {
-            const entry = row[field];
-
-            if (entry !== undefined) nested[field] = entry;
-          }
-
-          return normalizeComment({
-            ...publicFields(row, ["id", "actor", "commentUrn", "object", "agent"]),
-            ...nested,
-            text: string(object(row["message"])["text"]),
-          });
-        });
+        const items = array(result["elements"]).map(commentRecord);
 
         const paging = result["paging"] === undefined ? {} : object(result["paging"]);
 
@@ -2250,63 +4716,7 @@ export function linkedin(
               "LinkedIn notifications are available for organization accounts only, not member accounts.",
           });
 
-        const start = input.cursor === undefined ? 0 : Number(input.cursor);
-        const count = input.limit ?? 25;
-
-        if (
-          !Number.isSafeInteger(start) ||
-          start < 0 ||
-          input.cursor === "" ||
-          !Number.isSafeInteger(count) ||
-          count < 1 ||
-          count > 100
-        )
-          throw new SocialError({
-            code: "invalid_input",
-            operation: "notifications.read",
-            message: "LinkedIn requires a nonnegative offset and page size from 1 to 100.",
-          });
-
-        const actions =
-          "LIKE,COMMENT,SHARE,SHARE_MENTION,ADMIN_COMMENT,COMMENT_EDIT,COMMENT_DELETE";
-
-        const result = object(
-          await request(
-            `/rest/organizationalEntityNotifications?q=criteria&actions=List(${actions})&organizationalEntity=${encodeURIComponent(account.accountId)}&start=${start}&count=${count}`,
-            context,
-          ),
-        );
-
-        const rows = array(result["elements"]).map(object);
-
-        if (rows.some((row) => row["organizationalEntity"] !== account.accountId))
-          throw new SocialError({
-            code: "unauthorized",
-            operation: "notifications.read",
-            message: "LinkedIn returned a notification for another organization.",
-          });
-
-        const items = rows.map((row) =>
-          publicFields(row, [
-            "notificationId",
-            "organizationalEntity",
-            "action",
-            "sourcePost",
-            "generatedActivity",
-            "lastModifiedAt",
-          ]),
-        );
-
-        const paging = result["paging"] === undefined ? {} : object(result["paging"]);
-        const total = optionalNumber(paging["total"]);
-        const hasNext = array(paging["links"] ?? []).some((link) => object(link)["rel"] === "next");
-
-        return Object.assign(
-          { items },
-          items.length > 0 && (hasNext || (total !== undefined && start + items.length < total))
-            ? { nextCursor: String(start + items.length) }
-            : {},
-        );
+        return pullNotifications(account, input, context);
       },
       async markSeen(
         account: ConnectedAccountRef,
@@ -2328,13 +4738,23 @@ export function linkedin(
       ): Promise<readonly MetricValue[]> {
         authorize(account, context);
 
-        if (!options.auth.author.startsWith("urn:li:organization:"))
-          throw new SocialError({
-            code: "unsupported_capability",
-            operation: "analytics.account.read",
-            message:
-              "LinkedIn organization follower counts require an organization author and administrator access.",
-          });
+        if (options.auth.author.startsWith("urn:li:person:")) {
+          const lifetime = (await memberFollowerCounts(undefined, context))[0];
+
+          return lifetime === undefined
+            ? []
+            : normalizeMetrics([
+                {
+                  name: "followers",
+                  value: lifetime.count,
+                  unit: "count",
+                  period: "lifetime",
+                  fetchedAt: now(),
+                  freshness: "unknown",
+                  source: `linkedin:${options.apiVersion}:memberFollowersCount`,
+                },
+              ]);
+        }
 
         const response = object(
           await request(
@@ -2407,7 +4827,7 @@ export function linkedin(
       now,
     ),
     native: {
-      async listAdministeredOrganizations({ account, cursor, limit, context }) {
+      async listAdministeredOrganizations({ account, cursor, limit, role, state, context }) {
         authorize(account, context);
 
         if (!account.accountId.startsWith("urn:li:person:"))
@@ -2419,11 +4839,7 @@ export function linkedin(
           });
 
         return listAdministeredOrganizations(
-          Object.assign(
-            {},
-            cursor === undefined ? {} : { cursor },
-            limit === undefined ? {} : { limit },
-          ),
+          definedFields({ cursor, limit, role, state }),
           context,
         );
       },
@@ -2444,6 +4860,21 @@ export function linkedin(
         return publicFields(image, ["id", "owner", "status"]);
       },
       videoStatus: readVideoStatus,
+      async uploadVideo({ account, media, context, captions, templateName, linkbackContext }) {
+        if (media.kind !== "video")
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "media.upload",
+            message: "native uploadVideo takes a video attachment.",
+          });
+
+        return uploadVideo(
+          media,
+          account,
+          context,
+          definedFields({ captions, templateName, linkbackContext }),
+        );
+      },
       async waitForVideo(
         ref: MediaRef,
         context: AdapterOperationContext,
@@ -2493,6 +4924,77 @@ export function linkedin(
           "status",
         ]);
       },
+      async mediaStatuses({ account, media, context }) {
+        authorize(account, context);
+
+        const refs = [...new Map(media.map((ref) => [ref.mediaId, ref])).values()];
+
+        if (refs.length === 0 || refs.length > 100)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "media.read",
+            message: "Read the status of 1 to 100 uploaded media references.",
+          });
+
+        for (const ref of refs) authorize(ref, context);
+
+        const images = refs.filter((ref) => linkedInImageUrn.test(ref.mediaId));
+        const videos = refs.filter((ref) => linkedInVideoUrn.test(ref.mediaId));
+        const documents = refs.filter((ref) => linkedInDocumentUrn.test(ref.mediaId));
+
+        if (images.length + videos.length + documents.length !== refs.length)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "media.read",
+            message:
+              "Use urn:li:image, urn:li:video or urn:li:document references from media.upload.",
+          });
+
+        const list = (group: readonly MediaRef[]) =>
+          group.map((ref) => restliEncode(ref.mediaId)).join(",");
+
+        // Images, Videos and Documents API batch gets (li-lms-2026-10), one request per type.
+        const batches: (readonly [readonly MediaRef[], string])[] = [
+          [images, `/rest/images?ids=List(${list(images)})`],
+          [videos, `/rest/videos?ids=List(${list(videos)})`],
+          [documents, `/rest/documents?ids=List(${list(documents)})`],
+        ];
+
+        const found: LinkedInMediaStatus[] = [];
+        const errors: LinkedInBatchError[] = [];
+
+        for (const [group, path] of batches) {
+          if (group.length === 0) continue;
+
+          const batch = batchRows(
+            object(await request(path, context)),
+            group.map((ref) => ref.mediaId),
+          );
+
+          errors.push(...batch.errors);
+
+          for (const [mediaId, row] of batch.rows) {
+            if (row["owner"] !== account.accountId || (row["id"] ?? mediaId) !== mediaId)
+              throw new SocialError({
+                code: "unauthorized",
+                operation: "media.read",
+                message: "LinkedIn returned media that belongs to another author.",
+              });
+
+            found.push({
+              mediaId,
+              owner: account.accountId,
+              ...definedFields({
+                status: optionalString(row["status"]),
+                processingFailureReason: optionalString(row["processingFailureReason"]),
+                duration: optionalNumber(row["duration"]),
+              }),
+            });
+          }
+        }
+
+        return { media: found, errors };
+      },
       async registerVideo({ account, context }) {
         authorize(account, context);
 
@@ -2503,8 +5005,32 @@ export function linkedin(
             "registerVideo is deprecated. Upload the video with media.upload and check it with videoStatus.",
         });
       },
-      async createPoll({ account, text, options: pollOptions, duration = "THREE_DAYS", context }) {
+      async createPoll({
+        account,
+        text,
+        question = text,
+        options: pollOptions,
+        duration = "THREE_DAYS",
+        context,
+      }) {
         authorize(account, context);
+
+        // Poll API (li-lms-2026-10): question up to 140 characters, 2 to 4 options of up to 30.
+        if (
+          !question.trim() ||
+          question.length > 140 ||
+          text.length > 3000 ||
+          pollOptions.length < 2 ||
+          pollOptions.length > 4 ||
+          pollOptions.some((option) => !option.trim() || option.length > 30) ||
+          !["ONE_DAY", "THREE_DAYS", "SEVEN_DAYS", "FOURTEEN_DAYS"].includes(duration)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "polls.create",
+            message:
+              "A LinkedIn poll needs a question of 1 to 140 characters, 2 to 4 options of 1 to 30 characters, a documented duration, and commentary of at most 3,000 characters.",
+          });
 
         const result = object(
           await request(
@@ -2520,9 +5046,10 @@ export function linkedin(
                 thirdPartyDistributionChannels: [],
               },
               lifecycleState: "PUBLISHED",
+              isReshareDisabledByAuthor: false,
               content: {
                 poll: {
-                  question: text,
+                  question,
                   options: pollOptions.map((option) => ({ text: option })),
                   settings: { duration },
                 },
@@ -2539,13 +5066,29 @@ export function linkedin(
       async react({ account, postId, reaction, context }) {
         authorize(account, context);
 
+        // Reactions API (li-lms-2026-10): MAYBE is deprecated and returns 400 on create.
+        if (!isLinkedInReactionType(reaction))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "reactions.write",
+            message: `LinkedIn reactionType must be one of ${linkedInReactionTypes.join(", ")}.`,
+          });
+
         await request(`/rest/reactions?actor=${encodeURIComponent(account.accountId)}`, context, {
           root: postId,
           reactionType: reaction,
         });
       },
-      async reshare({ account, postId, context }) {
+      async reshare({ account, postId, text = "", context }) {
         authorize(account, context);
+
+        if (text.length > 3000 || !/^urn:li:(?:share|ugcPost):\d+$/.test(postId))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "reshares.write",
+            message:
+              "Reshare a urn:li:share or urn:li:ugcPost post with commentary of at most 3,000 characters.",
+          });
 
         const result = object(
           await request(
@@ -2553,7 +5096,7 @@ export function linkedin(
             context,
             {
               author: account.accountId,
-              commentary: "",
+              commentary: escapeCommentary(text),
               visibility: "PUBLIC",
               distribution: {
                 feedDistribution: "MAIN_FEED",
@@ -2561,6 +5104,7 @@ export function linkedin(
                 thirdPartyDistributionChannels: [],
               },
               lifecycleState: "PUBLISHED",
+              isReshareDisabledByAuthor: false,
               reshareContext: { parent: postId },
             },
             ["x-restli-id"],
@@ -2571,14 +5115,66 @@ export function linkedin(
 
         return id === undefined ? result : { ...result, id };
       },
-      async updatePost({ account, postId, body, context }) {
+      async updatePost({ account, postId, body, changes, context }) {
         authorize(account, context);
+
+        let patch: JsonObject;
+
+        if (changes !== undefined) {
+          const rendered =
+            changes.text === undefined
+              ? undefined
+              : renderCommentary(changes.text, changes.annotations ?? []);
+
+          const landingPage = changes.contentLandingPage;
+          let landingPageValid = landingPage === undefined;
+
+          try {
+            landingPageValid ||= new URL(landingPage ?? "").protocol === "https:";
+          } catch {
+            landingPageValid = false;
+          }
+
+          if (
+            rendered?.kind === "error" ||
+            (changes.text?.length ?? 0) > 3000 ||
+            (changes.annotations !== undefined && changes.text === undefined) ||
+            !landingPageValid ||
+            (changes.text === undefined &&
+              changes.contentCallToActionLabel === undefined &&
+              landingPage === undefined)
+          )
+            throw new SocialError({
+              code: "invalid_input",
+              operation: "posts.update",
+              message:
+                rendered?.kind === "error"
+                  ? rendered.message
+                  : "Provide text (at most 3,000 characters, with annotations only alongside text), a call-to-action label, or an HTTPS landing page.",
+            });
+
+          patch = {
+            $set: {
+              ...definedFields({
+                commentary: rendered?.commentary,
+                contentCallToActionLabel: changes.contentCallToActionLabel,
+                contentLandingPage: landingPage,
+              }),
+            },
+          };
+        } else if (body !== undefined) patch = { $set: body };
+        else
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.update",
+            message: "Provide typed changes or a raw body.",
+          });
 
         return object(
           await request(
             `/rest/posts/${encodeURIComponent(postId)}`,
             context,
-            { patch: { $set: body } },
+            { patch },
             ["x-restli-id"],
             "POST",
             { "X-RestLi-Method": "PARTIAL_UPDATE" },
@@ -2755,6 +5351,1520 @@ export function linkedin(
         );
 
         return optionalNumber(response["firstDegreeSize"]);
+      },
+      async listOrganizationRoles({ account, role, state, cursor, limit, context }) {
+        organizationOnly(account, context, "organizations.roles.read");
+
+        const { start, count } = offsetPage(
+          definedFields({ cursor, limit }),
+          "organizations.roles.read",
+        );
+
+        if (
+          (role !== undefined && !isOrganizationRole(role)) ||
+          (state !== undefined && !isRoleState(state))
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "organizations.roles.read",
+            message: "Use a documented organization role and role state.",
+          });
+
+        const filters = `${role === undefined ? "" : `&role=${role}`}${state === undefined ? "" : `&state=${state}`}`;
+
+        // Organization Access Control "Find Organization Access Control" (li-lms-2026-10).
+        const result = object(
+          await request(
+            `/rest/organizationAcls?q=organization&organization=${restliEncode(account.accountId)}${filters}&start=${start}&count=${count}`,
+            context,
+          ),
+        );
+
+        const rows = array(result["elements"]).map(object);
+        const items: LinkedInOrganizationRoleAssignment[] = [];
+
+        for (const row of rows) {
+          const organization =
+            optionalString(row["organization"]) ?? optionalString(row["organizationTarget"]);
+
+          const roleAssignee = optionalString(row["roleAssignee"]);
+          const rowRole = row["role"];
+          const rowState = row["state"];
+
+          if (organization !== account.accountId)
+            throw new SocialError({
+              code: "unauthorized",
+              operation: "organizations.roles.read",
+              message: "LinkedIn returned a role for another organization.",
+            });
+
+          if (roleAssignee === undefined || !isOrganizationRole(rowRole) || !isRoleState(rowState))
+            continue;
+          items.push({
+            organization: `urn:li:organization:${organization.slice(20)}`,
+            roleAssignee,
+            role: rowRole,
+            state: rowState,
+          });
+        }
+
+        return { items, ...definedFields({ nextCursor: nextOffset(result, start, rows.length) }) };
+      },
+      async lookupOrganizations({ account, organizations, context }) {
+        authorize(account, context);
+
+        const ids = [...new Set(organizations)].map((urn) =>
+          /^urn:li:organization:[1-9][0-9]*$/.test(urn) ? urn.slice(20) : "",
+        );
+
+        if (ids.length === 0 || ids.length > 100 || ids.includes(""))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "organizations.read",
+            message: "Look up 1 to 100 numeric urn:li:organization URNs.",
+          });
+
+        // Organization Lookup "Batch Get Non-Administered Organizations" (li-lms-2026-10).
+        const result = object(
+          await request(`/rest/organizationsLookup?ids=List(${ids.join(",")})`, context),
+        );
+
+        const results = optionalObject(result["results"]) ?? {};
+        const statuses = optionalObject(result["statuses"]) ?? {};
+        const found: LinkedInOrganizationSummary[] = [];
+        const errors: { organization: string; status?: number }[] = [];
+
+        for (const id of ids) {
+          const summary = decodeOrganizationSummary(results[id]);
+
+          if (summary[0] !== undefined && summary[0].organization === `urn:li:organization:${id}`)
+            found.push(summary[0]);
+          else
+            errors.push({
+              organization: `urn:li:organization:${id}`,
+              ...definedFields({ status: optionalNumber(statuses[id]) }),
+            });
+        }
+
+        return { organizations: found, errors };
+      },
+      async findOrganizationByVanityName({ account, vanityName, context }) {
+        authorize(account, context);
+
+        if (!vanityName.trim() || vanityName.length > 100)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "organizations.read",
+            message: "Provide a vanity name of 1 to 100 characters.",
+          });
+
+        const result = object(
+          await request(
+            `/rest/organizations?q=vanityName&vanityName=${encodeURIComponent(vanityName.trim())}`,
+            context,
+          ),
+        );
+
+        return array(result["elements"]).flatMap(decodeOrganizationSummary);
+      },
+      async listOrganizationBrands({ account, parent, cursor, limit, context }) {
+        authorize(account, context);
+
+        const { start, count } = offsetPage(definedFields({ cursor, limit }), "organizations.read");
+
+        if (!/^urn:li:organization:[1-9][0-9]*$/.test(parent))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "organizations.read",
+            message: "Provide the parent organization as a numeric urn:li:organization URN.",
+          });
+
+        // Organization Lookup "Find Administered Organization by Parent Organization".
+        const result = object(
+          await request(
+            `/rest/organizations?q=parentOrganization&parent=${restliEncode(parent)}&start=${start}&count=${count}`,
+            context,
+          ),
+        );
+
+        const rows = array(result["elements"]);
+        const items = rows.flatMap(decodeOrganizationSummary);
+
+        return { items, ...definedFields({ nextCursor: nextOffset(result, start, rows.length) }) };
+      },
+      async getOrganizationPostStatistics({ account, postIds, context }) {
+        organizationOnly(account, context, "analytics.shares.posts.read");
+
+        const ids = [...new Set(postIds)];
+
+        if (ids.length === 0 || ids.length > 100 || !ids.every((id) => linkedInPostUrn.test(id)))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "analytics.shares.posts.read",
+            message: "Request statistics for 1 to 100 urn:li:share or urn:li:ugcPost posts.",
+          });
+
+        const shares = ids.filter((id) => id.startsWith("urn:li:share:"));
+        const ugcPosts = ids.filter((id) => id.startsWith("urn:li:ugcPost:"));
+        // Share statistics for specific posts are lifetime only; timeIntervals is not supported.
+        const filters = `${shares.length === 0 ? "" : `&shares=List(${shares.map(restliEncode).join(",")})`}${ugcPosts.length === 0 ? "" : `&ugcPosts=List(${ugcPosts.map(restliEncode).join(",")})`}`;
+
+        const result = object(
+          await request(
+            `${statisticsPath("/rest/organizationalEntityShareStatistics", "organizationalEntity", account)}${filters}`,
+            context,
+          ),
+        );
+
+        return array(result["elements"]).flatMap((value) => {
+          const row = object(value);
+          const post = optionalString(row["share"]) ?? optionalString(row["ugcPost"]);
+
+          if (row["organizationalEntity"] !== account.accountId)
+            throw new SocialError({
+              code: "unauthorized",
+              operation: "analytics.shares.posts.read",
+              message: "LinkedIn returned statistics for another organization.",
+            });
+
+          return post === undefined
+            ? []
+            : [{ post, metrics: numberMap(row["totalShareStatistics"]) }];
+        });
+      },
+      async getBrandPageStatistics({ account, interval, context }) {
+        organizationOnly(account, context, "analytics.brand.read");
+
+        // brandPageStatistics takes urn:li:organizationBrand:{id}; brand URNs map to organizations.
+        const brand = `urn:li:organizationBrand:${account.accountId.slice(20)}`;
+
+        return parsePageStatistics(
+          object(
+            await request(
+              statisticsPath("/rest/brandPageStatistics", "brand", account, interval, brand),
+              context,
+            ),
+          ),
+          interval?.granularity,
+          "brand",
+        );
+      },
+      async getMemberPostAnalytics({
+        account,
+        postId,
+        metric,
+        aggregation = "TOTAL",
+        dateRange,
+        context,
+      }) {
+        memberOnly(account, context, "analytics.member.posts.read");
+
+        const newer = [
+          "POST_SAVE",
+          "POST_SEND",
+          "LINK_CLICKS",
+          "PREMIUM_CTA_CLICKS",
+          "FOLLOWER_GAINED_FROM_CONTENT",
+          "PROFILE_VIEW_FROM_CONTENT",
+        ];
+
+        const noDaily = [
+          "MEMBERS_REACHED",
+          "LINK_CLICKS",
+          "FOLLOWER_GAINED_FROM_CONTENT",
+          "PROFILE_VIEW_FROM_CONTENT",
+        ];
+
+        if (
+          !["IMPRESSION", "MEMBERS_REACHED", "RESHARE", "REACTION", "COMMENT", ...newer].includes(
+            metric,
+          ) ||
+          (aggregation !== "TOTAL" && aggregation !== "DAILY") ||
+          (aggregation === "DAILY" && noDaily.includes(metric)) ||
+          (newer.includes(metric) && options.apiVersion < "202604")
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "analytics.member.posts.read",
+            message:
+              "Use a documented member post metric (newer metrics need version 202604 or later) with TOTAL or DAILY aggregation; DAILY is not supported for MEMBERS_REACHED, LINK_CLICKS, FOLLOWER_GAINED_FROM_CONTENT or PROFILE_VIEW_FROM_CONTENT.",
+          });
+
+        const finder =
+          postId === undefined
+            ? "q=me"
+            : `q=entity&entity=${memberAnalyticsEntity(postId, "analytics.member.posts.read")}`;
+
+        const range =
+          dateRange === undefined
+            ? ""
+            : `&dateRange=${dateRangeParam(dateRange, "analytics.member.posts.read")}`;
+
+        return memberAnalyticsPoints(
+          object(
+            await request(
+              `/rest/memberCreatorPostAnalytics?${finder}&queryType=${metric}&aggregation=${aggregation}${range}`,
+              context,
+            ),
+          ),
+        );
+      },
+      async getMemberVideoAnalytics({
+        account,
+        postId,
+        metric,
+        aggregation = "TOTAL",
+        dateRange,
+        context,
+      }) {
+        memberOnly(account, context, "analytics.member.posts.read");
+
+        // VIDEO_VIEWER and VIDEO_WATCH_TIME support neither daily aggregation nor time bounds.
+        if (
+          !["VIDEO_PLAY", "VIDEO_VIEWER", "VIDEO_WATCH_TIME"].includes(metric) ||
+          (aggregation !== "TOTAL" && aggregation !== "DAILY") ||
+          (metric !== "VIDEO_PLAY" && (aggregation === "DAILY" || dateRange !== undefined))
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "analytics.member.posts.read",
+            message:
+              "Use VIDEO_PLAY, VIDEO_VIEWER or VIDEO_WATCH_TIME; only VIDEO_PLAY supports DAILY aggregation or a dateRange.",
+          });
+
+        const range =
+          dateRange === undefined
+            ? ""
+            : `&dateRange=${dateRangeParam(dateRange, "analytics.member.posts.read")}`;
+
+        return memberAnalyticsPoints(
+          object(
+            await request(
+              `/rest/memberCreatorVideoAnalytics?q=entity&entity=${memberAnalyticsEntity(postId, "analytics.member.posts.read")}&queryType=${metric}&aggregation=${aggregation}${range}`,
+              context,
+            ),
+          ),
+        );
+      },
+      async getMemberFollowerCount({ account, dateRange, context }) {
+        memberOnly(account, context, "analytics.member.followers.read");
+
+        return memberFollowerCounts(dateRange, context);
+      },
+      async getPost({ account, postId, viewContext = "READER", context }) {
+        authorize(account, context);
+
+        if (!linkedInPostUrn.test(postId) || (viewContext !== "READER" && viewContext !== "AUTHOR"))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.read",
+            message:
+              "Read a urn:li:share or urn:li:ugcPost post with viewContext READER or AUTHOR.",
+          });
+
+        const post = decodePost(
+          object(
+            await request(
+              `/rest/posts/${encodeURIComponent(postId)}?viewContext=${viewContext}`,
+              context,
+            ),
+          ),
+        );
+
+        if (post.author !== account.accountId || post.id !== postId)
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "posts.read",
+            message: "LinkedIn returned a post from another author or a different post.",
+          });
+
+        return post;
+      },
+      async getPosts({ account, postIds, viewContext = "READER", context }) {
+        authorize(account, context);
+
+        const ids = [...new Set(postIds)];
+
+        if (
+          ids.length === 0 ||
+          ids.length > 100 ||
+          !ids.every((id) => linkedInPostUrn.test(id)) ||
+          (viewContext !== "READER" && viewContext !== "AUTHOR")
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "posts.read",
+            message:
+              "Batch get 1 to 100 urn:li:share or urn:li:ugcPost posts with viewContext READER or AUTHOR.",
+          });
+
+        // Posts API BATCH_GET (li-lms-2026-10): ids=List(...) with X-RestLi-Method BATCH_GET.
+        const result = object(
+          await request(
+            `/rest/posts?ids=List(${ids.map(restliEncode).join(",")})&viewContext=${viewContext}`,
+            context,
+            undefined,
+            undefined,
+            "GET",
+            { "X-RestLi-Method": "BATCH_GET" },
+          ),
+        );
+
+        const results = optionalObject(result["results"]) ?? {};
+        const statuses = optionalObject(result["statuses"]) ?? {};
+        const failures = optionalObject(result["errors"]) ?? {};
+        const posts: LinkedInPost[] = [];
+        const errors: { postId: string; status?: number }[] = [];
+
+        for (const id of ids) {
+          const row = optionalObject(results[id]);
+
+          if (row === undefined) {
+            const status =
+              optionalNumber(statuses[id]) ??
+              optionalNumber(optionalObject(failures[id])?.["status"]);
+
+            errors.push({ postId: id, ...definedFields({ status }) });
+            continue;
+          }
+
+          const post = decodePost(row);
+
+          if (post.author !== account.accountId)
+            throw new SocialError({
+              code: "unauthorized",
+              operation: "posts.read",
+              message: "LinkedIn returned a post from another author.",
+            });
+          posts.push(post);
+        }
+
+        return { posts, errors };
+      },
+      async getSocialMetadata({ account, entity, context }) {
+        authorize(account, context);
+
+        if (!linkedInPostUrn.test(entity) && !linkedInCommentUrn.test(entity))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "social-metadata.read",
+            message: "Read social metadata for a share, ugcPost or comment URN.",
+          });
+
+        // Social Metadata API (li-lms-2026-10): reactionSummaries keyed by type, commentSummary.
+        return decodeSocialMetadata(
+          object(await request(`/rest/socialMetadata/${restliEncode(entity)}`, context)),
+        );
+      },
+      async getSocialMetadataBatch({ account, entities, context }) {
+        authorize(account, context);
+
+        const ids = socialBatchIds(entities, "social-metadata.read");
+
+        // Social Metadata API "Batch Get a Summary of Social Metadata" (li-lms-2026-10).
+        const result = object(
+          await request(
+            `/rest/socialMetadata?ids=List(${ids.map(restliEncode).join(",")})`,
+            context,
+          ),
+        );
+
+        const { rows, errors } = batchRows(result, ids);
+        const results: Record<string, LinkedInSocialMetadata> = {};
+
+        for (const [id, row] of rows) results[id] = decodeSocialMetadata(row);
+
+        return { results, errors };
+      },
+      async getSocialActionsBatch({ account, entities, context }) {
+        authorize(account, context);
+
+        const ids = socialBatchIds(entities, "social-metadata.read");
+
+        // Social Actions API "Batch_GET Summary of Social Actions" (li-lms-2026-10).
+        const result = object(
+          await request(
+            `/rest/socialActions?ids=List(${ids.map(restliEncode).join(",")})`,
+            context,
+          ),
+        );
+
+        const { rows, errors } = batchRows(result, ids);
+        const results: Record<string, LinkedInSocialActionsSummary> = {};
+
+        for (const [id, row] of rows) {
+          const likes = optionalObject(row["likesSummary"]);
+          const comments = optionalObject(row["commentsSummary"]);
+
+          results[id] = definedFields({
+            target: optionalString(row["target"]),
+            likes:
+              likes === undefined
+                ? undefined
+                : definedFields({
+                    total: optionalNumber(likes["totalLikes"]),
+                    aggregatedTotal: optionalNumber(likes["aggregatedTotalLikes"]),
+                    likedByCurrentUser: optionalBoolean(likes["likedByCurrentUser"]),
+                  }),
+            comments:
+              comments === undefined
+                ? undefined
+                : definedFields({
+                    firstLevel: optionalNumber(comments["totalFirstLevelComments"]),
+                    aggregatedTotal: optionalNumber(comments["aggregatedTotalComments"]),
+                    state: optionalString(comments["commentsState"]),
+                  }),
+          });
+        }
+
+        return { results, errors };
+      },
+      async getComments({ account, target, commentIds, context }) {
+        authorize(account, context);
+
+        const urns = [...new Set(commentIds)];
+
+        const numeric = urns.map((urn) => linkedInCommentUrn.exec(urn)?.[2] ?? "");
+
+        if (
+          (!linkedInPostUrn.test(target) && !linkedInCommentUrn.test(target)) ||
+          urns.length === 0 ||
+          urns.length > 100 ||
+          numeric.includes("")
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.read",
+            message:
+              "Batch read 1 to 100 complete commentUrns on a share, ugcPost or comment target.",
+          });
+
+        // Comments API "Batch Get Comments" (li-lms-2026-10): results are keyed by comment ID.
+        const result = object(
+          await request(
+            `/rest/socialActions/${restliEncode(target)}/comments?ids=List(${numeric.join(",")})`,
+            context,
+          ),
+        );
+
+        const idOf = new Map(urns.map((urn, index) => [urn, numeric[index] ?? ""]));
+        const { rows, errors } = batchRows(result, urns, (urn) => idOf.get(urn) ?? urn);
+
+        const comments = rows.map(([urn, row]) => {
+          if (row["commentUrn"] !== urn)
+            throw new SocialError({
+              code: "upstream_failure",
+              operation: "comments.read",
+              message: "LinkedIn returned a different comment than the requested commentUrn.",
+            });
+
+          return commentRecord(row);
+        });
+
+        return { comments, errors };
+      },
+      async getReaction({ account, entity, actor = options.auth.author, context }) {
+        authorize(account, context);
+
+        if (!isReactionKey({ actor, entity }))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "reactions.read",
+            message:
+              "Read a reaction by a person or organization actor on a share, ugcPost or comment URN.",
+          });
+
+        // Reactions API "Get a Reaction" (li-lms-2026-10).
+        try {
+          return decodeReaction(
+            object(await request(`/rest/reactions/${reactionKey({ actor, entity })}`, context)),
+          );
+        } catch (error) {
+          if (error instanceof SocialError && error.code === "not_found") return undefined;
+
+          throw error;
+        }
+      },
+      async getReactions({ account, keys, context }) {
+        authorize(account, context);
+
+        const unique = [...new Map(keys.map((key) => [reactionKey(key), key])).values()];
+
+        if (unique.length === 0 || unique.length > 100 || !unique.every(isReactionKey))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "reactions.read",
+            message:
+              "Batch read 1 to 100 reactions keyed by a person or organization actor and a share, ugcPost or comment URN.",
+          });
+
+        // Reactions API "Batch Get a Collection of Reactions" (li-lms-2026-10).
+        const result = object(
+          await request(`/rest/reactions?ids=List(${unique.map(reactionKey).join(",")})`, context),
+        );
+
+        const byKey = new Map(unique.map((key) => [reactionKey(key), key]));
+        const { rows, errors } = batchRows(result, [...byKey.keys()]);
+
+        return {
+          reactions: rows.flatMap(([id, row]) => {
+            const key = byKey.get(id);
+
+            return key === undefined ? [] : [{ ...key, reaction: decodeReaction(row) }];
+          }),
+          errors: errors.flatMap((error) => {
+            const key = byKey.get(error.id);
+
+            return key === undefined
+              ? []
+              : [{ ...key, ...definedFields({ status: error.status }) }];
+          }),
+        };
+      },
+      async resolveMemberVanityUrl({ account, vanityUrl, context }) {
+        organizationOnly(account, context, "mentions.resolve");
+
+        if (!/^https:\/\/www\.linkedin\.com\/in\/[^/?#\s]{1,100}\/?$/.test(vanityUrl))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "mentions.resolve",
+            message:
+              "Provide a member profile URL of the form https://www.linkedin.com/in/{vanityName}.",
+          });
+
+        /*
+         * People Typeahead API "Search by Vanity URL for Organization Page" (li-lms-2026-10,
+         * accessed 2026-11-04): an exact match that returns { member } elements.
+         * https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-atmention-search-api?view=li-lms-2026-10
+         */
+        const result = object(
+          await request(
+            `/rest/vanityUrl?q=vanityUrlAsOrganization&vanityUrl=${encodeURIComponent(vanityUrl)}&organization=${encodeURIComponent(account.accountId)}`,
+            context,
+          ),
+        );
+
+        const member = optionalString(optionalObject(array(result["elements"])[0])?.["member"]);
+
+        if (member === undefined) return undefined;
+
+        if (!/^urn:li:person:[a-zA-Z0-9_-]+$/.test(member))
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "mentions.resolve",
+            message: "LinkedIn returned a vanity URL match that is not a person URN.",
+          });
+
+        return `urn:li:person:${member.slice("urn:li:person:".length)}`;
+      },
+      async getProfile({ account, projection, context }) {
+        authorize(account, context);
+
+        if (!account.accountId.startsWith("urn:li:person:"))
+          throw new SocialError({
+            code: "unsupported_capability",
+            operation: "profile.read",
+            message: "GET /v2/me returns the token's member; use it with a member author.",
+          });
+
+        const query = projectionQuery(projection, "profile.read");
+
+        // Profile API "Retrieve Current Member's Profile" (accessed 2026-11-04).
+        const profile = decodeProfile(
+          object(await request(`/v2/me${query === "" ? "" : `?${query}`}`, context)),
+        );
+
+        if (profile.personUrn !== account.accountId)
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "profile.read",
+            message: "The authenticated LinkedIn member differs from the configured author URN.",
+          });
+
+        return profile;
+      },
+      async getPeople({ account, people, projection, context }) {
+        authorize(account, context);
+
+        const urns = [...new Set(people)];
+        const ids = urns.map((urn) => /^urn:li:person:([a-zA-Z0-9_-]+)$/.exec(urn)?.[1] ?? "");
+
+        if (urns.length === 0 || urns.length > 50 || ids.includes(""))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "profile.read",
+            message: "Read 1 to 50 urn:li:person profiles.",
+          });
+
+        const query = projectionQuery(projection, "profile.read");
+        const restli = { "X-Restli-Protocol-Version": "2.0.0" };
+
+        // Profile API "Retrieve Other Member's Profile" (accessed 2026-11-04).
+        if (urns.length === 1) {
+          const single = `/v2/people/(id:${ids[0] ?? ""})${query === "" ? "" : `?${query}`}`;
+
+          try {
+            const profile = decodeProfile(
+              object(await request(single, context, undefined, undefined, "GET", restli)),
+            );
+
+            if (profile.personUrn !== urns[0])
+              throw new SocialError({
+                code: "upstream_failure",
+                operation: "profile.read",
+                message: "LinkedIn returned a different member than the requested person URN.",
+              });
+
+            return { profiles: [profile], errors: [] };
+          } catch (error) {
+            if (error instanceof SocialError && error.code === "not_found")
+              return { profiles: [], errors: [{ id: urns[0] ?? "", status: 404 }] };
+
+            throw error;
+          }
+        }
+
+        const result = object(
+          await request(
+            `/v2/people?ids=List(${ids.map((id) => `(id:${id})`).join(",")})${query === "" ? "" : `&${query}`}`,
+            context,
+            undefined,
+            undefined,
+            "GET",
+            restli,
+          ),
+        );
+
+        // LinkedIn shows no batch response sample; accept keys as (id:{id}) or the bare ID.
+        const keyed = [
+          optionalObject(result["results"]),
+          optionalObject(result["statuses"]),
+          optionalObject(result["errors"]),
+        ];
+
+        const { rows, errors } = batchRows(result, urns, (urn) => {
+          const compound = `(id:${urn.slice("urn:li:person:".length)})`;
+
+          return keyed.some((map) => map?.[compound] !== undefined)
+            ? compound
+            : urn.slice("urn:li:person:".length);
+        });
+
+        const profiles = rows.map(([urn, row]) => {
+          const profile = decodeProfile(row);
+
+          if (profile.personUrn !== urn)
+            throw new SocialError({
+              code: "upstream_failure",
+              operation: "profile.read",
+              message: "LinkedIn returned a different member than the requested person URN.",
+            });
+
+          return profile;
+        });
+
+        return { profiles, errors };
+      },
+      async getOrganizationAuthorization({ account, key, context }) {
+        authorize(account, context);
+
+        if (!isAuthorizationKey(key))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "organizations.authorizations.read",
+            message:
+              "Provide a person impersonator, a numeric organization URN and a documented authorization action.",
+          });
+
+        // Organization Authorizations "Get Organization Authorization Information".
+        return decodeAuthorization(
+          await request(`/rest/organizationAuthorizations/${authorizationKey(key)}`, context),
+        );
+      },
+      async getOrganizationAuthorizations({ account, keys, context }) {
+        authorize(account, context);
+
+        const unique = [...new Map(keys.map((key) => [authorizationKey(key), key])).values()];
+
+        if (unique.length === 0 || unique.length > 100 || !unique.every(isAuthorizationKey))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "organizations.authorizations.read",
+            message:
+              "Batch check 1 to 100 keys of a person impersonator, a numeric organization URN and a documented action.",
+          });
+
+        const result = object(
+          await request(
+            `/rest/organizationAuthorizations?ids=List(${unique.map(authorizationKey).join(",")})`,
+            context,
+          ),
+        );
+
+        // LinkedIn reorders the fields of result keys, so match on the decoded record instead.
+        const authorizations = Object.values(optionalObject(result["results"]) ?? {}).map(
+          decodeAuthorization,
+        );
+
+        const missing = unique.filter(
+          (key) =>
+            !authorizations.some(
+              (entry) =>
+                entry.impersonator === key.impersonator &&
+                entry.organization === key.organization &&
+                entry.actionType === key.action.actionType,
+            ),
+        );
+
+        return { authorizations, missing };
+      },
+      async findOrganizationAuthorizations({ account, actions, context }) {
+        authorize(account, context);
+
+        if (actions.length === 0 || actions.length > 20 || !actions.every(isAuthorizationAction))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "organizations.authorizations.read",
+            message: "Find authorizations for 1 to 20 documented actions.",
+          });
+
+        // Organization Authorizations batch finder authorizationActionsAndImpersonator.
+        const result = object(
+          await request(
+            `/rest/organizationAuthorizations?bq=authorizationActionsAndImpersonator&authorizationActions=List(${actions.map((action) => `(authorizationAction:${authorizationAction(action)})`).join(",")})`,
+            context,
+          ),
+        );
+
+        const groups = array(result["elements"]);
+
+        if (groups.length !== actions.length)
+          throw new SocialError({
+            code: "upstream_failure",
+            operation: "organizations.authorizations.read",
+            message: "LinkedIn returned a different number of result lists than requested actions.",
+          });
+
+        return groups.map((group) =>
+          (optionalArray(object(group)["elements"]) ?? []).map(decodeAuthorization),
+        );
+      },
+      async getOrganizationVideoAnalytics({
+        account,
+        postId,
+        metric,
+        aggregation = "ALL",
+        timeRange,
+        cursor,
+        limit,
+        context,
+      }) {
+        organizationOnly(account, context, "analytics.video.read");
+
+        const { start, count } = offsetPage(
+          definedFields({ cursor, limit }),
+          "analytics.video.read",
+        );
+
+        const bound = (value: number | undefined) =>
+          value === undefined || (Number.isSafeInteger(value) && value >= 0);
+
+        if (
+          !/^urn:li:ugcPost:\d+$/.test(postId) ||
+          !["VIDEO_VIEW", "VIEWER", "TIME_WATCHED", "TIME_WATCHED_FOR_VIDEO_VIEWS"].includes(
+            metric,
+          ) ||
+          !["DAY", "WEEK", "ALL"].includes(aggregation) ||
+          !bound(timeRange?.start) ||
+          !bound(timeRange?.end) ||
+          (timeRange?.start !== undefined &&
+            timeRange.end !== undefined &&
+            timeRange.start >= timeRange.end)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "analytics.video.read",
+            message:
+              "Read video analytics for a urn:li:ugcPost post with a documented metric, DAY, WEEK or ALL aggregation, and an epoch-millisecond timeRange whose start is before its end.",
+          });
+
+        const range =
+          timeRange === undefined
+            ? ""
+            : `&timeRange=(${[
+                ...(timeRange.start === undefined ? [] : [`start:${timeRange.start}`]),
+                ...(timeRange.end === undefined ? [] : [`end:${timeRange.end}`]),
+              ].join(",")})`;
+
+        // Video Analytics API (li-lms-2026-10, accessed 2026-11-04).
+        const result = object(
+          await request(
+            `/rest/videoAnalytics?q=entity&entity=${restliEncode(postId)}&type=${metric}${range}&aggregation=${aggregation}&start=${start}&count=${count}`,
+            context,
+          ),
+        );
+
+        const items = array(result["elements"]).map((value): LinkedInVideoAnalyticsPoint => {
+          const row = object(value);
+          const returned = optionalObject(row["timeRange"]);
+          const amount = optionalNumber(row["value"]);
+
+          if (amount === undefined)
+            throw new SocialError({
+              code: "upstream_failure",
+              operation: "analytics.video.read",
+              message: "LinkedIn returned a video analytics element without a value.",
+            });
+
+          return {
+            metric: optionalString(row["statisticsType"]) ?? optionalString(row["type"]) ?? metric,
+            value: amount,
+            ...definedFields({
+              timeRange:
+                returned === undefined
+                  ? undefined
+                  : definedFields({
+                      start: optionalNumber(returned["start"]),
+                      end: optionalNumber(returned["end"]),
+                    }),
+            }),
+          };
+        });
+
+        return { items, ...definedFields({ nextCursor: nextOffset(result, start, items.length) }) };
+      },
+      async createEvent({
+        account,
+        name,
+        description,
+        type,
+        startsAt,
+        vanityName,
+        backgroundImage,
+        discoveryMode,
+        leadGenForm,
+        locale,
+        context,
+      }) {
+        authorize(account, context);
+
+        const key = eventLocale(locale);
+
+        if (
+          !name.trim() ||
+          !eventInstant(startsAt) ||
+          !eventInstant(type.endsAt) ||
+          type.endsAt <= startsAt ||
+          (description !== undefined && !description.trim()) ||
+          (vanityName !== undefined && !/^[a-zA-Z0-9-]{1,100}$/.test(vanityName)) ||
+          (backgroundImage !== undefined &&
+            !/^urn:li:digitalmediaAsset:[a-zA-Z0-9_-]+$/.test(backgroundImage)) ||
+          (discoveryMode !== undefined && !["LISTED", "URL_ONLY"].includes(discoveryMode)) ||
+          (leadGenForm !== undefined &&
+            ("privacyPolicyUrl" in leadGenForm
+              ? !eventHttpsUrl(leadGenForm.privacyPolicyUrl)
+              : !leadGenForm.leadGenForm.startsWith("urn:li:versionedLeadGenForm:")))
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.write",
+            message:
+              "An event needs a name, positive epoch-millisecond startsAt before endsAt, and valid optional vanityName, digitalmediaAsset background image, discoveryMode and lead form.",
+          });
+
+        /*
+         * Events API "Create an Event" (li-lms-2026-10, accessed 2026-11-04). The organizer is the
+         * configured author and cannot change later.
+         * https://learn.microsoft.com/en-us/linkedin/marketing/event-management/events?view=li-lms-2026-10
+         */
+        const result = object(
+          await request(
+            "/rest/events",
+            context,
+            {
+              name: multiLocale(name, key),
+              type: eventTypeWire(type, key),
+              organizer: account.accountId,
+              startsAt,
+              ...definedFields({
+                description: description === undefined ? undefined : richText(description, key),
+                vanityName,
+                backgroundImage,
+                discoveryMode,
+                leadGenFormSpec:
+                  leadGenForm === undefined
+                    ? undefined
+                    : "privacyPolicyUrl" in leadGenForm
+                      ? { privacyPolicyUrl: leadGenForm.privacyPolicyUrl }
+                      : { leadGenForm: leadGenForm.leadGenForm },
+              }),
+            },
+            ["x-restli-id"],
+            "POST",
+            { "X-RestLi-Method": "CREATE" },
+          ),
+        );
+
+        const header = optionalString(optionalObject(result["headers"])?.["x-restli-id"]);
+
+        const fromHeader =
+          header === undefined ? undefined : longId(header.replace(/^urn:li:event:/, ""));
+
+        return decodeEvent(optionalObject(result["body"]) ?? {}, fromHeader);
+      },
+      async getEvent({ account, event, context }) {
+        authorize(account, context);
+
+        // Events API "Fetch an Event": readable only after the event is posted.
+        const decoded = decodeEvent(object(await request(eventPath(event), context)));
+
+        if (decoded.eventUrn !== event || decoded.organizer !== account.accountId)
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "events.read",
+            message: "LinkedIn returned an event of another organizer or a different event.",
+          });
+
+        return decoded;
+      },
+      async updateEvent({ account, event, changes, locale, context }) {
+        authorize(account, context);
+
+        const key = eventLocale(locale);
+        const path = eventPath(event);
+
+        if (
+          (changes.name !== undefined && !changes.name.trim()) ||
+          (changes.description !== undefined && !changes.description.trim()) ||
+          (changes.vanityName !== undefined && !/^[a-zA-Z0-9-]{1,100}$/.test(changes.vanityName)) ||
+          !eventInstant(changes.startsAt) ||
+          (changes.backgroundImage !== undefined &&
+            !/^urn:li:digitalmediaAsset:[a-zA-Z0-9_-]+$/.test(changes.backgroundImage)) ||
+          (changes.discoveryMode !== undefined &&
+            !["LISTED", "URL_ONLY"].includes(changes.discoveryMode)) ||
+          (changes.startsAt !== undefined &&
+            changes.type?.endsAt !== undefined &&
+            changes.type.endsAt <= changes.startsAt)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.write",
+            message:
+              "Event changes need a non-empty name or description, a valid vanityName, positive epoch-millisecond times with startsAt before endsAt, and a digitalmediaAsset background image.",
+          });
+
+        const set = definedFields({
+          name: changes.name === undefined ? undefined : multiLocale(changes.name, key),
+          description:
+            changes.description === undefined ? undefined : richText(changes.description, key),
+          vanityName: changes.vanityName,
+          startsAt: changes.startsAt,
+          backgroundImage: changes.backgroundImage,
+          discoveryMode: changes.discoveryMode,
+          type: changes.type === undefined ? undefined : eventTypeWire(changes.type, key),
+        });
+
+        if (Object.keys(set).length === 0)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.write",
+            message: "Provide at least one event change.",
+          });
+
+        // Events API "Update an Event": partial_update with patch.$set.
+        await request(path, context, { patch: { $set: set } }, undefined, "POST", {
+          "X-RestLi-Method": "PARTIAL_UPDATE",
+        });
+      },
+      async listEvents({
+        account,
+        excludeCancelled,
+        timeBasedFilter,
+        entryCriteria,
+        sortOrder,
+        cursor,
+        limit,
+        context,
+      }) {
+        authorize(account, context);
+
+        const { start, count } = offsetPage(definedFields({ cursor, limit }), "events.read");
+
+        const range = (
+          value: { readonly start?: number; readonly end?: number },
+          closed: boolean,
+        ) => {
+          if (
+            !eventInstant(value.start) ||
+            !eventInstant(value.end) ||
+            (closed && (value.start === undefined || value.end === undefined)) ||
+            (value.start !== undefined && value.end !== undefined && value.start > value.end)
+          )
+            return undefined;
+
+          return [
+            ...(value.start === undefined ? [] : [`start:${value.start}`]),
+            ...(value.end === undefined ? [] : [`end:${value.end}`]),
+          ].join(",");
+        };
+
+        let filter: string | undefined;
+
+        if (timeBasedFilter !== undefined) {
+          if ("lifeCycleState" in timeBasedFilter)
+            filter = ["UPCOMING", "ONGOING", "PAST"].includes(timeBasedFilter.lifeCycleState)
+              ? `(lifeCycleState:${timeBasedFilter.lifeCycleState})`
+              : undefined;
+          else if ("ongoingTimeRange" in timeBasedFilter) {
+            const inner = range(timeBasedFilter.ongoingTimeRange, true);
+
+            filter = inner === undefined ? undefined : `(ongoingTimeRange:(${inner}))`;
+          } else {
+            const inner = range(timeBasedFilter.startTimeRange, false);
+
+            filter = inner === undefined ? undefined : `(startTimeRange:(${inner}))`;
+          }
+        }
+
+        if (
+          (timeBasedFilter !== undefined && filter === undefined) ||
+          (entryCriteria !== undefined && !["PUBLIC", "GATED"].includes(entryCriteria)) ||
+          (sortOrder !== undefined && !["START_TIME_ASC", "END_TIME_DESC"].includes(sortOrder))
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.read",
+            message:
+              "Use a documented timeBasedFilter (lifeCycleState, ongoingTimeRange or startTimeRange), entryCriteria PUBLIC or GATED, and sortOrder START_TIME_ASC or END_TIME_DESC.",
+          });
+
+        // Events API "Find Events by Organizer"; timeBasedFilter is sent unencoded as documented.
+        const query = [
+          "q=eventsByOrganizer",
+          `organizer=${encodeURIComponent(account.accountId)}`,
+          `start=${start}`,
+          `count=${count}`,
+          ...(excludeCancelled === undefined ? [] : [`excludeCancelled=${excludeCancelled}`]),
+          ...(filter === undefined ? [] : [`timeBasedFilter=${filter}`]),
+          ...(entryCriteria === undefined ? [] : [`entryCriteria=${entryCriteria}`]),
+          ...(sortOrder === undefined ? [] : [`sortOrder=${sortOrder}`]),
+        ].join("&");
+
+        const result = object(await request(`/rest/events?${query}`, context));
+
+        const items = array(result["elements"]).map((value) => {
+          const decoded = decodeEvent(object(value));
+
+          if (decoded.organizer !== undefined && decoded.organizer !== account.accountId)
+            throw new SocialError({
+              code: "unauthorized",
+              operation: "events.read",
+              message: "LinkedIn returned an event of another organizer.",
+            });
+
+          return decoded;
+        });
+
+        return { items, ...definedFields({ nextCursor: nextOffset(result, start, items.length) }) };
+      },
+      async uploadEventBackgroundImage({ account, image, mimeType, context }) {
+        authorize(account, context);
+
+        // LinkedIn documents no background image size; the SDK applies its 20 MiB image cap.
+        const maxBytes = 20 * 1024 * 1024;
+
+        if (
+          !["image/jpeg", "image/png"].includes(mimeType) ||
+          image.size === 0 ||
+          image.size > maxBytes
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.write",
+            message: "Provide a nonempty JPEG or PNG background image within the SDK's 20 MiB cap.",
+          });
+
+        // Events API "Create Background Image Asset": register, then upload synchronously.
+        const registered = object(
+          object(
+            await request("/rest/assets?action=registerUpload", context, {
+              registerUploadRequest: {
+                owner: account.accountId,
+                recipes: ["urn:li:digitalmediaRecipe:event-background-image"],
+                serviceRelationships: [
+                  { identifier: "urn:li:userGeneratedContent", relationshipType: "OWNER" },
+                ],
+                supportedUploadMechanism: ["SYNCHRONOUS_UPLOAD"],
+              },
+            }),
+          )["value"],
+        );
+
+        const asset = string(registered["asset"]);
+
+        const uploadUrl = string(
+          object(
+            object(registered["uploadMechanism"])[
+              "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+            ],
+          )["uploadUrl"],
+        );
+
+        if (!/^urn:li:digitalmediaAsset:[a-zA-Z0-9_-]+$/.test(asset))
+          throw new SocialError({
+            code: "media_error",
+            operation: "events.write",
+            message: "LinkedIn returned an invalid background image asset URN.",
+          });
+
+        try {
+          await upload({
+            url: uploadUrl,
+            method: "POST",
+            source: { mimeType, size: image.size, body: image, open: () => image.stream() },
+            // The documented upload sends the bearer token, so only LinkedIn's API host is allowed.
+            allowHost: (host) => host === "api.linkedin.com",
+            headers: { Authorization: `Bearer ${options.auth.accessToken}` },
+            maxBytes,
+            timeoutMs: remainingBudget(context),
+            ...definedFields({ fetch: options.fetch, signal: context.signal }),
+          });
+        } catch (error) {
+          if (!(error instanceof HttpError)) throw error;
+
+          throw new SocialError({
+            code:
+              error.kind === "timeout"
+                ? "timeout"
+                : error.kind === "cancelled"
+                  ? "cancelled"
+                  : error.kind === "invalid-input"
+                    ? "invalid_input"
+                    : "media_error",
+            operation: "events.write",
+            message: `LinkedIn background image upload did not complete: ${error.message}`,
+            upstreamStatus: error.status,
+            retryDisposition: { kind: "never" },
+          });
+        }
+
+        return `urn:li:digitalmediaAsset:${asset.slice("urn:li:digitalmediaAsset:".length)}`;
+      },
+      async createEventPost({ account, reference, text = "", context }) {
+        authorize(account, context);
+
+        if (
+          (!linkedInEventUrn.test(reference) && !/^urn:li:liveVideo:\d+$/.test(reference)) ||
+          text.length > 3000
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "events.post",
+            message:
+              "Post an event with its urn:li:event or urn:li:liveVideo reference and at most 3,000 characters of commentary.",
+          });
+
+        // Posts API ReferenceContent (Events API "Post an Event", li-lms-2026-10).
+        const result = object(
+          await request(
+            "/rest/posts",
+            context,
+            {
+              author: account.accountId,
+              commentary: escapeCommentary(text),
+              visibility: "PUBLIC",
+              distribution: {
+                feedDistribution: "MAIN_FEED",
+                targetEntities: [],
+                thirdPartyDistributionChannels: [],
+              },
+              content: { reference: { id: reference } },
+              lifecycleState: "PUBLISHED",
+              isReshareDisabledByAuthor: false,
+            },
+            ["x-restli-id"],
+          ),
+        );
+
+        return definedFields({
+          postId: optionalString(optionalObject(result["headers"])?.["x-restli-id"]),
+        });
+      },
+      async setCommentsState({ account, postId, state, context }) {
+        authorize(account, context);
+
+        if (!linkedInPostUrn.test(postId) || (state !== "OPEN" && state !== "CLOSED"))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.state.write",
+            message: "Set commentsState OPEN or CLOSED on a urn:li:share or urn:li:ugcPost post.",
+          });
+
+        await request(
+          `/rest/socialMetadata/${restliEncode(postId)}?actor=${restliEncode(account.accountId)}`,
+          context,
+          { patch: { $set: { commentsState: state } } },
+          undefined,
+          "POST",
+          { "X-RestLi-Method": "PARTIAL_UPDATE" },
+        );
+      },
+      async listReactions({
+        account,
+        entity,
+        sort = "REVERSE_CHRONOLOGICAL",
+        cursor,
+        limit,
+        context,
+      }) {
+        authorize(account, context);
+
+        const { start, count } = offsetPage(definedFields({ cursor, limit }), "reactions.read");
+
+        if (
+          (!linkedInPostUrn.test(entity) && !linkedInCommentUrn.test(entity)) ||
+          !["CHRONOLOGICAL", "REVERSE_CHRONOLOGICAL", "RELEVANCE"].includes(sort)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "reactions.read",
+            message:
+              "List reactions on a share, ugcPost or comment URN, sorted CHRONOLOGICAL, REVERSE_CHRONOLOGICAL or RELEVANCE.",
+          });
+
+        const result = object(
+          await request(
+            `/rest/reactions/(entity:${restliEncode(entity)})?q=entity&sort=(value:${sort})&start=${start}&count=${count}`,
+            context,
+          ),
+        );
+
+        const items = array(result["elements"]).map((value) => decodeReaction(object(value)));
+
+        return { items, ...definedFields({ nextCursor: nextOffset(result, start, items.length) }) };
+      },
+      async deleteReaction({ account, entity, context }) {
+        authorize(account, context);
+
+        if (!linkedInPostUrn.test(entity) && !linkedInCommentUrn.test(entity))
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "reactions.delete",
+            message: "Delete a reaction on a share, ugcPost or comment URN.",
+          });
+
+        await request(
+          `/rest/reactions/(actor:${restliEncode(account.accountId)},entity:${restliEncode(entity)})`,
+          context,
+          undefined,
+          undefined,
+          "DELETE",
+        );
+      },
+      async listCommentReplies({ account, postId, commentId, cursor, limit, context }) {
+        authorize(account, context);
+
+        const { start, count } = offsetPage(definedFields({ cursor, limit }), "comments.read");
+        const match = linkedInCommentUrn.exec(commentId);
+
+        if (!linkedInPostUrn.test(postId) || !match)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.read",
+            message:
+              "Provide the share or ugcPost URN and the complete commentUrn returned by comment reads.",
+          });
+
+        const parent = object(
+          await request(
+            `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[2]}`,
+            context,
+          ),
+        );
+
+        if (parent["commentUrn"] !== commentId)
+          throw new SocialError({
+            code: "unauthorized",
+            operation: "comments.read",
+            message: "Comment does not belong to the supplied post.",
+          });
+
+        // Comments API "Get Comments on Comments": the parent commentUrn is the target.
+        const result = object(
+          await request(
+            `/rest/socialActions/${encodeURIComponent(commentId)}/comments?start=${start}&count=${count}`,
+            context,
+          ),
+        );
+
+        const items = array(result["elements"]).map(commentRecord);
+
+        return { items, ...definedFields({ nextCursor: nextOffset(result, start, items.length) }) };
+      },
+      async createComment({ account, postId, text, mentions, image, parentCommentId, context }) {
+        authorize(account, context);
+
+        const attributes = commentAttributes(text, mentions ?? [], "comments.write");
+
+        if (
+          !linkedInPostUrn.test(postId) ||
+          (parentCommentId !== undefined && !linkedInCommentUrn.test(parentCommentId)) ||
+          (image !== undefined && !linkedInImageUrn.test(image.mediaId))
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.write",
+            message:
+              "Comment on a urn:li:share or urn:li:ugcPost post, reply to a complete commentUrn, and attach only an urn:li:image reference.",
+          });
+
+        if (image !== undefined) {
+          authorize(image, context);
+          await assertImageUsable(image.mediaId, account, context);
+        }
+
+        const body = {
+          actor: account.accountId,
+          object: postId,
+          message: { text, ...definedFields({ attributes }) },
+          ...definedFields({
+            parentComment: parentCommentId,
+            content: image === undefined ? undefined : [{ entity: { image: image.mediaId } }],
+          }),
+        };
+
+        const response = object(
+          await request(
+            parentCommentId === undefined
+              ? `/rest/socialActions/${encodeURIComponent(postId)}/comments`
+              : `/rest/socialActions/${encodeURIComponent(parentCommentId)}/comments`,
+            context,
+            body,
+          ),
+        );
+
+        const commentUrn = optionalString(response["commentUrn"]);
+
+        if (!commentUrn)
+          throw new SocialError({
+            code: "ambiguous_outcome",
+            operation: "comments.write",
+            message:
+              "LinkedIn accepted the comment without returning its composite URN. Reconcile before retrying.",
+            retryDisposition: { kind: "reconcile-first" },
+          });
+
+        return { commentUrn, ...definedFields({ id: optionalString(response["id"]) }) };
+      },
+      async listOrganizationNotifications({ account, context, ...filters }) {
+        organizationOnly(account, context, "notifications.read");
+
+        return pullNotifications(account, filters, context);
+      },
+      async subscribeOrganizationNotifications({
+        account,
+        developerApplication,
+        member,
+        webhook,
+        context,
+      }) {
+        organizationOnly(account, context, "webhooks.subscriptions.write");
+
+        let url: URL | undefined;
+
+        try {
+          url = new URL(webhook);
+        } catch {
+          url = undefined;
+        }
+
+        if (url?.protocol !== "https:")
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "webhooks.subscriptions.write",
+            message: "The LinkedIn webhook must be an absolute HTTPS URL.",
+          });
+
+        await request(
+          subscriptionPath(account, developerApplication, member),
+          context,
+          { webhook },
+          undefined,
+          "PUT",
+        );
+      },
+      async listOrganizationNotificationSubscriptions({ account, context }) {
+        organizationOnly(account, context, "webhooks.subscriptions.read");
+
+        const result = object(
+          await request(
+            "/rest/eventSubscriptions?q=subscriberAndEventType&eventType=ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS",
+            context,
+          ),
+        );
+
+        return array(result["elements"]).flatMap((value): LinkedInEventSubscription[] => {
+          const row = object(value);
+          const expiresAt = row["expiresAt"];
+
+          // The finder lists every organization the member subscribed; keep this author's only.
+          if (row["entity"] !== account.accountId) return [];
+
+          return [
+            {
+              entity: account.accountId,
+              eventType: string(row["eventType"]),
+              ...definedFields({
+                user: optionalString(row["user"]) ?? optionalString(row["member"]),
+                webhook: optionalString(row["webhook"]),
+                expiresAt:
+                  isString(expiresAt) && /^\d+$/.test(expiresAt)
+                    ? Number(expiresAt)
+                    : optionalNumber(expiresAt),
+              }),
+            },
+          ];
+        });
+      },
+      async unsubscribeOrganizationNotifications({
+        account,
+        developerApplication,
+        member,
+        context,
+      }) {
+        organizationOnly(account, context, "webhooks.subscriptions.write");
+
+        await request(
+          subscriptionPath(account, developerApplication, member),
+          context,
+          undefined,
+          undefined,
+          "DELETE",
+        );
+      },
+      async editComment({ account, postId, commentId, text, mentions, context }) {
+        authorize(account, context);
+
+        const attributes = commentAttributes(text, mentions ?? [], "comments.edit");
+        const match = linkedInCommentUrn.exec(commentId);
+
+        if (!linkedInPostUrn.test(postId) || !match)
+          throw new SocialError({
+            code: "invalid_input",
+            operation: "comments.edit",
+            message:
+              "Provide the share or ugcPost URN and the complete commentUrn returned by comment reads.",
+          });
+
+        // Only message.text and message.attributes can change; empty attributes clear old mentions.
+        await request(
+          `/rest/socialActions/${encodeURIComponent(postId)}/comments/${match[2]}${organizationActor()}`,
+          context,
+          { patch: { message: { $set: { text, attributes: attributes ?? [] } } } },
+          undefined,
+          "POST",
+          { "X-RestLi-Method": "PARTIAL_UPDATE" },
+        );
       },
     },
   });
