@@ -76,8 +76,10 @@ for (const post of posts) {
 
 Each request goes straight to the platform with your own app's tokens, so
 the access rules are the platform's: X needs a user token and current X API
-access, Instagram needs a professional account, and LinkedIn Page posts need
-`r_organization_social`. The platform tabs below list each route's scopes. Units
+access, Instagram needs a professional account plus `instagram_business_basic`
+and `instagram_business_manage_insights` with Instagram Login, and LinkedIn Page
+posts need `r_organization_social`. The platform tabs below and
+[Analytics reports](/reads/reports) cover the rest of each route's access. Units
 and periods differ by platform, so match `period` and `source` before you add
 numbers from different networks. For what each platform requires before you
 can post or read, see the <a href="/guides/social-media-apis">social media APIs guide</a>.
