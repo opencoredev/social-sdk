@@ -8,7 +8,13 @@ import {
 } from "../core/types.js";
 import { isJsonValue } from "../transport/json.js";
 import { fetchWithoutRedirects } from "../transport/redirect.js";
-import { isFiniteNumber, isJsonObject, isString, type JsonField } from "../transport/validation.js";
+import {
+  isBoolean,
+  isFiniteNumber,
+  isJsonObject,
+  isString,
+  type JsonField,
+} from "../transport/validation.js";
 import type { ConnectionAccount, ConnectionAttempt, ConnectionProvider } from "./connections.js";
 import { readBounded, validateCallback } from "./oauth-internal.js";
 
@@ -18,6 +24,11 @@ export interface OAuthTokenSet {
   readonly accessToken: string;
   readonly refreshToken?: string;
   readonly expiresAt?: string;
+  /**
+   * Refresh-token expiry, computed from `refresh_expires_in` when the provider returns it
+   * (TikTok does on both the authorization-code and refresh grants). Reconnect before it passes.
+   */
+  readonly refreshExpiresAt?: string;
   readonly scopes?: readonly string[];
   readonly tokenType?: string;
 }
@@ -49,6 +60,35 @@ export interface OAuthProviderOptions {
   readonly scopes?: readonly string[];
   /** Explicit LinkedIn Marketing API version (YYYYMM). Required for LinkedIn OAuth. */
   readonly linkedinApiVersion?: string;
+  /**
+   * TikTok only: send `disable_auto_auth=1` so Login Kit always shows the authorization page,
+   * even for a browser already signed in to TikTok. Use it to connect a second creator account.
+   */
+  readonly disableAutoAuth?: boolean;
+  /**
+   * TikTok only: `"desktop"` runs Login Kit for Desktop. The authorization URL then carries a
+   * PKCE `code_challenge` as the hex-encoded SHA-256 of the verifier (TikTok's desktop format,
+   * not base64url) with `code_challenge_method=S256`, the token exchange sends `code_verifier`,
+   * and the redirect URI must be a loopback URL (`localhost` or `127.0.0.1`) with a port.
+   * Defaults to `"web"`, which uses no PKCE.
+   */
+  readonly tiktokLoginKit?: "web" | "desktop";
+  /**
+   * YouTube only: send `include_granted_scopes=true` so the new token also covers scopes the
+   * user granted this app before (Google incremental authorization).
+   */
+  readonly includeGrantedScopes?: boolean;
+  /**
+   * Instagram Business Login only: send `force_reauth=true` so Instagram asks for the
+   * professional account's credentials even when the browser is signed in. Use it to connect a
+   * second account, and on mobile, where Meta recommends it.
+   */
+  readonly forceReauth?: boolean;
+  /**
+   * Instagram Business Login only: send `enable_fb_login`. `false` hides the "Log in with
+   * Facebook" option on the Instagram login page; Meta's default is `true`.
+   */
+  readonly enableFacebookLogin?: boolean;
   /** Graph API version for Threads account discovery. */
   readonly threadsApiVersion?: string;
   /** Graph API version for Instagram Login account discovery. */
@@ -237,6 +277,7 @@ async function body(
   operation: string,
   maxBytes: number,
   signal: AbortSignal,
+  allowEmpty: boolean,
 ): Promise<JsonObject> {
   const raw = await readBounded(response, maxBytes, operation, signal);
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
@@ -261,7 +302,10 @@ async function body(
     return errorForResponse(response.status, operation, providerCode);
   }
 
-  if (raw.trim() === "") fail(operation, "OAuth provider returned an empty response");
+  if (raw.trim() === "") {
+    if (allowEmpty) return {};
+    fail(operation, "OAuth provider returned an empty response");
+  }
 
   if (
     contentType.includes("application/json") ||
@@ -299,28 +343,49 @@ function parseScopes(value: JsonField): readonly string[] | undefined {
   return scope === undefined ? undefined : scope.split(/[\s,]+/).filter(Boolean);
 }
 
+/** Converts a lifetime in seconds (`expires_in`, `refresh_expires_in`) to an RFC 3339 instant. */
+function lifetimeEnd(value: JsonField, operation: string): string | undefined {
+  if (value === undefined) return undefined;
+
+  const seconds = isFiniteNumber(value)
+    ? value
+    : isString(value) && /^\d+(?:\.\d+)?$/.test(value)
+      ? Number(value)
+      : Number.NaN;
+
+  if (!Number.isFinite(seconds) || seconds < 0 || seconds > 31_536_000_000)
+    fail(operation, "OAuth provider returned an invalid token lifetime");
+
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
 function tokenSet(data: JsonObject, operation = "oauth.token"): OAuthTokenSet {
   const accessToken = requiredString(data["access_token"], "access_token", operation);
-  const expires = data["expires_in"];
-  let expiresAt: string | undefined;
-
-  if (expires !== undefined) {
-    const seconds = isFiniteNumber(expires)
-      ? expires
-      : isString(expires) && /^\d+(?:\.\d+)?$/.test(expires)
-        ? Number(expires)
-        : Number.NaN;
-
-    if (!Number.isFinite(seconds) || seconds < 0 || seconds > 31_536_000_000)
-      fail(operation, "OAuth provider returned an invalid token lifetime");
-    expiresAt = new Date(Date.now() + seconds * 1000).toISOString();
-  }
-
+  const expiresAt = lifetimeEnd(data["expires_in"], operation);
   const refreshToken = optionalString(data["refresh_token"]);
+
+  // A refresh-token lifetime only describes a refresh token returned in the same response.
+  const refreshExpiresAt =
+    refreshToken === undefined ? undefined : lifetimeEnd(data["refresh_expires_in"], operation);
+
   const scopes = parseScopes(data["scope"]);
   const tokenType = optionalString(data["token_type"]);
 
-  return { accessToken, ...definedFields({ refreshToken, expiresAt, scopes, tokenType }) };
+  return {
+    accessToken,
+    ...definedFields({ refreshToken, expiresAt, refreshExpiresAt, scopes, tokenType }),
+  };
+}
+
+/** Keeps the current refresh token, and its expiry, when a refresh response omits a new one. */
+function keepRefreshToken(next: OAuthTokenSet, current: OAuthTokenSet): OAuthTokenSet {
+  if (next.refreshToken !== undefined || current.refreshToken === undefined) return next;
+
+  return {
+    ...next,
+    refreshToken: current.refreshToken,
+    ...definedFields({ refreshExpiresAt: current.refreshExpiresAt }),
+  };
 }
 
 interface TokenResult {
@@ -356,6 +421,7 @@ async function request(
   init: RequestInit,
   operation: string,
   options: OAuthProviderOptions,
+  allowEmptyBody = false,
 ): Promise<JsonObject> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -389,6 +455,7 @@ async function request(
         operation,
         options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
         controller.signal,
+        allowEmptyBody,
       ),
       aborted,
     ]);
@@ -466,6 +533,54 @@ function validateDiscoveredAccounts(
   }
 }
 
+/**
+ * Login Kit for Desktop accepts only loopback redirect URIs: `localhost` or `127.0.0.1`, an
+ * explicit port, and no query or fragment.
+ * Source, accessed 2026-11-04: https://developers.tiktok.com/doc/login-kit-desktop
+ */
+function validateLoopbackRedirect(value: string): void {
+  let url: URL | undefined;
+
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+
+  if (
+    url === undefined ||
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") ||
+    url.port === "" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    url.username !== "" ||
+    url.password !== ""
+  )
+    fail(
+      "connections.begin",
+      "TikTok Login Kit for Desktop needs a localhost or 127.0.0.1 redirect URI with a port and no query",
+      "invalid_input",
+    );
+}
+
+/**
+ * Re-encodes the connection manager's base64url S256 challenge as lowercase hex. Both encode
+ * the same SHA-256 digest of the verifier; Login Kit for Desktop expects the hex form.
+ */
+function hexChallenge(base64UrlChallenge: string): string {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(base64UrlChallenge))
+    fail("connections.begin", "PKCE code challenge must be a SHA-256 digest", "invalid_input");
+
+  const binary = atob(base64UrlChallenge.replaceAll("-", "+").replaceAll("_", "/") + "=");
+  let hex = "";
+
+  for (let index = 0; index < binary.length; index++)
+    hex += binary.charCodeAt(index).toString(16).padStart(2, "0");
+
+  return hex;
+}
+
 export function oauthProvider(
   kind: ProviderKind,
   options: OAuthProviderOptions,
@@ -474,9 +589,30 @@ export function oauthProvider(
 
   if (!options.clientId.trim()) fail("oauth.config", "clientId is required", "invalid_input");
 
+  if (options.disableAutoAuth !== undefined && kind !== "tiktok")
+    fail("oauth.config", "disableAutoAuth applies only to TikTok Login Kit", "invalid_input");
+
+  if (options.tiktokLoginKit !== undefined && kind !== "tiktok")
+    fail("oauth.config", "tiktokLoginKit applies only to TikTok Login Kit", "invalid_input");
+
+  if (options.includeGrantedScopes !== undefined && kind !== "youtube")
+    fail("oauth.config", "includeGrantedScopes applies only to Google OAuth", "invalid_input");
+
+  if (
+    (options.forceReauth !== undefined || options.enableFacebookLogin !== undefined) &&
+    kind !== "instagram"
+  )
+    fail(
+      "oauth.config",
+      "forceReauth and enableFacebookLogin apply only to Instagram Business Login",
+      "invalid_input",
+    );
+
   if (kind === "linkedin") validateLinkedInVersion(options.linkedinApiVersion);
   const fetcher = options.fetch ?? webFetch;
   const scopes = options.scopes ?? cfg.scopes;
+  const tiktokDesktop = kind === "tiktok" && options.tiktokLoginKit === "desktop";
+  const pkce = cfg.pkce || tiktokDesktop;
 
   return {
     async start(input) {
@@ -493,6 +629,9 @@ export function oauthProvider(
           "redirectUri does not match the configured OAuth callback",
           "invalid_input",
         );
+
+      if (tiktokDesktop) validateLoopbackRedirect(input.redirectUri);
+
       const url = new URL(cfg.auth);
       url.searchParams.set(cfg.clientKey, options.clientId);
       url.searchParams.set("redirect_uri", input.redirectUri);
@@ -503,10 +642,32 @@ export function oauthProvider(
       if (kind === "youtube") {
         url.searchParams.set("access_type", "offline");
         url.searchParams.set("prompt", "consent");
+
+        if (options.includeGrantedScopes === true)
+          url.searchParams.set("include_granted_scopes", "true");
+
+        // Google accepts an email address or the user's `sub` ID to preselect the account.
+        const hint = input.loginHint?.trim();
+
+        if (hint) url.searchParams.set("login_hint", hint);
       }
 
-      if (cfg.pkce) {
-        url.searchParams.set("code_challenge", input.codeChallenge);
+      if (kind === "tiktok" && options.disableAutoAuth === true)
+        url.searchParams.set("disable_auto_auth", "1");
+
+      // Business Login for Instagram authorize options (checked 2026-11-04):
+      // https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login
+      if (options.forceReauth !== undefined)
+        url.searchParams.set("force_reauth", String(options.forceReauth));
+
+      if (options.enableFacebookLogin !== undefined)
+        url.searchParams.set("enable_fb_login", String(options.enableFacebookLogin));
+
+      if (pkce) {
+        url.searchParams.set(
+          "code_challenge",
+          tiktokDesktop ? hexChallenge(input.codeChallenge) : input.codeChallenge,
+        );
         url.searchParams.set("code_challenge_method", "S256");
       }
 
@@ -545,7 +706,7 @@ export function oauthProvider(
         [cfg.clientKey]: options.clientId,
       });
 
-      if (cfg.pkce) form.set("code_verifier", input.attempt.codeVerifier);
+      if (pkce) form.set("code_verifier", input.attempt.codeVerifier);
 
       const tokenHeaders = new Headers({
         "content-type": "application/x-www-form-urlencoded",
@@ -747,7 +908,8 @@ async function discover(
   }
 
   if (kind === "instagram") {
-    const version = options.instagramApiVersion ?? "v25.0";
+    // Same Graph version as the Instagram adapter (src/platforms/instagram.ts).
+    const version = options.instagramApiVersion ?? "v27.0";
 
     if (!/^v\d+\.\d+$/.test(version))
       fail("oauth.config", "Instagram API version is invalid", "invalid_input");
@@ -906,10 +1068,508 @@ export const threadsOAuth = (options: OAuthProviderOptions) => oauthProvider("th
 
 export const tiktokOAuth = (options: OAuthProviderOptions) => oauthProvider("tiktok", options);
 
+/**
+ * Revoke a TikTok user access token with `POST /v2/oauth/revoke/`, sending the app's client key
+ * (`clientId`), client secret and the token as a form. TikTok answers success with an empty body.
+ * Returns `"revoked"`, so it can back `OAuthConnectHandlersOptions.grants.revoke`.
+ * Source, accessed 2026-11-04: https://developers.tiktok.com/doc/oauth-revoke-a-user-access-token
+ */
+export async function revokeTikTokOAuthToken(
+  options: OAuthProviderOptions,
+  token: Pick<OAuthTokenSet, "accessToken">,
+): Promise<"revoked"> {
+  const operation = "oauth.tiktok.revoke";
+
+  if (!options.clientId.trim() || !options.clientSecret?.trim())
+    fail("oauth.config", "TikTok revocation requires clientId and clientSecret", "invalid_input");
+
+  if (!token.accessToken.trim()) fail(operation, "An access token is required", "invalid_input");
+
+  const result = await request(
+    options.fetch ?? webFetch,
+    "https://open.tiktokapis.com/v2/oauth/revoke/",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body: new URLSearchParams({
+        client_key: options.clientId,
+        client_secret: options.clientSecret,
+        token: token.accessToken,
+      }),
+    },
+    operation,
+    options,
+    true,
+  );
+
+  const error = result["error"];
+
+  const providerCode = isString(error)
+    ? error
+    : isJsonObject(error) && isString(error["code"]) && error["code"] !== "ok"
+      ? error["code"]
+      : undefined;
+
+  if (providerCode !== undefined && providerCode !== "")
+    throw new SocialError({
+      code: "upstream_failure",
+      operation,
+      message: "TikTok did not revoke the access token",
+      upstreamCode: providerCode,
+    });
+
+  return "revoked";
+}
+
+/** Status values of `POST /v2/oauth/check_qrcode/`. `utilised` appears in TikTok's examples. */
+export type TikTokQrCodeStatus = "new" | "scanned" | "confirmed" | "expired" | "utilised";
+
+/** A Login Kit QR code returned by {@link createTikTokQrCode}. Keep it for the whole QR flow. */
+export interface TikTokQrCode {
+  /** TikTok's QR `token`; send it to {@link checkTikTokQrCode}. Keep it server-side. */
+  readonly token: string;
+  /** `scan_qrcode_url` with `client_ticket` set to {@link clientTicket}. Render it as the QR code. */
+  readonly scanQrCodeUrl: string;
+  /** The integrity ticket placed in the QR URL. TikTok echoes it on each successful check. */
+  readonly clientTicket: string;
+  /** The `state` sent to TikTok, compared with the confirmed response. */
+  readonly state?: string;
+}
+
+export type TikTokQrCodeCheck =
+  | { readonly status: Exclude<TikTokQrCodeStatus, "confirmed"> }
+  | {
+      readonly status: "confirmed";
+      /** Authorization code to exchange with {@link exchangeTikTokQrCode}. */
+      readonly code: string;
+      /** The app's redirect URI from the confirmed response, without `code` and `state`. */
+      readonly redirectUri?: string;
+    };
+
+const qrStatuses: readonly TikTokQrCodeStatus[] = [
+  "new",
+  "scanned",
+  "confirmed",
+  "expired",
+  "utilised",
+];
+
+function isQrStatus(value: JsonField): value is TikTokQrCodeStatus {
+  return qrStatuses.some((status) => status === value);
+}
+
+function tiktokFormError(data: JsonObject, operation: string, message: string): void {
+  const error = data["error"];
+
+  const providerCode = isString(error)
+    ? error
+    : isJsonObject(error) && isString(error["code"]) && error["code"] !== "ok"
+      ? error["code"]
+      : undefined;
+
+  if (providerCode !== undefined && providerCode !== "")
+    throw new SocialError({
+      code: "upstream_failure",
+      operation,
+      message,
+      upstreamCode: providerCode,
+    });
+}
+
+function randomTicket(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = "";
+
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function requireTikTokSecret(options: OAuthProviderOptions, operation: string): string {
+  if (!options.clientId.trim() || !options.clientSecret?.trim())
+    fail("oauth.config", `${operation} requires clientId and clientSecret`, "invalid_input");
+
+  return options.clientSecret;
+}
+
+function formPost(form: URLSearchParams): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+    body: form,
+  };
+}
+
+/**
+ * Login Kit QR code authorization, step 1: `POST /v2/oauth/get_qrcode/` with `client_key`,
+ * comma-separated `scope` and optional `state`. Sets the `client_ticket` query parameter of the
+ * returned `scan_qrcode_url` to a random URL-safe ticket (or `input.clientTicket`), as TikTok
+ * requires. Use it on TVs, kiosks and other surfaces without a browser redirect.
+ * Source, accessed 2026-11-04: https://developers.tiktok.com/doc/login-kit-qr-code-authorization
+ */
+export async function createTikTokQrCode(
+  options: OAuthProviderOptions,
+  input: {
+    readonly scopes?: readonly string[];
+    readonly state?: string;
+    readonly clientTicket?: string;
+  } = {},
+): Promise<TikTokQrCode> {
+  const operation = "oauth.tiktok.qrcode";
+
+  if (!options.clientId.trim()) fail("oauth.config", "clientId is required", "invalid_input");
+
+  const clientTicket = input.clientTicket ?? randomTicket();
+
+  if (!/^[A-Za-z0-9._~-]+$/.test(clientTicket) || encodeURIComponent(clientTicket).length >= 512)
+    fail(
+      operation,
+      "client_ticket must be URL-safe and shorter than 512 characters",
+      "invalid_input",
+    );
+
+  const scopes = input.scopes ?? options.scopes ?? configs.tiktok.scopes;
+
+  if (scopes.length === 0 || scopes.some((scope) => !/^[a-z0-9._]+$/i.test(scope)))
+    fail(operation, "TikTok scopes must be non-empty scope names", "invalid_input");
+
+  const form = new URLSearchParams({ client_key: options.clientId, scope: scopes.join(",") });
+
+  if (input.state !== undefined) form.set("state", input.state);
+
+  const data = await request(
+    options.fetch ?? webFetch,
+    "https://open.tiktokapis.com/v2/oauth/get_qrcode/",
+    formPost(form),
+    operation,
+    options,
+  );
+
+  tiktokFormError(data, operation, "TikTok did not create a QR code");
+
+  const token = requiredString(data["token"], "token", operation);
+  let scanUrl: URL;
+
+  try {
+    scanUrl = new URL(requiredString(data["scan_qrcode_url"], "scan_qrcode_url", operation));
+  } catch (error) {
+    if (error instanceof SocialError) throw error;
+    fail(operation, "TikTok returned an invalid scan_qrcode_url");
+  }
+
+  // TikTok documents an app deep link (`aweme://authorize?...`); accept it and HTTPS links only.
+  // Source, accessed 2026-11-04: https://developers.tiktok.com/doc/login-kit-qr-code-authorization
+  if (scanUrl.protocol !== "https:" && scanUrl.protocol !== "aweme:")
+    fail(operation, "TikTok returned an invalid scan_qrcode_url");
+
+  scanUrl.searchParams.set("client_ticket", clientTicket);
+
+  return {
+    token,
+    scanQrCodeUrl: scanUrl.toString(),
+    clientTicket,
+    ...definedFields({ state: input.state }),
+  };
+}
+
+/**
+ * Login Kit QR code authorization, step 2: `POST /v2/oauth/check_qrcode/` with `client_key`,
+ * `client_secret` and the QR `token`. Poll it while the status is `new` or `scanned`; on
+ * `expired`, create a new QR code. Each response that carries a `client_ticket` must echo the
+ * ticket from {@link createTikTokQrCode}, and a `confirmed` response must carry it and the
+ * `state` that was sent; otherwise this throws `unauthorized` and the response is discarded.
+ * The authorization code comes from `code`, or from the `code` query parameter of
+ * `redirect_uri` when only that is present, as in TikTok's example.
+ */
+export async function checkTikTokQrCode(
+  options: OAuthProviderOptions,
+  qr: Pick<TikTokQrCode, "token" | "clientTicket" | "state">,
+): Promise<TikTokQrCodeCheck> {
+  const operation = "oauth.tiktok.qrcode.check";
+  const clientSecret = requireTikTokSecret(options, "TikTok QR code checks");
+
+  if (!qr.token.trim()) fail(operation, "A QR code token is required", "invalid_input");
+
+  const data = await request(
+    options.fetch ?? webFetch,
+    "https://open.tiktokapis.com/v2/oauth/check_qrcode/",
+    formPost(
+      new URLSearchParams({
+        client_key: options.clientId,
+        client_secret: clientSecret,
+        token: qr.token,
+      }),
+    ),
+    operation,
+    options,
+  );
+
+  tiktokFormError(data, operation, "TikTok did not return the QR code status");
+
+  const status = data["status"];
+
+  if (!isQrStatus(status)) fail(operation, "TikTok returned an unknown QR code status");
+
+  const ticket = optionalString(data["client_ticket"]);
+
+  if ((ticket !== undefined || status === "confirmed") && ticket !== qr.clientTicket)
+    fail(operation, "TikTok QR code response did not echo this client_ticket", "unauthorized");
+
+  if (status !== "confirmed") return { status };
+
+  let redirect: URL | undefined;
+  const rawRedirect = optionalString(data["redirect_uri"]);
+
+  if (rawRedirect !== undefined)
+    try {
+      redirect = new URL(rawRedirect);
+    } catch {
+      fail(operation, "TikTok returned an invalid redirect_uri");
+    }
+
+  const code =
+    optionalString(data["code"]) ?? optionalString(redirect?.searchParams.get("code") ?? undefined);
+
+  if (code === undefined) fail(operation, "OAuth provider response is missing code");
+
+  const state =
+    optionalString(data["state"]) ??
+    optionalString(redirect?.searchParams.get("state") ?? undefined);
+
+  if (qr.state !== undefined && state !== qr.state)
+    fail(operation, "TikTok QR code state did not match", "unauthorized");
+
+  if (redirect === undefined) return { status, code };
+
+  for (const name of ["code", "state", "scopes"]) redirect.searchParams.delete(name);
+
+  return { status, code, redirectUri: redirect.toString() };
+}
+
+/**
+ * Login Kit QR code authorization, step 3: exchange a confirmed QR code's authorization code on
+ * `POST /v2/oauth/token/` (`grant_type=authorization_code`). TikTok requires `redirect_uri` to
+ * match the app's registered redirect URI; pass `redirectUri` from the confirmed check, or set
+ * `options.redirectUri`. Returns the token set, including `refreshExpiresAt`, and the creator's
+ * `open_id`.
+ */
+export async function exchangeTikTokQrCode(
+  options: OAuthProviderOptions,
+  input: { readonly code: string; readonly redirectUri?: string },
+): Promise<{ readonly token: OAuthTokenSet; readonly openId: string }> {
+  const operation = "oauth.tiktok.qrcode.token";
+  const clientSecret = requireTikTokSecret(options, "TikTok QR code token exchange");
+  const redirectUri = input.redirectUri ?? options.redirectUri;
+
+  if (!input.code.trim()) fail(operation, "An authorization code is required", "invalid_input");
+
+  if (redirectUri === undefined || !redirectUri.trim())
+    fail(operation, "TikTok's token exchange requires redirect_uri", "invalid_input");
+
+  const data = await request(
+    options.fetch ?? webFetch,
+    configs.tiktok.token,
+    formPost(
+      new URLSearchParams({
+        client_key: options.clientId,
+        client_secret: clientSecret,
+        code: input.code,
+        grant_type: "authorization_code",
+        redirect_uri: redirectUri,
+      }),
+    ),
+    operation,
+    options,
+  );
+
+  tiktokFormError(data, operation, "TikTok did not issue a token for the QR code");
+
+  const result = tokenResult(data, "tiktok");
+
+  if (result.accountHint === undefined)
+    fail(operation, "OAuth provider response is missing open_id");
+
+  return { token: result.token, openId: result.accountHint };
+}
+
+/**
+ * Revoke a Google OAuth grant with `POST https://oauth2.googleapis.com/revoke`, sending the token
+ * as a form. Revoking an access token also revokes its refresh token. Google answers 200 on
+ * success and 400 with an error code otherwise. Returns `"revoked"`, so it can back
+ * `OAuthConnectHandlersOptions.grants.revoke`.
+ * Source, accessed 2026-11-04: https://developers.google.com/youtube/v3/guides/auth/server-side-web-apps
+ */
+export async function revokeGoogleOAuthToken(
+  options: Pick<OAuthProviderOptions, "fetch" | "timeoutMs" | "maxResponseBytes" | "signal">,
+  token: { readonly token: string },
+): Promise<"revoked"> {
+  const operation = "oauth.youtube.revoke";
+
+  if (!token.token.trim())
+    fail(operation, "An access or refresh token is required", "invalid_input");
+
+  await request(
+    options.fetch ?? webFetch,
+    "https://oauth2.googleapis.com/revoke",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body: new URLSearchParams({ token: token.token }),
+    },
+    operation,
+    { clientId: "", ...options },
+    true,
+  );
+
+  return "revoked";
+}
+
+/**
+ * Revoke an X OAuth 2.0 access or refresh token with `POST https://api.x.com/2/oauth2/revoke`.
+ * Confidential clients authenticate with HTTP Basic; public clients send `client_id` in the form.
+ * Returns `"revoked"` unless X answers `revoked: false`, so it can back
+ * `OAuthConnectHandlersOptions.grants.revoke`. Source, accessed 2026-11-04:
+ * https://docs.x.com/fundamentals/authentication/oauth-2-0/user-access-token
+ */
+export async function revokeXOAuthToken(
+  options: OAuthProviderOptions,
+  token: { readonly token: string },
+): Promise<"revoked"> {
+  const operation = "oauth.x.revoke";
+
+  if (!options.clientId.trim())
+    fail("oauth.config", "X revocation requires clientId", "invalid_input");
+
+  if (!token.token.trim()) fail(operation, "A token is required", "invalid_input");
+
+  const form = new URLSearchParams({ token: token.token });
+
+  const headers = new Headers({
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  });
+
+  if (options.clientSecret)
+    headers.set("authorization", `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`);
+  else form.set("client_id", options.clientId);
+
+  const result = await request(
+    options.fetch ?? webFetch,
+    "https://api.x.com/2/oauth2/revoke",
+    { method: "POST", headers, body: form },
+    operation,
+    options,
+    true,
+  );
+
+  if (result["revoked"] === false)
+    throw new SocialError({
+      code: "upstream_failure",
+      operation,
+      message: "X did not revoke the token",
+    });
+
+  return "revoked";
+}
+
 export const instagramOAuth = (options: OAuthProviderOptions) =>
   oauthProvider("instagram", options);
 
 export const linkedinOAuth = (options: OAuthProviderOptions) => oauthProvider("linkedin", options);
+
+/** Token state from LinkedIn token introspection. Times are ISO strings from epoch seconds. */
+export interface LinkedInTokenIntrospection {
+  /** False for expired, revoked or foreign tokens, including tokens of another client. */
+  readonly active: boolean;
+  /** `active`, `expired` or `revoked`. */
+  readonly status?: string;
+  /** Returned only for 3-legged (authorization code) tokens. */
+  readonly scopes?: readonly string[];
+  readonly clientId?: string;
+  /** `3L` member token, `2L` application token, or `Enterprise_User`. */
+  readonly authType?: string;
+  readonly createdAt?: string;
+  readonly authorizedAt?: string;
+  readonly expiresAt?: string;
+}
+
+/**
+ * Inspect a LinkedIn access token with `POST https://www.linkedin.com/oauth/v2/introspectToken`,
+ * sending the app's client ID, client secret and the token as a form. Use it for connection health
+ * checks; it does not refresh or change the token.
+ * Source, accessed 2026-11-04: https://learn.microsoft.com/en-us/linkedin/shared/authentication/token-introspection
+ */
+export async function introspectLinkedInOAuthToken(
+  options: OAuthProviderOptions,
+  token: Pick<OAuthTokenSet, "accessToken">,
+): Promise<LinkedInTokenIntrospection> {
+  const operation = "oauth.linkedin.introspect";
+
+  if (!options.clientId.trim() || !options.clientSecret?.trim())
+    fail(
+      "oauth.config",
+      "LinkedIn token introspection requires clientId and clientSecret",
+      "invalid_input",
+    );
+
+  if (!token.accessToken.trim()) fail(operation, "An access token is required", "invalid_input");
+
+  const result = await request(
+    options.fetch ?? webFetch,
+    "https://www.linkedin.com/oauth/v2/introspectToken",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body: new URLSearchParams({
+        client_id: options.clientId,
+        client_secret: options.clientSecret,
+        token: token.accessToken,
+      }),
+    },
+    operation,
+    options,
+  );
+
+  const active = result["active"];
+
+  if (!isBoolean(active))
+    fail(operation, "LinkedIn introspection response is missing active", "upstream_failure");
+
+  const text = (value: JsonField) => (isString(value) && value !== "" ? value : undefined);
+
+  const time = (value: JsonField) =>
+    isFiniteNumber(value) && value > 0 ? new Date(value * 1000).toISOString() : undefined;
+
+  const scope = text(result["scope"]);
+
+  return {
+    active,
+    ...definedFields({
+      status: text(result["status"]),
+      scopes:
+        scope === undefined
+          ? undefined
+          : scope
+              .split(",")
+              .map((entry) => entry.trim())
+              .filter((entry) => entry !== ""),
+      clientId: text(result["client_id"]),
+      authType: text(result["auth_type"]),
+      createdAt: time(result["created_at"]),
+      authorizedAt: time(result["authorized_at"]),
+      expiresAt: time(result["expires_at"]),
+    }),
+  };
+}
 
 export async function refreshOAuthToken(
   kind: ProviderKind,
@@ -941,9 +1601,7 @@ export async function refreshOAuthToken(
         ? { ...next, scopes: current.scopes }
         : next;
 
-    if (retained.refreshToken !== undefined || current.refreshToken === undefined) return retained;
-
-    return { ...retained, refreshToken: current.refreshToken };
+    return keepRefreshToken(retained, current);
   }
 
   if (!current.refreshToken)
@@ -987,5 +1645,57 @@ export async function refreshOAuthToken(
     "oauth.refresh",
   );
 
-  return next.refreshToken ? next : { ...next, refreshToken: current.refreshToken };
+  return keepRefreshToken(next, current);
+}
+
+/**
+ * Exchanges a stored X OAuth 1.0a user access token and secret for OAuth 2.0 tokens with the
+ * `token-exchange` grant on `POST /2/oauth2/token`, without a consent screen. X derives the
+ * scopes from the user's original OAuth 1.0a permissions and always adds `offline.access`;
+ * `scopes` can only narrow them. Confidential clients authenticate with HTTP Basic, public clients
+ * send `client_id`. Source, checked 2026-11-04:
+ * https://docs.x.com/fundamentals/authentication/oauth-2-0/oauth-1-0a-token-exchange
+ */
+export async function exchangeXOAuth1Token(
+  options: OAuthProviderOptions,
+  oauth1: {
+    readonly token: string;
+    readonly tokenSecret: string;
+    readonly scopes?: readonly string[];
+  },
+): Promise<OAuthTokenSet> {
+  const operation = "oauth.x.tokenExchange";
+
+  if (!oauth1.token.trim() || !oauth1.tokenSecret.trim())
+    fail(operation, "Provide the user's OAuth 1.0a access token and secret", "invalid_input");
+
+  const form = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+    subject_token: oauth1.token,
+    subject_token_type: "urn:x:params:oauth:token-type:oauth1_token",
+    oauth_token_secret: oauth1.tokenSecret,
+  });
+
+  if (oauth1.scopes !== undefined && oauth1.scopes.length > 0)
+    form.set("scope", oauth1.scopes.join(" "));
+
+  const headers = new Headers({
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  });
+
+  if (options.clientSecret)
+    headers.set("authorization", `Basic ${btoa(`${options.clientId}:${options.clientSecret}`)}`);
+  else form.set("client_id", options.clientId);
+
+  return tokenSet(
+    await request(
+      options.fetch ?? webFetch,
+      configs.x.token,
+      { method: "POST", headers, body: form },
+      operation,
+      options,
+    ),
+    operation,
+  );
 }

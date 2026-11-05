@@ -49,6 +49,17 @@ export function string(value: JsonField): string {
   return value;
 }
 
+export function number(value: JsonField): number {
+  if (!isFiniteNumber(value))
+    throw new HttpError(
+      "Upstream response is missing a required number.",
+      "invalid-response",
+      true,
+    );
+
+  return value;
+}
+
 export function optionalString(value: JsonField): string | undefined {
   return isString(value) ? value : undefined;
 }

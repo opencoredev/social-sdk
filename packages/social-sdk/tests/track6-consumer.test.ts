@@ -389,7 +389,7 @@ it("the real CLI validate command reports machine-readable media limits offline"
 
     for (const [count, status] of [
       [1, 0],
-      [11, 1],
+      [21, 1],
     ] as const) {
       await writeFile(file, JSON.stringify(request(count)));
 

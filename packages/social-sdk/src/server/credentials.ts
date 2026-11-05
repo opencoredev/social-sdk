@@ -36,6 +36,8 @@ export interface StoredCredential {
   readonly refreshToken?: string;
   /** RFC 3339 access-token expiry. Absent means the access token does not expire. */
   readonly expiresAt?: string;
+  /** RFC 3339 refresh-token expiry, when the provider reports one (TikTok's `refresh_expires_in`). */
+  readonly refreshExpiresAt?: string;
   readonly scopes?: readonly string[];
   readonly metadata?: Readonly<Record<string, string>>;
   readonly refreshState?: CredentialRefreshState;
@@ -63,6 +65,7 @@ const credentialFields = new Set([
   "accessToken",
   "refreshToken",
   "expiresAt",
+  "refreshExpiresAt",
   "scopes",
   "metadata",
   "refreshState",
@@ -118,6 +121,7 @@ export function parseStoredCredential(
   const accessToken = value["accessToken"];
   const refreshToken = value["refreshToken"];
   const expiresAt = value["expiresAt"];
+  const refreshExpiresAt = value["refreshExpiresAt"];
   const scopes = value["scopes"];
   const metadata = value["metadata"];
   const refreshState = value["refreshState"];
@@ -126,6 +130,7 @@ export function parseStoredCredential(
     !isNonEmptyString(accessToken) ||
     (refreshToken !== undefined && !isNonEmptyString(refreshToken)) ||
     (expiresAt !== undefined && !isTimestamp(expiresAt)) ||
+    (refreshExpiresAt !== undefined && !isTimestamp(refreshExpiresAt)) ||
     (scopes !== undefined && !isStringList(scopes)) ||
     (metadata !== undefined && !isStringMap(metadata)) ||
     (value["tokenType"] !== undefined && !isString(value["tokenType"]))
@@ -137,6 +142,7 @@ export function parseStoredCredential(
     ...definedFields({
       refreshToken,
       expiresAt,
+      refreshExpiresAt,
       scopes: scopes === undefined ? undefined : [...scopes],
       metadata: metadata === undefined ? undefined : { ...metadata },
       refreshState:

@@ -14,4 +14,6 @@ export * from "./projections.js";
 
 export * from "./types.js";
 
+export type * from "./publish-options.js";
+
 export { iterateItems, type IterationOptions } from "./pagination.js";
