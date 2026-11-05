@@ -898,6 +898,16 @@ function abuseReportBody(report: YouTubeAbuseReport): JsonObject {
   };
 }
 
+// liveBroadcasts.transition returns the broadcast, whose status.lifeCycleStatus is the
+// requested state or its starting step. Source:
+// https://developers.google.com/youtube/v3/live/docs/liveBroadcasts#status.lifeCycleStatus
+// (accessed 2026-11-05).
+const transitionStates = {
+  testing: ["testStarting", "testing"],
+  live: ["liveStarting", "live"],
+  complete: ["complete"],
+} as const satisfies Record<"testing" | "live" | "complete", readonly string[]>;
+
 const metresPerUnit = { m: 1, km: 1000, ft: 0.3048, mi: 1609.344 } as const;
 
 /** search.list `location` and `locationRadius`; YouTube caps the radius at 1000 km. */
@@ -1478,6 +1488,18 @@ export function youtube(
     const resource = writtenObject(value, operation);
 
     writtenId(resource, operation);
+
+    return resource;
+  };
+
+  /**
+   * Decode the response of a write that addressed one existing resource: it must be that
+   * resource, so a body without the addressed ID cannot confirm the change.
+   */
+  const writtenResourceFor = (value: JsonValue, operation: string, id: string): JsonObject => {
+    const resource = writtenResource(value, operation);
+
+    if (resource["id"] !== id) throw uncertainWrite(operation);
 
     return resource;
   };
@@ -2913,7 +2935,7 @@ export function youtube(
       async setThumbnail({ videoId, thumbnail, context }) {
         nativeAuthorize(context);
 
-        return binaryJson(
+        const result = await binaryJson(
           "/upload/youtube/v3/thumbnails/set",
           context,
           mediaBlob(thumbnail),
@@ -2921,6 +2943,14 @@ export function youtube(
           "POST",
           thumbnail.mimeType ?? "application/octet-stream",
         );
+
+        // thumbnails.set answers with the thumbnail set it stored; an empty body confirms nothing.
+        const items = result["items"];
+
+        if (!isJsonArray(items) || items.length === 0 || !items.every(isJsonObject))
+          throw uncertainWrite("/upload/youtube/v3/thumbnails/set");
+
+        return result;
       },
       async captions({ action, videoId, captionId, caption, body, format, tlang, context }) {
         nativeAuthorize(context);
@@ -3393,9 +3423,10 @@ export function youtube(
 
         const part = ["snippet", "status", ...extraParts].join(",");
 
-        return writtenObject(
+        return writtenResourceFor(
           await request("/youtube/v3/videos", context, merged, { part }, "PUT"),
           "/youtube/v3/videos",
+          videoId,
         );
       },
       async updateProfile({ part, value, context }) {
@@ -3493,7 +3524,7 @@ export function youtube(
             ? brandingNext(isJsonObject(channelPatch) ? channelPatch : {})
             : merge(channel["localizations"], value);
 
-        return writtenObject(
+        return writtenResourceFor(
           await request(
             "/youtube/v3/channels",
             context,
@@ -3502,6 +3533,7 @@ export function youtube(
             "PUT",
           ),
           "/youtube/v3/channels",
+          options.auth.channelId,
         );
       },
       async deleteVideo({ videoId, context }) {
@@ -3865,7 +3897,7 @@ export function youtube(
             message: "Provide a comment body whose id, if present, matches commentId.",
           });
 
-        return writtenObject(
+        return writtenResourceFor(
           await request(
             "/youtube/v3/comments",
             context,
@@ -3874,6 +3906,7 @@ export function youtube(
             "PUT",
           ),
           "/youtube/v3/comments",
+          commentId,
         );
       },
       async deleteComment({ account, commentId, context }) {
@@ -3974,7 +4007,10 @@ export function youtube(
         if (action === "bind") {
           if (!id?.trim()) throw invalidInput(operation, "id is required for bind.");
 
-          return writtenObject(
+          const stream = nonEmpty(streamId?.trim());
+          const bindOperation = "/youtube/v3/liveBroadcasts/bind";
+
+          const bound = writtenResourceFor(
             await request(
               "/youtube/v3/liveBroadcasts/bind",
               context,
@@ -3982,12 +4018,25 @@ export function youtube(
               {
                 id,
                 part: "id,snippet,contentDetails,status",
-                ...definedFields({ streamId: nonEmpty(streamId?.trim()) }),
+                ...definedFields({ streamId: stream }),
               },
               "POST",
             ),
-            "/youtube/v3/liveBroadcasts/bind",
+            bindOperation,
+            id,
           );
+
+          // The broadcast must report the stream it now uses, or no stream after an unbind.
+          const boundStreamId = optionalObject(bound["contentDetails"])?.["boundStreamId"];
+
+          if (
+            stream === undefined
+              ? boundStreamId !== undefined && boundStreamId !== null && boundStreamId !== ""
+              : boundStreamId !== stream
+          )
+            throw uncertainWrite(bindOperation);
+
+          return bound;
         }
 
         if (action === "cuepoint") {
@@ -4009,7 +4058,7 @@ export function youtube(
               "cuepoint needs a positive integer durationSecs and at most one of insertionOffsetTimeMs and walltimeMs.",
             );
 
-          return writtenObject(
+          return writtenResource(
             await request(
               "/youtube/v3/liveBroadcasts/cuepoint",
               context,
@@ -4066,7 +4115,9 @@ export function youtube(
               message: "id and broadcastStatus are required.",
             });
 
-          return writtenObject(
+          const transitionOperation = "/youtube/v3/liveBroadcasts/transition";
+
+          const transitioned = writtenResourceFor(
             await request(
               "/youtube/v3/liveBroadcasts/transition",
               context,
@@ -4074,8 +4125,20 @@ export function youtube(
               { part: "snippet,status", id, broadcastStatus },
               "POST",
             ),
-            "/youtube/v3/liveBroadcasts/transition",
+            transitionOperation,
+            id,
           );
+
+          // YouTube may still report the intermediate starting state of the requested transition.
+          const lifeCycleStatus = optionalObject(transitioned["status"])?.["lifeCycleStatus"];
+
+          if (
+            !isString(lifeCycleStatus) ||
+            !transitionStates[broadcastStatus].some((state) => state === lifeCycleStatus)
+          )
+            throw uncertainWrite(transitionOperation);
+
+          return transitioned;
         }
 
         return writtenResource(
@@ -4113,7 +4176,7 @@ export function youtube(
           if (!id) throw invalidInput("live.chat.messages", "messageId of the poll is required.");
 
           // Closing is the only documented transition; part=snippet returns the final tallies.
-          return writtenObject(
+          return writtenResourceFor(
             await request(
               "/youtube/v3/liveChat/messages/transition",
               context,
@@ -4122,6 +4185,7 @@ export function youtube(
               "POST",
             ),
             "/youtube/v3/liveChat/messages/transition",
+            id,
           );
         }
 
@@ -5203,7 +5267,7 @@ export function youtube(
 
         const body = abuseReportBody(report);
 
-        return writtenObject(
+        const result = writtenObject(
           await request(
             "/youtube/v3/abuseReports",
             context,
@@ -5213,6 +5277,11 @@ export function youtube(
           ),
           "/youtube/v3/abuseReports",
         );
+
+        // An abuse report has no ID; the stored report must at least name its subject.
+        if (!isJsonObject(result["subject"])) throw uncertainWrite("/youtube/v3/abuseReports");
+
+        return result;
       },
       async commentReplies({ parentId, textFormat, pageToken, maxResults, context }) {
         nativeAuthorize(context);

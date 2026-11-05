@@ -112,7 +112,8 @@ it("Buffer createIdea keeps a malformed IdeaResponse uncertain and still reports
     (error: SocialError) => {
       assert.ok(error instanceof SocialError);
       assert.equal(error.code, "invalid_input");
-      assert.equal(error.message, "Text is too long");
+      // Buffer's prose can echo post content, so the SDK never copies it into errors.
+      assert.equal(error.message, "Buffer rejected the request.");
 
       return true;
     },

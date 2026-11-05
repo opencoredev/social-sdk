@@ -239,7 +239,10 @@ it("YouTube thumbnails use the upload endpoint", async () => {
     fetch: async (input) => {
       seen = new URL(String(input));
 
-      return Response.json({ kind: "youtube#thumbnail" });
+      return Response.json({
+        kind: "youtube#thumbnailSetResponse",
+        items: [{ default: { url: "https://i.ytimg.com/vi/v1/default.jpg" } }],
+      });
     },
   });
 

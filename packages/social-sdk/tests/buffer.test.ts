@@ -504,7 +504,8 @@ it("Buffer maps GraphQL and HTTP failures without echoing secrets", async () => 
     (error) =>
       error instanceof SocialError &&
       error.code === "invalid_input" &&
-      error.message === "Text is required" &&
+      error.message === "Buffer rejected the request." &&
+      !error.message.includes("Text is required") &&
       !error.message.includes("secret-key"),
   );
 
