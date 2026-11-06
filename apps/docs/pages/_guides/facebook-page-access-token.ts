@@ -166,7 +166,7 @@ export const facebookPageAccessToken: Guide = {
   heading: "Facebook Page access tokens, explained",
   lede: "A Facebook Page access token lets your server publish and read as a Page through the Graph API. You can't create one directly: a person with a task on the Page logs in to your app, you exchange their user token for a long-lived one, then call <code>/me/accounts</code>. Page tokens made from a long-lived user token have no expiration date, though Meta can still invalidate them.",
   published: "2026-11-03",
-  updated: "2026-11-03",
+  updated: "2026-11-06",
   content: `
           <h2 id="token-types">Which Facebook access token you need</h2>
           <p>
@@ -407,8 +407,12 @@ export const facebookPageAccessToken: Guide = {
             Page token and a <code>canPublish</code> flag set when the person has
             <code>CREATE_CONTENT</code>. The adapter takes one Page ID and token, rejects any other
             Page, and turns error <code>190</code> into a <code>reconnect_required</code> outcome.
-            It doesn't send <code>appsecret_proof</code>, so leave Require App Secret off for an
-            app whose calls go through the adapter.
+            Pass your app secret as <code>appSecret</code> and every Graph call from the adapter
+            carries <code>appsecret_proof</code>, so you can keep Require App Secret turned on;
+            <code>discoverFacebookPages</code> takes the same option. Server helpers
+            (<code>exchangeFacebookCode</code>, <code>exchangeFacebookToken</code>, and
+            <code>inspectFacebookToken</code>) cover the login, exchange, and
+            <code>debug_token</code> steps above.
           </p>
           <p>
             In 0.5.0 you can already post to Instagram, X, LinkedIn, Bluesky, Threads, TikTok, and
