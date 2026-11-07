@@ -9,6 +9,9 @@
 // GITHUB_TOKEN raises the GitHub API rate limit. GROWTH_GITHUB_TOKEN, a token
 // with read access to repository administration, adds views, clones and
 // referrers; GitHub keeps those for 14 days only, so they are skipped without it.
+// Stars gained per day need a user token: GitHub lists stargazers only to user
+// tokens, so the Actions installation token is not used for them and they are
+// skipped unless GROWTH_GITHUB_TOKEN is set or GITHUB_TOKEN is a user token.
 //
 // Every event ID is derived from its name and day, and daily runs re-send only
 // finished days, so a re-sent event carries the same ID and the same values.
@@ -63,6 +66,11 @@ const backfill = args.has("--backfill");
 const githubToken = process.env["GITHUB_TOKEN"]?.trim() || undefined;
 
 const trafficToken = process.env["GROWTH_GITHUB_TOKEN"]?.trim() || undefined;
+
+// GitHub App installation tokens, such as the Actions `GITHUB_TOKEN`, start with
+// `ghs_`; the stargazers endpoint answers them with 403.
+const starsToken =
+  trafficToken ?? (githubToken && !githubToken.startsWith("ghs_") ? githubToken : undefined);
 
 function isDay(value: string): value is Day {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -185,17 +193,17 @@ function lastPage(link: string): number {
 }
 
 /** Stars gained per day, from each current stargazer's `starred_at`. */
-async function starsGained(today: Day): Promise<GrowthEvent[]> {
+async function starsGained(today: Day, token: string): Promise<GrowthEvent[]> {
   const windowStart = daysBefore(today, DAILY_WINDOW_DAYS);
   const base = `https://api.github.com/repos/${REPOSITORY}/stargazers?per_page=100`;
-  const first = await getJson(`${base}&page=1`, githubToken);
+  const first = await getJson(`${base}&page=1`, token);
   const pages = new Map<number, JsonValue>([[1, first.body]]);
   const perDay = new Map<Day, number>();
 
   // Stargazers are listed oldest first, so the daily run walks back from the
   // last page until it passes the window.
   for (let page = lastPage(first.link); page >= 1; page--) {
-    const body = pages.get(page) ?? (await getJson(`${base}&page=${page}`, githubToken)).body;
+    const body = pages.get(page) ?? (await getJson(`${base}&page=${page}`, token)).body;
     let reachedWindowStart = false;
 
     for (const entry of array(body)) {
@@ -331,8 +339,13 @@ const sections: [string, () => Promise<GrowthEvent[]>][] = [
   ["npm downloads", () => npmDownloads(today)],
   ["npm versions", () => npmVersions(today)],
   ["GitHub repository", () => repoTotals(today)],
-  ["GitHub stars", () => starsGained(today)],
 ];
+
+if (starsToken) sections.push(["GitHub stars", () => starsGained(today, starsToken)]);
+else
+  console.log(
+    "GitHub stars: skipped, listing stargazers needs a user token (GROWTH_GITHUB_TOKEN or a personal GITHUB_TOKEN).",
+  );
 
 if (trafficToken) sections.push(["GitHub traffic", () => traffic(today, trafficToken)]);
 else console.log("GitHub traffic: skipped, GROWTH_GITHUB_TOKEN is not set.");
