@@ -4,8 +4,8 @@ name: Growth snapshot
 # once a day. See scripts/growth-snapshot.ts. GitHub traffic (views, clones,
 # referrers) and stars gained per day need the optional GROWTH_GITHUB_TOKEN
 # secret: a fine-grained token for this repository with read-only
-# "Administration" permission. GitHub lists stargazers only to user tokens, so
-# the workflow's own token cannot read them; without the secret both are skipped.
+# "Administration" permission. The stargazers endpoint answers 403 to the
+# workflow's own token, so without the secret both are skipped.
 
 on:
   schedule:

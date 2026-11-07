@@ -9,9 +9,9 @@
 // GITHUB_TOKEN raises the GitHub API rate limit. GROWTH_GITHUB_TOKEN, a token
 // with read access to repository administration, adds views, clones and
 // referrers; GitHub keeps those for 14 days only, so they are skipped without it.
-// Stars gained per day need a user token: GitHub lists stargazers only to user
-// tokens, so the Actions installation token is not used for them and they are
-// skipped unless GROWTH_GITHUB_TOKEN is set or GITHUB_TOKEN is a user token.
+// Stars gained per day need a token GitHub lets list stargazers. The workflow's
+// own GITHUB_TOKEN answers 403 there, so in Actions they come from
+// GROWTH_GITHUB_TOKEN only and are skipped without it.
 //
 // Every event ID is derived from its name and day, and daily runs re-send only
 // finished days, so a re-sent event carries the same ID and the same values.
@@ -67,10 +67,9 @@ const githubToken = process.env["GITHUB_TOKEN"]?.trim() || undefined;
 
 const trafficToken = process.env["GROWTH_GITHUB_TOKEN"]?.trim() || undefined;
 
-// GitHub App installation tokens, such as the Actions `GITHUB_TOKEN`, start with
-// `ghs_`; the stargazers endpoint answers them with 403.
+// In Actions, GITHUB_TOKEN is the workflow token, which the stargazers endpoint refuses.
 const starsToken =
-  trafficToken ?? (githubToken && !githubToken.startsWith("ghs_") ? githubToken : undefined);
+  trafficToken ?? (process.env["GITHUB_ACTIONS"] === "true" ? undefined : githubToken);
 
 function isDay(value: string): value is Day {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -344,7 +343,7 @@ const sections: [string, () => Promise<GrowthEvent[]>][] = [
 if (starsToken) sections.push(["GitHub stars", () => starsGained(today, starsToken)]);
 else
   console.log(
-    "GitHub stars: skipped, listing stargazers needs a user token (GROWTH_GITHUB_TOKEN or a personal GITHUB_TOKEN).",
+    "GitHub stars: skipped, the workflow token cannot list stargazers; set GROWTH_GITHUB_TOKEN.",
   );
 
 if (trafficToken) sections.push(["GitHub traffic", () => traffic(today, trafficToken)]);
