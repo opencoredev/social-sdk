@@ -89,7 +89,6 @@ const throwawayDomains = new Set([
   "mintemail.com",
   "mohmal.com",
   "sharklasers.com",
-  "spamgourmet.com",
   "tempail.com",
   "temp-mail.org",
   "tempmail.com",

@@ -4,7 +4,9 @@ import { test } from "node:test";
 import { POST } from "./api/cloud-waitlist";
 import { formBody, parseSignup, trapField, type Signup } from "./cloud-waitlist";
 import {
+  checkMailDomainWith,
   handleWaitlistPost,
+  type MailLookups,
   type Admission,
   type MailDomain,
   type WaitlistServices,
@@ -333,4 +335,50 @@ test("a database failure answers 503 without echoing the signup", async () => {
 
   assert.equal(response.status, 503);
   assert.ok(!text.includes("company.dev"));
+});
+
+function dnsError(code: string): Error {
+  return Object.assign(new Error(`queryX ${code}`), { code });
+}
+
+type Answer = readonly string[] | string;
+
+function lookups(answers: {
+  mx: readonly string[] | string;
+  a?: Answer;
+  aaaa?: Answer;
+}): MailLookups {
+  const answer = (value: Answer | undefined) =>
+    value === undefined || Array.isArray(value)
+      ? Promise.resolve(value ?? [])
+      : Promise.reject(dnsError(String(value)));
+
+  return {
+    resolveMx: () =>
+      Array.isArray(answers.mx)
+        ? Promise.resolve(answers.mx.map((exchange) => ({ exchange })))
+        : Promise.reject(dnsError(String(answers.mx))),
+    resolve4: () => answer(answers.a),
+    resolve6: () => answer(answers.aaaa),
+  };
+}
+
+test("the mail-domain check rejects only domains that definitely take no mail", async () => {
+  const cases: readonly [Parameters<typeof lookups>[0], string][] = [
+    [{ mx: ["aspmx.l.google.com"] }, "receives-mail"],
+    [{ mx: [""] }, "no-mail"],
+    [{ mx: "ENOTFOUND" }, "no-mail"],
+    [{ mx: "ENODATA", a: ["192.0.2.1"], aaaa: "ENODATA" }, "receives-mail"],
+    [{ mx: "ENODATA", a: "ENODATA", aaaa: "ENODATA" }, "no-mail"],
+    [{ mx: "ENODATA", a: "ETIMEOUT", aaaa: "ESERVFAIL" }, "receives-mail"],
+    [{ mx: "ETIMEOUT" }, "receives-mail"],
+    [{ mx: "ESERVFAIL" }, "receives-mail"],
+  ];
+
+  for (const [answers, expected] of cases)
+    assert.equal(
+      await checkMailDomainWith(lookups(answers), "company.dev"),
+      expected,
+      JSON.stringify(answers),
+    );
 });

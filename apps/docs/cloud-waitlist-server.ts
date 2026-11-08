@@ -36,6 +36,65 @@ export type WaitlistServices = {
   store: (signup: Signup) => Promise<void>;
 };
 
+/** The DNS lookups the mail-domain check makes; node:dns/promises' Resolver has them. */
+export type MailLookups = {
+  resolveMx: (domain: string) => Promise<readonly { exchange: string }[]>;
+  resolve4: (domain: string) => Promise<readonly string[]>;
+  resolve6: (domain: string) => Promise<readonly string[]>;
+};
+
+function hasCode(error: Error): error is Error & { code: string } {
+  return "code" in error && typeof error.code === "string";
+}
+
+function lookupCode(reason: Error): string | null {
+  return hasCode(reason) ? reason.code : null;
+}
+
+const definitelyAbsent = new Set(["ENODATA", "ENOTFOUND"]);
+
+/** "no-mail" only when both address lookups say there is no address; any other failure is unknown. */
+async function implicitMx(lookups: MailLookups, domain: string): Promise<MailDomain> {
+  const found = await Promise.allSettled([lookups.resolve4(domain), lookups.resolve6(domain)]);
+
+  const absent = found.every(
+    (result) =>
+      (result.status === "fulfilled" && result.value.length === 0) ||
+      (result.status === "rejected" &&
+        result.reason instanceof Error &&
+        definitelyAbsent.has(lookupCode(result.reason) ?? "")),
+  );
+
+  return absent ? "no-mail" : "receives-mail";
+}
+
+/**
+ * Whether a domain can receive mail: through its MX records, or through its own
+ * address when it has none. "Null MX" (one empty exchange) means it takes no
+ * mail. Timeouts and server failures count as receiving mail, so a DNS hiccup
+ * never turns a person away.
+ */
+export async function checkMailDomainWith(
+  lookups: MailLookups,
+  domain: string,
+): Promise<MailDomain> {
+  try {
+    const records = await lookups.resolveMx(domain);
+
+    return records.some((record) => record.exchange !== "" && record.exchange !== ".")
+      ? "receives-mail"
+      : "no-mail";
+  } catch (error) {
+    const code = error instanceof Error ? lookupCode(error) : null;
+
+    if (code === "ENOTFOUND") return "no-mail";
+
+    if (code === "ENODATA") return implicitMx(lookups, domain);
+
+    return "receives-mail";
+  }
+}
+
 type Reply =
   | { kind: "joined" }
   | { kind: "invalid"; field: SignupField; reason: "format" | "no-mail" | "throwaway" }

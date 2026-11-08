@@ -8,6 +8,7 @@ import { neon } from "@neondatabase/serverless";
 
 import type { JsonObject, JsonValue, Signup } from "../cloud-waitlist.js";
 import {
+  checkMailDomainWith,
   handleWaitlistPost,
   type Admission,
   type MailDomain,
@@ -44,74 +45,52 @@ function clientBucket(client: string): string | null {
   return `client:${createHmac("sha256", secret).update(client).digest("base64url").slice(0, 22)}`;
 }
 
-type AttemptRow = { readonly bucket: string; readonly attempts: number };
-
 function isRecord(row: JsonValue): row is JsonObject {
   return typeof row === "object" && row !== null && !Array.isArray(row);
 }
 
-function isAttemptRow(row: JsonValue): row is AttemptRow {
-  return isRecord(row) && typeof row.bucket === "string" && typeof row.attempts === "number";
+function isAttemptCount(row: JsonValue): row is JsonObject & { readonly attempts: number } {
+  return isRecord(row) && typeof row.attempts === "number";
 }
 
-function isOverLimit(row: AttemptRow): boolean {
-  return row.attempts > (row.bucket === "site" ? sitePerHour : perClientPerHour);
-}
-
-async function admit(client: string): Promise<Admission> {
+/** Counts one attempt for `bucket` in the current hour and returns the hour's total. */
+async function countAttempt(bucket: string): Promise<number> {
   const sql = database();
-  const bucket = clientBucket(client);
-  const buckets = bucket === null ? ["site"] : ["site", bucket];
 
-  // Counts this attempt in the current hour for each bucket, and drops windows
-  // older than a day in the same round trip.
+  // Windows older than a day are dropped in the same round trip.
   const rows: readonly JsonValue[] = await sql`
     with hits as (
       insert into cloud_waitlist_attempts (bucket, window_start)
-      select unnest(${buckets}::text[]), date_trunc('hour', now())
+      values (${bucket}, date_trunc('hour', now()))
       on conflict (bucket, window_start)
         do update set attempts = cloud_waitlist_attempts.attempts + 1
-      returning bucket, attempts
+      returning attempts
     ), expired as (
       delete from cloud_waitlist_attempts where window_start < now() - interval '1 day'
     )
-    select bucket, attempts from hits`;
+    select attempts from hits`;
 
-  return rows.filter(isAttemptRow).some(isOverLimit) ? "limited" : "admitted";
+  const row = rows.find(isAttemptCount);
+
+  if (row === undefined) throw new Error("attempt counter returned no row");
+
+  return row.attempts;
+}
+
+// The address's own limit is checked first, and only attempts it admits count
+// toward the site-wide limit, so one address can't use up everyone's capacity.
+async function admit(client: string): Promise<Admission> {
+  const bucket = clientBucket(client);
+
+  if (bucket !== null && (await countAttempt(bucket)) > perClientPerHour) return "limited";
+
+  return (await countAttempt("site")) > sitePerHour ? "limited" : "admitted";
 }
 
 const resolver = new Resolver({ timeout: 1500, tries: 1 });
 
-function hasCode(error: Error): error is Error & { code: string } {
-  return "code" in error && typeof error.code === "string";
-}
-
-async function hasAddress(domain: string): Promise<boolean> {
-  const found = await Promise.allSettled([resolver.resolve4(domain), resolver.resolve6(domain)]);
-
-  return found.some((result) => result.status === "fulfilled" && result.value.length > 0);
-}
-
-// A domain receives mail through its MX records, or through its own address
-// when it has none. "Null MX" (a single empty exchange) means it takes no mail.
-// Timeouts and server failures count as receiving mail, so a DNS hiccup never
-// turns a person away.
-async function checkMailDomain(domain: string): Promise<MailDomain> {
-  try {
-    const records = await resolver.resolveMx(domain);
-
-    return records.some((record) => record.exchange !== "" && record.exchange !== ".")
-      ? "receives-mail"
-      : "no-mail";
-  } catch (error) {
-    const code = error instanceof Error && hasCode(error) ? error.code : null;
-
-    if (code === "ENOTFOUND") return "no-mail";
-
-    if (code === "ENODATA") return (await hasAddress(domain)) ? "receives-mail" : "no-mail";
-
-    return "receives-mail";
-  }
+function checkMailDomain(domain: string): Promise<MailDomain> {
+  return checkMailDomainWith(resolver, domain);
 }
 
 async function store(signup: Signup): Promise<void> {
