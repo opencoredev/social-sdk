@@ -14,11 +14,11 @@ import {
   type WaitlistServices,
 } from "../cloud-waitlist-server.js";
 
-/** Signup attempts one client may make in an hour. */
-const perClientPerHour = 5;
+/** Signup attempts one address may make in an hour. Mobile carriers put many people behind one address, so this stays well above one person. */
+const perClientPerHour = 20;
 
 /** Signup attempts the whole site accepts in an hour, so a botnet can't flood the list. */
-const sitePerHour = 300;
+const sitePerHour = 1000;
 
 function environment(): string {
   const name = process.env.VERCEL_ENV;
