@@ -15,7 +15,7 @@ export const cloudPage = {
 /** The one-line pointer to /cloud that the guides share, so the wording stays the same everywhere. */
 export const cloudCallout = `<p class="cloud-cta"><b>Rather not run it yourself?</b> Social SDK Cloud, the hosted version, is taking early-access signups. <a href="${cloudPage.path}">Join the list</a>.</p>`;
 
-/** The PostHog event a successful signup sends. It carries the answers, never the email. */
+/** The analytics event a successful signup sends through window.siteTrack (analytics.ts). It carries the answers, never the email. */
 export const signupEvent = "cloud_waitlist_signup";
 
 const styles = `<style>
@@ -536,7 +536,7 @@ const content = `
                 if (response.ok && result && result.ok === true) {
                   section.classList.add("is-joined");
                   done.focus();
-                  window.posthog?.capture?.("${signupEvent}", {
+                  window.siteTrack?.("${signupEvent}", {
                     platforms,
                     accounts,
                     came_from: cameFrom,
