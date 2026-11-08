@@ -6,12 +6,14 @@ import { Resolver } from "node:dns/promises";
 
 import { neon } from "@neondatabase/serverless";
 
-import type { JsonObject, JsonValue, Signup } from "../cloud-waitlist.js";
+import type { JsonObject, JsonValue } from "../cloud-waitlist.js";
 import {
   checkMailDomainWith,
   handleWaitlistPost,
   type Admission,
+  type BlockedReason,
   type MailDomain,
+  type StoredSignup,
   type WaitlistServices,
 } from "../cloud-waitlist-server.js";
 
@@ -93,15 +95,17 @@ function checkMailDomain(domain: string): Promise<MailDomain> {
   return checkMailDomainWith(resolver, domain);
 }
 
-async function store(signup: Signup): Promise<void> {
+async function store({ signup, flags }: StoredSignup): Promise<void> {
   const sql = database();
 
   await sql`
     insert into cloud_waitlist
-      (email, platforms, other_platforms, accounts, current_tool, came_from, environment)
+      (email, platforms, other_platforms, accounts, current_tool, came_from, environment,
+       flags, elapsed_ms)
     values (
       ${signup.email}, ${[...signup.platforms]}, ${signup.otherPlatforms}, ${signup.accounts},
-      ${signup.currentTool}, ${signup.cameFrom}, ${environment()}
+      ${signup.currentTool}, ${signup.cameFrom}, ${environment()}, ${[...flags]},
+      ${signup.elapsedMs}
     )
     on conflict (email) do update set
       platforms = excluded.platforms,
@@ -113,11 +117,27 @@ async function store(signup: Signup): Promise<void> {
         when excluded.environment = 'production' then 'production'
         else cloud_waitlist.environment
       end,
+      flags = excluded.flags,
+      elapsed_ms = excluded.elapsed_ms,
       submissions = cloud_waitlist.submissions + 1,
       updated_at = now()`;
 }
 
-const services: WaitlistServices = { admit, checkMailDomain, store };
+// One row per hour and reason, kept 60 days for the weekly spam reports.
+async function recordBlocked(reason: BlockedReason): Promise<void> {
+  const sql = database();
+
+  await sql`
+    with hit as (
+      insert into cloud_waitlist_blocked (window_start, reason, environment)
+      values (date_trunc('hour', now()), ${reason}, ${environment()})
+      on conflict (window_start, reason, environment)
+        do update set attempts = cloud_waitlist_blocked.attempts + 1
+    )
+    delete from cloud_waitlist_blocked where window_start < now() - interval '60 days'`;
+}
+
+const services: WaitlistServices = { admit, checkMailDomain, recordBlocked, store };
 
 export function POST(request: Request): Promise<Response> {
   return handleWaitlistPost(request, services);

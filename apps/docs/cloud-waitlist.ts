@@ -97,6 +97,43 @@ const throwawayDomains = new Set([
   "yopmail.com",
 ]);
 
+/**
+ * Signs that a stored signup may be automated. They mark a row for review and
+ * never reject it: a person can trip any one of them.
+ */
+export type SpamFlag = "link-in-answer" | "no-javascript" | "quick-submit" | "random-looking-email";
+
+/** People rarely finish the form this fast; bots that wait out the minimum often do. */
+export const quickSubmitMs = 5000;
+
+const linkPattern = /https?:\/\/|www\./i;
+
+/** A local part (before any +tag) with a long consonant run or mostly digits, like "xkqzvbt91" or "8827364551". */
+function looksRandom(email: Email): boolean {
+  const local = email.slice(0, email.lastIndexOf("@")).split("+")[0] ?? "";
+  const letters = local.replace(/[^a-z0-9]/g, "");
+  const digits = letters.replace(/[^0-9]/g, "").length;
+
+  if (letters.length >= 8 && /[bcdfghjklmnpqrstvwxz]{5,}/.test(letters)) return true;
+
+  return letters.length >= 10 && digits / letters.length >= 0.6;
+}
+
+/** The spam flags for a signup that passed every check. */
+export function spamFlags(signup: Signup): readonly SpamFlag[] {
+  const flags: SpamFlag[] = [];
+  const answers = `${signup.currentTool ?? ""} ${signup.otherPlatforms ?? ""}`;
+
+  if (linkPattern.test(answers)) flags.push("link-in-answer");
+
+  if (signup.elapsedMs === null) flags.push("no-javascript");
+  else if (signup.elapsedMs < quickSubmitMs) flags.push("quick-submit");
+
+  if (looksRandom(signup.email)) flags.push("random-looking-email");
+
+  return flags;
+}
+
 /** The part after the @. */
 export function emailDomain(email: Email): string {
   return email.slice(email.lastIndexOf("@") + 1);
