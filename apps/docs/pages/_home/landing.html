@@ -126,6 +126,43 @@
         line-height: 1.6;
         -webkit-font-smoothing: antialiased;
       }
+      /* ---------- Cloud early-access strip ---------- */
+      .cloud-strip {
+        display: block;
+        padding: 9px 16px;
+        background: var(--ink);
+        color: var(--paper);
+        font-size: 15px;
+        line-height: 1.45;
+        text-align: center;
+        text-decoration: none;
+      }
+      .cloud-strip .new {
+        margin-right: 6px;
+        font-family: var(--hand);
+        font-size: 20px;
+        line-height: 1;
+        color: #f08a6c;
+      }
+      .cloud-strip u {
+        margin-left: 4px;
+        font-weight: 560;
+        text-decoration-color: var(--marker);
+        text-decoration-thickness: 2px;
+        text-underline-offset: 3px;
+        white-space: nowrap;
+      }
+      .cloud-strip:hover u {
+        color: #f08a6c;
+      }
+      .cloud-strip:focus-visible {
+        outline: 3px solid var(--marker);
+        outline-offset: -3px;
+      }
+      html.dark .cloud-strip .new,
+      html.dark .cloud-strip:hover u {
+        color: #b93c1c;
+      }
       .wrap {
         max-width: 1080px;
         margin: 0 auto;
@@ -943,6 +980,11 @@
         </filter>
       </defs>
     </svg>
+
+    <a class="cloud-strip" href="/cloud">
+      <span class="new">new</span> Social SDK Cloud, the hosted SDK, is in early access.
+      <u>Join the list →</u>
+    </a>
 
     <div class="wrap">
       <nav>

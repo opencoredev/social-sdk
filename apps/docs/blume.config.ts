@@ -20,7 +20,7 @@ export default defineConfig({
   },
   basePath: "/docs",
   banner: {
-    content: "Social SDK Cloud, the hosted version of Social SDK, is taking early-access signups.",
+    content: "Social SDK Cloud, the hosted SDK, is in early access.",
     link: { href: "/cloud", text: "Join the list" },
     dismissible: true,
     id: "cloud-early-access",
