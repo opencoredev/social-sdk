@@ -1,7 +1,44 @@
 ---
 title: Integrations
 description: Use Social SDK with web frameworks, databases, and job runners such as Next.js, Hono, Supabase, SurrealDB, and Inngest.
+seo:
+  title: Add social media auto-posting to a SaaS app
+  description: Let each customer connect their own social accounts and post from your SaaS app with Social SDK, plus recipes for Next.js, Hono, Supabase and Inngest.
 ---
+
+To add auto-posting to a SaaS app, run Social SDK on your server and let each
+customer connect their own social accounts:
+
+1. **Connect accounts per customer.** Use `ConnectionManager` from
+   `@opencoredev/social-sdk/server` with the platform's OAuth factory (X,
+   Bluesky, Threads, Instagram, LinkedIn, TikTok, or YouTube). It records a
+   grant for the customer's tenant. Tokens are saved only where you send
+   them: pass a `credentialSink` that encrypts them at rest in your own store
+   (for Bluesky, a `sessionSink` for the whole session). To skip registering
+   an app with each platform, use a managed backend such as Zernio, Post for
+   Me, or PostFast, and connect accounts through that provider instead.
+2. **Check the tenant on every call.** Configure an `AuthorizationPolicy` in
+   `createSocial` that looks up the customer's grants. Without a policy, the
+   client checks nothing.
+3. **Publish with `social.posts.publish`.** Pass the draft ID as the
+   `idempotencyKey` and configure a durable `idempotencyStore`, so a retried
+   request doesn't post twice. You get one outcome per destination. An
+   `unknown` outcome means the post may exist, so reconcile it rather than
+   sending it again.
+4. **Schedule with a job runner you own,** such as Trigger.dev, Inngest, or
+   Restate, and call `social.posts.publish` when each job is due. The SDK
+   starts no background work. PostFast is the exception: it schedules on its
+   side and needs a future `schedule.at` on every post.
+
+```package-install
+@opencoredev/social-sdk
+```
+
+[Authentication](/authentication) covers the connection flow,
+[authorization](/concepts/tenant-authorization) covers the tenant check, and
+[choose an integration](/getting-started/choose-an-integration) compares
+direct and managed routes. To try publishing without platform credentials,
+start with the [mock quickstart](/getting-started/mock-quickstart).
 
 Social SDK is a server-side TypeScript library with no framework dependency. It runs anywhere its tested runtimes run: Node 22.12+, Node 24, and Bun. These guides show the recommended wiring for popular stacks: where the client lives, where credentials stay, how webhooks reach the verifier, and where durable state belongs.
 
