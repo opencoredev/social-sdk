@@ -72,6 +72,9 @@ export const trapField = "website";
 /** A person needs longer than this between opening the page and pressing Join. */
 export const minFillMs = 1500;
 
+/** Page-open times are stored up to a day; a tab left open longer is recorded as a day. */
+export const maxElapsedMs = 24 * 60 * 60 * 1000;
+
 // Well-known disposable inbox services. Not complete: the mail-domain check in
 // the API function catches made-up domains, and the rate limit catches volume.
 const throwawayDomains = new Set([
@@ -96,6 +99,44 @@ const throwawayDomains = new Set([
   "trashmail.com",
   "yopmail.com",
 ]);
+
+/**
+ * Signs that a stored signup may be automated. They mark a row for review and
+ * never reject it: a person can trip any one of them.
+ */
+export type SpamFlag = "link-in-answer" | "no-javascript" | "quick-submit" | "random-looking-email";
+
+/** People rarely finish the form this fast; bots that wait out the minimum often do. */
+export const quickSubmitMs = 5000;
+
+const linkPattern = /https?:\/\/|www\./i;
+
+/**
+ * A part of the local name (split at dots, dashes and the +tag) with seven or
+ * more consonants in a row, like "xkqzvbtrw". Real names rarely do this, even
+ * consonant-heavy ones like "krzysztof.skrzypek"; digit-only addresses (QQ
+ * mail, phone numbers) are normal and never flagged.
+ */
+function looksRandom(email: Email): boolean {
+  const local = email.slice(0, email.lastIndexOf("@")).split("+")[0] ?? "";
+
+  return local.split(/[^a-z]+/).some((part) => /[bcdfghjklmnpqrstvwxz]{7,}/.test(part));
+}
+
+/** The spam flags for a signup that passed every check. */
+export function spamFlags(signup: Signup): readonly SpamFlag[] {
+  const flags: SpamFlag[] = [];
+  const answers = `${signup.currentTool ?? ""} ${signup.otherPlatforms ?? ""}`;
+
+  if (linkPattern.test(answers)) flags.push("link-in-answer");
+
+  if (signup.elapsedMs === null) flags.push("no-javascript");
+  else if (signup.elapsedMs < quickSubmitMs) flags.push("quick-submit");
+
+  if (looksRandom(signup.email)) flags.push("random-looking-email");
+
+  return flags;
+}
 
 /** The part after the @. */
 export function emailDomain(email: Email): string {
@@ -231,7 +272,9 @@ export function parseSignup(body: JsonValue): ParsedSignup {
       accounts,
       currentTool: textOrNull(currentTool),
       cameFrom: sitePath(body.cameFrom),
-      elapsedMs: isMilliseconds(body.elapsedMs) ? Math.round(body.elapsedMs) : null,
+      elapsedMs: isMilliseconds(body.elapsedMs)
+        ? Math.min(Math.round(body.elapsedMs), maxElapsedMs)
+        : null,
     },
   };
 }

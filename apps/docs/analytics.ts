@@ -62,7 +62,7 @@ export const posthogScript = `(() => {
   // Pages report their own events here, such as the Cloud waitlist signup, so
   // only this file talks to the analytics service.
   window.siteTrack = (event, properties) => {
-    if (started) window.posthog.capture(event, properties);
+    if (started) window.posthog.capture(event, properties, { send_instantly: true });
     else queued.push([event, properties]);
   };
   const visit = () => {
@@ -91,7 +91,9 @@ export const posthogScript = `(() => {
     });
     started = true;
     pending.forEach(([path, url]) => track(path, url));
-    queued.forEach(([event, properties]) => window.posthog.capture(event, properties));
+    queued.forEach(([event, properties]) =>
+      window.posthog.capture(event, properties, { send_instantly: true }),
+    );
   };
   // astro:page-load fires on the first load and after every client-router swap.
   visit();

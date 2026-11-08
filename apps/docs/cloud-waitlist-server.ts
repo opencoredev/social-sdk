@@ -15,8 +15,10 @@ import {
   formBody,
   minFillMs,
   parseSignup,
+  spamFlags,
   type JsonValue,
   type Signup,
+  type SpamFlag,
   type SignupField,
 } from "./cloud-waitlist.js";
 
@@ -26,14 +28,30 @@ export type Admission = "admitted" | "limited";
 
 export type MailDomain = "receives-mail" | "no-mail";
 
+/** Why an attempt was turned away. Counted per hour; nothing about the visitor is kept. */
+export type BlockedReason =
+  | "trap"
+  | "too-fast"
+  | "throwaway"
+  | "no-mail"
+  | "rate-limited"
+  | "other-site"
+  | "invalid"
+  | "bad-request";
+
+/** A signup ready to store, with the spam flags it arrived with. */
+export type StoredSignup = { signup: Signup; flags: readonly SpamFlag[] };
+
 /** What the handler needs from the outside world. */
 export type WaitlistServices = {
+  /** Counts one blocked attempt. Failures here never change the reply. */
+  recordBlocked: (reason: BlockedReason) => Promise<void>;
   /** Counts one signup attempt from `client` (an opaque key) and says whether it's over the limit. */
   admit: (client: string) => Promise<Admission>;
   /** Whether a domain can receive mail. Answers "receives-mail" when it can't tell. */
   checkMailDomain: (domain: string) => Promise<MailDomain>;
   /** Inserts the signup, or updates the row with the same email. */
-  store: (signup: Signup) => Promise<void>;
+  store: (entry: StoredSignup) => Promise<void>;
 };
 
 /** The DNS lookups the mail-domain check makes; node:dns/promises' Resolver has them. */
@@ -97,6 +115,8 @@ export async function checkMailDomainWith(
 
 type Reply =
   | { kind: "joined" }
+  /** The trap field was filled: answered like a signup, stored nowhere. */
+  | { kind: "trapped" }
   | { kind: "invalid"; field: SignupField; reason: "format" | "no-mail" | "throwaway" }
   | { kind: "slow-down"; error: "too-fast" | "rate-limited" }
   | { kind: "rejected"; status: 403 | 413 | 415 | 400; error: string }
@@ -205,7 +225,7 @@ async function accept(signup: Signup, client: string, services: WaitlistServices
   if ((await services.checkMailDomain(emailDomain(signup.email))) === "no-mail")
     return { kind: "invalid", field: "email", reason: "no-mail" };
 
-  await services.store(signup);
+  await services.store({ signup, flags: spamFlags(signup) });
 
   return { kind: "joined" };
 }
@@ -235,7 +255,7 @@ async function handle(
 
   switch (parsed.kind) {
     case "trap":
-      return { kind: "joined" };
+      return { kind: "trapped" };
     case "invalid":
       return { kind: "invalid", field: parsed.field, reason: "format" };
     case "throwaway-email":
@@ -268,6 +288,7 @@ const noStore = { "cache-control": "no-store" };
 function jsonReply(reply: Reply): Response {
   switch (reply.kind) {
     case "joined":
+    case "trapped":
       return Response.json({ ok: true }, { headers: noStore });
     case "invalid":
       return Response.json(
@@ -293,11 +314,96 @@ function jsonReply(reply: Reply): Response {
 
 function redirectReply(reply: Reply, request: Request): Response {
   const target = new URL(
-    reply.kind === "joined" ? "/cloud#joined" : "/cloud#join-error",
+    reply.kind === "joined" || reply.kind === "trapped" ? "/cloud#joined" : "/cloud#join-error",
     request.url,
   );
 
   return new Response(null, { status: 303, headers: { ...noStore, location: target.href } });
+}
+
+function blockedReason(reply: Reply): BlockedReason | null {
+  switch (reply.kind) {
+    case "joined":
+    case "unavailable":
+      return null;
+    case "trapped":
+      return "trap";
+    case "invalid":
+      return reply.reason === "format" ? "invalid" : reply.reason;
+    case "slow-down":
+      return reply.error;
+    case "rejected":
+      return reply.status === 403 ? "other-site" : "bad-request";
+    default: {
+      const exhaustive: never = reply;
+
+      return exhaustive;
+    }
+  }
+}
+
+/** Counting a blocked attempt never holds a reply longer than this. */
+const recordDeadlineMs = 1500;
+
+async function record(reply: Reply, services: WaitlistServices): Promise<void> {
+  const reason = blockedReason(reply);
+
+  if (reason === null) return;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, recordDeadlineMs);
+  });
+
+  try {
+    await Promise.race([services.recordBlocked(reason), deadline]);
+  } catch (error) {
+    console.error("cloud-waitlist: could not count a blocked attempt", {
+      name: error instanceof Error ? error.name : "unknown",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Batches blocked-attempt counts so a flood of junk requests can't turn into a
+ * flood of database writes: each reason is written at most once per interval
+ * per server instance, carrying every attempt counted since the last write.
+ * Counts still pending when an instance shuts down are lost, so totals can run
+ * slightly low.
+ */
+export function batchedBlockedCounter(options: {
+  flush: (reason: BlockedReason, attempts: number) => Promise<void>;
+  now: () => number;
+  intervalMs: number;
+}): (reason: BlockedReason) => Promise<void> {
+  const pending = new Map<BlockedReason, number>();
+  const lastWrite = new Map<BlockedReason, number>();
+
+  return async (reason) => {
+    const attempts = (pending.get(reason) ?? 0) + 1;
+    const now = options.now();
+    const last = lastWrite.get(reason);
+
+    if (last !== undefined && now - last < options.intervalMs) {
+      pending.set(reason, attempts);
+
+      return;
+    }
+
+    pending.set(reason, 0);
+    lastWrite.set(reason, now);
+
+    try {
+      await options.flush(reason, attempts);
+    } catch (error) {
+      // Put the attempts back so the next write carries them.
+      pending.set(reason, (pending.get(reason) ?? 0) + attempts);
+      throw error;
+    }
+  };
 }
 
 /** Answers one POST to the waitlist endpoint. */
@@ -307,9 +413,17 @@ export async function handleWaitlistPost(
 ): Promise<Response> {
   const format = bodyFormat(request);
 
-  if (format === null) return jsonReply({ kind: "rejected", status: 415, error: "content-type" });
+  if (format === null) {
+    const reply: Reply = { kind: "rejected", status: 415, error: "content-type" };
+
+    await record(reply, services);
+
+    return jsonReply(reply);
+  }
 
   const reply = await handle(request, format, services);
+
+  await record(reply, services);
 
   return format === "json" ? jsonReply(reply) : redirectReply(reply, request);
 }

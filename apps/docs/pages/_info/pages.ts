@@ -220,7 +220,11 @@ export const privacy: InfoPage = {
             To keep bots off the list, the form checks that your email's domain can receive mail,
             and counts signup attempts per network for an hour. The count is stored under a keyed
             hash of your IP address, never the address itself. Counts older than a day are deleted
-            the next time anyone uses the form.
+            the next time anyone uses the form. We also count blocked attempts per hour and
+            reason, with nothing that identifies the visitor. With each entry we keep how long
+            the page was open before the form was sent, and we mark entries that look automated
+            (for example a link in an answer, or a form sent within seconds of opening the page)
+            so we can review them.
           </p>
           <p>
             We keep your entry until you ask us to remove it or we close the list. To be removed,
