@@ -64,6 +64,14 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   ["/privacy", infoPage("privacy")],
   ["/terms", infoPage("terms")],
   ["/brand", { files: ["brand.astro", "_brand"], ranges: [] }],
+  // The form's options live in cloud-waitlist.ts beside the API function.
+  [
+    "/cloud",
+    {
+      files: ["cloud.astro", "_cloud", "_info/info.html", "../cloud-waitlist.ts"],
+      ranges: [shellHelpers],
+    },
+  ],
   // Only used while the blog is empty; with posts, the blog sitemap dates it.
   [
     "/guides",

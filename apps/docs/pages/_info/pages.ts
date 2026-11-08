@@ -140,8 +140,8 @@ export const privacy: InfoPage = {
   path: "/privacy",
   title: "Privacy, what social-sdk.dev collects and why",
   description:
-    "What social-sdk.dev records, why the SDK library collects nothing, what the CLI's opt-out usage events hold, and how Social SDK Cloud handles your data.",
-  kicker: "last updated 4 November 2026",
+    "What social-sdk.dev and the Cloud waitlist record, what the CLI's opt-out usage events hold, and how Social SDK Cloud handles data. The SDK collects nothing.",
+  kicker: "last updated 8 November 2026",
   heading: "Privacy",
   lede: "This page covers the social-sdk.dev website, the Social SDK package you install from npm, and Social SDK Cloud, our hosted service in early development. The SDK library collects nothing and sends nothing on its own. The bundled CLI sends anonymous usage counts, which you can turn off.",
   content: `
@@ -196,8 +196,30 @@ export const privacy: InfoPage = {
           <p>
             Your light or dark theme choice is saved in local storage as <code>blume-theme</code>.
             The site is hosted on Vercel, which processes standard request data such as your IP
-            address and user agent to serve pages. There are no accounts, forms, ads, or
-            third-party ad trackers on the site.
+            address and user agent to serve pages. There are no accounts, ads, or third-party ad
+            trackers on the site. The only form is the Social SDK Cloud early-access form, covered
+            next.
+          </p>
+        </section>
+        <section id="cloud-waitlist">
+          <h2>The Social SDK Cloud early-access list</h2>
+          <p>
+            When you join the list on the <a href="/cloud">Social SDK Cloud page</a>, we store the
+            email address you enter, your answers about platforms, connected accounts, and what you
+            use today, the page on this site that linked you to the form, and when you signed up.
+            The list is kept in a Postgres database run by Neon in the United States, connected
+            through Vercel, and only the maintainers can read it.
+          </p>
+          <p>
+            We use it only to contact you about Social SDK Cloud and to decide which platforms to
+            build first. We don't add you to a newsletter, and we don't sell or share the list. The
+            analytics service gets a signup event with your platform and account answers, never
+            your email, and session replays mask the form's fields like every other input.
+          </p>
+          <p>
+            We keep your entry until you ask us to remove it or we close the list. To be removed,
+            email <a href="mailto:leo@social-sdk.dev">leo@social-sdk.dev</a> from the address you
+            signed up with, and we delete it within 7 days.
           </p>
         </section>
         <section>
@@ -211,7 +233,8 @@ export const privacy: InfoPage = {
           <h2>Social SDK Cloud</h2>
           <p>
             Social SDK Cloud is a hosted version of Social SDK. It is in early development and not
-            open for sign-ups, and no accounts are connected to it yet. When an app built on it asks
+            open yet: you can join its <a href="/cloud">early-access list</a>, and no accounts are
+            connected to it. When an app built on it asks
             you to connect a social account, you sign in on the platform's own page and approve an
             app named Social SDK Cloud. This section and the ones after it set the rules the service
             follows from the first connected account.
@@ -317,7 +340,7 @@ export const terms: InfoPage = {
   title: "Terms of service for Social SDK and Social SDK Cloud",
   description:
     "The terms for social-sdk.dev, the MIT-licensed Social SDK package, and Social SDK Cloud: platform rules, acceptable use, your content, and liability.",
-  kicker: "last updated 29 October 2026",
+  kicker: "last updated 8 November 2026",
   heading: "Terms",
   lede: "These terms cover the social-sdk.dev website, the open-source Social SDK package, and Social SDK Cloud. If anything here is unclear, email leo@social-sdk.dev.",
   content: `
@@ -344,8 +367,9 @@ export const terms: InfoPage = {
           <p>
             Social SDK Cloud is a hosted service that connects apps to social platforms through
             OAuth apps we operate under the name Social SDK Cloud. It is in early development and
-            not open for sign-ups. Access is by invitation, and its features, platforms, and limits
-            can change before it is generally available.
+            not open yet. You can join the <a href="/cloud">early-access list</a>; access is by
+            invitation, and its features, platforms, and limits can change before it is generally
+            available.
           </p>
           <p>
             You must be at least 13 to use it. Keep your API keys secret: you are responsible for

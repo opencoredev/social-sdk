@@ -1,6 +1,7 @@
 // Search-targeted guides at /guides. Each guide is one page in the info pages'
 // hand-drawn shell, with TechArticle and BreadcrumbList structured data.
 import { escapeHtml } from "../_blog/render";
+import { cloudCallout } from "../_cloud/cloud";
 import { renderShell, siteMeta } from "../_info/pages";
 import { ayrshareAlternatives } from "./ayrshare-alternatives";
 import { blueskyApi } from "./bluesky-api";
@@ -118,7 +119,7 @@ export function renderGuide(guide: Guide): string {
     kicker: `updated ${escapeHtml(longDate(guide.updated))}`,
     heading: escapeHtml(guide.heading),
     lede: guide.lede,
-    content: `<div class="prose">${guide.content}${relatedGuides(guide)}</div>`,
+    content: `<div class="prose">${guide.content}${cloudCallout}${relatedGuides(guide)}</div>`,
   });
 }
 
@@ -172,6 +173,7 @@ export function renderGuidesIndex(): string {
             <a href="/docs/integrations/inngest">Inngest</a> or <a href="/docs/integrations/trigger-dev">Trigger.dev</a>.
             <a href="/docs/publishing">Publishing</a> explains the outcome you get back for each network.
           </p>
+          ${cloudCallout}
         </div>`,
   });
 }

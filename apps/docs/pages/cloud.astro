@@ -1,0 +1,9 @@
+---
+// Social SDK Cloud early-access page. The copy and form live in _cloud/cloud.ts;
+// the form posts to api/cloud-waitlist.ts.
+import { withAnalytics } from "../analytics";
+import { renderCloudPage } from "./_cloud/cloud";
+import { withFonts } from "./_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderCloudPage()))} />

@@ -21,6 +21,9 @@
     },
     "apps/docs": {
       "name": "@social-sdk/docs",
+      "dependencies": {
+        "@neondatabase/serverless": "1.2.0",
+      },
       "devDependencies": {
         "astro": "7.4.2",
         "blume": "2.0.3",

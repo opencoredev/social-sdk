@@ -9,7 +9,10 @@
     "validate": "blume validate --strict",
     "audit": "blume audit --fail-on warning",
     "preview": "blume preview --host 0.0.0.0 --port 4000",
-    "test": "bun test pages/_blog sitemap-dates.test.ts"
+    "test": "bun test pages/_blog sitemap-dates.test.ts cloud-waitlist.test.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.2.0"
   },
   "devDependencies": {
     "astro": "7.4.2",
