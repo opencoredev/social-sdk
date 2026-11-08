@@ -8,6 +8,7 @@ import { neon } from "@neondatabase/serverless";
 
 import type { JsonObject, JsonValue } from "../cloud-waitlist.js";
 import {
+  batchedBlockedCounter,
   checkMailDomainWith,
   handleWaitlistPost,
   type Admission,
@@ -123,19 +124,25 @@ async function store({ signup, flags }: StoredSignup): Promise<void> {
       updated_at = now()`;
 }
 
-// One row per hour and reason, kept 60 days for the weekly spam reports.
-async function recordBlocked(reason: BlockedReason): Promise<void> {
+// One row per hour, reason and deployment, kept 60 days for the weekly reports.
+async function writeBlocked(reason: BlockedReason, attempts: number): Promise<void> {
   const sql = database();
 
   await sql`
     with hit as (
-      insert into cloud_waitlist_blocked (window_start, reason, environment)
-      values (date_trunc('hour', now()), ${reason}, ${environment()})
+      insert into cloud_waitlist_blocked (window_start, reason, environment, attempts)
+      values (date_trunc('hour', now()), ${reason}, ${environment()}, ${attempts})
       on conflict (window_start, reason, environment)
-        do update set attempts = cloud_waitlist_blocked.attempts + 1
+        do update set attempts = cloud_waitlist_blocked.attempts + excluded.attempts
     )
     delete from cloud_waitlist_blocked where window_start < now() - interval '60 days'`;
 }
+
+const recordBlocked = batchedBlockedCounter({
+  flush: writeBlocked,
+  now: Date.now,
+  intervalMs: 10_000,
+});
 
 const services: WaitlistServices = { admit, checkMailDomain, recordBlocked, store };
 

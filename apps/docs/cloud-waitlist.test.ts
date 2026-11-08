@@ -8,6 +8,7 @@ import {
   handleWaitlistPost,
   type MailLookups,
   type Admission,
+  batchedBlockedCounter,
   type BlockedReason,
   type MailDomain,
   type StoredSignup,
@@ -425,7 +426,10 @@ test("spam flags mark links, missing or quick timing, and machine-looking emails
     [{ email: "jane@company.dev" }, ["no-javascript"]],
     [{ email: "jane@company.dev", elapsedMs: 2_400 }, ["quick-submit"]],
     [{ email: "xkqzvbtrw@company.dev", elapsedMs: 42_000 }, ["random-looking-email"]],
-    [{ email: "8827364551@company.dev", elapsedMs: 42_000 }, ["random-looking-email"]],
+    [{ email: "jane.xkqzvbtrw@company.dev", elapsedMs: 42_000 }, ["random-looking-email"]],
+    [{ email: "krzysztof.skrzypek@company.dev", elapsedMs: 42_000 }, []],
+    [{ email: "markpbrs@company.dev", elapsedMs: 42_000 }, []],
+    [{ email: "8827364551@qq.com", elapsedMs: 42_000 }, []],
     [{ email: "jdoe1985@company.dev", elapsedMs: 42_000 }, []],
     [{ email: "strength+xkqzvbtrw@company.dev", elapsedMs: 42_000 }, []],
   ];
@@ -521,4 +525,73 @@ test("a failure to count a blocked attempt doesn't change the reply", async () =
   );
 
   assert.equal(response.status, 429);
+});
+
+test("a page left open for weeks stores a day, not a number the database can't hold", () => {
+  assert.equal(
+    signupOf({ email: "jane@company.dev", elapsedMs: 2_147_483_648 }).elapsedMs,
+    86_400_000,
+  );
+});
+
+test("blocked counts are batched: one write per reason per interval, carrying the attempts in between", async () => {
+  const writes: [BlockedReason, number][] = [];
+  let clock = 0;
+
+  const count = batchedBlockedCounter({
+    flush: async (reason, attempts) => {
+      writes.push([reason, attempts]);
+    },
+    now: () => clock,
+    intervalMs: 10_000,
+  });
+
+  for (let i = 0; i < 100; i++) await count("trap");
+  await count("too-fast");
+  clock = 10_000;
+  await count("trap");
+
+  assert.deepEqual(writes, [
+    ["trap", 1],
+    ["too-fast", 1],
+    ["trap", 100],
+  ]);
+});
+
+test("a failed batched write keeps its attempts for the next write", async () => {
+  const writes: number[] = [];
+  let clock = 0;
+  let fail = true;
+
+  const count = batchedBlockedCounter({
+    flush: async (_reason, attempts) => {
+      if (fail) throw new Error("database down");
+      writes.push(attempts);
+    },
+    now: () => clock,
+    intervalMs: 10_000,
+  });
+
+  await assert.rejects(count("trap"));
+  fail = false;
+  clock = 10_000;
+  await count("trap");
+
+  assert.deepEqual(writes, [2]);
+});
+
+test("a stalled count doesn't hold the reply past its deadline", async () => {
+  const world = fakeWorld();
+
+  world.services.recordBlocked = () => new Promise(() => {});
+
+  const started = Date.now();
+
+  const response = await handleWaitlistPost(
+    signupRequest(JSON.stringify({ ...person, elapsedMs: 100 })),
+    world.services,
+  );
+
+  assert.equal(response.status, 429);
+  assert.ok(Date.now() - started < 2_500);
 });

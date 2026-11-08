@@ -72,6 +72,9 @@ export const trapField = "website";
 /** A person needs longer than this between opening the page and pressing Join. */
 export const minFillMs = 1500;
 
+/** Page-open times are stored up to a day; a tab left open longer is recorded as a day. */
+export const maxElapsedMs = 24 * 60 * 60 * 1000;
+
 // Well-known disposable inbox services. Not complete: the mail-domain check in
 // the API function catches made-up domains, and the rate limit catches volume.
 const throwawayDomains = new Set([
@@ -108,15 +111,16 @@ export const quickSubmitMs = 5000;
 
 const linkPattern = /https?:\/\/|www\./i;
 
-/** A local part (before any +tag) with a long consonant run or mostly digits, like "xkqzvbt91" or "8827364551". */
+/**
+ * A part of the local name (split at dots, dashes and the +tag) with seven or
+ * more consonants in a row, like "xkqzvbtrw". Real names rarely do this, even
+ * consonant-heavy ones like "krzysztof.skrzypek"; digit-only addresses (QQ
+ * mail, phone numbers) are normal and never flagged.
+ */
 function looksRandom(email: Email): boolean {
   const local = email.slice(0, email.lastIndexOf("@")).split("+")[0] ?? "";
-  const letters = local.replace(/[^a-z0-9]/g, "");
-  const digits = letters.replace(/[^0-9]/g, "").length;
 
-  if (letters.length >= 8 && /[bcdfghjklmnpqrstvwxz]{5,}/.test(letters)) return true;
-
-  return letters.length >= 10 && digits / letters.length >= 0.6;
+  return local.split(/[^a-z]+/).some((part) => /[bcdfghjklmnpqrstvwxz]{7,}/.test(part));
 }
 
 /** The spam flags for a signup that passed every check. */
@@ -268,7 +272,9 @@ export function parseSignup(body: JsonValue): ParsedSignup {
       accounts,
       currentTool: textOrNull(currentTool),
       cameFrom: sitePath(body.cameFrom),
-      elapsedMs: isMilliseconds(body.elapsedMs) ? Math.round(body.elapsedMs) : null,
+      elapsedMs: isMilliseconds(body.elapsedMs)
+        ? Math.min(Math.round(body.elapsedMs), maxElapsedMs)
+        : null,
     },
   };
 }

@@ -342,18 +342,68 @@ function blockedReason(reply: Reply): BlockedReason | null {
   }
 }
 
+/** Counting a blocked attempt never holds a reply longer than this. */
+const recordDeadlineMs = 1500;
+
 async function record(reply: Reply, services: WaitlistServices): Promise<void> {
   const reason = blockedReason(reply);
 
   if (reason === null) return;
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, recordDeadlineMs);
+  });
+
   try {
-    await services.recordBlocked(reason);
+    await Promise.race([services.recordBlocked(reason), deadline]);
   } catch (error) {
     console.error("cloud-waitlist: could not count a blocked attempt", {
       name: error instanceof Error ? error.name : "unknown",
     });
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/**
+ * Batches blocked-attempt counts so a flood of junk requests can't turn into a
+ * flood of database writes: each reason is written at most once per interval
+ * per server instance, carrying every attempt counted since the last write.
+ * Counts still pending when an instance shuts down are lost, so totals can run
+ * slightly low.
+ */
+export function batchedBlockedCounter(options: {
+  flush: (reason: BlockedReason, attempts: number) => Promise<void>;
+  now: () => number;
+  intervalMs: number;
+}): (reason: BlockedReason) => Promise<void> {
+  const pending = new Map<BlockedReason, number>();
+  const lastWrite = new Map<BlockedReason, number>();
+
+  return async (reason) => {
+    const attempts = (pending.get(reason) ?? 0) + 1;
+    const now = options.now();
+    const last = lastWrite.get(reason);
+
+    if (last !== undefined && now - last < options.intervalMs) {
+      pending.set(reason, attempts);
+
+      return;
+    }
+
+    pending.set(reason, 0);
+    lastWrite.set(reason, now);
+
+    try {
+      await options.flush(reason, attempts);
+    } catch (error) {
+      // Put the attempts back so the next write carries them.
+      pending.set(reason, (pending.get(reason) ?? 0) + attempts);
+      throw error;
+    }
+  };
 }
 
 /** Answers one POST to the waitlist endpoint. */
