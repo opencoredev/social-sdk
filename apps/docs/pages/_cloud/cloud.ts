@@ -3,6 +3,7 @@
 // from cloud-waitlist.ts so the page and the function can't disagree.
 import { accountOptions, limits, platformOptions, trapField } from "../../cloud-waitlist";
 import { escapeHtml } from "../_blog/render";
+import { platformLogos } from "./logos";
 import { renderShell, siteMeta } from "../_info/pages";
 
 export const cloudPage = {
@@ -114,9 +115,25 @@ const styles = `<style>
         font-weight: 560;
         font-size: 18px;
       }
-      .field .optional {
+      .tag {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 9px;
+        border: 1.5px solid var(--ink-soft);
+        border-radius: 999px;
         color: var(--ink-soft);
-        font-weight: 380;
+        font-size: 13px;
+        font-weight: 450;
+        line-height: 20px;
+        letter-spacing: 0.02em;
+        vertical-align: 2px;
+      }
+      .tag-required {
+        border-color: var(--marker);
+        color: var(--marker-text, #b93c1c);
+      }
+      html.dark .tag-required {
+        color: #f08a6c;
       }
       .hint {
         margin-top: 2px;
@@ -172,6 +189,12 @@ const styles = `<style>
       }
       .chip:nth-child(3n + 2) {
         transform: rotate(0.8deg);
+      }
+      .chip svg {
+        flex: none;
+        width: 17px;
+        height: 17px;
+        margin-right: 8px;
       }
       .chip input {
         position: absolute;
@@ -327,28 +350,35 @@ const styles = `<style>
       }
     </style>`;
 
-function chips(
+function chip(
   name: string,
   type: "checkbox" | "radio",
-  options: readonly { id: string; label: string }[],
+  option: { id: string; label: string; logo?: string },
 ): string {
-  return options
-    .map(
-      (option) =>
-        `<label class="chip"><input type="${type}" name="${name}" value="${escapeHtml(option.id)}" /><span>${escapeHtml(option.label)}</span></label>`,
-    )
-    .join("\n                ");
+  return `<label class="chip"><input type="${type}" name="${name}" value="${escapeHtml(option.id)}" />${option.logo ?? ""}<span>${escapeHtml(option.label)}</span></label>`;
 }
+
+const platformChips = platformOptions
+  .map((option) => chip("platforms", "checkbox", { ...option, logo: platformLogos[option.id] }))
+  .join("\n                ");
+
+const accountChips = accountOptions
+  .map((option) => chip("accounts", "radio", option))
+  .join("\n                ");
+
+const required = `<span class="tag tag-required">required</span>`;
+
+const optional = `<span class="tag">optional</span>`;
 
 const content = `
         <section class="join" id="join" aria-labelledby="join-heading">
           <div class="note">
             <span class="tape" aria-hidden="true"></span>
             <h2 id="join-heading" class="ask">Get early access</h2>
-            <p class="ask">Only the email is required. We'll write when it opens.</p>
+            <p class="ask">We'll write when early access opens.</p>
             <form id="waitlist" method="post" action="/api/cloud-waitlist">
               <div class="field">
-                <label for="email">Email</label>
+                <label for="email">Email ${required}</label>
                 <input
                   id="email"
                   name="email"
@@ -359,10 +389,11 @@ const content = `
                   maxlength="${limits.email}"
                 />
               </div>
-              <fieldset class="field">
-                <legend>Which platforms do you need? <span class="optional">(pick any)</span></legend>
+              <fieldset class="field" aria-describedby="platforms-hint">
+                <legend>Which platforms do you need? ${optional}</legend>
+                <p class="hint" id="platforms-hint">Pick as many as you like.</p>
                 <div class="chips">
-                ${chips("platforms", "checkbox", platformOptions)}
+                ${platformChips}
                 </div>
                 <div class="other-field">
                   <label for="otherPlatforms">Which other platforms?</label>
@@ -370,14 +401,14 @@ const content = `
                 </div>
               </fieldset>
               <fieldset class="field" aria-describedby="accounts-hint">
-                <legend>Roughly how many connected accounts?</legend>
+                <legend>Roughly how many connected accounts? ${optional}</legend>
                 <p class="hint" id="accounts-hint">The social accounts your app would connect, across all your users.</p>
                 <div class="chips">
-                ${chips("accounts", "radio", accountOptions)}
+                ${accountChips}
                 </div>
               </fieldset>
               <div class="field">
-                <label for="currentTool">What do you use today?</label>
+                <label for="currentTool">What do you use today? ${optional}</label>
                 <p class="hint" id="currentTool-hint">Your own code, a scheduling tool, an API service, or nothing yet.</p>
                 <textarea
                   id="currentTool"
