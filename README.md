@@ -13,6 +13,8 @@ Choose direct platform access or a managed backend: Zernio, Post for Me, PostFas
 
 [Start with the quickstart](https://social-sdk.dev/docs/getting-started/mock-quickstart) · [Install from npm](https://social-sdk.dev/docs/getting-started/installation)
 
+Rather not run it yourself? Social SDK Cloud, the hosted version, is taking early-access signups. [Join the list](https://social-sdk.dev/cloud).
+
 - Direct adapters for Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube
 - Optional managed backends for Zernio, Post for Me, PostFast, Postiz, and Buffer
 - Typed capability manifests and platform-native operations behind explicit subpath imports

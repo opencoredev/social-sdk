@@ -4,7 +4,8 @@
 //
 // Captured: pageviews and page leaves (including client-router navigations),
 // JavaScript exceptions, session replays with every input masked, and the
-// docs-interest events below. Autocapture stays off, and query strings are
+// docs-interest events below, plus events pages send through window.siteTrack
+// (the Cloud waitlist signup). Autocapture stays off, and query strings are
 // stripped from URLs before events leave the browser.
 //
 // PostHog starts once the page has loaded and the main thread is idle, so its
@@ -55,7 +56,15 @@ export const posthogScript = `(() => {
   // Routes visited before PostHog starts wait here, so a quick hop through the
   // docs still records each page.
   const pending = [];
+  // Events a page reports through window.siteTrack before PostHog starts.
+  const queued = [];
   let started = false;
+  // Pages report their own events here, such as the Cloud waitlist signup, so
+  // only this file talks to the analytics service.
+  window.siteTrack = (event, properties) => {
+    if (started) window.posthog.capture(event, properties);
+    else queued.push([event, properties]);
+  };
   const visit = () => {
     const path = window.location.pathname;
     if (started) track(path);
@@ -82,6 +91,7 @@ export const posthogScript = `(() => {
     });
     started = true;
     pending.forEach(([path, url]) => track(path, url));
+    queued.forEach(([event, properties]) => window.posthog.capture(event, properties));
   };
   // astro:page-load fires on the first load and after every client-router swap.
   visit();

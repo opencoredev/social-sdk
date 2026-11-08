@@ -19,6 +19,12 @@ export default defineConfig({
     href: "/docs",
   },
   basePath: "/docs",
+  banner: {
+    content: "Social SDK Cloud, the hosted SDK, is taking early-access signups.",
+    link: { href: "/cloud", text: "Join the list" },
+    dismissible: true,
+    id: "cloud-early-access",
+  },
   feedback: false,
   lastModified: "git",
   redirects: [
