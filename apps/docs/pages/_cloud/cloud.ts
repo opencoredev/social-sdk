@@ -40,6 +40,29 @@ const styles = `<style>
         background: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 10"%3E%3Cpath d="M1.5 5.5 L5.5 8.5 L14.5 1.5" stroke="%23e8542f" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E')
           no-repeat center / contain;
       }
+      .jump {
+        margin-top: 22px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--hand);
+        font-size: 25px;
+        line-height: 1.2;
+      }
+      .jump a {
+        display: inline-block;
+        color: var(--marker);
+        text-decoration: none;
+        transform: rotate(-1deg);
+      }
+      .jump a:hover {
+        text-decoration: underline;
+        text-decoration-thickness: 2px;
+      }
+      .jump a:focus-visible {
+        outline: 3px solid var(--marker);
+        outline-offset: 3px;
+      }
       .join {
         padding-top: 64px;
         scroll-margin-top: 24px;
@@ -149,7 +172,7 @@ const styles = `<style>
         opacity: 0;
         cursor: pointer;
       }
-      .chip:hover {
+      .chip:hover:not(:has(input:checked)) {
         background: rgba(232, 84, 47, 0.1);
       }
       .chip:has(input:checked) {
@@ -237,9 +260,6 @@ const styles = `<style>
         color: var(--marker-text, #b93c1c);
         font-size: 16px;
       }
-      .status:empty {
-        display: none;
-      }
       .fine {
         margin-top: 26px;
         color: var(--ink-soft);
@@ -294,7 +314,7 @@ const styles = `<style>
       html.dark #join-error:target {
         color: #f08a6c;
       }
-      html.dark .chip:hover {
+      html.dark .chip:hover:not(:has(input:checked)) {
         background: rgba(232, 84, 47, 0.18);
       }
     </style>`;
@@ -313,6 +333,13 @@ function chips(
 }
 
 const content = `
+        <p class="jump">
+          <a href="#join">join the early-access list</a>
+          <svg width="22" height="26" viewBox="0 0 22 26" fill="none" aria-hidden="true">
+            <path d="M9 3 C5 9, 13 14, 10 22" stroke="#e8542f" stroke-width="2" stroke-linecap="round" />
+            <path d="M5 18 L10 23 L15 18" stroke="#e8542f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </p>
         <section>
           <h2>What Cloud will handle</h2>
           <ul class="handles">
@@ -332,8 +359,9 @@ const content = `
               unclear is reported as uncertain instead of being sent twice.
             </li>
             <li>
-              <b>Higher rate limits.</b> More headroom than a new developer app starts with.
-              We'll publish the actual limits once they're set.
+              <b>Rate limits.</b> Cloud's platform apps will apply for the higher quotas each
+              platform grants after its app review. Until a platform approves one, its limits are
+              the standard ones, and we'll publish them per platform.
             </li>
           </ul>
           <p>
@@ -428,7 +456,7 @@ const content = `
                   </svg>
                   <span class="label">Join the list</span>
                 </button>
-                <p class="status" role="status" aria-live="polite"></p>
+                <p class="status" id="join-status" role="status" aria-live="polite"></p>
               </div>
               <p class="fine">
                 We'll use your email only to contact you about Social SDK Cloud. To be removed,
@@ -495,6 +523,9 @@ const content = `
               button.disabled = true;
               label.textContent = "Joining…";
               status.textContent = "";
+              const email = form.elements.namedItem("email");
+              email.removeAttribute("aria-invalid");
+              email.removeAttribute("aria-describedby");
               try {
                 const response = await fetch(form.action, {
                   method: "POST",
@@ -514,7 +545,11 @@ const content = `
                 }
                 const field = result && typeof result.field === "string" ? result.field : null;
                 status.textContent = (field && messages[field]) || fallback;
-                if (field === "email") form.elements.namedItem("email")?.focus();
+                if (field === "email") {
+                  email.setAttribute("aria-invalid", "true");
+                  email.setAttribute("aria-describedby", "join-status");
+                  email.focus();
+                }
               } catch {
                 status.textContent = fallback;
               } finally {

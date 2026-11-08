@@ -163,3 +163,28 @@ test("a form post without JavaScript is sent back to the page", async () => {
   assert.equal(response.status, 303);
   assert.equal(response.headers.get("location"), "https://social-sdk.dev/cloud#join-error");
 });
+
+test("the endpoint stops reading a streamed body once it passes the limit", async () => {
+  let pulled = 0;
+  const chunk = new TextEncoder().encode("x".repeat(4096));
+
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulled += 1;
+
+      if (pulled > 50) controller.close();
+      else controller.enqueue(chunk);
+    },
+  });
+
+  const response = await POST(
+    new Request(endpoint, {
+      method: "POST",
+      body: stream,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+
+  assert.equal(response.status, 413);
+  assert.ok(pulled < 10, `read ${pulled} chunks`);
+});

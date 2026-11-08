@@ -40,6 +40,50 @@ function isSameOrigin(request: Request): boolean {
   return origin === null || origin === new URL(request.url).origin;
 }
 
+type BodyRead = { kind: "text"; text: string } | { kind: "too-large" } | { kind: "unreadable" };
+
+/** Reads the body, stopping as soon as it passes the limit instead of buffering all of it. */
+async function readBody(request: Request): Promise<BodyRead> {
+  if (request.body === null) return { kind: "text", text: "" };
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+      size += value.byteLength;
+
+      if (size > maxBodyBytes) {
+        await reader.cancel().catch(() => undefined);
+
+        return { kind: "too-large" };
+      }
+
+      chunks.push(value);
+    }
+  } catch {
+    return { kind: "unreadable" };
+  }
+
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+  } catch {
+    return { kind: "unreadable" };
+  }
+}
+
 function decode(text: string, format: BodyFormat): JsonValue | undefined {
   if (format === "form") return formBody(new URLSearchParams(text));
 
@@ -90,12 +134,13 @@ async function handle(request: Request, format: BodyFormat): Promise<Reply> {
 
   if (declared > maxBodyBytes) return { kind: "rejected", status: 413, error: "too-large" };
 
-  const text = await request.text();
+  const read = await readBody(request);
 
-  if (new TextEncoder().encode(text).length > maxBodyBytes)
-    return { kind: "rejected", status: 413, error: "too-large" };
+  if (read.kind === "too-large") return { kind: "rejected", status: 413, error: "too-large" };
 
-  const body = decode(text, format);
+  if (read.kind === "unreadable") return { kind: "rejected", status: 400, error: "body" };
+
+  const body = decode(read.text, format);
 
   if (body === undefined) return { kind: "rejected", status: 400, error: "body" };
 
