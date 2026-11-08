@@ -80,6 +80,9 @@ const styles = `<style>
         background: var(--paper);
         box-shadow: 5px 6px 0 var(--ink);
       }
+      html.dark .note {
+        box-shadow: 5px 6px 0 #3b3631;
+      }
       .note .tape {
         position: absolute;
         top: -15px;
@@ -341,8 +344,8 @@ const content = `
         <section class="join" id="join" aria-labelledby="join-heading">
           <div class="note">
             <span class="tape" aria-hidden="true"></span>
-            <h2 id="join-heading" class="ask">Join the early-access list</h2>
-            <p class="ask">Only the email is required. The rest tells us which platforms to build first.</p>
+            <h2 id="join-heading" class="ask">Get early access</h2>
+            <p class="ask">Only the email is required. We'll write when it opens.</p>
             <form id="waitlist" method="post" action="/api/cloud-waitlist">
               <div class="field">
                 <label for="email">Email</label>
@@ -537,7 +540,7 @@ export function renderCloudPage(): string {
     meta: [siteMeta(cloudPage), styles].join("\n    "),
     kicker: "early access, not open yet",
     heading: "Social SDK Cloud",
-    lede: "Social SDK, hosted. For teams who'd rather not run platform apps, token refresh and schedulers themselves. Leave your email and we'll write when early access opens.",
+    lede: "Social SDK, hosted, for teams who'd rather not run platform apps, token refresh and schedulers themselves.",
     content,
   });
 }
