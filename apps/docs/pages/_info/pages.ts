@@ -217,6 +217,11 @@ export const privacy: InfoPage = {
             your email, and session replays mask the form's fields like every other input.
           </p>
           <p>
+            To keep bots off the list, the form checks that your email's domain can receive mail,
+            and counts signup attempts per network for an hour. The count is stored under a keyed
+            hash of your IP address, never the address itself, and is deleted after a day.
+          </p>
+          <p>
             We keep your entry until you ask us to remove it or we close the list. To be removed,
             email <a href="mailto:leo@social-sdk.dev">leo@social-sdk.dev</a> from the address you
             signed up with, and we delete it within 7 days.

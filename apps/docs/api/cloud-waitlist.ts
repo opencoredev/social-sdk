@@ -1,101 +1,24 @@
-// POST /api/cloud-waitlist: stores a Social SDK Cloud early-access signup in the
-// Neon database connected to this Vercel project (WAITLIST_DATABASE_URL). The
-// table is defined in _cloud-waitlist.sql.
-//
-// The /cloud page's script sends JSON and reads a JSON answer. Without
-// JavaScript the browser posts the form itself, and gets redirected back to
-// /cloud with #joined or #join-error, which the page shows.
-//
-// The same email updates its row instead of adding one, and the answer never
-// says whether an address was already on the list.
+// POST /api/cloud-waitlist: Social SDK Cloud early-access signups. The request
+// handling lives in ../cloud-waitlist-server.ts; this file connects it to the
+// Neon database (WAITLIST_DATABASE_URL, tables in _cloud-waitlist.sql) and to DNS.
+import { createHmac } from "node:crypto";
+import { Resolver } from "node:dns/promises";
+
 import { neon } from "@neondatabase/serverless";
 
-import { formBody, parseSignup, type JsonValue, type Signup } from "../cloud-waitlist.js";
+import type { JsonObject, JsonValue, Signup } from "../cloud-waitlist.js";
+import {
+  handleWaitlistPost,
+  type Admission,
+  type MailDomain,
+  type WaitlistServices,
+} from "../cloud-waitlist-server.js";
 
-const maxBodyBytes = 8 * 1024;
+/** Signup attempts one client may make in an hour. */
+const perClientPerHour = 5;
 
-type Reply =
-  | { kind: "joined" }
-  | { kind: "invalid"; field: string }
-  | { kind: "rejected"; status: 403 | 413 | 415 | 400; error: string }
-  | { kind: "unavailable" };
-
-type BodyFormat = "json" | "form";
-
-function bodyFormat(request: Request): BodyFormat | null {
-  const type = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-
-  if (type === "application/json") return "json";
-
-  if (type === "application/x-www-form-urlencoded") return "form";
-
-  return null;
-}
-
-// A browser always sends Origin on a cross-site POST. Refusing other origins
-// keeps other sites from signing their visitors up; tools like curl send none.
-function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-
-  return origin === null || origin === new URL(request.url).origin;
-}
-
-type BodyRead = { kind: "text"; text: string } | { kind: "too-large" } | { kind: "unreadable" };
-
-/** Reads the body, stopping as soon as it passes the limit instead of buffering all of it. */
-async function readBody(request: Request): Promise<BodyRead> {
-  if (request.body === null) return { kind: "text", text: "" };
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-      size += value.byteLength;
-
-      if (size > maxBodyBytes) {
-        await reader.cancel().catch(() => undefined);
-
-        return { kind: "too-large" };
-      }
-
-      chunks.push(value);
-    }
-  } catch {
-    return { kind: "unreadable" };
-  }
-
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  try {
-    return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
-  } catch {
-    return { kind: "unreadable" };
-  }
-}
-
-function decode(text: string, format: BodyFormat): JsonValue | undefined {
-  if (format === "form") return formBody(new URLSearchParams(text));
-
-  try {
-    // JSON.parse only ever produces JSON values.
-    const parsed: JsonValue = JSON.parse(text);
-
-    return parsed;
-  } catch {
-    return undefined;
-  }
-}
+/** Signup attempts the whole site accepts in an hour, so a botnet can't flood the list. */
+const sitePerHour = 300;
 
 function environment(): string {
   const name = process.env.VERCEL_ENV;
@@ -103,8 +26,96 @@ function environment(): string {
   return name === "production" || name === "preview" ? name : "development";
 }
 
-async function store(signup: Signup, databaseUrl: string): Promise<void> {
-  const sql = neon(databaseUrl);
+function database() {
+  const url = process.env.WAITLIST_DATABASE_URL;
+
+  if (!url) throw new Error("WAITLIST_DATABASE_URL is not set");
+
+  return neon(url);
+}
+
+// The address is keyed with a secret before it's stored, so the table never
+// holds an IP address. Without the secret only the site-wide limit applies.
+function clientBucket(client: string): string | null {
+  const secret = process.env.WAITLIST_IP_SECRET;
+
+  if (!secret) return null;
+
+  return `client:${createHmac("sha256", secret).update(client).digest("base64url").slice(0, 22)}`;
+}
+
+type AttemptRow = { readonly bucket: string; readonly attempts: number };
+
+function isRecord(row: JsonValue): row is JsonObject {
+  return typeof row === "object" && row !== null && !Array.isArray(row);
+}
+
+function isAttemptRow(row: JsonValue): row is AttemptRow {
+  return isRecord(row) && typeof row.bucket === "string" && typeof row.attempts === "number";
+}
+
+function isOverLimit(row: AttemptRow): boolean {
+  return row.attempts > (row.bucket === "site" ? sitePerHour : perClientPerHour);
+}
+
+async function admit(client: string): Promise<Admission> {
+  const sql = database();
+  const bucket = clientBucket(client);
+  const buckets = bucket === null ? ["site"] : ["site", bucket];
+
+  // Counts this attempt in the current hour for each bucket, and drops windows
+  // older than a day in the same round trip.
+  const rows: readonly JsonValue[] = await sql`
+    with hits as (
+      insert into cloud_waitlist_attempts (bucket, window_start)
+      select unnest(${buckets}::text[]), date_trunc('hour', now())
+      on conflict (bucket, window_start)
+        do update set attempts = cloud_waitlist_attempts.attempts + 1
+      returning bucket, attempts
+    ), expired as (
+      delete from cloud_waitlist_attempts where window_start < now() - interval '1 day'
+    )
+    select bucket, attempts from hits`;
+
+  return rows.filter(isAttemptRow).some(isOverLimit) ? "limited" : "admitted";
+}
+
+const resolver = new Resolver({ timeout: 1500, tries: 1 });
+
+function hasCode(error: Error): error is Error & { code: string } {
+  return "code" in error && typeof error.code === "string";
+}
+
+async function hasAddress(domain: string): Promise<boolean> {
+  const found = await Promise.allSettled([resolver.resolve4(domain), resolver.resolve6(domain)]);
+
+  return found.some((result) => result.status === "fulfilled" && result.value.length > 0);
+}
+
+// A domain receives mail through its MX records, or through its own address
+// when it has none. "Null MX" (a single empty exchange) means it takes no mail.
+// Timeouts and server failures count as receiving mail, so a DNS hiccup never
+// turns a person away.
+async function checkMailDomain(domain: string): Promise<MailDomain> {
+  try {
+    const records = await resolver.resolveMx(domain);
+
+    return records.some((record) => record.exchange !== "" && record.exchange !== ".")
+      ? "receives-mail"
+      : "no-mail";
+  } catch (error) {
+    const code = error instanceof Error && hasCode(error) ? error.code : null;
+
+    if (code === "ENOTFOUND") return "no-mail";
+
+    if (code === "ENODATA") return (await hasAddress(domain)) ? "receives-mail" : "no-mail";
+
+    return "receives-mail";
+  }
+}
+
+async function store(signup: Signup): Promise<void> {
+  const sql = database();
 
   await sql`
     insert into cloud_waitlist
@@ -127,102 +138,8 @@ async function store(signup: Signup, databaseUrl: string): Promise<void> {
       updated_at = now()`;
 }
 
-async function handle(request: Request, format: BodyFormat): Promise<Reply> {
-  if (!isSameOrigin(request)) return { kind: "rejected", status: 403, error: "origin" };
+const services: WaitlistServices = { admit, checkMailDomain, store };
 
-  const declared = Number(request.headers.get("content-length") ?? "0");
-
-  if (declared > maxBodyBytes) return { kind: "rejected", status: 413, error: "too-large" };
-
-  const read = await readBody(request);
-
-  if (read.kind === "too-large") return { kind: "rejected", status: 413, error: "too-large" };
-
-  if (read.kind === "unreadable") return { kind: "rejected", status: 400, error: "body" };
-
-  const body = decode(read.text, format);
-
-  if (body === undefined) return { kind: "rejected", status: 400, error: "body" };
-
-  const parsed = parseSignup(body);
-
-  switch (parsed.kind) {
-    case "trap":
-      return { kind: "joined" };
-    case "invalid":
-      return { kind: "invalid", field: parsed.field };
-    case "signup": {
-      const databaseUrl = process.env.WAITLIST_DATABASE_URL;
-
-      if (!databaseUrl) {
-        console.error("cloud-waitlist: WAITLIST_DATABASE_URL is not set");
-
-        return { kind: "unavailable" };
-      }
-
-      try {
-        await store(parsed.signup, databaseUrl);
-      } catch (error) {
-        // Log the error's name only: a database message can quote submitted values.
-        console.error("cloud-waitlist: insert failed", {
-          name: error instanceof Error ? error.name : "unknown",
-        });
-
-        return { kind: "unavailable" };
-      }
-
-      return { kind: "joined" };
-    }
-
-    default: {
-      const exhaustive: never = parsed;
-
-      return exhaustive;
-    }
-  }
-}
-
-const noStore = { "cache-control": "no-store" };
-
-function jsonReply(reply: Reply): Response {
-  switch (reply.kind) {
-    case "joined":
-      return Response.json({ ok: true }, { headers: noStore });
-    case "invalid":
-      return Response.json(
-        { ok: false, error: "invalid", field: reply.field },
-        { status: 422, headers: noStore },
-      );
-    case "rejected":
-      return Response.json(
-        { ok: false, error: reply.error },
-        { status: reply.status, headers: noStore },
-      );
-    case "unavailable":
-      return Response.json({ ok: false, error: "unavailable" }, { status: 503, headers: noStore });
-    default: {
-      const exhaustive: never = reply;
-
-      return exhaustive;
-    }
-  }
-}
-
-function redirectReply(reply: Reply, request: Request): Response {
-  const target = new URL(
-    reply.kind === "joined" ? "/cloud#joined" : "/cloud#join-error",
-    request.url,
-  );
-
-  return new Response(null, { status: 303, headers: { ...noStore, location: target.href } });
-}
-
-export async function POST(request: Request): Promise<Response> {
-  const format = bodyFormat(request);
-
-  if (format === null) return jsonReply({ kind: "rejected", status: 415, error: "content-type" });
-
-  const reply = await handle(request, format);
-
-  return format === "json" ? jsonReply(reply) : redirectReply(reply, request);
+export function POST(request: Request): Promise<Response> {
+  return handleWaitlistPost(request, services);
 }

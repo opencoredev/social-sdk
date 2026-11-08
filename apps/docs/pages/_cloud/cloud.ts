@@ -20,51 +20,56 @@ export const signupEvent = "cloud_waitlist_signup";
 
 const styles = `<style>
       .handles {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 26px 28px;
+        margin-top: 22px;
+        padding: 0;
         list-style: none;
-        padding-left: 0;
-      }
-      .handles li {
-        position: relative;
-        padding-left: 30px;
       }
       .handles li + li {
-        margin-top: 12px;
+        margin-top: 0;
       }
-      .handles li::before {
+      .handles b {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 18px;
+      }
+      .handles b::before {
         content: "";
-        position: absolute;
-        left: 2px;
-        top: 0.55em;
+        flex: none;
         width: 16px;
         height: 10px;
         background: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 10"%3E%3Cpath d="M1.5 5.5 L5.5 8.5 L14.5 1.5" stroke="%23e8542f" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E')
           no-repeat center / contain;
       }
-      .jump {
-        margin-top: 22px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-family: var(--hand);
-        font-size: 25px;
-        line-height: 1.2;
+      .handles span {
+        display: block;
+        margin-top: 4px;
+        padding-left: 24px;
+        color: var(--ink-soft);
+        font-size: 16px;
+        line-height: 1.5;
       }
-      .jump a {
-        display: inline-block;
-        color: var(--marker);
-        text-decoration: none;
-        transform: rotate(-1deg);
+      .small-print {
+        margin-top: 30px;
+        color: var(--ink-soft);
+        font-size: 16px;
       }
-      .jump a:hover {
-        text-decoration: underline;
-        text-decoration-thickness: 2px;
+      @media (max-width: 720px) {
+        .handles {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
-      .jump a:focus-visible {
-        outline: 3px solid var(--marker);
-        outline-offset: 3px;
+      @media (max-width: 480px) {
+        .handles {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 18px;
+        }
       }
       .join {
-        padding-top: 64px;
+        padding-top: 44px;
         scroll-margin-top: 24px;
       }
       .note {
@@ -333,71 +338,11 @@ function chips(
 }
 
 const content = `
-        <p class="jump">
-          <a href="#join">join the early-access list</a>
-          <svg width="22" height="26" viewBox="0 0 22 26" fill="none" aria-hidden="true">
-            <path d="M9 3 C5 9, 13 14, 10 22" stroke="#e8542f" stroke-width="2" stroke-linecap="round" />
-            <path d="M5 18 L10 23 L15 18" stroke="#e8542f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </p>
-        <section>
-          <h2>What Cloud will handle</h2>
-          <ul class="handles">
-            <li>
-              <b>Platform apps.</b> Accounts connect through OAuth apps that Social SDK Cloud
-              operates, so you don't register and maintain your own developer app on each platform.
-            </li>
-            <li>
-              <b>Tokens.</b> Access and refresh tokens are stored encrypted and refreshed before
-              they expire, and you hear about it when an account has to reconnect.
-            </li>
-            <li>
-              <b>Scheduling.</b> Queue a post for later without running your own job worker.
-            </li>
-            <li>
-              <b>Retries.</b> Temporary platform failures are retried. A write whose result is
-              unclear is reported as uncertain instead of being sent twice.
-            </li>
-            <li>
-              <b>Rate limits.</b> Cloud's platform apps will apply for the higher quotas each
-              platform grants after its app review. Until a platform approves one, its limits are
-              the standard ones, and we'll publish them per platform.
-            </li>
-          </ul>
-          <p>
-            Cloud runs the same Social SDK, so the calls, the types, and the separate outcome for
-            each destination are the ones in the <a href="/docs">docs</a>.
-          </p>
-        </section>
-        <section>
-          <h2>Who it's for</h2>
-          <ul>
-            <li>
-              Teams adding posting, scheduling, or social reads to a product, who would rather not
-              own platform app reviews and token storage.
-            </li>
-            <li>Apps whose users connect their own social accounts.</li>
-            <li>Agents and automations that post on a schedule and need somewhere to run.</li>
-          </ul>
-          <p>
-            If you'd rather run it yourself, nothing changes. The SDK stays open source under the
-            MIT license, and it never needs Cloud.
-          </p>
-        </section>
-        <section>
-          <h2>What isn't decided yet</h2>
-          <p>
-            Cloud is in early development. The first platforms, the limits, and the prices aren't
-            set, and there's no launch date. Early access starts with a small group, and the
-            answers below help decide who goes first and which platforms come first.
-          </p>
-        </section>
-
         <section class="join" id="join" aria-labelledby="join-heading">
           <div class="note">
             <span class="tape" aria-hidden="true"></span>
             <h2 id="join-heading" class="ask">Join the early-access list</h2>
-            <p class="ask">Only the email is required. The rest helps us decide where to start.</p>
+            <p class="ask">Only the email is required. The rest tells us which platforms to build first.</p>
             <form id="waitlist" method="post" action="/api/cloud-waitlist">
               <div class="field">
                 <label for="email">Email</label>
@@ -434,7 +379,7 @@ const content = `
                 <textarea
                   id="currentTool"
                   name="currentTool"
-                  rows="3"
+                  rows="2"
                   maxlength="${limits.currentTool}"
                   aria-describedby="currentTool-hint"
                 ></textarea>
@@ -473,6 +418,22 @@ const content = `
             </div>
           </div>
         </section>
+        <section aria-labelledby="handles-heading">
+          <h2 id="handles-heading">What Cloud will handle</h2>
+          <ul class="handles">
+            <li><b>Platform apps</b><span>Accounts connect through our OAuth apps, not yours.</span></li>
+            <li><b>Tokens</b><span>Stored encrypted and refreshed before they expire.</span></li>
+            <li><b>Scheduling</b><span>Queue posts for later without running a worker.</span></li>
+            <li><b>Retries</b><span>Unclear writes are reported, never sent twice.</span></li>
+            <li><b>Rate limits</b><span>We'll apply for higher quotas in each platform's app review.</span></li>
+            <li><b>The same SDK</b><span>Same calls, types and outcomes as the <a href="/docs">docs</a>.</span></li>
+          </ul>
+          <p class="small-print">
+            Cloud is in early development: the first platforms, the limits and the prices aren't
+            set, and there's no launch date. The SDK stays free and MIT-licensed, and never needs
+            Cloud.
+          </p>
+        </section>
         <script>
           (() => {
             const section = document.getElementById("join");
@@ -483,7 +444,11 @@ const content = `
             const button = form.querySelector("button[type=submit]");
             const label = button.querySelector(".label");
             const messages = {
-              email: "Enter a full email address, like you@example.com.",
+              email: "Enter a full email address, like you@company.com.",
+              "email:no-mail": "That address's domain can't receive email. Check the spelling.",
+              "email:throwaway": "Use an address you'll still read when early access opens.",
+              "too-fast": "That was quick. Give it a second and press Join again.",
+              "rate-limited": "Too many tries from your network. Try again in an hour, or email leo@social-sdk.dev.",
               platforms: "One of the platform choices wasn't recognized. Reload the page and try again.",
               otherPlatforms: "Keep the other platforms to ${limits.otherPlatforms} characters.",
               accounts: "Pick one of the account ranges, or leave it blank.",
@@ -519,6 +484,7 @@ const content = `
                 currentTool: text(data, "currentTool"),
                 ${trapField}: text(data, "${trapField}"),
                 cameFrom,
+                elapsedMs: Math.round(performance.now()),
               };
               button.disabled = true;
               label.textContent = "Joining…";
@@ -544,7 +510,13 @@ const content = `
                   return;
                 }
                 const field = result && typeof result.field === "string" ? result.field : null;
-                status.textContent = (field && messages[field]) || fallback;
+                const reason = result && typeof result.reason === "string" ? result.reason : null;
+                const error = result && typeof result.error === "string" ? result.error : null;
+                status.textContent =
+                  (field && reason && messages[field + ":" + reason]) ||
+                  (field && messages[field]) ||
+                  (error && messages[error]) ||
+                  fallback;
                 if (field === "email") {
                   email.setAttribute("aria-invalid", "true");
                   email.setAttribute("aria-describedby", "join-status");
@@ -565,7 +537,7 @@ export function renderCloudPage(): string {
     meta: [siteMeta(cloudPage), styles].join("\n    "),
     kicker: "early access, not open yet",
     heading: "Social SDK Cloud",
-    lede: "The same SDK, hosted. Social SDK Cloud will run the platform apps, the tokens, the scheduling, and the retries, so your code makes the call and gets each platform's answer back. Leave your email and we'll write when early access opens.",
+    lede: "Social SDK, hosted. For teams who'd rather not run platform apps, token refresh and schedulers themselves. Leave your email and we'll write when early access opens.",
     content,
   });
 }

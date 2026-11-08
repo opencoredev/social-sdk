@@ -19,3 +19,13 @@ create table if not exists cloud_waitlist (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Hourly signup-attempt counters for the rate limit. `bucket` is "site" or
+-- "client:" plus a keyed hash of the caller's address (never the address).
+-- The API function deletes windows older than a day.
+create table if not exists cloud_waitlist_attempts (
+  bucket text not null,
+  window_start timestamptz not null,
+  attempts integer not null default 1,
+  primary key (bucket, window_start)
+);

@@ -51,6 +51,8 @@ export type Signup = {
   currentTool: string | null;
   /** The same-site path the visitor arrived from, when the page knew it. */
   cameFrom: string | null;
+  /** Milliseconds from page load to submit, as the page's script measured it; null without JavaScript. */
+  elapsedMs: number | null;
 };
 
 /** The form field a rejected submission is about, so the page can point at it. */
@@ -60,13 +62,53 @@ export type ParsedSignup =
   | { kind: "signup"; signup: Signup }
   | { kind: "invalid"; field: SignupField }
   /** The hidden trap field was filled in. Answer as if it worked and store nothing. */
-  | { kind: "trap" };
+  | { kind: "trap" }
+  /** A disposable inbox service, which nobody reads a launch email from. */
+  | { kind: "throwaway-email" };
 
 /** The hidden field people never see; bots that fill every input fill it too. */
 export const trapField = "website";
 
+/** A person needs longer than this between opening the page and pressing Join. */
+export const minFillMs = 1500;
+
+// Well-known disposable inbox services. Not complete: the mail-domain check in
+// the API function catches made-up domains, and the rate limit catches volume.
+const throwawayDomains = new Set([
+  "10minutemail.com",
+  "dispostable.com",
+  "emailondeck.com",
+  "fakeinbox.com",
+  "getnada.com",
+  "guerrillamail.com",
+  "guerrillamail.info",
+  "guerrillamail.net",
+  "mailinator.com",
+  "maildrop.cc",
+  "mailnesia.com",
+  "mintemail.com",
+  "mohmal.com",
+  "sharklasers.com",
+  "spamgourmet.com",
+  "tempail.com",
+  "temp-mail.org",
+  "tempmail.com",
+  "throwawaymail.com",
+  "trashmail.com",
+  "yopmail.com",
+]);
+
+/** The part after the @. */
+export function emailDomain(email: Email): string {
+  return email.slice(email.lastIndexOf("@") + 1);
+}
+
 function isString(value: JsonValue | undefined): value is string {
   return typeof value === "string";
+}
+
+function isMilliseconds(value: JsonValue | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isJsonObject(value: JsonValue): value is JsonObject {
@@ -162,6 +204,8 @@ export function parseSignup(body: JsonValue): ParsedSignup {
 
   if (!isEmail(email)) return { kind: "invalid", field: "email" };
 
+  if (throwawayDomains.has(emailDomain(email))) return { kind: "throwaway-email" };
+
   const platforms = platformList(body.platforms);
 
   if (platforms === null) return { kind: "invalid", field: "platforms" };
@@ -188,6 +232,7 @@ export function parseSignup(body: JsonValue): ParsedSignup {
       accounts,
       currentTool: textOrNull(currentTool),
       cameFrom: sitePath(body.cameFrom),
+      elapsedMs: isMilliseconds(body.elapsedMs) ? Math.round(body.elapsedMs) : null,
     },
   };
 }

@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { POST } from "./api/cloud-waitlist";
-import { formBody, parseSignup, trapField } from "./cloud-waitlist";
+import { formBody, parseSignup, trapField, type Signup } from "./cloud-waitlist";
+import {
+  handleWaitlistPost,
+  type Admission,
+  type MailDomain,
+  type WaitlistServices,
+} from "./cloud-waitlist-server";
 
 test("parses a full signup, normalizing the email and ordering platforms like the form", () => {
   const parsed = parseSignup({
@@ -12,6 +18,7 @@ test("parses a full signup, normalizing the email and ordering platforms like th
     accounts: "11-50",
     currentTool: "  our own cron job  ",
     cameFrom: "/guides/threads-api",
+    elapsedMs: 8123.4,
   });
 
   assert.deepEqual(parsed, {
@@ -23,6 +30,7 @@ test("parses a full signup, normalizing the email and ordering platforms like th
       accounts: "11-50",
       currentTool: "our own cron job",
       cameFrom: "/guides/threads-api",
+      elapsedMs: 8123,
     },
   });
 });
@@ -37,6 +45,7 @@ test("only the email is required", () => {
       accounts: null,
       currentTool: null,
       cameFrom: null,
+      elapsedMs: null,
     },
   });
 });
@@ -143,7 +152,12 @@ test("the endpoint answers an invalid field with 422 and the field name", async 
   });
 
   assert.equal(response.status, 422);
-  assert.deepEqual(await response.json(), { ok: false, error: "invalid", field: "email" });
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    error: "invalid",
+    field: "email",
+    reason: "format",
+  });
 });
 
 test("the endpoint answers a bot like a signup without touching the database", async () => {
@@ -187,4 +201,136 @@ test("the endpoint stops reading a streamed body once it passes the limit", asyn
 
   assert.equal(response.status, 413);
   assert.ok(pulled < 10, `read ${pulled} chunks`);
+});
+
+test("rejects well-known throwaway inboxes", () => {
+  assert.deepEqual(parseSignup({ email: "x@Mailinator.com" }), { kind: "throwaway-email" });
+});
+
+type FakeWorld = {
+  services: WaitlistServices;
+  stored: Signup[];
+  admitted: string[];
+  checkedDomains: string[];
+};
+
+function fakeWorld(answers: { admission?: Admission; mailDomain?: MailDomain } = {}): FakeWorld {
+  const world: FakeWorld = {
+    stored: [],
+    admitted: [],
+    checkedDomains: [],
+    services: {
+      admit: async (client) => {
+        world.admitted.push(client);
+
+        return answers.admission ?? "admitted";
+      },
+      checkMailDomain: async (domain) => {
+        world.checkedDomains.push(domain);
+
+        return answers.mailDomain ?? "receives-mail";
+      },
+      store: async (signup) => {
+        world.stored.push(signup);
+      },
+    },
+  };
+
+  return world;
+}
+
+function signupRequest(body: string, contentType = "application/json"): Request {
+  return new Request(endpoint, {
+    method: "POST",
+    body,
+    headers: { "content-type": contentType, "x-vercel-forwarded-for": "203.0.113.7, 10.0.0.1" },
+  });
+}
+
+const person = { email: "dev@company.dev", platforms: ["x"], elapsedMs: 9000 };
+
+test("a person's signup is rate-checked by address, domain-checked, and stored", async () => {
+  const world = fakeWorld();
+  const response = await handleWaitlistPost(signupRequest(JSON.stringify(person)), world.services);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(world.admitted, ["203.0.113.7"]);
+  assert.deepEqual(world.checkedDomains, ["company.dev"]);
+  assert.equal(world.stored.length, 1);
+  assert.equal(world.stored[0]?.email, "dev@company.dev");
+});
+
+test("a submit faster than a person, or a JSON post without timing, stores nothing", async () => {
+  for (const body of [{ ...person, elapsedMs: 300 }, { email: "dev@company.dev" }]) {
+    const world = fakeWorld();
+    const response = await handleWaitlistPost(signupRequest(JSON.stringify(body)), world.services);
+
+    assert.equal(response.status, 429);
+    assert.deepEqual(await response.json(), { ok: false, error: "too-fast" });
+    assert.equal(world.stored.length, 0);
+    assert.equal(world.admitted.length, 0);
+  }
+});
+
+test("a form post without JavaScript has no timing and still goes through", async () => {
+  const world = fakeWorld();
+
+  const response = await handleWaitlistPost(
+    signupRequest("email=dev%40company.dev", "application/x-www-form-urlencoded"),
+    world.services,
+  );
+
+  assert.equal(response.headers.get("location"), "https://social-sdk.dev/cloud#joined");
+  assert.equal(world.stored.length, 1);
+});
+
+test("over the hourly limit, nothing is stored and the domain isn't looked up", async () => {
+  const world = fakeWorld({ admission: "limited" });
+  const response = await handleWaitlistPost(signupRequest(JSON.stringify(person)), world.services);
+
+  assert.equal(response.status, 429);
+  assert.deepEqual(await response.json(), { ok: false, error: "rate-limited" });
+  assert.equal(world.checkedDomains.length, 0);
+  assert.equal(world.stored.length, 0);
+});
+
+test("an email domain that can't receive mail is refused", async () => {
+  const world = fakeWorld({ mailDomain: "no-mail" });
+  const response = await handleWaitlistPost(signupRequest(JSON.stringify(person)), world.services);
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), {
+    ok: false,
+    error: "invalid",
+    field: "email",
+    reason: "no-mail",
+  });
+  assert.equal(world.stored.length, 0);
+});
+
+test("a throwaway inbox is refused before any lookup", async () => {
+  const world = fakeWorld();
+
+  const response = await handleWaitlistPost(
+    signupRequest(JSON.stringify({ ...person, email: "x@yopmail.com" })),
+    world.services,
+  );
+
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).reason, "throwaway");
+  assert.equal(world.admitted.length, 0);
+});
+
+test("a database failure answers 503 without echoing the signup", async () => {
+  const world = fakeWorld();
+
+  world.services.store = async () => {
+    throw new Error("duplicate key value (email)=(dev@company.dev)");
+  };
+
+  const response = await handleWaitlistPost(signupRequest(JSON.stringify(person)), world.services);
+  const text = await response.text();
+
+  assert.equal(response.status, 503);
+  assert.ok(!text.includes("company.dev"));
 });
