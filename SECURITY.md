@@ -8,7 +8,12 @@ Social SDK is pre-1.0. Security fixes go into the latest minor release of `@open
 
 Do not open a public issue, pull request, or discussion for a security problem.
 
-Email [leo@social-sdk.dev](mailto:leo@social-sdk.dev) with "Security" in the subject. Include:
+Report it privately in one of two ways:
+
+- [Open a private vulnerability report](https://github.com/opencoredev/social-sdk/security/advisories/new) from the repository's Security tab.
+- Email [leo@social-sdk.dev](mailto:leo@social-sdk.dev) with "Security" in the subject.
+
+Include:
 
 - the package version and runtime (Node.js or Bun, and its version)
 - the adapter, backend, or CLI command involved
