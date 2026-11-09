@@ -48,7 +48,7 @@ export const youtubeDataApi: Guide = {
   summary:
     "The YouTube Data API v3 from the ground up: getting an API key, when you need OAuth, quota costs per method, parts and fields, pagination, common errors, the 2026 changes, and TypeScript examples.",
   heading: "The YouTube Data API, explained",
-  lede: "The YouTube Data API v3 is Google's REST API for YouTube data: videos, channels, playlists, search, comments, captions, and subscriptions, all under <code>https://www.googleapis.com/youtube/v3/</code>. Reading public data needs only an API key from a Google Cloud project with the API enabled. Anything private to a user, and every insert, update, or delete, needs OAuth 2.0. Each project gets a default daily quota of 10,000 units for most methods, where a read usually costs 1 unit and a write 50, plus separate allowances of 100 <code>search.list</code> calls and 100 <code>videos.insert</code> calls.",
+  lede: "The YouTube Data API v3 is Google's REST API for YouTube data: videos, channels, playlists, search, comments, captions, and subscriptions, all under <code>/youtube/v3/</code> on <code>www.googleapis.com</code>. Reading public data needs only an API key from a Google Cloud project with the API enabled. Anything private to a user, and every insert, update, or delete, needs OAuth 2.0. Each project gets a default daily quota of 10,000 units for most methods, where a read usually costs 1 unit and a write 50, plus separate allowances of 100 <code>search.list</code> calls and 100 <code>videos.insert</code> calls.",
   published: "2026-11-09",
   updated: "2026-11-09",
   content: `
