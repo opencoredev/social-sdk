@@ -126,8 +126,8 @@ export const youtubeDataApi: Guide = {
           <p>
             The API limits use with quota units, not request counts. By default a project gets
             100 <code>search.list</code> calls, 100 <code>videos.insert</code> calls, and 10,000
-            units a day combined for every other method. Daily quotas reset at midnight Pacific
-            Time, and every request costs at least 1 unit, including invalid ones
+            units a day combined for the other methods, apart from <code>videos.batchGetStats</code>,
+            which has its own 10,000-unit bucket. Daily quotas reset at midnight Pacific Time, and every request costs at least 1 unit, including invalid ones
             (<a href="${quotaCost}">quota costs</a>). Common costs:
           </p>
           <table>
