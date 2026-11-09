@@ -131,14 +131,20 @@ function eventId(event: GrowthEvent): string {
 }
 
 /**
- * GitHub's secondary rate limits can answer 403 with quota left and no
- * `retry-after`; only the error message names them. The body is never logged.
+ * GitHub's secondary rate limits and abuse detection can answer 403 with quota
+ * left and no `retry-after`; only the error message names them ("secondary
+ * rate limit", "abuse detection mechanism", "wait a few minutes before you try
+ * again"). The body is never logged.
  */
 function mentionsRateLimit(text: string): boolean {
   try {
     const body = parseJson(text);
 
-    return isJsonObject(body) && isString(body["message"]) && /rate limit/i.test(body["message"]);
+    return (
+      isJsonObject(body) &&
+      isString(body["message"]) &&
+      /rate limit|abuse detection|try again/i.test(body["message"])
+    );
   } catch {
     return false;
   }
