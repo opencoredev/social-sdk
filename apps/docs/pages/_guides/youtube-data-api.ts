@@ -33,7 +33,7 @@ const firstRequest =
   'curl "https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=VIDEO_ID&fields=items(id,snippet/title,statistics/viewCount)&key=YOUR_API_KEY"\n# 200 OK\n# {"items": [{"id": "VIDEO_ID", "snippet": {"title": "..."}, "statistics": {"viewCount": "..."}}]}';
 
 const fetchExample =
-  '// Public data only: an API key is enough. Restrict the key in the Cloud console.\nconst apiKey = process.env["YOUTUBE_API_KEY"];\nif (!apiKey) throw new Error("Set YOUTUBE_API_KEY");\n\ntype VideoStats = { id: string; title: string; views: string | undefined };\n\nfunction isRecord(value: unknown): value is Record<string, unknown> {\n  return typeof value === "object" && value !== null;\n}\n\nfunction errorReason(body: unknown): string {\n  if (!isRecord(body) || !isRecord(body["error"])) return "unknown";\n  const errors = body["error"]["errors"];\n  const first: unknown = Array.isArray(errors) ? errors[0] : undefined;\n  return isRecord(first) && typeof first["reason"] === "string" ? first["reason"] : "unknown";\n}\n\nexport async function videoStats({ apiKey, ids }: { apiKey: string; ids: readonly string[] }): Promise<VideoStats[]> {\n  const url = new URL("https://www.googleapis.com/youtube/v3/videos");\n  url.searchParams.set("part", "snippet,statistics"); // videos.list: 1 unit per call\n  url.searchParams.set("id", ids.join(","));\n  url.searchParams.set("fields", "items(id,snippet/title,statistics/viewCount)");\n  url.searchParams.set("key", apiKey);\n\n  const response = await fetch(url);\n  const body: unknown = await response.json().catch(() => undefined);\n  // quotaExceeded (403) lasts until midnight Pacific Time; don\'t retry it.\n  if (!response.ok) throw new Error(`videos.list failed: ${response.status} ${errorReason(body)}`);\n\n  const items = isRecord(body) && Array.isArray(body["items"]) ? body["items"] : [];\n  return items.flatMap((item: unknown) => {\n    if (!isRecord(item) || typeof item["id"] !== "string" || !isRecord(item["snippet"])) return [];\n    const title = item["snippet"]["title"];\n    const stats = item["statistics"];\n    const views = isRecord(stats) && typeof stats["viewCount"] === "string" ? stats["viewCount"] : undefined;\n    return typeof title === "string" ? [{ id: item["id"], title, views }] : [];\n  });\n}\n\nconsole.log(await videoStats({ apiKey, ids: ["dQw4w9WgXcQ"] }));';
+  '// Public data only: an API key is enough. Restrict the key in the Cloud console.\nconst apiKey = process.env["YOUTUBE_API_KEY"];\nif (!apiKey) throw new Error("Set YOUTUBE_API_KEY");\n\ntype VideoStats = { id: string; title: string; views: string | undefined };\n\nconst knownReasons = new Set(["quotaExceeded", "forbidden", "videoNotFound"]);\n\nfunction isRecord(value: unknown): value is Record<string, unknown> {\n  return typeof value === "object" && value !== null;\n}\n\n// Report only reasons we recognize, so nothing else from the response reaches logs.\nfunction errorReason(body: unknown): string {\n  if (!isRecord(body) || !isRecord(body["error"])) return "unknown";\n  const errors = body["error"]["errors"];\n  const first: unknown = Array.isArray(errors) ? errors[0] : undefined;\n  const reason = isRecord(first) ? first["reason"] : undefined;\n  return typeof reason === "string" && knownReasons.has(reason) ? reason : "unknown";\n}\n\nfunction toVideoStats(item: unknown): VideoStats[] {\n  if (!isRecord(item) || typeof item["id"] !== "string" || !isRecord(item["snippet"])) return [];\n  const title = item["snippet"]["title"];\n  const stats = item["statistics"];\n  const views = isRecord(stats) && typeof stats["viewCount"] === "string" ? stats["viewCount"] : undefined;\n  return typeof title === "string" ? [{ id: item["id"], title, views }] : [];\n}\n\nexport async function videoStats({ apiKey, ids }: { apiKey: string; ids: readonly string[] }): Promise<VideoStats[]> {\n  const url = new URL("https://www.googleapis.com/youtube/v3/videos");\n  url.searchParams.set("part", "snippet,statistics"); // videos.list: 1 unit per call\n  url.searchParams.set("id", ids.join(","));\n  url.searchParams.set("fields", "items(id,snippet/title,statistics/viewCount)");\n  url.searchParams.set("key", apiKey);\n\n  const response = await fetch(url);\n  const body: unknown = await response.json().catch(() => undefined);\n  // quotaExceeded (403) lasts until midnight Pacific Time; don\'t retry it.\n  if (!response.ok) throw new Error(`videos.list failed: ${response.status} ${errorReason(body)}`);\n  // A 200 without an items array is not "no videos": fail instead of returning [].\n  if (!isRecord(body) || !Array.isArray(body["items"])) throw new Error("videos.list returned an unexpected response");\n\n  return body["items"].flatMap(toVideoStats);\n}\n\nconsole.log(await videoStats({ apiKey, ids: ["dQw4w9WgXcQ"] }));';
 
 const sdkExample =
   'import { createSocial } from "@opencoredev/social-sdk";\nimport { youtube } from "@opencoredev/social-sdk/youtube";\n\nconst accessToken = process.env["YOUTUBE_ACCESS_TOKEN"]; // OAuth token with the youtube.readonly scope\nconst channelId = process.env["YOUTUBE_CHANNEL_ID"];\nif (!accessToken || !channelId) throw new Error("Set YOUTUBE_ACCESS_TOKEN and YOUTUBE_CHANNEL_ID");\n\nconst social = createSocial({ backend: youtube({ auth: { accessToken, channelId } }) });\n\n// Native calls bypass client middleware: check your own user\'s access to this channel first.\nconst native = social.native("default", { acknowledgeUnsafe: true });\nif (!native) throw new Error("YouTube native operations are unavailable");\n\nconst context = () => ({\n  backendInstance: "default",\n  correlationId: crypto.randomUUID(),\n  retryBudget: { maxAttempts: 1, maxElapsedMs: 30_000 },\n});\n\n// search.list: 1 call from the 100-a-day search bucket.\nconst recent = await native.search({ q: "release notes", channelId, type: "video", order: "date", maxResults: 10, context: context() });\n\n// playlists.list: 1 unit from the shared 10,000-unit bucket.\nconst playlists = await native.playlists({ action: "list", mine: true, maxResults: 50, context: context() });\n\nconsole.log(JSON.stringify({ recent: recent["items"], playlists: playlists["items"] }, null, 2));';
@@ -112,11 +112,12 @@ export const youtubeDataApi: Guide = {
             access token and a refresh token. Send the access token as
             <code>Authorization: Bearer &lt;ACCESS_TOKEN&gt;</code>. The common YouTube scopes,
             all under <code>https://www.googleapis.com/auth/</code>, are
-            <code>youtube.readonly</code> (view the account),
-            <code>youtube.upload</code> (upload videos only),
-            <code>youtube</code> (manage the account), and
-            <code>youtube.force-ssl</code> (manage it, including comments and captions). Ask for
-            the narrowest one that covers your calls; the
+            <code>youtube.readonly</code> ("View your YouTube account"),
+            <code>youtube.upload</code> ("Manage your YouTube videos"),
+            <code>youtube</code> ("Manage your YouTube account"), and
+            <code>youtube.force-ssl</code> ("See, edit, and permanently delete your YouTube videos,
+            ratings, comments, and captions"). Each method's reference page lists the scopes it
+            accepts; ask for the narrowest one that covers your calls; the
             <a href="/guides/youtube-upload-api">YouTube upload API guide</a> covers the upload
             scope, offline access, and the 7-day refresh-token limit for apps still in Testing.
           </p>
@@ -133,8 +134,8 @@ export const youtubeDataApi: Guide = {
             <thead><tr><th>Call</th><th>Cost</th></tr></thead>
             <tbody>
               <tr><td><code>videos.list</code>, <code>channels.list</code>, <code>playlists.list</code>, <code>playlistItems.list</code>, <code>commentThreads.list</code>, <code>comments.list</code>, <code>subscriptions.list</code></td><td>1 unit</td></tr>
-              <tr><td><code>search.list</code></td><td>1 call from its own bucket of 100 a day</td></tr>
-              <tr><td><code>videos.insert</code></td><td>1 call from its own bucket of 100 a day</td></tr>
+              <tr><td><code>search.list</code></td><td>1 of its own 100 calls a day</td></tr>
+              <tr><td><code>videos.insert</code></td><td>1 of its own 100 calls a day</td></tr>
               <tr><td><code>videos.update</code>, <code>videos.rate</code>, <code>videos.delete</code>, <code>playlists.insert</code>, <code>playlistItems.insert</code>, <code>commentThreads.insert</code>, <code>comments.insert</code>, <code>thumbnails.set</code></td><td>50 units</td></tr>
               <tr><td><code>captions.list</code></td><td>50 units</td></tr>
               <tr><td><code>captions.insert</code>, <code>captions.update</code></td><td>400 and 450 units</td></tr>
@@ -166,26 +167,30 @@ export const youtubeDataApi: Guide = {
             List methods take <code>maxResults</code> and return <code>nextPageToken</code> (and
             sometimes <code>prevPageToken</code>) when there is more; send the token back as
             <code>pageToken</code> to get the next page (<a href="${pagination}">pagination</a>).
-            The page size limit depends on the method: 0 to 50 with a default of 5 for
-            <code>search.list</code> and <code>channels.list</code>
-            (<a href="${searchList}">search.list</a>, <a href="${channelsList}">channels.list</a>),
-            and 1 to 100 for <code>commentThreads.list</code>
-            (<a href="${commentThreadsList}">commentThreads.list</a>). Set it explicitly, or you
-            get 5 results and pay for a second page sooner than you need to.
+            The page size depends on the method. <code>search.list</code> and
+            <code>channels.list</code> take 0 to 50 and default to 5
+            (<a href="${searchList}">search.list</a>, <a href="${channelsList}">channels.list</a>);
+            <code>commentThreads.list</code> takes 1 to 100 and defaults to 20
+            (<a href="${commentThreadsList}">commentThreads.list</a>). Set it explicitly: with the
+            default you get at most 5 search results a page and pay for the next page sooner than
+            you need to.
           </p>
 
           <h2 id="typescript">Calling the API from TypeScript</h2>
           <p>
             You don't need a client library for reads. This function reads public video
-            statistics with an API key and plain <code>fetch</code>, treats the response as
-            untrusted, and reports the error reason without echoing the response body:
+            statistics with an API key and plain <code>fetch</code>. It treats the response as
+            untrusted, reports only error reasons it recognizes, and fails on a response without an
+            <code>items</code> array instead of returning an empty list:
           </p>
           ${code(fetchExample)}
           <p>
             We type-checked this example with strict TypeScript and ran it on ${fetched} with
             Node.js 24 and Bun against a stub <code>fetch</code>: it returned the parsed item for a
-            normal response, threw <code>videos.list failed: 403 quotaExceeded</code> for a quota
-            error, threw <code>502 unknown</code> for an HTML error page, and skipped malformed
+            normal response and an empty list for an empty <code>items</code> array, threw
+            <code>videos.list failed: 403 quotaExceeded</code> for a quota error and
+            <code>502 unknown</code> for an HTML error page, kept an unrecognized reason out of the
+            error, threw on a <code>200</code> with an HTML or error body, and skipped malformed
             items. Google's own <code>googleapis</code> package for Node.js covers every method if
             you'd rather use a generated client.
           </p>
