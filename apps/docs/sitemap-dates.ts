@@ -80,6 +80,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       files: ["guides/index.astro", "_guides/guides.ts", "_info/info.html"],
       ranges: [
         shellHelpers,
+        { file: "_guides/youtube-data-api.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/facebook-page-access-token.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/ayrshare-alternatives.ts", from: "^  slug:", to: "^  updated:" },
         { file: "_guides/youtube-upload-api.ts", from: "^  slug:", to: "^  updated:" },
@@ -92,6 +93,7 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
       ],
     },
   ],
+  ["/guides/youtube-data-api", guidePage("youtube-data-api")],
   ["/guides/facebook-page-access-token", guidePage("facebook-page-access-token")],
   ["/guides/ayrshare-alternatives", guidePage("ayrshare-alternatives")],
   ["/guides/youtube-upload-api", guidePage("youtube-upload-api")],
