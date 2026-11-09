@@ -3,7 +3,10 @@ name: Growth snapshot
 # Records npm downloads and GitHub repository numbers in the project's analytics
 # once a day. See scripts/growth-snapshot.ts. GitHub traffic (views, clones,
 # referrers) needs the optional GROWTH_GITHUB_TOKEN secret: a fine-grained token
-# for this repository with read-only "Administration" permission.
+# for this repository with read-only "Administration" permission. Stars gained
+# per day use the same secret when it is set, else the workflow token, which
+# the stargazers endpoint has refused with 403 since 2026-11-04. In that case
+# the run logs a warning and sends no star events instead of failing.
 
 on:
   schedule:
