@@ -92,6 +92,13 @@ await required("Bun tests", "bun", ["run", "test"]);
 
 await required("Node tests", "bun", ["run", "test:node"]);
 
+await required("growth snapshot script tests", "node", [
+  "--import",
+  "tsx",
+  "--test",
+  "scripts/growth-snapshot.test.ts",
+]);
+
 const exampleTests = (await readdir(resolve(root, "apps/example/tests")))
   .filter((name) => name.endsWith(".test.ts"))
   .map((name) => `apps/example/tests/${name}`);

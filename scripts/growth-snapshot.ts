@@ -10,6 +10,13 @@
 // with read access to repository administration, adds views, clones and
 // referrers; GitHub keeps those for 14 days only, so they are skipped without it.
 //
+// Stars gained per day list the stargazers with GROWTH_GITHUB_TOKEN when it is
+// set, else GITHUB_TOKEN. Since 2026-11-04 the stargazers endpoint answers 403
+// to the Actions workflow token. A 401 or 403 there (other than a rate limit)
+// skips the section with a warning and sends no star events for that run, so
+// the job still passes; every other failure fails the job. Stars resume on
+// their own once the token can list stargazers again.
+//
 // Every event ID is derived from its name and day, and daily runs re-send only
 // finished days, so a re-sent event carries the same ID and the same values.
 // The analytics service merges duplicate IDs in the background, so charts should take the
@@ -64,6 +71,35 @@ const githubToken = process.env["GITHUB_TOKEN"]?.trim() || undefined;
 
 const trafficToken = process.env["GROWTH_GITHUB_TOKEN"]?.trim() || undefined;
 
+const starsToken = trafficToken ?? githubToken;
+
+const starsTokenName = trafficToken
+  ? "GROWTH_GITHUB_TOKEN"
+  : githubToken
+    ? "GITHUB_TOKEN"
+    : "no token";
+
+/** A response outside 2xx, kept apart so a section can decide whether it is fatal. */
+class HttpStatusError extends Error {
+  constructor(
+    readonly path: string,
+    readonly status: number,
+    /** GitHub also answers 403 when a rate limit is hit; that stays a failure. */
+    readonly rateLimited: boolean,
+  ) {
+    super(`${path} answered ${status}${rateLimited ? " (rate limited)" : ""}`);
+  }
+}
+
+/** What one section produced: events, or a deliberate skip that does not fail the job. */
+type SectionResult =
+  | { readonly kind: "collected"; readonly events: readonly GrowthEvent[] }
+  | { readonly kind: "skipped"; readonly reason: string };
+
+function collected(events: readonly GrowthEvent[]): SectionResult {
+  return { kind: "collected", events };
+}
+
 function isDay(value: string): value is Day {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
@@ -94,6 +130,26 @@ function eventId(event: GrowthEvent): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+/**
+ * GitHub's secondary rate limits and abuse detection can answer 403 with quota
+ * left and no `retry-after`; only the error message names them ("secondary
+ * rate limit", "abuse detection mechanism", "wait a few minutes before you try
+ * again"). The body is never logged.
+ */
+function mentionsRateLimit(text: string): boolean {
+  try {
+    const body = parseJson(text);
+
+    return (
+      isJsonObject(body) &&
+      isString(body["message"]) &&
+      /rate limit|abuse detection|try again/i.test(body["message"])
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function getJson(url: string, token?: string): Promise<{ body: JsonValue; link: string }> {
   const headers = new Headers({
     accept: url.includes("/stargazers")
@@ -107,7 +163,15 @@ async function getJson(url: string, token?: string): Promise<{ body: JsonValue; 
 
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) });
 
-  if (!response.ok) throw new Error(`${new URL(url).pathname} answered ${response.status}`);
+  if (!response.ok)
+    throw new HttpStatusError(
+      new URL(url).pathname,
+      response.status,
+      response.status === 429 ||
+        response.headers.get("x-ratelimit-remaining") === "0" ||
+        response.headers.has("retry-after") ||
+        mentionsRateLimit(await response.text()),
+    );
 
   return { body: parseJson(await response.text()), link: response.headers.get("link") ?? "" };
 }
@@ -185,17 +249,17 @@ function lastPage(link: string): number {
 }
 
 /** Stars gained per day, from each current stargazer's `starred_at`. */
-async function starsGained(today: Day): Promise<GrowthEvent[]> {
+async function starsGained(today: Day, token: string | undefined): Promise<GrowthEvent[]> {
   const windowStart = daysBefore(today, DAILY_WINDOW_DAYS);
   const base = `https://api.github.com/repos/${REPOSITORY}/stargazers?per_page=100`;
-  const first = await getJson(`${base}&page=1`, githubToken);
+  const first = await getJson(`${base}&page=1`, token);
   const pages = new Map<number, JsonValue>([[1, first.body]]);
   const perDay = new Map<Day, number>();
 
   // Stargazers are listed oldest first, so the daily run walks back from the
   // last page until it passes the window.
   for (let page = lastPage(first.link); page >= 1; page--) {
-    const body = pages.get(page) ?? (await getJson(`${base}&page=${page}`, githubToken)).body;
+    const body = pages.get(page) ?? (await getJson(`${base}&page=${page}`, token)).body;
     let reachedWindowStart = false;
 
     for (const entry of array(body)) {
@@ -228,6 +292,29 @@ async function starsGained(today: Day): Promise<GrowthEvent[]> {
     day,
     properties: { stars_gained: stars },
   }));
+}
+
+/**
+ * Stars gained per day, or a skip when GitHub refuses to list stargazers to
+ * this token. A partial walk is dropped too: sending zero-filled days from it
+ * would overwrite days recorded earlier with real counts.
+ */
+async function starsSection(today: Day): Promise<SectionResult> {
+  try {
+    return collected(await starsGained(today, starsToken));
+  } catch (error) {
+    if (
+      error instanceof HttpStatusError &&
+      (error.status === 401 || error.status === 403) &&
+      !error.rateLimited
+    )
+      return {
+        kind: "skipped",
+        reason: `stargazers answered ${error.status} to ${starsTokenName}; set GROWTH_GITHUB_TOKEN to a token that can list stargazers to collect stars gained per day`,
+      };
+
+    throw error;
+  }
 }
 
 async function traffic(today: Day, token: string): Promise<GrowthEvent[]> {
@@ -327,24 +414,40 @@ const today = dayOf(new Date().toISOString());
 
 const events: GrowthEvent[] = [];
 
-const sections: [string, () => Promise<GrowthEvent[]>][] = [
-  ["npm downloads", () => npmDownloads(today)],
-  ["npm versions", () => npmVersions(today)],
-  ["GitHub repository", () => repoTotals(today)],
-  ["GitHub stars", () => starsGained(today)],
+const sections: [string, () => Promise<SectionResult>][] = [
+  ["npm downloads", async () => collected(await npmDownloads(today))],
+  ["npm versions", async () => collected(await npmVersions(today))],
+  ["GitHub repository", async () => collected(await repoTotals(today))],
+  ["GitHub stars", () => starsSection(today)],
 ];
 
-if (trafficToken) sections.push(["GitHub traffic", () => traffic(today, trafficToken)]);
+if (trafficToken)
+  sections.push(["GitHub traffic", async () => collected(await traffic(today, trafficToken))]);
 else console.log("GitHub traffic: skipped, GROWTH_GITHUB_TOKEN is not set.");
+
+// In Actions this prefix turns the line into a warning annotation on the run.
+const warningPrefix = process.env["GITHUB_ACTIONS"] === "true" ? "::warning::" : "";
 
 let failed = false;
 
 for (const [label, collect] of sections) {
   try {
-    const collected = await collect();
+    const result = await collect();
 
-    events.push(...collected);
-    console.log(`${label}: ${collected.length} events`);
+    switch (result.kind) {
+      case "collected":
+        events.push(...result.events);
+        console.log(`${label}: ${result.events.length} events`);
+        break;
+      case "skipped":
+        console.log(`${warningPrefix}${label}: skipped, ${result.reason}.`);
+        break;
+      default: {
+        const _exhaustive: never = result;
+
+        throw new Error(`Unhandled section result ${JSON.stringify(_exhaustive)}`);
+      }
+    }
   } catch (error) {
     // Keep the other sources; the job still fails at the end so it gets noticed.
     failed = true;
