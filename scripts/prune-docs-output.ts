@@ -168,6 +168,7 @@ const site = `
 - [Terms](https://social-sdk.dev/terms): Terms for the website, the MIT-licensed package, and Social SDK Cloud.
 - [Blog](https://social-sdk.dev/blog): Guides and updates, with an RSS feed at https://social-sdk.dev/blog/rss.xml.
 - [Guides](https://social-sdk.dev/guides): How each social platform's API works, with sources and tested TypeScript examples.
+- [YouTube Analytics API guide](https://social-sdk.dev/guides/youtube-analytics-api): Channel views, watch time, and top videos with reports.query: OAuth scopes, metrics and dimensions, report rules, the 48 to 72 hour delay, revenue access, and the Reporting API.
 - [YouTube Data API guide](https://social-sdk.dev/guides/youtube-data-api): API keys versus OAuth scopes, quota costs per method, parts and fields, pagination, errors, and the 2026 changes.
 - [Facebook Page access token guide](https://social-sdk.dev/guides/facebook-page-access-token): Getting a long-lived Page access token: user and Page tokens, fb_exchange_token, /me/accounts, permissions and Page tasks, debug_token, and error 190.
 - [Ayrshare alternatives guide](https://social-sdk.dev/guides/ayrshare-alternatives): Other unified APIs, self-hosted open-source schedulers, and open-source libraries, and how Ayrshare profiles and post calls map to Social SDK.

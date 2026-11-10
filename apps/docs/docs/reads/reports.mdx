@@ -57,11 +57,16 @@ supports `getAccountMetrics`. An unavailable operation raises
 - `getAccountMetrics` reads channel statistics from the YouTube Data API and
   needs `https://www.googleapis.com/auth/youtube.readonly`.
 - `getReport` calls YouTube Analytics and needs
-  `https://www.googleapis.com/auth/yt-analytics.readonly`. Revenue metrics also
-  need `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`.
+  `https://www.googleapis.com/auth/yt-analytics.readonly`. Google also requires
+  `reports.query` requests to have access to
+  `https://www.googleapis.com/auth/youtube.readonly`. Revenue metrics also
+  need `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`, and
+  the channel must be in the YouTube Partner Program; otherwise YouTube returns 403.
 
-Report dates must be bounded and metric names provider-safe. YouTube Analytics
-data can lag by a day or more.
+Report dates must be bounded and metric names provider-safe. Google says
+YouTube Analytics data typically lags 48 to 72 hours.
+
+For report rules, the delay, and a top-videos query, read the <a href="/guides/youtube-analytics-api">YouTube Analytics API guide</a>.
 
 Configure `youtube({ auth: { accessToken, channelId } })`. The adapter calls
 YouTube Analytics `reports.query`:

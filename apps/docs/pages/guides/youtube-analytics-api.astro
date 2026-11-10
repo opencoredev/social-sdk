@@ -1,0 +1,9 @@
+---
+// YouTube Analytics API guide. The copy lives in _guides/youtube-analytics-api.ts.
+import { withAnalytics } from "../../analytics";
+import { renderGuide } from "../_guides/guides";
+import { youtubeAnalyticsApi } from "../_guides/youtube-analytics-api";
+import { withFonts } from "../_home/fonts";
+---
+
+<Fragment set:html={withAnalytics(withFonts(renderGuide(youtubeAnalyticsApi)))} />
