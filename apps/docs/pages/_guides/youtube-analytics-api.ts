@@ -44,7 +44,7 @@ export const youtubeAnalyticsApi: Guide = {
   summary:
     "Reading a channel's views, watch time, and top videos with the YouTube Analytics API: scopes, reports.query parameters, report rules, the 48 to 72 hour delay, revenue access, the Reporting API, and TypeScript examples.",
   heading: "The YouTube Analytics API, explained",
-  lede: "The YouTube Analytics API returns a channel's analytics as a table: views, watch time, likes, subscribers gained, and, for monetized channels, estimated revenue, grouped by dimensions such as day, country, or video. Every report comes from one method, <code>reports.query</code>, at <code>GET https://youtubeanalytics.googleapis.com/v2/reports</code>, and every request needs an OAuth 2.0 token from the channel's owner; API keys don't work. Data typically arrives 48 to 72 hours late, and each request counts as one unit of quota.",
+  lede: "The YouTube Analytics API returns a channel's analytics as a table: views, watch time, likes, subscribers gained, and, for monetized channels, estimated revenue, grouped by dimensions such as day, country, or video. Every report comes from one method, <code>reports.query</code>, a GET request to <code>/v2/reports</code> on <code>youtubeanalytics.googleapis.com</code>, and every request needs an OAuth 2.0 token from the channel's owner; API keys don't work. Data typically arrives 48 to 72 hours late, and each request counts as one unit of quota.",
   published: "2026-11-10",
   updated: "2026-11-10",
   content: `
