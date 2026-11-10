@@ -103,7 +103,7 @@ These are operation-specific choices, not a request to grant every scope. Use th
 | Watermarks and playlist images                                                       | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl`               |
 | Channel members and membership levels (approval required)                            | `https://www.googleapis.com/auth/youtube.channel-memberships.creator`                                          |
 
-`youtube.readonly` cannot authorize mutations. Account/post statistics use the Data API read scope; Analytics reports use the separate Analytics scope. Public reads may have different upstream authorization requirements, but this adapter always uses its configured OAuth token.
+`youtube.readonly` cannot authorize mutations. Account/post statistics use the Data API read scope; Analytics reports need the separate Analytics scope plus `youtube.readonly`. Public reads may have different upstream authorization requirements, but this adapter always uses its configured OAuth token.
 
 For a connection that discovers channels and uploads videos, configure the provider with these scopes and your encrypted credential store:
 
@@ -615,7 +615,7 @@ await native.analyticsGroupItems({
 
 #### Bulk reports with the Reporting API
 
-The [YouTube Reporting API](https://developers.google.com/youtube/reporting/v1/reports) generates daily CSV reports in bulk instead of answering one query at a time. `native.reportTypes` lists the report types (such as `channel_basic_a2`); `native.reportingJobs` creates a job for one report type with a `name` of at most 100 characters, and lists, reads or deletes jobs; `native.reports` lists a job's generated reports (filter with `createdAfter`, `startTimeAtOrAfter` and `startTimeBefore`) or reads one. Each report carries a `downloadUrl`; `native.downloadReport` fetches it as a Blob within the caller's remaining budget and refuses any URL that is not a `https://youtubereporting.googleapis.com/v1/media/` link, so the token never goes elsewhere. Reports appear only after YouTube generates them, not when the job is created. These calls use the Analytics scopes above and do not count against the Data API quota.
+The [YouTube Reporting API](https://developers.google.com/youtube/reporting/v1/reports) generates daily CSV reports in bulk instead of answering one query at a time. `native.reportTypes` lists the report types (such as `channel_basic_a2`); `native.reportingJobs` creates a job for one report type with a `name` of at most 100 characters, and lists, reads or deletes jobs; `native.reports` lists a job's generated reports (filter with `createdAfter`, `startTimeAtOrAfter` and `startTimeBefore`) or reads one. Each report carries a `downloadUrl`; `native.downloadReport` fetches it as a Blob within the caller's remaining budget and refuses any URL that is not a `https://youtubereporting.googleapis.com/v1/media/` link, so the token never goes elsewhere. Reports appear only after YouTube generates them, not when the job is created. These calls need only `https://www.googleapis.com/auth/yt-analytics.readonly` (`https://www.googleapis.com/auth/yt-analytics-monetary.readonly` for revenue report types) and do not count against the Data API quota.
 
 ```ts
 const job = await native.reportingJobs({
