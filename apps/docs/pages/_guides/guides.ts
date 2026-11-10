@@ -11,6 +11,7 @@ import { linkedinPostsApi } from "./linkedin-posts-api";
 import { socialMediaApis } from "./social-media-apis";
 import { threadsApi } from "./threads-api";
 import { xApiPricing } from "./x-api-pricing";
+import { youtubeAnalyticsApi } from "./youtube-analytics-api";
 import { youtubeDataApi } from "./youtube-data-api";
 import { youtubeUploadApi } from "./youtube-upload-api";
 
@@ -34,6 +35,7 @@ const SITE = "https://social-sdk.dev";
 const GUIDES_PATH = "/guides";
 
 export const guides: readonly Guide[] = [
+  youtubeAnalyticsApi,
   youtubeDataApi,
   facebookPageAccessToken,
   ayrshareAlternatives,
