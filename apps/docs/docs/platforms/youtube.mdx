@@ -84,24 +84,24 @@ External OAuth apps in **Testing** receive refresh tokens that expire after seve
 
 These are operation-specific choices, not a request to grant every scope. Use the full URLs in your `youtubeOAuth({ scopes: [...] })` configuration.
 
-| Operation                                                                            | Scope                                                                                            |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| Channel discovery and private Data API reads                                         | `https://www.googleapis.com/auth/youtube.readonly`                                               |
-| Video upload                                                                         | `https://www.googleapis.com/auth/youtube.upload`                                                 |
-| Video update, delete, schedule cancellation; channel updates; live broadcasts        | `https://www.googleapis.com/auth/youtube`                                                        |
-| Playlist and subscription writes                                                     | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl` |
-| Comment writes, moderation, caption writes/downloads, ratings                        | `https://www.googleapis.com/auth/youtube.force-ssl`                                              |
-| Analytics reports                                                                    | `https://www.googleapis.com/auth/yt-analytics.readonly`                                          |
-| Monetary Analytics metrics                                                           | `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`                                 |
-| Live chat messages, moderators, and bans; channel section writes                     | `https://www.googleapis.com/auth/youtube`                                                        |
-| Channel sections and activity reads                                                  | `https://www.googleapis.com/auth/youtube.readonly`                                               |
-| Video, channel, category, language and region lookups; `getRating`; subscriber lists | `https://www.googleapis.com/auth/youtube.readonly`                                               |
-| Top-level comments, abuse reports                                                    | `https://www.googleapis.com/auth/youtube.force-ssl`                                              |
-| Live broadcast update, delete, bind, cuepoint; live stream writes                    | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl` |
-| Live stream lists and Super Chat events                                              | `https://www.googleapis.com/auth/youtube.readonly`                                               |
-| Channel banner upload                                                                | `https://www.googleapis.com/auth/youtube.upload` or `https://www.googleapis.com/auth/youtube`    |
-| Watermarks and playlist images                                                       | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl` |
-| Channel members and membership levels (approval required)                            | `https://www.googleapis.com/auth/youtube.channel-memberships.creator`                            |
+| Operation                                                                            | Scope                                                                                                          |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Channel discovery and private Data API reads                                         | `https://www.googleapis.com/auth/youtube.readonly`                                                             |
+| Video upload                                                                         | `https://www.googleapis.com/auth/youtube.upload`                                                               |
+| Video update, delete, schedule cancellation; channel updates; live broadcasts        | `https://www.googleapis.com/auth/youtube`                                                                      |
+| Playlist and subscription writes                                                     | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl`               |
+| Comment writes, moderation, caption writes/downloads, ratings                        | `https://www.googleapis.com/auth/youtube.force-ssl`                                                            |
+| Analytics reports (`reports.query`) and analytics group item lists                   | `https://www.googleapis.com/auth/yt-analytics.readonly` and `https://www.googleapis.com/auth/youtube.readonly` |
+| Monetary Analytics metrics                                                           | `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`                                               |
+| Live chat messages, moderators, and bans; channel section writes                     | `https://www.googleapis.com/auth/youtube`                                                                      |
+| Channel sections and activity reads                                                  | `https://www.googleapis.com/auth/youtube.readonly`                                                             |
+| Video, channel, category, language and region lookups; `getRating`; subscriber lists | `https://www.googleapis.com/auth/youtube.readonly`                                                             |
+| Top-level comments, abuse reports                                                    | `https://www.googleapis.com/auth/youtube.force-ssl`                                                            |
+| Live broadcast update, delete, bind, cuepoint; live stream writes                    | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl`               |
+| Live stream lists and Super Chat events                                              | `https://www.googleapis.com/auth/youtube.readonly`                                                             |
+| Channel banner upload                                                                | `https://www.googleapis.com/auth/youtube.upload` or `https://www.googleapis.com/auth/youtube`                  |
+| Watermarks and playlist images                                                       | `https://www.googleapis.com/auth/youtube` or `https://www.googleapis.com/auth/youtube.force-ssl`               |
+| Channel members and membership levels (approval required)                            | `https://www.googleapis.com/auth/youtube.channel-memberships.creator`                                          |
 
 `youtube.readonly` cannot authorize mutations. Account/post statistics use the Data API read scope; Analytics reports use the separate Analytics scope. Public reads may have different upstream authorization requirements, but this adapter always uses its configured OAuth token.
 
@@ -592,7 +592,7 @@ const filteredReport = await native.analytics({
 });
 ```
 
-Reports need `https://www.googleapis.com/auth/yt-analytics.readonly`; monetary metrics need `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`. Analytics has separate quota from the Data API and may lag current activity. Provider metric/dimension/filter combinations must be valid for the selected report.
+Reports need `https://www.googleapis.com/auth/yt-analytics.readonly` and `https://www.googleapis.com/auth/youtube.readonly`: Google's [`reports.query` reference](https://developers.google.com/youtube/analytics/reference/reports/query) says requests require access to `youtube.readonly` (a rule its revision history dates to June 18, 2018). Monetary metrics need `https://www.googleapis.com/auth/yt-analytics-monetary.readonly`. Analytics has separate quota from the Data API and may lag current activity. Provider metric/dimension/filter combinations must be valid for the selected report.
 
 #### Analytics groups
 

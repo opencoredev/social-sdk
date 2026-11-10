@@ -253,8 +253,8 @@ const adapter = youtube({
 `selfDeclaredMadeForKids`). It does not include statistics; read view, like,
 and comment counts with `analytics.getPostMetrics`. Playlists and
 playlist items are native. Reports need the separate
-`https://www.googleapis.com/auth/yt-analytics.readonly` scope and a bounded
-query. An inaccessible video raises an error instead of returning an empty item.
+`https://www.googleapis.com/auth/yt-analytics.readonly` scope, plus
+`https://www.googleapis.com/auth/youtube.readonly`, and a bounded query. An inaccessible video raises an error instead of returning an empty item.
 
 </PlatformTab>
 <PlatformTab platform="linkedin">

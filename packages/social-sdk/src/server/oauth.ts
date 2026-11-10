@@ -57,6 +57,10 @@ export interface OAuthProviderOptions {
   ) => readonly string[] | Promise<readonly string[]>;
   /** Optional label for callers; the attempt's backend is always authoritative. */
   readonly backend?: string;
+  /**
+   * Scopes to request. Replaces the provider's default scopes instead of adding to them, so
+   * repeat any defaults you still need.
+   */
   readonly scopes?: readonly string[];
   /** Explicit LinkedIn Marketing API version (YYYYMM). Required for LinkedIn OAuth. */
   readonly linkedinApiVersion?: string;
@@ -1082,6 +1086,38 @@ export async function exchangeLongLivedOAuthToken(
   return exchangeLongLived(kind, options, current);
 }
 
+/**
+ * Google authorization-code provider for YouTube channels.
+ *
+ * Default scopes: `openid`, `https://www.googleapis.com/auth/userinfo.profile`,
+ * `https://www.googleapis.com/auth/youtube.readonly` and
+ * `https://www.googleapis.com/auth/youtube.upload`. Account discovery calls `channels.list` with
+ * `mine=true`, so keep `youtube.readonly` (or a broader YouTube scope) in any custom list.
+ *
+ * The defaults do not cover `social.analytics.getReport`. It calls YouTube Analytics
+ * `reports.query`, which needs `https://www.googleapis.com/auth/yt-analytics.readonly` and, per
+ * Google's reference (checked 2026-11-10), `https://www.googleapis.com/auth/youtube.readonly`.
+ * `scopes` replaces the defaults, so pass the defaults you still need plus the Analytics scope:
+ *
+ * @example
+ * ```ts
+ * const provider = youtubeOAuth({
+ *   clientId,
+ *   clientSecret,
+ *   redirectUri,
+ *   credentialSink,
+ *   scopes: [
+ *     "openid",
+ *     "https://www.googleapis.com/auth/userinfo.profile",
+ *     "https://www.googleapis.com/auth/youtube.readonly",
+ *     "https://www.googleapis.com/auth/youtube.upload",
+ *     "https://www.googleapis.com/auth/yt-analytics.readonly",
+ *   ],
+ * });
+ * ```
+ *
+ * Source: https://developers.google.com/youtube/analytics/reference/reports/query
+ */
 export const youtubeOAuth = (options: OAuthProviderOptions) => oauthProvider("youtube", options);
 
 export const xOAuth = (options: OAuthProviderOptions) => oauthProvider("x", options);

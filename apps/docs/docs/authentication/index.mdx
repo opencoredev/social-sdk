@@ -133,7 +133,27 @@ The server package includes direct OAuth factories for YouTube, X, TikTok, Threa
 
 **PKCE:** the provider flow does not add PKCE.
 
-Account discovery calls `channels.list` with `mine=true`, which does not accept `youtube.upload` alone. Keep `youtube.readonly` (or a broader YouTube scope) in any custom `scopes` list, or discovery fails. The defaults cannot read YouTube Analytics reports or edit videos and comments. Add `https://www.googleapis.com/auth/yt-analytics.readonly` for analytics reports and `https://www.googleapis.com/auth/youtube.force-ssl` for comment writes and moderation.
+Account discovery calls `channels.list` with `mine=true`, which does not accept `youtube.upload` alone. Keep `youtube.readonly` (or a broader YouTube scope) in any custom `scopes` list, or discovery fails. The defaults cannot read YouTube Analytics reports or edit videos and comments. Add `https://www.googleapis.com/auth/youtube.force-ssl` for comment writes and moderation.
+
+`social.analytics.getReport` calls YouTube Analytics `reports.query`, which needs both `https://www.googleapis.com/auth/yt-analytics.readonly` and `https://www.googleapis.com/auth/youtube.readonly`. A `scopes` list replaces the defaults instead of adding to them, so repeat the defaults you still need and add the Analytics scope:
+
+```ts
+const provider = youtubeOAuth({
+  clientId,
+  clientSecret,
+  redirectUri,
+  credentialSink,
+  scopes: [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+  ],
+});
+```
+
+Drop `youtube.upload` for a read-only analytics app; keep `youtube.readonly`, which both account discovery and reports need.
 
 While your Google Cloud OAuth consent screen is in Testing with an external user type, Google expires refresh tokens after seven days. Publishing the consent screen removes that limit. This is separate from the YouTube API Services compliance audit, which governs quota and some uploads.
 
