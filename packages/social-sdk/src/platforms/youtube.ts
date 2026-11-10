@@ -1985,7 +1985,14 @@ export function youtube(
           operation: "analytics.youtube.read",
           platform: "youtube",
           availability: "available",
-          requiredScopes: ["https://www.googleapis.com/auth/yt-analytics.readonly"],
+          // reports.query: https://developers.google.com/youtube/analytics/reference/reports/query
+          // and the June 18, 2018 revision history entry (checked 2026-11-10).
+          requiredScopes: [
+            "https://www.googleapis.com/auth/yt-analytics.readonly",
+            "https://www.googleapis.com/auth/youtube.readonly",
+          ],
+          notes:
+            "Native analytics calls reports.query, which Google says requires access to youtube.readonly in addition to an Analytics scope. Monetary metrics need yt-analytics-monetary.readonly.",
         },
         {
           operation: "live.chat.messages",
@@ -2045,16 +2052,27 @@ export function youtube(
           operation: "analytics.report.read",
           platform: "youtube",
           availability: "available",
-          requiredScopes: ["https://www.googleapis.com/auth/yt-analytics.readonly"],
-          notes: "Reports require an explicit bounded date range and provider-supported metrics.",
+          // reports.query: https://developers.google.com/youtube/analytics/reference/reports/query
+          // and the June 18, 2018 revision history entry (checked 2026-11-10).
+          requiredScopes: [
+            "https://www.googleapis.com/auth/yt-analytics.readonly",
+            "https://www.googleapis.com/auth/youtube.readonly",
+          ],
+          notes:
+            "Reports require an explicit bounded date range and provider-supported metrics. Google requires reports.query requests to have access to youtube.readonly as well as yt-analytics.readonly.",
         },
         {
           operation: "analytics.groups",
           platform: "youtube",
           availability: "available",
-          requiredScopes: ["https://www.googleapis.com/auth/yt-analytics.readonly"],
+          // groupItems.list: https://developers.google.com/youtube/analytics/reference/groupItems/list
+          // (checked 2026-11-10). The other groups and groupItems methods accept yt-analytics.readonly.
+          requiredScopes: [
+            "https://www.googleapis.com/auth/yt-analytics.readonly",
+            "https://www.googleapis.com/auth/youtube.readonly",
+          ],
           notes:
-            "Native analyticsGroups and analyticsGroupItems on the YouTube Analytics API (/v2/groups, /v2/groupItems). Filter reports with filters=group==ID.",
+            "Native analyticsGroups and analyticsGroupItems on the YouTube Analytics API (/v2/groups, /v2/groupItems). Filter reports with filters=group==ID. Google requires groupItems.list to have youtube.readonly together with yt-analytics.readonly, or the read-write youtube scope.",
         },
         {
           operation: "analytics.reporting.bulk",

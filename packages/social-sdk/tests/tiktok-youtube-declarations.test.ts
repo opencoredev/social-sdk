@@ -40,3 +40,33 @@ it("YouTube no longer warns that unverified API projects upload privately [featu
   assert.match(notes, /no longer forces uploads from unverified API projects to private/);
   assert.doesNotMatch(notes, /restricted to private visibility/);
 });
+
+it("YouTube Analytics reads declare youtube.readonly alongside yt-analytics.readonly [feature:youtube.analytics.reports.query]", () => {
+  const { capabilities } = youtube({
+    auth: { accessToken: "test", channelId: "channel1" },
+    fetch: noNetwork,
+  }).capabilities;
+
+  // reports.query and groupItems.list need youtube.readonly as well (Google revision history, 2018-06-18).
+  const analyticsAndDataRead = [
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+    "https://www.googleapis.com/auth/youtube.readonly",
+  ];
+
+  assert.deepEqual(
+    declaration(capabilities, "analytics.report.read")?.requiredScopes,
+    analyticsAndDataRead,
+  );
+  assert.deepEqual(
+    declaration(capabilities, "analytics.youtube.read")?.requiredScopes,
+    analyticsAndDataRead,
+  );
+  assert.deepEqual(
+    declaration(capabilities, "analytics.groups")?.requiredScopes,
+    analyticsAndDataRead,
+  );
+  // The Reporting API accepts yt-analytics.readonly alone.
+  assert.deepEqual(declaration(capabilities, "analytics.reporting.bulk")?.requiredScopes, [
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+  ]);
+});
