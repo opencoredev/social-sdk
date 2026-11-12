@@ -3,15 +3,27 @@
   "routes": [
     {
       "src": "/_p/s\\.js",
-      "dest": "https://cdn.databuddy.cc/databuddy.js"
+      "dest": "https://cdn.databuddy.cc/databuddy.js",
+      "transforms": [
+        { "type": "request.headers", "op": "delete", "target": { "key": "referer" } },
+        { "type": "request.headers", "op": "delete", "target": { "key": "cookie" } }
+      ]
     },
     {
       "src": "/_p/r\\.js",
-      "dest": "https://cdn.databuddy.cc/replay.js"
+      "dest": "https://cdn.databuddy.cc/replay.js",
+      "transforms": [
+        { "type": "request.headers", "op": "delete", "target": { "key": "referer" } },
+        { "type": "request.headers", "op": "delete", "target": { "key": "cookie" } }
+      ]
     },
     {
       "src": "/_p/e/(.*)",
-      "dest": "https://basket.databuddy.cc/$1"
+      "dest": "https://basket.databuddy.cc/$1",
+      "transforms": [
+        { "type": "request.headers", "op": "delete", "target": { "key": "referer" } },
+        { "type": "request.headers", "op": "delete", "target": { "key": "cookie" } }
+      ]
     },
     {
       "src": "/(?!api/)(.+)/",

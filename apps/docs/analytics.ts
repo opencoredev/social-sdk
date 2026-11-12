@@ -57,26 +57,46 @@ const databuddyTags: [src: string, attributes: Record<string, string>][] = [
 ];
 
 /**
- * Inline loader that appends Databuddy's two async tags to <head>. Once the
- * tracker has run, it sends the events window.siteTrack held in
+ * Inline loader that appends Databuddy's two async tags to <head>.
+ *
+ * Both scripts skip setup when their tag is no longer in the document as they
+ * run, and Astro's client router removes injected tags when it swaps <head>.
+ * A navigation that finishes before a script downloads would leave it unset
+ * for the rest of the visit, since Astro doesn't run this inline loader again.
+ * So the loader also listens for `astro:page-load` and adds a fresh tag for any
+ * script that hasn't yet run while attached.
+ *
+ * Once the tracker has run, it sends the events window.siteTrack held in
  * `window.databuddyPending` while the tracker was still loading.
  */
 export const databuddyScript = `(() => {
-  for (const [src, attributes] of ${JSON.stringify(databuddyTags)}) {
-    const tag = document.createElement("script");
-    tag.src = src;
-    tag.async = true;
-    tag.setAttribute("data-databuddy-injected", "");
-    for (const [name, value] of Object.entries(attributes)) tag.setAttribute(name, value);
-    if (src === ${JSON.stringify(DATABUDDY_TRACKER_SRC)}) {
+  const tags = ${JSON.stringify(databuddyTags)};
+  // Scripts that ran while their tag was attached, and the latest tag per script.
+  const ready = new Set();
+  const latest = new Map();
+  const load = () => {
+    for (const [src, attributes] of tags) {
+      if (ready.has(src) || latest.get(src)?.isConnected) continue;
+      const tag = document.createElement("script");
+      tag.src = src;
+      tag.async = true;
+      tag.setAttribute("data-databuddy-injected", "");
+      for (const [name, value] of Object.entries(attributes)) tag.setAttribute(name, value);
       tag.onload = () => {
-        for (const [event, properties] of (window.databuddyPending ?? []).splice(0)) {
-          window.databuddy?.track(event, properties);
+        if (!tag.isConnected) return;
+        ready.add(src);
+        if (src === ${JSON.stringify(DATABUDDY_TRACKER_SRC)} && window.databuddy) {
+          for (const [event, properties] of (window.databuddyPending ?? []).splice(0)) {
+            window.databuddy.track(event, properties);
+          }
         }
       };
+      latest.set(src, tag);
+      document.head.append(tag);
     }
-    document.head.append(tag);
-  }
+  };
+  load();
+  document.addEventListener("astro:page-load", load);
 })();`;
 
 const POSTHOG_KEY = "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw";
