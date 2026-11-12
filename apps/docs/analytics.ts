@@ -64,19 +64,21 @@ const databuddyTags: [src: string, attributes: Record<string, string>][] = [
  * A navigation that finishes before a script downloads would leave it unset
  * for the rest of the visit, since Astro doesn't run this inline loader again.
  * So the loader also listens for `astro:page-load` and adds a fresh tag for any
- * script that hasn't yet run while attached.
+ * script that hasn't yet run while attached. A script whose download fails (a
+ * blocker, a 404) is settled too, so it isn't requested again on every page.
  *
  * Once the tracker has run, it sends the events window.siteTrack held in
  * `window.databuddyPending` while the tracker was still loading.
  */
 export const databuddyScript = `(() => {
   const tags = ${JSON.stringify(databuddyTags)};
-  // Scripts that ran while their tag was attached, and the latest tag per script.
-  const ready = new Set();
+  // Scripts that ran while their tag was attached or failed to download, and
+  // the latest tag per script.
+  const settled = new Set();
   const latest = new Map();
   const load = () => {
     for (const [src, attributes] of tags) {
-      if (ready.has(src) || latest.get(src)?.isConnected) continue;
+      if (settled.has(src) || latest.get(src)?.isConnected) continue;
       const tag = document.createElement("script");
       tag.src = src;
       tag.async = true;
@@ -84,13 +86,14 @@ export const databuddyScript = `(() => {
       for (const [name, value] of Object.entries(attributes)) tag.setAttribute(name, value);
       tag.onload = () => {
         if (!tag.isConnected) return;
-        ready.add(src);
+        settled.add(src);
         if (src === ${JSON.stringify(DATABUDDY_TRACKER_SRC)} && window.databuddy) {
           for (const [event, properties] of (window.databuddyPending ?? []).splice(0)) {
             window.databuddy.track(event, properties);
           }
         }
       };
+      tag.onerror = () => settled.add(src);
       latest.set(src, tag);
       document.head.append(tag);
     }
