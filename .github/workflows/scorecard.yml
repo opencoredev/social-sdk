@@ -19,7 +19,11 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    # Job permissions replace the workflow-level read-all, so list the read
+    # scopes checkout and Scorecard use as well as the two writes.
     permissions:
+      contents: read
+      actions: read
       # Upload the SARIF result to code scanning.
       security-events: write
       # OIDC token that proves the result came from this workflow.

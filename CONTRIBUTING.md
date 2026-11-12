@@ -56,7 +56,6 @@ Before opening a pull request, run these from the repository root:
 ```sh
 bun install --frozen-lockfile
 bun run release:ci
-bun run test:node
 ```
 
 `release:ci` runs lint, formatting, type checks, tests, the build, and package checks. To run one at a time, use `bun run lint`, `bun run format:check`, `bun run check-types`, `bun run test`, or `bun run build`. `bun run format:fix` rewrites formatting.
