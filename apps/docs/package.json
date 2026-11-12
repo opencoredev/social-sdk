@@ -15,7 +15,7 @@
     "@neondatabase/serverless": "1.2.0"
   },
   "devDependencies": {
-    "astro": "7.4.2",
+    "astro": "7.4.11",
     "blume": "2.0.3"
   }
 }
