@@ -3,15 +3,104 @@
 // into their own <head>. One snippet keeps the config identical everywhere.
 //
 // Captured: pageviews and page leaves (including client-router navigations),
-// JavaScript exceptions, session replays with every input masked, and the
-// docs-interest events below, plus events pages send through window.siteTrack
-// (the Cloud waitlist signup). Autocapture stays off, and query strings are
+// JavaScript exceptions, and the docs-interest events below, plus events pages
+// send through window.siteTrack (the Cloud waitlist signup). Autocapture and
+// session recording stay off (Databuddy records replays), and query strings are
 // stripped from URLs before events leave the browser.
 //
 // PostHog starts once the page has loaded and the main thread is idle, so its
 // bundle doesn't compete with the first paint on slow phones. Its exception
 // handler only exists once that bundle runs, so starting later only misses
 // errors from the page's first moments.
+//
+// Databuddy runs beside it on the same pages: blume.config.ts loads
+// `databuddyScript` through Blume's `script()` adapter, and `withAnalytics` adds
+// it to the standalone pages. It records pageviews, Web Vitals, JavaScript
+// errors, clicks on links that leave the site, rage and dead clicks, and session
+// replays with page text and inputs masked. Events sent through window.siteTrack
+// go to both.
+//
+// Its scripts and events go through our own domain: vercel.json proxies
+// `/_p/s.js` and `/_p/r.js` to cdn.databuddy.cc and `/_p/e/*` to
+// basket.databuddy.cc, so tracker blockers that list Databuddy's hosts don't
+// drop them. The prefix says nothing about analytics on purpose. The loader
+// adds the two tags at runtime because those paths exist only as Vercel
+// routes; a static <script src="/_p/..."> fails the docs audit, which checks
+// every same-origin script against the build output.
+
+/** Databuddy's website client ID. It's public: it ships in the page. */
+const DATABUDDY_CLIENT_ID = "d1d47f02-24fc-452d-820a-18b6855ab053";
+
+/** The event endpoint both scripts post to, proxied to basket.databuddy.cc. */
+const DATABUDDY_API_PATH = "/_p/e";
+
+/** The tracker script, proxied to cdn.databuddy.cc/databuddy.js. */
+const DATABUDDY_TRACKER_SRC = "/_p/s.js";
+
+const databuddyShared = {
+  "data-client-id": DATABUDDY_CLIENT_ID,
+  "data-api-url": DATABUDDY_API_PATH,
+};
+
+/** Databuddy's tracker and replay recorder, in load order, with their `data-` settings. */
+const databuddyTags: [src: string, attributes: Record<string, string>][] = [
+  [
+    DATABUDDY_TRACKER_SRC,
+    {
+      ...databuddyShared,
+      "data-track-web-vitals": "true",
+      "data-track-errors": "true",
+      "data-track-outgoing-links": "true",
+    },
+  ],
+  ["/_p/r.js", databuddyShared],
+];
+
+/**
+ * Inline loader that appends Databuddy's two async tags to <head>.
+ *
+ * Both scripts skip setup when their tag is no longer in the document as they
+ * run, and Astro's client router removes injected tags when it swaps <head>.
+ * A navigation that finishes before a script downloads would leave it unset
+ * for the rest of the visit, since Astro doesn't run this inline loader again.
+ * So the loader also listens for `astro:page-load` and adds a fresh tag for any
+ * script that hasn't yet run while attached. A script whose download fails (a
+ * blocker, a 404) is settled too, so it isn't requested again on every page.
+ *
+ * Once the tracker has run, it sends the events window.siteTrack held in
+ * `window.databuddyPending` while the tracker was still loading.
+ */
+export const databuddyScript = `(() => {
+  const tags = ${JSON.stringify(databuddyTags)};
+  // Scripts that ran while their tag was attached or failed to download, and
+  // the latest tag per script.
+  const settled = new Set();
+  const latest = new Map();
+  const load = () => {
+    for (const [src, attributes] of tags) {
+      if (settled.has(src) || latest.get(src)?.isConnected) continue;
+      const tag = document.createElement("script");
+      tag.src = src;
+      tag.async = true;
+      tag.setAttribute("data-databuddy-injected", "");
+      for (const [name, value] of Object.entries(attributes)) tag.setAttribute(name, value);
+      tag.onload = () => {
+        if (!tag.isConnected) return;
+        settled.add(src);
+        if (src === ${JSON.stringify(DATABUDDY_TRACKER_SRC)} && window.databuddy) {
+          for (const [event, properties] of (window.databuddyPending ?? []).splice(0)) {
+            window.databuddy.track(event, properties);
+          }
+        }
+      };
+      tag.onerror = () => settled.add(src);
+      latest.set(src, tag);
+      document.head.append(tag);
+    }
+  };
+  load();
+  document.addEventListener("astro:page-load", load);
+})();`;
 
 const POSTHOG_KEY = "phc_CdT9A2MqdyY8WhzQkNZRRengT93aQenEbQxeERaog5Bw";
 
@@ -62,6 +151,10 @@ export const posthogScript = `(() => {
   // Pages report their own events here, such as the Cloud waitlist signup, so
   // only this file talks to the analytics service.
   window.siteTrack = (event, properties) => {
+    // Databuddy loads on its own schedule, so an event sent before its tracker
+    // has run waits in window.databuddyPending until the Databuddy loader sends it.
+    if (window.databuddy) window.databuddy.track(event, properties);
+    else (window.databuddyPending ??= []).push([event, properties]);
     if (started) window.posthog.capture(event, properties, { send_instantly: true });
     else queued.push([event, properties]);
   };
@@ -80,7 +173,7 @@ export const posthogScript = `(() => {
       capture_pageview: "history_change",
       capture_pageleave: true,
       capture_exceptions: true,
-      session_recording: { maskAllInputs: true },
+      disable_session_recording: true,
       before_send: (event) => {
         if (event?.properties) {
           event.properties.$current_url = stripQuery(event.properties.$current_url);
@@ -104,9 +197,12 @@ export const posthogScript = `(() => {
   else addEventListener("load", idle, { once: true });
 })();`;
 
-/** Adds the PostHog snippet to a standalone HTML page in production builds. */
+/** Adds the PostHog snippet and the Databuddy tags to a standalone HTML page in production builds. */
 export function withAnalytics(html: string): string {
   if (!import.meta.env.PROD) return html;
 
-  return html.replace("</head>", `<script>${posthogScript}</script>\n  </head>`);
+  return html.replace(
+    "</head>",
+    `<script>${posthogScript}</script>\n  <script>${databuddyScript}</script>\n  </head>`,
+  );
 }
