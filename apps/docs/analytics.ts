@@ -34,6 +34,9 @@ const DATABUDDY_CLIENT_ID = "d1d47f02-24fc-452d-820a-18b6855ab053";
 /** The event endpoint both scripts post to, proxied to basket.databuddy.cc. */
 const DATABUDDY_API_PATH = "/_p/e";
 
+/** The tracker script, proxied to cdn.databuddy.cc/databuddy.js. */
+const DATABUDDY_TRACKER_SRC = "/_p/s.js";
+
 const databuddyShared = {
   "data-client-id": DATABUDDY_CLIENT_ID,
   "data-api-url": DATABUDDY_API_PATH,
@@ -42,7 +45,7 @@ const databuddyShared = {
 /** Databuddy's tracker and replay recorder, in load order, with their `data-` settings. */
 const databuddyTags: [src: string, attributes: Record<string, string>][] = [
   [
-    "/_p/s.js",
+    DATABUDDY_TRACKER_SRC,
     {
       ...databuddyShared,
       "data-track-web-vitals": "true",
@@ -53,7 +56,11 @@ const databuddyTags: [src: string, attributes: Record<string, string>][] = [
   ["/_p/r.js", databuddyShared],
 ];
 
-/** Inline loader that appends Databuddy's two async tags to <head>. */
+/**
+ * Inline loader that appends Databuddy's two async tags to <head>. Once the
+ * tracker has run, it sends the events window.siteTrack held in
+ * `window.databuddyPending` while the tracker was still loading.
+ */
 export const databuddyScript = `(() => {
   for (const [src, attributes] of ${JSON.stringify(databuddyTags)}) {
     const tag = document.createElement("script");
@@ -61,6 +68,13 @@ export const databuddyScript = `(() => {
     tag.async = true;
     tag.setAttribute("data-databuddy-injected", "");
     for (const [name, value] of Object.entries(attributes)) tag.setAttribute(name, value);
+    if (src === ${JSON.stringify(DATABUDDY_TRACKER_SRC)}) {
+      tag.onload = () => {
+        for (const [event, properties] of (window.databuddyPending ?? []).splice(0)) {
+          window.databuddy?.track(event, properties);
+        }
+      };
+    }
     document.head.append(tag);
   }
 })();`;
@@ -114,9 +128,10 @@ export const posthogScript = `(() => {
   // Pages report their own events here, such as the Cloud waitlist signup, so
   // only this file talks to the analytics service.
   window.siteTrack = (event, properties) => {
-    // Databuddy loads on its own schedule; an event sent before it arrives is
-    // skipped there and still reaches PostHog.
-    window.databuddy?.track(event, properties);
+    // Databuddy loads on its own schedule, so an event sent before its tracker
+    // has run waits in window.databuddyPending until the Databuddy loader sends it.
+    if (window.databuddy) window.databuddy.track(event, properties);
+    else (window.databuddyPending ??= []).push([event, properties]);
     if (started) window.posthog.capture(event, properties, { send_instantly: true });
     else queued.push([event, properties]);
   };
