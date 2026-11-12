@@ -176,19 +176,38 @@ export const privacy: InfoPage = {
             <li>pages viewed and left, with the referring page</li>
             <li>JavaScript errors that happen on the page</li>
             <li>
-              session replays of how the page was used, with every form input masked before it
-              leaves your browser
-            </li>
-            <li>
               which platform, integration, install, and quickstart pages you open, so we know
               which guides to improve
             </li>
           </ul>
           <p>
-            Query strings are removed from every URL and referrer before an event is sent. Clicks
-            are not captured automatically, and we don't identify visitors, so the analytics service
+            Query strings are removed from every URL and referrer before an event is sent. This
+            service doesn't capture clicks automatically, and we don't identify visitors, so it
             keeps no named profile for you. It stores a random visitor ID in a cookie and local storage
             to tie your page views together.
+          </p>
+          <p>
+            The site also uses <a href="https://www.databuddy.cc">Databuddy</a>, a second analytics
+            service. Its scripts and events go through our own domain, under
+            <code>social-sdk.dev/_p/</code>, which forwards them to Databuddy along with your IP
+            address so it can estimate your location. It records:
+          </p>
+          <ul>
+            <li>pages viewed, with the referring page and query strings removed</li>
+            <li>page load speed measurements (Web Vitals)</li>
+            <li>JavaScript errors that happen on the page</li>
+            <li>clicks on links that leave this site, and repeated or unresponsive clicks</li>
+            <li>
+              session replays of how the page was used, with page text and every form input masked
+              before they leave your browser
+            </li>
+          </ul>
+          <p>
+            Databuddy sets no cookies. It keeps a random visitor ID in local storage and session
+            details in session storage, and we don't identify visitors to it either. It doesn't
+            run at all when your browser sends Do Not Track or Global Privacy Control. Its
+            <a href="https://www.databuddy.cc/privacy">privacy policy</a> covers how it processes
+            and stores this data.
           </p>
         </section>
         <section>
@@ -212,9 +231,10 @@ export const privacy: InfoPage = {
           </p>
           <p>
             We use it only to contact you about Social SDK Cloud and to decide which platforms to
-            build first. We don't add you to a newsletter, and we don't sell or share the list. The
-            analytics service gets a signup event with your platform and account answers, never
-            your email, and session replays mask the form's fields like every other input.
+            build first. We don't add you to a newsletter, and we don't sell or share the list. Both
+            analytics services get a signup event with your platform and account answers, never
+            your email, and Databuddy's session replays mask the form's fields like every other
+            input.
           </p>
           <p>
             To keep bots off the list, the form checks that your email's domain can receive mail,
@@ -334,8 +354,9 @@ export const privacy: InfoPage = {
         <section>
           <h2>Your choices</h2>
           <p>
-            A tracker blocker, or blocking <code>y.social-sdk.dev</code>, stops the analytics
-            without breaking the site. To ask about data tied to your visits or to request its
+            Blocking <code>y.social-sdk.dev</code> and <code>social-sdk.dev/_p/</code>, or turning
+            on Do Not Track or Global Privacy Control for Databuddy, stops the analytics without
+            breaking the site. To ask about data tied to your visits or to request its
             deletion, email <a href="mailto:leo@social-sdk.dev">leo@social-sdk.dev</a>, or open an
             issue at <a href="${repo}/issues">github.com/opencoredev/social-sdk/issues</a> without
             including personal details and we'll arrange a private reply. The

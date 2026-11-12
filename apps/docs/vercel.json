@@ -2,6 +2,18 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "routes": [
     {
+      "src": "/_p/s\\.js",
+      "dest": "https://cdn.databuddy.cc/databuddy.js"
+    },
+    {
+      "src": "/_p/r\\.js",
+      "dest": "https://cdn.databuddy.cc/replay.js"
+    },
+    {
+      "src": "/_p/e/(.*)",
+      "dest": "https://basket.databuddy.cc/$1"
+    },
+    {
       "src": "/(?!api/)(.+)/",
       "status": 308,
       "headers": {
