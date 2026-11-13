@@ -146,9 +146,28 @@ export const posthogScript = `(() => {
   // Routes visited before PostHog starts wait here, so a quick hop through the
   // docs still records each page.
   const pending = [];
-  // Events a page reports through window.siteTrack before PostHog starts.
-  const queued = [];
+  // Events a page reports through window.siteTrack before PostHog starts. One
+  // reported just before the visitor leaves, such as a click on a landing-page
+  // link, is kept in sessionStorage so the next page sends it.
+  const carryKey = "siteTrackQueued";
+  const queued = (() => {
+    try {
+      const carried = JSON.parse(sessionStorage.getItem(carryKey) ?? "[]");
+      sessionStorage.removeItem(carryKey);
+      return Array.isArray(carried) ? carried : [];
+    } catch {
+      return [];
+    }
+  })();
   let started = false;
+  addEventListener("pagehide", () => {
+    if (started || queued.length === 0) return;
+    try {
+      sessionStorage.setItem(carryKey, JSON.stringify(queued));
+    } catch {
+      // Storage is blocked, so the queued events end with this page.
+    }
+  });
   // Pages report their own events here, such as the Cloud waitlist signup, so
   // only this file talks to the analytics service.
   window.siteTrack = (event, properties) => {
