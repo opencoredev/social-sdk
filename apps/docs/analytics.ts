@@ -4,9 +4,10 @@
 //
 // Captured: pageviews and page leaves (including client-router navigations),
 // JavaScript exceptions, and the docs-interest events below, plus events pages
-// send through window.siteTrack (the Cloud waitlist signup). Autocapture and
-// session recording stay off (Databuddy records replays), and query strings are
-// stripped from URLs before events leave the browser.
+// send through window.siteTrack (the Cloud waitlist signup and the landing
+// page's `landing_cta_click`). Autocapture and session recording stay off
+// (Databuddy records replays), and query strings are stripped from URLs before
+// events leave the browser.
 //
 // PostHog starts once the page has loaded and the main thread is idle, so its
 // bundle doesn't compete with the first paint on slow phones. Its exception

@@ -62,7 +62,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareSourceCode",
         "name": "Social SDK",
-        "description": "A typed TypeScript toolkit for building social features into your app, with a real answer from every platform.",
+        "description": "A typed TypeScript SDK for posting to X, LinkedIn, YouTube and five more social platforms, with its own result from each one.",
         "url": "https://social-sdk.dev/",
         "codeRepository": "https://github.com/opencoredev/social-sdk",
         "programmingLanguage": "TypeScript",
@@ -75,7 +75,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Social SDK",
-        "description": "An open-source TypeScript library for publishing, reading, comments, messages, and webhooks across Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube, with direct integrations or optional managed backends.",
+        "description": "An open-source TypeScript library for publishing, reading, comments, messages, and webhooks across Bluesky, Facebook, Instagram, LinkedIn, Threads, TikTok, X, and YouTube, with direct integrations or optional managed backends.",
         "url": "https://social-sdk.dev/",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Node.js 22.12+, Bun",
@@ -129,10 +129,10 @@
       /* ---------- Cloud early-access strip ---------- */
       .cloud-strip {
         display: block;
-        padding: 9px 16px;
-        background: var(--ink);
-        color: var(--paper);
-        font-size: 15px;
+        padding: 8px 16px;
+        border-bottom: 1px solid #e7e2da;
+        color: var(--ink-soft);
+        font-size: 14.5px;
         line-height: 1.45;
         text-align: center;
         text-decoration: none;
@@ -140,29 +140,31 @@
       .cloud-strip .new {
         margin-right: 6px;
         font-family: var(--hand);
-        font-size: 20px;
+        font-size: 19px;
         line-height: 1;
-        color: #f08a6c;
+        color: var(--marker-text);
+      }
+      .cloud-strip b {
+        font-weight: 560;
+        color: var(--ink);
       }
       .cloud-strip u {
         margin-left: 4px;
-        font-weight: 560;
+        color: var(--ink);
         text-decoration-color: var(--marker);
         text-decoration-thickness: 2px;
         text-underline-offset: 3px;
         white-space: nowrap;
       }
       .cloud-strip:hover u {
-        color: #f08a6c;
+        color: var(--marker-text);
       }
       .cloud-strip:focus-visible {
         outline: 3px solid var(--marker);
         outline-offset: -3px;
       }
       html.dark .cloud-strip {
-        background: #26221e;
-        color: var(--ink);
-        border-bottom: 1px solid #3b3631;
+        border-bottom-color: #3b3631;
       }
       .wrap {
         max-width: 1080px;
@@ -231,10 +233,12 @@
         margin-bottom: 18px;
       }
       h1 {
+        max-width: 23ch;
         font-weight: 430;
-        font-size: clamp(40px, 6.8vw, 76px);
-        line-height: 1.08;
+        font-size: clamp(34px, 5vw, 58px);
+        line-height: 1.1;
         letter-spacing: -0.02em;
+        text-wrap: balance;
       }
       h1 .scribbled {
         position: relative;
@@ -250,48 +254,18 @@
         background: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 14" preserveAspectRatio="none"%3E%3Cpath d="M3 9 Q26 4 50 8 T97 7" stroke="%23e8542f" stroke-width="5" fill="none" stroke-linecap="round"/%3E%3C/svg%3E')
           no-repeat center / 100% 100%;
       }
-      .phon {
-        margin-top: 14px;
-        font-size: 19px;
-        color: var(--ink-soft);
-        letter-spacing: 0.01em;
-      }
-      .phon .ety {
-        font-size: 17px;
-      }
-      .senses {
-        margin-top: 30px;
-        list-style: none;
-        max-width: 60ch;
-        display: grid;
-        gap: 18px;
-      }
-      .senses li {
+      .lede {
+        margin-top: 22px;
+        max-width: 54ch;
         font-size: 20px;
         line-height: 1.55;
-        padding-left: 40px;
-        position: relative;
-      }
-      .senses .num {
-        position: absolute;
-        left: 0;
-        top: 0;
-        font-family: var(--hand);
-        font-size: 26px;
-        color: var(--marker);
-      }
-      .senses .ex {
         color: var(--ink-soft);
-        font-family: var(--hand);
-        font-size: 22px;
-        font-style: normal;
-        white-space: nowrap;
       }
       .cta-row {
-        margin-top: 44px;
+        margin-top: 40px;
         display: flex;
-        align-items: center;
-        gap: 26px;
+        align-items: flex-end;
+        gap: 22px 40px;
         flex-wrap: wrap;
       }
       .brush-btn {
@@ -315,19 +289,100 @@
         height: calc(100% + 16px);
         z-index: -1;
       }
-      .cta-note {
-        font-family: var(--hand);
-        font-size: 22px;
+      .install {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+      .pm {
+        display: flex;
+        gap: 4px;
+      }
+      .pm button,
+      .copy {
+        font: inherit;
+        color: inherit;
+        background: none;
+        cursor: pointer;
+      }
+      .pm button {
+        padding: 2px 8px;
+        border: 0;
+        font-family: var(--mono);
+        font-size: 13.5px;
         color: var(--ink-soft);
+        text-decoration: underline 2px transparent;
+        text-underline-offset: 4px;
+      }
+      .pm button[aria-pressed="true"] {
+        color: var(--ink);
+        text-decoration-color: var(--marker);
+      }
+      .install-line {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 14px;
+        padding: 7px 7px 7px 14px;
+        border: 2px solid var(--ink);
+        border-radius: 10px;
+        transform: rotate(0.4deg);
       }
-      .cta-note code {
+      .install-line code {
         font-family: var(--mono);
         font-size: 15px;
-        color: var(--ink);
-        background: none;
+        white-space: nowrap;
+        overflow-x: auto;
+      }
+      .copy {
+        flex-shrink: 0;
+        padding: 3px 12px;
+        border: 1.5px solid var(--ink);
+        border-radius: 7px;
+        font-size: 15px;
+      }
+      .copy:hover {
+        border-color: var(--marker);
+      }
+      .pm button:focus-visible,
+      .copy:focus-visible {
+        outline: 3px solid var(--marker);
+        outline-offset: 2px;
+      }
+
+      /* ---------- platform row ---------- */
+      .platforms {
+        padding: 46px 0 0;
+      }
+      .platforms h2,
+      .thanks h2 {
+        font-family: var(--hand);
+        font-weight: 400;
+        font-size: 24px;
+        color: var(--ink-soft);
+      }
+      .platform-list,
+      .route-chips,
+      .thanks-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        list-style: none;
+      }
+      .thanks-list {
+        justify-content: center;
+      }
+      .platform-list {
+        margin-top: 12px;
+        gap: 10px;
+      }
+      .platform-list .chip {
+        padding: 6px 13px;
+        font-size: 15px;
+      }
+      .platform-list li:nth-child(even) .chip,
+      .route-chips li:nth-child(even) .chip {
+        transform: rotate(0.8deg);
       }
 
       /* ---------- diagram ---------- */
@@ -435,8 +490,8 @@
       .note-section {
         padding: 90px 0 20px;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 56px;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr);
+        gap: 48px;
         align-items: center;
       }
       .note-copy h2 {
@@ -470,11 +525,13 @@
       .paper-note pre {
         padding: 26px 28px;
         font-family: var(--mono);
-        font-size: 14.5px;
-        line-height: 1.75;
+        font-size: 13px;
+        line-height: 1.7;
         background: #fff;
-        overflow-x: auto;
         color: var(--ink);
+        /* soft-wrap long lines so the excerpt stays word-for-word in any width */
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
       /* rough border drawn separately so the text underneath stays crisp */
       .paper-note .note-border {
@@ -495,9 +552,6 @@
         stroke: var(--ink);
         stroke-width: 2.2;
         filter: url(#roughen);
-      }
-      .paper-note pre.code-narrow {
-        display: none;
       }
       .paper-note .c-kw {
         color: var(--marker);
@@ -558,20 +612,7 @@
         font-size: 20px;
       }
 
-      /* ---------- managed ---------- */
-      .managed {
-        padding: 70px 0 0;
-        display: flex;
-        align-items: center;
-        gap: 18px;
-        flex-wrap: wrap;
-      }
-      .managed .hand-line {
-        flex-basis: 100%;
-        font-family: var(--hand);
-        font-size: 24px;
-        color: var(--ink-soft);
-      }
+      /* ---------- chips: platforms and managed backends ---------- */
       .chip {
         display: inline-flex;
         align-items: center;
@@ -592,51 +633,119 @@
         outline: 3px solid #e8542f;
         outline-offset: 3px;
       }
-      .chip + .chip {
-        transform: rotate(0.9deg);
-      }
       .chip img {
         width: 18px;
         height: 18px;
       }
-      .chip + .chip + .chip {
-        transform: rotate(-0.4deg);
+      /* class names avoid "sponsor" so ad blockers leave them alone */
+      .tag-backer {
+        padding: 0 7px;
+        border: 1px solid var(--wire);
+        border-radius: 999px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--ink-soft);
+      }
+
+      /* ---------- pick your setup ---------- */
+      .setup {
+        padding: 100px 0 10px;
+      }
+      .setup h2 {
+        font-weight: 430;
+        font-size: clamp(26px, 3.4vw, 38px);
+        letter-spacing: -0.01em;
+      }
+      .setup-lede {
+        margin-top: 12px;
+        color: var(--ink-soft);
+        font-size: 19px;
+      }
+      .setup-grid {
+        margin-top: 40px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 40px 36px;
+      }
+      .route {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        padding-top: 18px;
+        border-top: 2px solid var(--ink);
+      }
+      .route h3 {
+        font-weight: 560;
+        font-size: 21px;
+      }
+      .route p {
+        font-size: 16.5px;
+        color: var(--ink-soft);
+        line-height: 1.55;
+      }
+      .route .tag {
+        font-family: var(--hand);
+        color: var(--marker-text);
+        font-size: 21px;
+        line-height: 1.2;
+      }
+      .route-chips {
+        gap: 10px;
+      }
+      .route-chips .chip {
+        padding: 6px 13px;
+        font-size: 15px;
+      }
+      .route-link,
+      .setup-more a {
+        color: var(--ink);
+        text-decoration-color: var(--marker);
+        text-decoration-thickness: 2px;
+        text-underline-offset: 4px;
+      }
+      .route-link {
+        margin-top: auto;
+        font-weight: 560;
+      }
+      .setup-more {
+        margin-top: 34px;
+        color: var(--ink-soft);
       }
 
       /* ---------- sponsors (class names avoid "sponsor" so ad blockers leave them alone) ---------- */
       .thanks {
-        padding: 72px 0 16px;
-        text-align: center;
+        margin-top: 90px;
+        padding: 22px 0;
+        border-top: 1px dashed var(--wire);
+        border-bottom: 1px dashed var(--wire);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 10px 20px;
       }
       .thanks h2 {
-        font-family: var(--hand);
-        font-weight: 400;
-        font-size: 26px;
-        color: var(--ink-soft);
-      }
-      .thanks-list {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 18px;
-        margin-top: 18px;
-        list-style: none;
+        font-size: 22px;
       }
       .backer {
         display: flex;
         align-items: center;
-        gap: 14px;
-        width: 340px;
-        padding: 14px 20px 14px 14px;
-        border: 2px solid var(--ink);
-        border-radius: 16px;
+        gap: 8px;
+        padding: 5px 14px;
+        border: 1.5px solid var(--ink-soft);
+        border-radius: 999px;
         color: var(--ink);
-        text-align: left;
+        font-size: 15.5px;
         text-decoration: none;
         transform: rotate(-0.5deg);
         transition:
           transform 160ms ease,
           border-color 160ms ease;
+      }
+      .backer img {
+        display: block;
+        border-radius: 4px;
       }
       li + li .backer {
         transform: rotate(0.6deg);
@@ -649,47 +758,9 @@
         outline: 3px solid var(--marker);
         outline-offset: 3px;
       }
-      .backer-mark {
-        display: flex;
-        flex-shrink: 0;
-        align-items: center;
-        justify-content: center;
-        width: 48px;
-        height: 48px;
-        border-radius: 11px;
-        color: var(--ink-soft);
-        font-size: 28px;
-        line-height: 1;
-      }
-      .backer-mark img {
-        display: block;
-        width: 32px;
-        height: 32px;
-      }
-      .backer-tile {
-        background: #f4f1ec;
-      }
-      .backer-text {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-      .backer-name {
-        font-size: 19px;
-        line-height: 1.2;
-      }
-      .backer-desc {
-        color: var(--ink-soft);
-        font-size: 14px;
-        line-height: 1.35;
-      }
       .backer-open {
         border-style: dashed;
-        border-color: var(--ink-soft);
-      }
-      .backer-open .backer-mark {
-        border: 2px dashed var(--ink-soft);
+        color: var(--ink-soft);
       }
 
       /* ---------- construction ---------- */
@@ -784,21 +855,20 @@
           grid-template-columns: minmax(0, 1fr);
           gap: 40px;
         }
+        .setup-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
       @media (max-width: 560px) {
-        .thanks-list li {
-          width: 100%;
-        }
-        .backer {
-          width: 100%;
-        }
         header {
-          padding-top: 64px;
+          padding-top: 56px;
         }
         .nav-links {
           gap: 18px;
         }
-        .nav-links a:first-child {
+        /* the diagram link and Blog make room for Cloud; Blog is also in the footer */
+        .nav-links a:first-child,
+        .nav-links a[href="/blog"] {
           display: none;
         }
         .feat-grid {
@@ -807,24 +877,24 @@
         header {
           padding-bottom: 8px;
         }
-        .senses li {
+        .lede {
           font-size: 18px;
-          padding-left: 34px;
         }
         .cta-row {
-          margin-top: 36px;
-          gap: 22px;
+          margin-top: 32px;
+          gap: 26px;
         }
-        .cta-note {
-          flex-wrap: wrap;
-          gap: 4px 8px;
+        .install {
+          width: 100%;
         }
-        .cta-note code {
-          flex-basis: 100%;
-          min-width: 0;
-          padding-left: 54px;
-          font-size: 14px;
-          overflow-wrap: anywhere;
+        .install-line code {
+          font-size: 13.5px;
+        }
+        .platforms {
+          padding-top: 36px;
+        }
+        .setup {
+          padding-top: 72px;
         }
         .stage svg.board-wide {
           display: none;
@@ -841,13 +911,6 @@
         .paper-note pre {
           padding: 22px 16px;
           font-size: 12px;
-          line-height: 1.7;
-        }
-        .paper-note pre.code-wide {
-          display: none;
-        }
-        .paper-note pre.code-narrow {
-          display: block;
         }
         .note-scribble {
           padding: 0 16px 14px;
@@ -864,7 +927,7 @@
         }
       }
       /* Three links and the wordmark don't fit; GitHub is also in the footer. */
-      @media (max-width: 380px) {
+      @media (max-width: 420px) {
         .nav-links a[href^="https://github.com"] {
           display: none;
         }
@@ -931,8 +994,14 @@
       html.dark .chip img[src$="/buffer.svg"] {
         filter: invert(1);
       }
-      /* logos are drawn for light backgrounds, so give them a light tile in dark mode */
-      html.dark .backer-tile {
+      html.dark .chip img[src$="/x.svg"],
+      html.dark .chip img[src$="/threads.svg"],
+      html.dark .chip img[src$="/tiktok.svg"] {
+        filter: invert(1);
+      }
+      /* sponsor logos are drawn for light backgrounds, so give them a light tile in dark mode */
+      html.dark .backer img {
+        padding: 2px;
         background: #f2efe9;
       }
       html.dark .backer {
@@ -982,9 +1051,9 @@
       </defs>
     </svg>
 
-    <a class="cloud-strip" href="/cloud">
-      <span class="new">new</span> Social SDK Cloud, the hosted SDK, is taking early-access signups.
-      <u>Join the list →</u>
+    <a class="cloud-strip" href="/cloud" data-cta="cloud_banner">
+      <span class="new">early access</span> <b>Social SDK Cloud</b> will run the platform apps and
+      token refresh for you. It isn't open yet. <u>Join the waitlist →</u>
     </a>
 
     <div class="wrap">
@@ -1059,6 +1128,18 @@
               />
             </svg>
           </a>
+          <a href="/cloud"
+            >Cloud
+            <svg class="u" viewBox="0 0 100 8" preserveAspectRatio="none">
+              <path
+                d="M2 4 Q30 7 52 4 T98 5"
+                stroke="#e8542f"
+                stroke-width="2.4"
+                fill="none"
+                stroke-linecap="round"
+              />
+            </svg>
+          </a>
           <a
             href="https://github.com/opencoredev/social-sdk"
             target="_blank"
@@ -1080,20 +1161,20 @@
 
       <main>
         <header>
-          <h1><span class="scribbled">social</span> SDK</h1>
-          <p class="phon">/ˈsoʊ·ʃəl ˌɛs·diː·ˈkeɪ/ · <em>noun</em></p>
-          <ol class="senses">
-            <li>
-              <span class="num">1.</span>
-              a typed toolkit for building social features into your app.
-            </li>
-            <li>
-              <span class="num">2.</span>
-              the route from your code to every platform, with a real answer from each.
-            </li>
-          </ol>
+          <h1>
+            Post to X, LinkedIn, YouTube and five more platforms with one
+            <span class="scribbled">TypeScript call</span>.
+          </h1>
+          <p class="lede">
+            Open source (MIT). Each platform returns its own result: published, processing, or
+            failed with the reason.
+          </p>
           <div class="cta-row">
-            <a class="brush-btn" href="/docs/getting-started/mock-quickstart">
+            <a
+              class="brush-btn"
+              href="/docs/getting-started/choose-an-integration"
+              data-cta="primary"
+            >
               <svg viewBox="0 0 300 72" preserveAspectRatio="none" aria-hidden="true">
                 <path
                   d="M14 22 C60 8, 240 4, 288 18 C298 34, 292 52, 270 60 C200 72, 60 70, 16 58 C4 46, 6 32, 14 22 Z"
@@ -1101,102 +1182,122 @@
                   filter="url(#roughen2)"
                 />
               </svg>
-              Read the quickstart
+              Post your first update
             </a>
-            <span class="cta-note">
-              <svg width="46" height="30" viewBox="0 0 46 30" fill="none" aria-hidden="true">
-                <path
-                  d="M42 24 C30 26, 12 24, 6 8"
-                  stroke="#57534c"
-                  stroke-width="2"
-                  fill="none"
-                  stroke-linecap="round"
-                />
-                <path
-                  d="M3 14 L6 7 L13 9"
-                  stroke="#57534c"
-                  stroke-width="2"
-                  fill="none"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              or just <code>bun add @opencoredev/social-sdk</code>
-            </span>
+            <div class="install">
+              <div class="pm" role="group" aria-label="Package manager">
+                <button type="button" data-pm="npm i" aria-pressed="true">npm</button>
+                <button type="button" data-pm="bun add" aria-pressed="false">bun</button>
+                <button type="button" data-pm="pnpm add" aria-pressed="false">pnpm</button>
+                <button type="button" data-pm="yarn add" aria-pressed="false">yarn</button>
+              </div>
+              <div class="install-line">
+                <code id="install-cmd">npm i @opencoredev/social-sdk</code>
+                <button type="button" class="copy" data-cta="install_copy">Copy</button>
+                <span class="sr-only" id="copy-status" aria-live="polite"></span>
+              </div>
+            </div>
           </div>
         </header>
 
-        <!-- ================= sponsors ================= -->
-        <section class="thanks" aria-labelledby="thanks-heading">
-          <h2 id="thanks-heading">shoutout to our sponsors</h2>
-          <ul class="thanks-list">
+        <!-- ================= platforms ================= -->
+        <section class="platforms" aria-labelledby="platforms-heading">
+          <h2 id="platforms-heading">direct adapters, no middleman:</h2>
+          <ul class="platform-list">
             <li>
-              <a
-                class="backer"
-                href="https://postfa.st/docs?utm_source=social-sdk&amp;utm_medium=sponsor&amp;utm_campaign=hosted-backend"
-                target="_blank"
-                rel="sponsored noopener noreferrer"
+              <a class="chip" href="/docs/platforms/x"
+                ><img width="18" height="18" src="/integrations/x.svg" alt="" /> X</a
               >
-                <span class="backer-mark backer-tile"
-                  ><img width="32" height="32" src="/integrations/postfast.png" alt=""
-                /></span>
-                <span class="backer-text">
-                  <span class="backer-name">PostFast</span>
-                  <span class="backer-desc">Social scheduling with a public API</span>
-                </span>
-                <span class="sr-only"> (opens in a new tab)</span>
-              </a>
             </li>
             <li>
-              <a
-                class="backer"
-                href="https://postiz.com/?utm_source=socialsdk"
-                target="_blank"
-                rel="sponsored noopener noreferrer"
+              <a class="chip" href="/docs/platforms/linkedin"
+                ><img width="18" height="18" src="/integrations/linkedin.svg" alt="" /> LinkedIn</a
               >
-                <span class="backer-mark backer-tile"
-                  ><img width="32" height="32" src="/integrations/postiz.svg" alt=""
-                /></span>
-                <span class="backer-text">
-                  <span class="backer-name">Postiz</span>
-                  <span class="backer-desc">Agentic social media scheduler</span>
-                </span>
-                <span class="sr-only"> (opens in a new tab)</span>
-              </a>
             </li>
             <li>
-              <a
-                class="backer"
-                href="https://zernio.link/leo"
-                target="_blank"
-                rel="sponsored noopener noreferrer"
+              <a class="chip" href="/docs/platforms/youtube"
+                ><img width="18" height="18" src="/integrations/youtube.svg" alt="" /> YouTube</a
               >
-                <span class="backer-mark backer-tile"
-                  ><img width="32" height="32" src="/integrations/zernio.svg" alt=""
-                /></span>
-                <span class="backer-text">
-                  <span class="backer-name">Zernio</span>
-                  <span class="backer-desc">Managed social media API</span>
-                </span>
-                <span class="sr-only"> (opens in a new tab)</span>
-              </a>
             </li>
             <li>
-              <a
-                class="backer backer-open"
-                href="https://github.com/sponsors/opencoredev"
-                target="_blank"
-                rel="noopener noreferrer"
+              <a class="chip" href="/docs/platforms/facebook"
+                ><img width="18" height="18" src="/integrations/facebook.svg" alt="" /> Facebook</a
               >
-                <span class="backer-mark" aria-hidden="true">+</span>
-                <span class="backer-text">
-                  <span class="backer-name">Sponsor me</span>
-                  <span class="backer-desc">Support Social SDK on GitHub</span>
-                </span>
-                <span class="sr-only"> (opens in a new tab)</span>
-              </a>
+            </li>
+            <li>
+              <a class="chip" href="/docs/platforms/instagram"
+                ><img width="18" height="18" src="/integrations/instagram.svg" alt="" />
+                Instagram</a
+              >
+            </li>
+            <li>
+              <a class="chip" href="/docs/platforms/threads"
+                ><img width="18" height="18" src="/integrations/threads.svg" alt="" /> Threads</a
+              >
+            </li>
+            <li>
+              <a class="chip" href="/docs/platforms/bluesky"
+                ><img width="18" height="18" src="/integrations/bluesky.svg" alt="" /> Bluesky</a
+              >
+            </li>
+            <li>
+              <a class="chip" href="/docs/platforms/tiktok"
+                ><img width="18" height="18" src="/integrations/tiktok.svg" alt="" /> TikTok</a
+              >
             </li>
           </ul>
+        </section>
+
+        <!-- ================= code note ================= -->
+        <section class="note-section" id="note">
+          <div class="note-copy">
+            <h2>What you get back</h2>
+            <p>
+              One outcome per target. Not a boolean. The actual state: "published", "processing",
+              "accepted", "failed", "unknown", and more, with the reason when there is one.
+            </p>
+            <p>
+              Each target is checked before anything is sent. A text-only post aimed at Instagram
+              fails local preparation, and no target is dispatched.
+            </p>
+            <p>Switch on the state, and TypeScript tells you when a new one isn't handled.</p>
+          </div>
+          <div class="paper-note">
+            <span class="tape"></span>
+            <svg class="note-border" aria-hidden="true"><rect /></svg>
+            <!-- renderOutcome and its helper from skills/integrate-social-sdk/references/render-outcomes.ts, which recipes:check typechecks -->
+            <pre><span class="c-kw">import type</span> { DeliveryOutcome } <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
+
+<span class="c-kw">function</span> renderOutcome(outcome: DeliveryOutcome): string {
+  <span class="c-kw">const</span> target = <span class="c-str">`${outcome.account.platform}/${outcome.account.accountId}`</span>;
+
+  <span class="c-kw">switch</span> (outcome.state) {
+    <span class="c-kw">case</span> <span class="c-str">"published"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: published (${outcome.post.postId})`</span>;
+    <span class="c-kw">case</span> <span class="c-str">"scheduled"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: scheduled (${outcome.job.jobId})`</span>;
+    <span class="c-kw">case</span> <span class="c-str">"accepted"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: accepted`</span>;
+    <span class="c-kw">case</span> <span class="c-str">"processing"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: processing`</span>;
+    <span class="c-kw">case</span> <span class="c-str">"failed"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: failed (${outcome.code})`</span>;
+    <span class="c-kw">case</span> <span class="c-str">"unknown"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: status unknown (${outcome.reason})`</span>;
+    <span class="c-kw">case</span> <span class="c-str">"cancelled"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: cancelled`</span>;
+    <span class="c-kw">case</span> <span class="c-str">"not-submitted"</span>:
+      <span class="c-kw">return</span> <span class="c-str">`${target}: not submitted (${outcome.reason})`</span>;
+    <span class="c-kw">default</span>:
+      <span class="c-kw">return</span> unreachable(outcome);
+  }
+}
+
+<span class="c-kw">function</span> unreachable(value: never): never {
+  <span class="c-kw">throw new</span> Error(<span class="c-str">`Unhandled delivery outcome: ${String(value)}`</span>);
+}</pre>
+            <div class="note-scribble">← from render-outcomes.ts, typechecked in CI</div>
+          </div>
         </section>
 
         <!-- ================= the big drawing ================= -->
@@ -1248,7 +1349,7 @@
               <text class="mono" x="106" y="324" font-size="14" fill="#1c1a17">content,</text>
               <text class="mono" x="106" y="350" font-size="14" fill="#1c1a17">
                 targets:
-                <tspan fill="#2f6f4f">everywhere</tspan>
+                <tspan fill="#2f6f4f">accounts</tspan>
                 ,
               </text>
               <text class="mono" x="92" y="376" font-size="14" fill="#1c1a17">})</text>
@@ -1551,7 +1652,7 @@
               <text class="mono" x="80" y="118" font-size="15" fill="#1c1a17">content,</text>
               <text class="mono" x="80" y="144" font-size="15" fill="#1c1a17">
                 targets:
-                <tspan fill="#2f6f4f">everywhere</tspan>
+                <tspan fill="#2f6f4f">accounts</tspan>
                 ,
               </text>
               <text class="mono" x="62" y="170" font-size="15" fill="#1c1a17">})</text>
@@ -1801,64 +1902,78 @@
           </svg>
         </section>
 
-        <!-- ================= code note ================= -->
-        <section class="note-section" id="note">
-          <div class="note-copy">
-            <h2>What you get back</h2>
-            <p>
-              One outcome per target. Not a boolean. The actual state: "published", "processing",
-              "accepted", "failed", "unknown", and more, with the reason when there is one.
-            </p>
-            <p>
-              Each target is checked before anything is sent. A text-only post aimed at Instagram
-              fails local preparation, and no target is dispatched.
-            </p>
+        <!-- ================= setup ================= -->
+        <section class="setup" aria-labelledby="setup-heading">
+          <h2 id="setup-heading">Pick your setup</h2>
+          <p class="setup-lede">
+            What changes is who registers the platform apps and keeps the tokens.
+          </p>
+          <div class="setup-grid">
+            <div class="route">
+              <span class="tag">free, open source</span>
+              <h3>Direct</h3>
+              <p>
+                Use your own platform apps. You handle each platform's app review and tokens, and
+                pay any API fees the platform charges.
+              </p>
+              <a class="route-link" href="/docs/platforms">Platform guides →</a>
+            </div>
+            <div class="route">
+              <span class="tag">their account, their pricing</span>
+              <h3>Managed backend</h3>
+              <p>A provider connects the accounts and holds the tokens. You sign up with them.</p>
+              <ul class="route-chips">
+                <li>
+                  <a class="chip" href="/docs/backends/zernio"
+                    ><img width="18" height="18" src="/integrations/zernio.svg" alt="" /> Zernio
+                    <span class="tag-backer">sponsor</span></a
+                  >
+                </li>
+                <li>
+                  <a class="chip" href="/docs/backends/post-for-me"
+                    ><img width="18" height="18" src="/integrations/post-for-me.webp" alt="" /> Post
+                    for Me</a
+                  >
+                </li>
+                <li>
+                  <a class="chip" href="/docs/backends/postfast"
+                    ><img width="18" height="18" src="/integrations/postfast.png" alt="" /> PostFast
+                    <span class="tag-backer">sponsor</span></a
+                  >
+                </li>
+                <li>
+                  <a class="chip" href="/docs/backends/postiz"
+                    ><img width="18" height="18" src="/integrations/postiz.svg" alt="" /> Postiz
+                    <span class="tag-backer">sponsor</span></a
+                  >
+                </li>
+                <li>
+                  <a class="chip" href="/docs/backends/buffer"
+                    ><img width="18" height="18" src="/integrations/buffer.svg" alt="" /> Buffer</a
+                  >
+                </li>
+              </ul>
+            </div>
+            <div class="route">
+              <span class="tag">early access, not open yet</span>
+              <h3>Social SDK Cloud</h3>
+              <p>
+                Our hosted version will run the platform apps and token refresh for you. Join the
+                waitlist to hear when it opens.
+              </p>
+              <a class="route-link" href="/cloud" data-cta="cloud_inline">Join the waitlist →</a>
+            </div>
           </div>
-          <div class="paper-note">
-            <span class="tape"></span>
-            <svg class="note-border" aria-hidden="true"><rect /></svg>
-            <pre
-              class="code-wide"
-            ><span class="c-kw">import</span> { createSocial } <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
-
-  <span class="c-kw">const</span> social = createSocial({ backend });
-
-  <span class="c-kw">const</span> result = <span class="c-kw">await</span> social.posts.publish({
-    content: { text: <span class="c-str">"we drew our landing page"</span> },
-    targets: accounts.map((account) => ({ account })),
-  });
-
-  <span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
-    <span class="c-dim">// "published" | "processing" | "failed" | ...</span>
-    console.log(o.account.platform, o.state);
-  }</pre>
-            <!-- same snippet, reflowed to fit a phone without clipping -->
-            <pre class="code-narrow"><span class="c-kw">import</span> { createSocial }
-    <span class="c-kw">from</span> <span class="c-str">"@opencoredev/social-sdk"</span>;
-
-  <span class="c-kw">const</span> social =
-    createSocial({ backend });
-
-  <span class="c-kw">const</span> result =
-    <span class="c-kw">await</span> social.posts.publish({
-      content: { text: <span class="c-str">"we drew this"</span> },
-      targets: accounts.map(
-        (account) => ({ account }),
-      ),
-    });
-
-  <span class="c-kw">for</span> (<span class="c-kw">const</span> o <span class="c-kw">of</span> result.outcomes) {
-    <span class="c-dim">// published | processing | failed</span>
-    console.log(
-      o.account.platform, o.state);
-  }</pre>
-            <div class="note-scribble">← typed end to end, mocks included</div>
-          </div>
+          <p class="setup-more">
+            Not sure which one?
+            <a href="/docs/getting-started/choose-an-integration">Compare the routes in the docs</a
+            >.
+          </p>
         </section>
 
         <!-- ================= features ================= -->
         <section class="features">
-          <h2>Everything it does.</h2>
+          <h2>What it does.</h2>
           <div class="feat-grid">
             <div class="feat">
               <div class="doodle">
@@ -1891,10 +2006,10 @@
               </div>
               <h3>Publishing</h3>
               <p>
-                Explicit targets, explicit accounts, one outcome per destination. Retries that reuse
-                an idempotency key with a durable store are deduplicated.
+                Pick the accounts, make one call, get a result for each. Retry with the same
+                idempotency key and a durable store, and the post isn't sent twice.
               </p>
-              <span class="tag">unknown means reconcile</span>
+              <span class="tag">no double posts</span>
             </div>
             <div class="feat">
               <div class="doodle">
@@ -1917,9 +2032,8 @@
               </div>
               <h3>Reads &amp; analytics</h3>
               <p>
-                Typed references to native content, plus platform analytics products where
-                available. Missing metrics are left out, not reported as zero. Unsupported reads
-                fail with <code>unsupported_capability</code>.
+                Read your posts and their metrics where the platform offers them. A number the
+                platform doesn't return is left out, not shown as zero.
               </p>
               <span class="tag">no made-up zeros</span>
             </div>
@@ -1942,8 +2056,8 @@
               </div>
               <h3>Comments &amp; messages</h3>
               <p>
-                Replies, reactions, conversations, and native platform operations, with capability
-                declarations for normalized routes and explicit authorization for native access.
+                Read and reply to comments and DMs where the platform's API allows it. Each adapter
+                lists what it supports, so you can check before you call.
               </p>
               <span class="tag">where platforms allow</span>
             </div>
@@ -1964,34 +2078,65 @@
               </div>
               <h3>Deterministic testing</h3>
               <p>
-                A mock backend with deterministic scenarios, fixtures, and a fake clock, so CI never
-                touches a live network.
+                A mock backend with fixed scenarios, fixtures and a fake clock, so your tests never
+                call a real platform.
               </p>
               <span class="tag">runs offline</span>
             </div>
           </div>
+        </section>
 
-          <div class="managed">
-            <span class="hand-line"
-              >don't want to manage tokens yourself? take a managed route:</span
-            >
-            <a class="chip" href="/docs/backends/zernio"
-              ><img width="18" height="18" src="/integrations/zernio.svg" alt="" /> Zernio</a
-            >
-            <a class="chip" href="/docs/backends/post-for-me"
-              ><img width="18" height="18" src="/integrations/post-for-me.webp" alt="" /> Post for
-              Me</a
-            >
-            <a class="chip" href="/docs/backends/postfast"
-              ><img width="18" height="18" src="/integrations/postfast.png" alt="" /> PostFast</a
-            >
-            <a class="chip" href="/docs/backends/postiz"
-              ><img width="18" height="18" src="/integrations/postiz.svg" alt="" /> Postiz</a
-            >
-            <a class="chip" href="/docs/backends/buffer"
-              ><img width="18" height="18" src="/integrations/buffer.svg" alt="" /> Buffer</a
-            >
-          </div>
+        <!-- ================= sponsors ================= -->
+        <section class="thanks" aria-labelledby="thanks-heading">
+          <h2 id="thanks-heading">thanks to our sponsors</h2>
+          <ul class="thanks-list">
+            <li>
+              <a
+                class="backer"
+                href="https://postfa.st/docs?utm_source=social-sdk&amp;utm_medium=sponsor&amp;utm_campaign=hosted-backend"
+                target="_blank"
+                rel="sponsored noopener noreferrer"
+                data-cta="sponsor"
+              >
+                <img width="20" height="20" src="/integrations/postfast.png" alt="" />
+                PostFast<span class="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+            <li>
+              <a
+                class="backer"
+                href="https://postiz.com/?utm_source=socialsdk"
+                target="_blank"
+                rel="sponsored noopener noreferrer"
+                data-cta="sponsor"
+              >
+                <img width="20" height="20" src="/integrations/postiz.svg" alt="" />
+                Postiz<span class="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+            <li>
+              <a
+                class="backer"
+                href="https://zernio.link/leo"
+                target="_blank"
+                rel="sponsored noopener noreferrer"
+                data-cta="sponsor"
+              >
+                <img width="20" height="20" src="/integrations/zernio.svg" alt="" />
+                Zernio<span class="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+            <li>
+              <a
+                class="backer backer-open"
+                href="https://github.com/sponsors/opencoredev"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                + Sponsor Social SDK<span class="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+          </ul>
         </section>
 
         <!-- ================= construction ================= -->
@@ -2004,10 +2149,6 @@
               rel="noopener noreferrer"
               >star it on GitHub</a
             >. logos and colors live on the <a href="/brand">brand page</a>.
-          </p>
-          <p>
-            rather not run it yourself? <a href="/cloud">Social SDK Cloud</a>, the hosted version,
-            is taking early-access signups.
           </p>
           <svg
             width="200"
@@ -2047,6 +2188,7 @@
           <a href="/docs/platforms/tiktok">TikTok</a>
           <a href="/docs/platforms/instagram">Instagram</a>
           <a href="/docs/platforms/linkedin">LinkedIn</a>
+          <a href="/docs/platforms/facebook">Facebook</a>
         </p>
         <!-- @opencore-sites -->
         <div class="foot-row">
@@ -2181,6 +2323,42 @@
         }
         startDeliveries = () => setTimeout(loop, 1400);
       }
+    </script>
+    <script>
+      // install command: package-manager tabs and a copy button
+      const installCmd = document.querySelector("#install-cmd");
+      const copyButton = document.querySelector(".copy");
+      const copyStatus = document.querySelector("#copy-status");
+      const pmButtons = document.querySelectorAll("[data-pm]");
+      pmButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          pmButtons.forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+          installCmd.textContent = `${button.dataset.pm} @opencoredev/social-sdk`;
+        });
+      });
+      let copyReset;
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(installCmd.textContent);
+          copyButton.textContent = "Copied";
+          copyStatus.textContent = "Install command copied";
+        } catch {
+          getSelection().selectAllChildren(installCmd);
+          copyStatus.textContent = "Install command selected, copy it with your keyboard";
+        }
+        clearTimeout(copyReset);
+        copyReset = setTimeout(() => {
+          copyButton.textContent = "Copy";
+          copyStatus.textContent = "";
+        }, 1600);
+      });
+
+      // Clicks on the page's calls to action, sent through window.siteTrack (analytics.ts),
+      // which only exists in production builds.
+      document.addEventListener("click", (event) => {
+        const cta = event.target.closest?.("[data-cta]")?.dataset.cta;
+        if (cta) window.siteTrack?.("landing_cta_click", { cta });
+      });
     </script>
   </body>
 </html>
