@@ -164,6 +164,8 @@ export const posthogScript = `(() => {
     if (started || queued.length === 0) return;
     try {
       sessionStorage.setItem(carryKey, JSON.stringify(queued));
+      // A page restored from the back/forward cache must not send them again.
+      queued.length = 0;
     } catch {
       // Storage is blocked, so the queued events end with this page.
     }
@@ -176,7 +178,8 @@ export const posthogScript = `(() => {
     if (window.databuddy) window.databuddy.track(event, properties);
     else (window.databuddyPending ??= []).push([event, properties]);
     if (started) window.posthog.capture(event, properties, { send_instantly: true });
-    else queued.push([event, properties]);
+    // A queued event keeps the URL of the page that reported it, as queued visits do.
+    else queued.push([event, { ...properties, $current_url: window.location.origin + window.location.pathname }]);
   };
   const visit = () => {
     const path = window.location.pathname;
