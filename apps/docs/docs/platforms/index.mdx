@@ -77,6 +77,156 @@ for (const outcome of result.outcomes) {
 
 Give the Bluesky and Threads adapters a `backend` name that matches their key in `backends`, and use the same name in each account reference. Without it, the adapter rejects its account reference: a mismatched Threads reference fails the whole call before anything is sent, and a mismatched Bluesky reference returns a failed Bluesky outcome. The sample uses tokens for accounts you own; for accounts your users connect, follow the OAuth setup in each platform guide below.
 
+## Cross-post to seven networks from Bun
+
+To cross-post one update to X, Bluesky, Threads, LinkedIn, YouTube, TikTok and Instagram from Bun, register all seven direct adapters in one client and send a single `social.posts.publish` call with one target per account. Social SDK runs on Bun as well as Node.js: install it with `bun add @opencoredev/social-sdk` and run the file with `bun crosspost.ts`. The shared `content` carries the text. A target's own `content` adds what that network needs, here a video for YouTube, TikTok and Instagram, and its `options` carry that platform's required fields.
+
+```ts
+import { readFile } from "node:fs/promises";
+import { createSocial, connectedAccountRef, type MediaAttachment } from "@opencoredev/social-sdk";
+import { bluesky } from "@opencoredev/social-sdk/bluesky";
+import { instagram } from "@opencoredev/social-sdk/instagram";
+import { linkedin } from "@opencoredev/social-sdk/linkedin";
+import { threads } from "@opencoredev/social-sdk/threads";
+import { tiktok } from "@opencoredev/social-sdk/tiktok";
+import { x } from "@opencoredev/social-sdk/x";
+import { youtube } from "@opencoredev/social-sdk/youtube";
+
+const env = (name: string): string => {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing ${name}`);
+  return value;
+};
+
+const linkedinAuthor: `urn:li:person:${string}` = `urn:li:person:${env("LINKEDIN_PERSON_ID")}`;
+
+const social = createSocial({
+  backends: {
+    x: x({ auth: { userId: env("X_USER_ID"), accessToken: env("X_ACCESS_TOKEN") } }),
+    bluesky: bluesky({
+      backend: "bluesky",
+      auth: {
+        service: "https://bsky.social",
+        did: env("BLUESKY_DID"),
+        accessJwt: env("BLUESKY_ACCESS_JWT"),
+      },
+    }),
+    threads: threads({
+      backend: "threads",
+      auth: { userId: env("THREADS_USER_ID"), accessToken: env("THREADS_ACCESS_TOKEN") },
+    }),
+    linkedin: linkedin({
+      auth: { accessToken: env("LINKEDIN_ACCESS_TOKEN"), author: linkedinAuthor },
+      apiVersion: "202609",
+    }),
+    youtube: youtube({
+      auth: { accessToken: env("YOUTUBE_ACCESS_TOKEN"), channelId: env("YOUTUBE_CHANNEL_ID") },
+    }),
+    tiktok: tiktok({
+      auth: { accessToken: env("TIKTOK_ACCESS_TOKEN"), openId: env("TIKTOK_OPEN_ID") },
+      verifiedMediaOrigins: ["https://media.example.com"],
+    }),
+    instagram: instagram({
+      auth: { accessToken: env("INSTAGRAM_ACCESS_TOKEN"), accountId: env("INSTAGRAM_ACCOUNT_ID") },
+    }),
+  },
+});
+
+// YouTube uploads the file's bytes. TikTok and Instagram pull the same file from your HTTPS origin.
+const file = new Blob([await readFile("./launch.mp4")], { type: "video/mp4" });
+const uploadedVideo: MediaAttachment = {
+  kind: "video",
+  source: { kind: "blob", blob: file, fingerprint: "launch-v2" },
+  mimeType: "video/mp4",
+  byteSize: file.size,
+};
+const hostedVideo: MediaAttachment = {
+  kind: "video",
+  source: { kind: "https-url", url: "https://media.example.com/launch.mp4" },
+  mimeType: "video/mp4",
+  durationSeconds: 30, // the file's real length
+};
+
+const result = await social.posts.publish({
+  content: { text: "We just shipped v2. Here is what changed." },
+  targets: [
+    { account: connectedAccountRef({ backend: "x", platform: "x", accountId: env("X_USER_ID") }) },
+    {
+      account: connectedAccountRef({
+        backend: "bluesky",
+        platform: "bluesky",
+        accountId: env("BLUESKY_DID"),
+      }),
+    },
+    {
+      account: connectedAccountRef({
+        backend: "threads",
+        platform: "threads",
+        accountId: env("THREADS_USER_ID"),
+      }),
+    },
+    {
+      account: connectedAccountRef({
+        backend: "linkedin",
+        platform: "linkedin",
+        accountId: linkedinAuthor,
+      }),
+    },
+    {
+      account: connectedAccountRef({
+        backend: "youtube",
+        platform: "youtube",
+        accountId: env("YOUTUBE_CHANNEL_ID"),
+      }),
+      content: { media: [uploadedVideo] },
+      options: { title: "What changed in v2", visibility: "private", madeForKids: false },
+    },
+    {
+      account: connectedAccountRef({
+        backend: "tiktok",
+        platform: "tiktok",
+        accountId: env("TIKTOK_OPEN_ID"),
+      }),
+      content: { media: [hostedVideo] },
+      // Inbox draft: needs the video.upload scope, and the creator's preview and transfer
+      // consent first. TikTok receives only the video; the creator adds the caption and
+      // settings in the TikTok app. The booleans satisfy validation and are not sent.
+      options: {
+        draft: true,
+        privacy: "SELF_ONLY",
+        consentGiven: true,
+        disableComments: false,
+        disableDuet: false,
+        disableStitch: false,
+        brandedContent: false,
+        ownBrand: false,
+        aiGenerated: false,
+      },
+    },
+    {
+      account: connectedAccountRef({
+        backend: "instagram",
+        platform: "instagram",
+        accountId: env("INSTAGRAM_ACCOUNT_ID"),
+      }),
+      content: { media: [hostedVideo] },
+    },
+  ],
+});
+
+for (const outcome of result.outcomes) {
+  console.log(outcome.account.platform, outcome.state);
+}
+```
+
+Each network keeps its own rules. Call `social.posts.prepare` with the same request to get a typed issue for each target that breaks one, before anything is sent:
+
+- YouTube takes exactly one video, uploaded from a Blob or a replayable stream with its `byteSize`, plus a title, a visibility and `madeForKids`. A text-only YouTube target is rejected. This sample uploads it as private.
+- TikTok pulls the video from an HTTPS domain or URL prefix you have verified with TikTok; list its origin in `verifiedMediaOrigins`, and make sure your app only passes URLs inside the verified prefix. The SDK needs the video's duration and an explicit value for every interaction and disclosure option. `draft: true` sends the video to the creator's TikTok inbox. It needs a token granted `video.upload`, and you must show the creator the preview and get their transfer consent before the call. TikTok receives only the video, without the caption or the posting settings, and the creator finishes the post in the TikTok app. Posting directly instead also needs creator info and the creator's own privacy and interaction choices; the [TikTok guide](/platforms/tiktok) covers both flows.
+- Instagram pulls the video from a public HTTPS URL and publishes a single video as a Reel.
+
+The result holds one outcome per target, so you can see which networks published and which did not. Video targets can report `processing` while the platform works on the file; check them again before you treat the post as live.
+
 Use this page to choose a platform adapter before you read its setup guide. The matrix describes the normalized surface currently implemented in Social SDK. Platform-native parity operations are listed in the capability matrix and each platform guide; they do not certify credentials, app review, account eligibility, or a successful live request.
 
 | Platform  | Publish                                     | Read                                  | Search          | Analytics                 |
