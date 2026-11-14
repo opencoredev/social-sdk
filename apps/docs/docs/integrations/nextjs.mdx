@@ -216,17 +216,17 @@ export async function GET(request: Request) {
       { targets: [{ account }], content: { text: post.text }, idempotencyKey: post.id },
       { authorization: { tenantId: post.tenant.id } },
     );
-    await recordOutcomes(
-      post.id,
-      result.outcomes.map((o) => o.state),
-    );
+    // Your database: keep each full outcome, including retryDisposition, on the server.
+    await recordOutcomes(post.id, result.outcomes);
   }
 
   return new Response("ok");
 }
 ```
 
-Vercel's cron docs say a failed invocation is not retried and that the same scheduled run can occasionally be invoked twice ([managing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs), read 2026-11-14). The post ID is the idempotency key and the client from `lib/social.ts` has a durable `idempotencyStore`, so a second run for the same post returns the first result instead of posting again. Leave a post whose outcome is `unknown` out of the next sweep until you have checked the account, and publish a `failed` one again only when its `retryDisposition` allows it. On Vercel's Hobby plan, cron jobs run at most once a day and only within the hour, so a five-minute schedule needs Pro or Enterprise ([cron usage](https://vercel.com/docs/cron-jobs/usage-and-pricing), read 2026-11-14).
+Vercel's cron docs say a failed invocation is not retried and that the same scheduled run can occasionally be invoked twice ([managing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs), read 2026-11-14). The post ID is the idempotency key and the client from `lib/social.ts` has a durable `idempotencyStore`, so a second run for a post whose first run has finished returns the saved outcome instead of posting again. If the first run is still sending, the second gets `unknown` with reason `ambiguous-submission` and sends nothing; treat that as pending, not as a failure. Leave a post whose outcome is `unknown` out of the next sweep until you have checked the account.
+
+Because the key replays its saved outcome, calling the route again for a `failed` post returns the same failure. To retry, wait as its `retryDisposition` says (`never` means don't), confirm nothing was posted, and publish again under a new key such as `${post.id}:retry-1`, keeping the original key and outcomes on record. See [idempotency](/concepts/idempotency#retrying-after-a-confirmed-non-write). On Vercel's Hobby plan, cron jobs run at most once a day and only within the hour, so a five-minute schedule needs Pro or Enterprise ([cron usage](https://vercel.com/docs/cron-jobs/usage-and-pricing), read 2026-11-14).
 
 For exact publish times, retries with backoff, or long video uploads, run the same call from a durable job runner instead: [Inngest](/integrations/inngest#scheduled-publishing) or [Trigger.dev](/integrations/trigger-dev#scheduled-publish-as-a-task).
 
