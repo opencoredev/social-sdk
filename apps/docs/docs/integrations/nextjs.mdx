@@ -206,18 +206,23 @@ export async function GET(request: Request) {
 
   // Your database: mark due rows as claimed in one update, so an overlapping run skips them.
   for (const post of await claimDuePosts({ now: new Date(), limit: 20 })) {
-    const account = connectedAccountRef({
-      backend: "default",
-      platform: "x",
-      accountId: await resolveAuthorizedAccount(post.tenant), // check the grant again at publish time
-    });
+    try {
+      const account = connectedAccountRef({
+        backend: "default",
+        platform: "x",
+        accountId: await resolveAuthorizedAccount(post.tenant), // check the grant again at publish time
+      });
 
-    const result = await social.posts.publish(
-      { targets: [{ account }], content: { text: post.text }, idempotencyKey: post.id },
-      { authorization: { tenantId: post.tenant.id } },
-    );
-    // Your database: keep each full outcome, including retryDisposition, on the server.
-    await recordOutcomes(post.id, result.outcomes);
+      const result = await social.posts.publish(
+        { targets: [{ account }], content: { text: post.text }, idempotencyKey: post.id },
+        { authorization: { tenantId: post.tenant.id } },
+      );
+      // Your database: keep each full outcome, including retryDisposition, on the server.
+      await recordOutcomes(post.id, result.outcomes);
+    } catch (error) {
+      // One post's revoked grant or failed preparation must not strand the rest of the batch.
+      await recordError(post.id, error);
+    }
   }
 
   return new Response("ok");
@@ -225,6 +230,8 @@ export async function GET(request: Request) {
 ```
 
 Vercel's cron docs say a failed invocation is not retried and that the same scheduled run can occasionally be invoked twice ([managing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs), read 2026-11-14). The post ID is the idempotency key and the client from `lib/social.ts` has a durable `idempotencyStore`, so a second run for a post whose first run has finished returns the saved outcome instead of posting again. If the first run is still sending, the second gets `unknown` with reason `ambiguous-submission` and sends nothing; treat that as pending, not as a failure. Leave a post whose outcome is `unknown` out of the next sweep until you have checked the account.
+
+Give each claim an expiry, for example by letting `claimDuePosts` take back rows claimed more than 10 minutes ago, so a run that stops mid-batch doesn't leave posts claimed forever. A reclaimed post that already went out replays its saved outcome from the idempotency store. A post that `recordError` marked failed, such as one whose grant was revoked or whose text failed preparation, needs a fix before you queue it again.
 
 Because the key replays its saved outcome, calling the route again for a `failed` post returns the same failure. To retry, wait as its `retryDisposition` says (`never` means don't), confirm nothing was posted, and publish again under a new key such as `${post.id}:retry-1`, keeping the original key and outcomes on record. See [idempotency](/concepts/idempotency#retrying-after-a-confirmed-non-write). On Vercel's Hobby plan, cron jobs run at most once a day and only within the hour, so a five-minute schedule needs Pro or Enterprise ([cron usage](https://vercel.com/docs/cron-jobs/usage-and-pricing), read 2026-11-14).
 
