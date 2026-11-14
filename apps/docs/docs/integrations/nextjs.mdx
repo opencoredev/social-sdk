@@ -195,7 +195,7 @@ With a direct adapter, save each scheduled post with its publish time and an ID 
 Vercel calls the path with an HTTP `GET` on your production deployment and sends the `CRON_SECRET` environment variable as a bearer token, so reject any request without it:
 
 ```ts app/api/cron/publish-due/route.ts
-import { connectedAccountRef } from "@opencoredev/social-sdk";
+import { connectedAccountRef, type PublishResult } from "@opencoredev/social-sdk";
 import { social } from "@/lib/social";
 
 export async function GET(request: Request) {
@@ -206,6 +206,7 @@ export async function GET(request: Request) {
 
   // Your database: mark due rows as claimed in one update, so an overlapping run skips them.
   for (const post of await claimDuePosts({ now: new Date(), limit: 20 })) {
+    let result: PublishResult;
     try {
       const account = connectedAccountRef({
         backend: "default",
@@ -213,15 +214,21 @@ export async function GET(request: Request) {
         accountId: await resolveAuthorizedAccount(post.tenant), // check the grant again at publish time
       });
 
-      const result = await social.posts.publish(
+      result = await social.posts.publish(
         { targets: [{ account }], content: { text: post.text }, idempotencyKey: post.id },
         { authorization: { tenantId: post.tenant.id } },
       );
-      // Your database: keep each full outcome, including retryDisposition, on the server.
-      await recordOutcomes(post.id, result.outcomes);
     } catch (error) {
       // One post's revoked grant or failed preparation must not strand the rest of the batch.
       await recordError(post.id, error);
+      continue;
+    }
+
+    try {
+      // Your database: keep each full outcome, including retryDisposition, on the server.
+      await recordOutcomes(post.id, result.outcomes);
+    } catch {
+      // Let the claim expire: the next sweep replays the saved outcome instead of posting again.
     }
   }
 
