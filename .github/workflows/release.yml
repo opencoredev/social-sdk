@@ -5,10 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+# No workflow-level grants. The release job lists the writes it needs.
+permissions: {}
 
 concurrency: release-${{ github.ref }}
 
@@ -17,6 +15,14 @@ jobs:
     name: Version or publish
     if: vars.SOCIAL_SDK_RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      # changesets/action pushes the version branch and tags with the
+      # credentials checkout persists, and creates GitHub releases.
+      contents: write
+      # Opens and updates the version pull request.
+      pull-requests: write
+      # OIDC token for npm trusted publishing and provenance.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
