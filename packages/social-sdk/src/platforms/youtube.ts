@@ -1193,9 +1193,9 @@ export function youtube(
     timeoutMs: 30_000,
   });
 
-  const nowMs = () => (options.clock?.() ?? new Date()).getTime();
+  const nowMs = () => options.clock?.().getTime() ?? Date.now();
 
-  const now = () => new Date(nowMs()).toISOString();
+  const now = () => (options.clock?.() ?? new Date()).toISOString();
 
   const rawConfig: RawRequestConfig<YouTubeRawHost> = {
     hosts: {

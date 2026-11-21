@@ -3426,9 +3426,10 @@ async function readMedia(
 export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   const backend = options.backend ?? "default";
 
-  const nowMs = () => (options.clock?.() ?? new Date()).getTime();
+  // Without a clock, keep reading Date.now() and new Date() as before.
+  const nowMs = () => options.clock?.().getTime() ?? Date.now();
 
-  const nowIso = () => new Date(nowMs()).toISOString();
+  const nowIso = () => (options.clock?.() ?? new Date()).toISOString();
 
   const fetcher = options.fetch ?? globalThis.fetch;
 

@@ -511,7 +511,7 @@ export function tiktok(
           upstreamStatus = response?.status;
           retryAfterMs = retryDelay(
             response?.headers.get("retry-after") ?? null,
-            (options.clock?.() ?? new Date()).getTime(),
+            options.clock?.().getTime() ?? Date.now(),
           );
         },
       ),
