@@ -847,7 +847,7 @@ it("Buffer keeps metrics out of basic post reads and maps analytics permission e
 });
 
 it("Buffer OAuth helpers require PKCE and never echo grants", async () => {
-  const pkce = createBufferPkce();
+  const pkce = await createBufferPkce();
 
   assert.match(pkce.codeVerifier, /^[A-Za-z0-9_-]+$/);
   assert.match(pkce.codeChallenge, /^[A-Za-z0-9_-]+$/);
