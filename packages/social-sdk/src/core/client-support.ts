@@ -117,6 +117,18 @@ export function isNonBlankStringInput<Value>(value: Value): value is Value & str
   return typeof value === "string" && value.trim() !== "";
 }
 
+/**
+ * Narrows an optional adapter surface to one whose optional `key` method is present. Unlike
+ * `adapter.posts?.get !== undefined`, the narrowing holds inside the dispatch callback, and the
+ * method is still called on its owner so `this` is preserved.
+ */
+export function implementsMethod<Surface extends object, Key extends keyof Surface>(
+  surface: Surface | undefined,
+  key: Key,
+): surface is Surface & { readonly [Name in Key]-?: Exclude<Surface[Name], undefined> } {
+  return surface !== undefined && surface[key] !== undefined;
+}
+
 /** The outcome of a claimed target whose outcome was never recorded. */
 export function unrecordedOutcome(
   target: PreparedPublishTarget,

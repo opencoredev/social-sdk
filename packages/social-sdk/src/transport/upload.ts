@@ -162,7 +162,9 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
             try {
               controller.signal.throwIfAborted();
 
-              if (buffered === undefined || bufferedOffset >= buffered.byteLength) {
+              let current = buffered;
+
+              if (current === undefined || bufferedOffset >= current.byteLength) {
                 const next = await abortable(sourceReader.read(), controller.signal);
 
                 if (next.done) {
@@ -186,13 +188,14 @@ export async function upload(options: UploadOptions): Promise<{ bytes: number; e
                   );
                 }
 
-                buffered = next.value;
+                current = next.value;
+                buffered = current;
                 bufferedOffset = 0;
               }
 
-              const chunk = buffered!.subarray(
+              const chunk = current.subarray(
                 bufferedOffset,
-                Math.min(buffered!.byteLength, bufferedOffset + maxChunkBytes),
+                Math.min(current.byteLength, bufferedOffset + maxChunkBytes),
               );
 
               bufferedOffset += chunk.byteLength;

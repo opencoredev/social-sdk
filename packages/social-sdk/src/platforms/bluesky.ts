@@ -2699,6 +2699,13 @@ function captionTracks(tracks: readonly CaptionTrack[]): CaptionTrack[] {
  * Rich-text facets for post or chat text: a link facet per URL, a tag facet per hashtag, and the
  * caller's DID mentions after checking their UTF-8 offsets.
  */
+/** A UTF-8 continuation byte cannot start or end a facet span; past the end there is none. */
+function isContinuationByte(bytes: Uint8Array, index: number): boolean {
+  const byte = bytes[index];
+
+  return byte !== undefined && (byte & 0xc0) === 0x80;
+}
+
 function richTextFacets(text: string, mentions: readonly MentionInput[]): RichTextFacet[] {
   const links = linkFacets(text);
 
@@ -2718,8 +2725,8 @@ function richTextFacets(text: string, mentions: readonly MentionInput[]): RichTe
       value.byteStart < 0 ||
       value.byteEnd <= value.byteStart ||
       value.byteEnd > bytes.length ||
-      (bytes[value.byteStart]! & 0xc0) === 0x80 ||
-      (value.byteEnd < bytes.length && (bytes[value.byteEnd]! & 0xc0) === 0x80) ||
+      isContinuationByte(bytes, value.byteStart) ||
+      isContinuationByte(bytes, value.byteEnd) ||
       !/^did:[a-z]+:[A-Za-z0-9._:%-]+$/.test(value.did)
     )
       invalidRichText("Mention offsets must span complete UTF-8 characters and identify a DID.");

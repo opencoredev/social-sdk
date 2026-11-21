@@ -1923,9 +1923,12 @@ export function linkedin(
 
     const source = media.source;
 
+    const mimeType = media.mimeType;
+
     if (
       media.kind !== "image" ||
-      !["image/jpeg", "image/png", "image/gif"].includes(media.mimeType ?? "") ||
+      mimeType === undefined ||
+      !["image/jpeg", "image/png", "image/gif"].includes(mimeType) ||
       (source.kind !== "blob" && source.kind !== "stream")
     )
       throw new SocialError({
@@ -1971,7 +1974,7 @@ export function linkedin(
       await upload({
         url: string(initialized["uploadUrl"]),
         source: {
-          mimeType: media.mimeType!,
+          mimeType,
           ...definedFields({ size }),
           open: source.kind === "blob" ? () => source.blob.stream() : source.open,
         },
