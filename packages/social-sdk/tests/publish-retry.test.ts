@@ -2,6 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import {
   SocialError,
+  bytes,
   connectedAccountRef,
   createSocial,
   defineAdapter,
@@ -12,6 +13,7 @@ import {
   type PreparedPublishTarget,
 } from "../src/index.js";
 import { MemoryIdempotencyStore } from "../src/testing/index.js";
+import { localMediaStaging } from "../src/media-staging.js";
 
 const manifest: CapabilityManifest = {
   schemaVersion: 1,
@@ -363,6 +365,297 @@ it("enforces the shared deadline and recomputes remaining budget on the first qu
 
   assert.equal(expiredCalls, 0);
   assert.equal(expired.outcomes[0]?.state, "not-submitted");
+
+  if (expired.outcomes[0]?.state === "not-submitted")
+    assert.equal(expired.outcomes[0].reason, "before-submission");
+});
+
+it("does not apply a queue deadline when retry is omitted", async () => {
+  let entered: (() => void) | undefined;
+  let release: (() => void) | undefined;
+
+  const gate = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+
+  let calls = 0;
+
+  const adapter = defineAdapter({
+    id: "no-retry-queue-test",
+    capabilities: {
+      ...manifest,
+      capabilities: [
+        ...manifest.capabilities,
+        { operation: "accounts.read", platform: "*", availability: "available" },
+      ],
+    },
+    accounts: {
+      list: async () => ({ items: [] }),
+      get: async (ref) => {
+        entered?.();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+
+        return { ref, status: "connected", displayName: "test" };
+      },
+    },
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        calls++;
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(0).toISOString(),
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "post-no-retry" }),
+        };
+      },
+    },
+  });
+
+  const social = createSocial({ backend: adapter, concurrency: 1 });
+  const blocker = social.accounts.get(account);
+  await gate;
+
+  // Without `retry`, a small retryBudget must not abort queue waiting before dispatch.
+  const pending = social.posts.publish(request, {
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 10 },
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 35));
+  release?.();
+  const result = await pending;
+  await blocker;
+
+  assert.equal(calls, 1);
+  assert.equal(result.outcomes[0]?.state, "published");
+});
+
+it("rejects non-positive or non-finite retryBudget.maxElapsedMs when retry is enabled", async () => {
+  const { adapter, contexts } = scripted(["published"]);
+  const social = createSocial({ backend: adapter });
+
+  for (const maxElapsedMs of [0, -10, Number.NaN, Number.POSITIVE_INFINITY])
+    await assert.rejects(
+      social.posts.publish(request, {
+        retry: { maxAttempts: 2 },
+        retryBudget: { maxAttempts: 1, maxElapsedMs },
+      }),
+      (error) => error instanceof SocialError && error.code === "invalid_input",
+    );
+
+  assert.equal(contexts.length, 0);
+});
+
+it("does not expire early for valid retry budgets larger than the 32-bit timer limit", async () => {
+  let entered: (() => void) | undefined;
+  let release: (() => void) | undefined;
+
+  const gate = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+
+  let calls = 0;
+
+  const adapter = defineAdapter({
+    id: "large-budget-test",
+    capabilities: {
+      ...manifest,
+      capabilities: [
+        ...manifest.capabilities,
+        { operation: "accounts.read", platform: "*", availability: "available" },
+      ],
+    },
+    accounts: {
+      list: async () => ({ items: [] }),
+      get: async (ref) => {
+        entered?.();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+
+        return { ref, status: "connected", displayName: "test" };
+      },
+    },
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        calls++;
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(0).toISOString(),
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "post-large" }),
+        };
+      },
+    },
+  });
+
+  const social = createSocial({ backend: adapter, concurrency: 1 });
+  const blocker = social.accounts.get(account);
+  await gate;
+
+  const pending = social.posts.publish(request, {
+    retry: { maxAttempts: 2 },
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 3_000_000_000 },
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  release?.();
+  const result = await pending;
+  await blocker;
+
+  assert.equal(calls, 1);
+  assert.equal(result.outcomes[0]?.state, "published");
+});
+
+it("does not retry an expired first attempt even with a fixed clock and zero capacityDelayMs", async () => {
+  let entered: (() => void) | undefined;
+  let release: (() => void) | undefined;
+
+  const gate = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+
+  let calls = 0;
+
+  const adapter = defineAdapter({
+    id: "fixed-clock-expiry-test",
+    capabilities: {
+      ...manifest,
+      capabilities: [
+        ...manifest.capabilities,
+        { operation: "accounts.read", platform: "*", availability: "available" },
+      ],
+    },
+    accounts: {
+      list: async () => ({ items: [] }),
+      get: async (ref) => {
+        entered?.();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+
+        return { ref, status: "connected", displayName: "test" };
+      },
+    },
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        calls++;
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(1_000).toISOString(),
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "should-not-happen" }),
+        };
+      },
+    },
+  });
+
+  const social = createSocial({ backend: adapter, concurrency: 1, clock: () => new Date(1_000) });
+  const blocker = social.accounts.get(account);
+  await gate;
+
+  const result = await social.posts.publish(request, {
+    retry: { maxAttempts: 2, capacityDelayMs: 0 },
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 25 },
+  });
+
+  release?.();
+  await blocker;
+
+  assert.equal(calls, 0);
+  assert.equal(result.outcomes[0]?.state, "not-submitted");
+
+  if (result.outcomes[0]?.state === "not-submitted")
+    assert.equal(result.outcomes[0].reason, "before-submission");
+});
+
+it("preserves the previous failure when retry media staging is aborted or times out", async () => {
+  for (const mode of ["abort", "deadline"] as const) {
+    let stages = 0;
+    let calls = 0;
+    let firstFailure: DeliveryOutcome | undefined;
+    const controller = new AbortController();
+
+    const adapter = defineAdapter({
+      id: `staging-retry-${mode}`,
+      capabilities: {
+        ...manifest,
+        capabilities: manifest.capabilities.map((capability) =>
+          capability.operation === "posts.publish"
+            ? { ...capability, constraints: { mediaSources: ["https-url"] as const } }
+            : capability,
+        ),
+      },
+      posts: {
+        prepareTarget: () => [],
+        publishTarget: async (target) => {
+          calls++;
+
+          firstFailure = {
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: new Date(0).toISOString(),
+            state: "failed",
+            code: "rate_limited",
+            message: "try later",
+            retryDisposition: { kind: "after-delay", delayMs: 1 },
+          };
+
+          return firstFailure;
+        },
+      },
+    });
+
+    const social = createSocial({
+      backend: adapter,
+      mediaStaging: localMediaStaging({
+        origin: "https://media.example.com",
+        stageMedia: async () => {
+          stages++;
+
+          if (stages === 1) return { url: "https://media.example.com/a.png" };
+
+          if (mode === "abort") setTimeout(() => controller.abort(), 5);
+
+          return new Promise(() => {});
+        },
+      }),
+    });
+
+    const mediaRequest = {
+      ...request,
+      content: {
+        text: "hello",
+        media: [
+          {
+            kind: "image" as const,
+            mimeType: "image/png",
+            source: await bytes(new Uint8Array([1, 2, 3])),
+          },
+        ],
+      },
+    };
+
+    const result = await social.posts.publish(mediaRequest, {
+      signal: controller.signal,
+      retry: { maxAttempts: 2 },
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 100 },
+    });
+
+    assert.equal(stages, 2);
+    assert.equal(calls, 1);
+    assert.strictEqual(result.outcomes[0], firstFailure);
+  }
 });
 
 it("rejects an out-of-range retry policy before dispatch", async () => {

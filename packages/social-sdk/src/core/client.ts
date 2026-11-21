@@ -13,6 +13,7 @@ import {
   isObjectInput,
   makeContext,
   mapConcurrent,
+  MAX_TIMEOUT_MS,
   preparationIssue,
   publishRetryDelay,
   publishRetryPolicy,
@@ -501,10 +502,10 @@ function unsupported(operation: string, backend: string): never {
   });
 }
 
-/** `error` is the rejection when it was a SocialError, or undefined for any other thrown value. */
 /** A sequence item after `publishSequence` derives its non-blank per-item idempotency key. */
 type KeyedPublishRequest = PublishRequest & { readonly idempotencyKey: string };
 
+/** `error` is the rejection when it was a SocialError, or undefined for any other thrown value. */
 function outcomeFromError(
   error: SocialError | undefined,
   target: PreparedPublishTarget,
@@ -1273,11 +1274,33 @@ export function createSocial(
         targetIndex: target.targetIndex,
         account: target.account,
         observedAt: observedAt(),
-        reason: "capacity",
+        reason: "before-submission",
       };
 
     const onCallerAbort = (): void => {
       queueController?.abort();
+    };
+
+    const scheduleQueueDeadline = (remainingMs: number): void => {
+      const slice = Math.min(remainingMs, MAX_TIMEOUT_MS);
+
+      queueTimer = setTimeout(() => {
+        if (retryDeadline === undefined || queueController?.signal.aborted) return;
+
+        const nextRemainingMs = Math.min(
+          remainingMs - slice,
+          retryDeadline.deadlineMs - clock().getTime(),
+        );
+
+        if (nextRemainingMs <= 0) {
+          expiredBeforeDispatch = true;
+          queueController?.abort();
+
+          return;
+        }
+
+        scheduleQueueDeadline(nextRemainingMs);
+      }, slice);
     };
 
     if (retryDeadline !== undefined) {
@@ -1299,10 +1322,7 @@ export function createSocial(
 
       queueController = new AbortController();
       options?.signal?.addEventListener("abort", onCallerAbort, { once: true });
-      queueTimer = setTimeout(() => {
-        expiredBeforeDispatch = true;
-        queueController?.abort();
-      }, remainingBeforeQueueMs);
+      scheduleQueueDeadline(remainingBeforeQueueMs);
     }
 
     const dispatchSignal = queueController?.signal ?? options?.signal;
@@ -1322,9 +1342,6 @@ export function createSocial(
             let attemptOptions = options;
 
             if (retryDeadline !== undefined) {
-              if (options?.signal?.aborted && retryDeadline.previousOutcome !== undefined)
-                return retryDeadline.previousOutcome;
-
               const remainingInsideSlotMs = retryDeadline.deadlineMs - clock().getTime();
 
               if (remainingInsideSlotMs <= 0) {
@@ -1365,7 +1382,15 @@ export function createSocial(
 
               if (staged.kind !== "unchanged") settle = staged.settle;
 
-              if (staged.kind === "stopped") return staged.outcome;
+              if (staged.kind === "stopped") {
+                if (
+                  retryDeadline?.previousOutcome !== undefined &&
+                  (staged.outcome.state === "cancelled" || staged.outcome.state === "not-submitted")
+                )
+                  return retryDeadline.previousOutcome;
+
+                return staged.outcome;
+              }
 
               if (staged.kind === "staged") {
                 dispatched = staged.target;
@@ -1500,8 +1525,24 @@ export function createSocial(
                 payloadFingerprint: plan.payloadFingerprint,
               });
 
-        const baseBudget = options?.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 };
-        const deadlineMs = clock().getTime() + baseBudget.maxElapsedMs;
+        const baseBudget =
+          options?.retry === undefined
+            ? undefined
+            : (options.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 });
+
+        if (
+          baseBudget !== undefined &&
+          (!Number.isFinite(baseBudget.maxElapsedMs) || baseBudget.maxElapsedMs <= 0)
+        )
+          throw new SocialError({
+            code: "invalid_input",
+            operation: executionOperation,
+            message: "retryBudget.maxElapsedMs must be a finite positive number.",
+            correlationId,
+          });
+
+        const deadlineMs =
+          baseBudget === undefined ? undefined : clock().getTime() + baseBudget.maxElapsedMs;
 
         let outcome = await dispatchTarget(
           target,
@@ -1509,10 +1550,14 @@ export function createSocial(
           correlationId,
           options,
           targetIdempotencyKey,
-          { deadlineMs, baseBudget },
+          baseBudget !== undefined && deadlineMs !== undefined
+            ? { deadlineMs, baseBudget }
+            : undefined,
         );
 
         for (let attempt = 1; attempt < retry.maxAttempts; attempt++) {
+          if (baseBudget === undefined || deadlineMs === undefined) break;
+
           const delay = publishRetryDelay(outcome, retry.capacityDelayMs);
 
           if (delay === undefined || delay > retry.maxDelayMs) break;

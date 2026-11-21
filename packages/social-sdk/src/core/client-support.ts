@@ -216,21 +216,42 @@ export function publishRetryDelay(
   return undefined;
 }
 
+/** Largest timeout delay Node and Bun accept before clamping to 1 ms (2^31 - 1). */
+export const MAX_TIMEOUT_MS = 2_147_483_647;
+
 /** Waits `milliseconds`; resolves false instead of waiting when the caller aborts. */
 export function waitToRetry(milliseconds: number, signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return Promise.resolve(false);
 
+  if (milliseconds <= 0) return Promise.resolve(true);
+
   return new Promise((resolve) => {
+    let remaining = milliseconds;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
     const abort = () => {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
+
       resolve(false);
     };
 
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", abort);
-      resolve(true);
-    }, milliseconds);
+    const schedule = () => {
+      const slice = Math.min(remaining, MAX_TIMEOUT_MS);
+      remaining -= slice;
+
+      timer = setTimeout(() => {
+        if (remaining > 0) {
+          schedule();
+
+          return;
+        }
+
+        signal?.removeEventListener("abort", abort);
+        resolve(true);
+      }, slice);
+    };
 
     signal?.addEventListener("abort", abort, { once: true });
+    schedule();
   });
 }
