@@ -107,6 +107,11 @@ export interface BlueskyOptions {
    * returned by `com.atproto.server.getSession`.
    */
   readonly pdsDid?: string;
+  /**
+   * Current time for record timestamps, service-token expiry, and video-token refresh.
+   * Defaults to the system clock; inject one for deterministic tests.
+   */
+  readonly clock?: () => Date;
 }
 
 /** A Bluesky video processing job (`app.bsky.video.defs#jobStatus`). */
@@ -3421,6 +3426,10 @@ async function readMedia(
 export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
   const backend = options.backend ?? "default";
 
+  const nowMs = () => (options.clock?.() ?? new Date()).getTime();
+
+  const nowIso = () => new Date(nowMs()).toISOString();
+
   const fetcher = options.fetch ?? globalThis.fetch;
 
   const allowMediaHost = options.allowMediaHost ?? (() => false);
@@ -4261,7 +4270,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     const query = new URLSearchParams({ aud, lxm });
 
     if (expiresInSeconds !== undefined)
-      query.set("exp", String(Math.floor(Date.now() / 1000) + expiresInSeconds));
+      query.set("exp", String(Math.floor(nowMs() / 1000) + expiresInSeconds));
 
     const response = object(
       await xrpc(`com.atproto.server.getServiceAuth?${query.toString()}`, context),
@@ -4328,7 +4337,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     aud: string,
     context: AdapterOperationContext,
   ): Promise<{ readonly token: string; readonly expiresAt: number }> {
-    const expiresAt = Date.now() + VIDEO_UPLOAD_TOKEN_SECONDS * 1000;
+    const expiresAt = nowMs() + VIDEO_UPLOAD_TOKEN_SECONDS * 1000;
 
     const token = await serviceToken(
       aud,
@@ -5314,7 +5323,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               $type: "app.bsky.graph.starterpack",
               name,
               list: input.listUri,
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
               ...definedFields({
                 description: input.description,
                 feeds: feeds.length
@@ -5653,7 +5662,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           ...withoutField(current, "allow"),
           $type: "app.bsky.feed.threadgate",
           post: input.postUri,
-          createdAt: optionalString(current?.["createdAt"]) ?? new Date().toISOString(),
+          createdAt: optionalString(current?.["createdAt"]) ?? nowIso(),
           ...definedFields({ allow }),
         }),
         context,
@@ -5671,7 +5680,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           ...withoutField(current, "embeddingRules"),
           $type: "app.bsky.feed.postgate",
           post: input.postUri,
-          createdAt: optionalString(current?.["createdAt"]) ?? new Date().toISOString(),
+          createdAt: optionalString(current?.["createdAt"]) ?? nowIso(),
           ...definedFields({
             embeddingRules: input.disabled
               ? [{ $type: "app.bsky.feed.postgate#disableRule" }]
@@ -5719,7 +5728,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             ...current,
             $type: "app.bsky.feed.postgate",
             post: input.postUri,
-            createdAt: optionalString(current?.["createdAt"]) ?? new Date().toISOString(),
+            createdAt: optionalString(current?.["createdAt"]) ?? nowIso(),
             detachedEmbeddingUris: detached,
           };
         },
@@ -5944,7 +5953,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             record: {
               $type: "app.bsky.feed.like",
               subject: { uri: input.post.uri, cid: input.post.cid },
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
               ...definedFields({ via: likeVia }),
             },
           }),
@@ -6018,7 +6027,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             record: {
               $type: "app.bsky.feed.repost",
               subject: input.post,
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
               ...definedFields({ via }),
             },
           }),
@@ -6045,7 +6054,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               ...definedFields({
                 facets: facets.length ? facets : undefined,
               }),
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
               embed: { $type: "app.bsky.embed.record", record: input.post },
             },
           }),
@@ -6246,7 +6255,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               retryDisposition: { kind: "never" },
             });
 
-          if (Date.now() >= current.expiresAt - VIDEO_TOKEN_REFRESH_MARGIN_MS)
+          if (nowMs() >= current.expiresAt - VIDEO_TOKEN_REFRESH_MARGIN_MS)
             current = await uploadToken(aud, context);
 
           await uploadPartRequest(
@@ -6382,7 +6391,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             record: {
               $type: "app.bsky.graph.follow",
               subject: input.did,
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
               ...definedFields({ via }),
             },
           }),
@@ -6413,7 +6422,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             record: {
               $type: "app.bsky.graph.block",
               subject: input.did,
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
             },
           }),
         }),
@@ -6624,7 +6633,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         $type: "app.bsky.graph.list",
         name: input.name,
         purpose: input.purpose,
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso(),
         ...definedFields({ description: input.description }),
       };
 
@@ -6695,7 +6704,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               $type: "app.bsky.graph.listitem",
               list: input.listUri,
               subject: input.subject,
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
             },
           }),
         }),
@@ -6758,7 +6767,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
           record: {
             $type: "app.bsky.graph.listblock",
             subject: input.listUri,
-            createdAt: new Date().toISOString(),
+            createdAt: nowIso(),
           },
         }),
       });
@@ -6878,7 +6887,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       assertNativeAccount(input.account, context, "bluesky.notifications.seen");
 
       await xrpc("app.bsky.notification.updateSeen", context, {
-        body: JSON.stringify({ seenAt: input.seenAt ?? new Date().toISOString() }),
+        body: JSON.stringify({ seenAt: input.seenAt ?? nowIso() }),
       });
     },
     async getProfile(input) {
@@ -6993,7 +7002,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                 },
               },
               durationMinutes: input.durationMinutes,
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
             },
           }),
         }),
@@ -7168,7 +7177,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
         {
           $type: "app.bsky.graph.referencelistoptout",
           subject: input.listUri,
-          createdAt: new Date().toISOString(),
+          createdAt: nowIso(),
         },
         context,
       );
@@ -7214,7 +7223,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             title: input.title,
             icon: input.icon === undefined ? undefined : blobJson(input.icon),
           }),
-          createdAt: new Date().toISOString(),
+          createdAt: nowIso(),
         },
         context,
       );
@@ -7274,7 +7283,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
                 acceptsInteractions: input.acceptsInteractions,
                 contentMode: input.contentMode,
               }),
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
             },
           }),
         }),
@@ -7354,7 +7363,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             subjectCollections:
               input.subjectCollections === undefined ? undefined : [...input.subjectCollections],
           }),
-          createdAt: new Date().toISOString(),
+          createdAt: nowIso(),
         },
         context,
       );
@@ -8763,7 +8772,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
       if (input.lxm !== undefined) query.set("lxm", input.lxm);
 
       if (input.expiresInSeconds !== undefined)
-        query.set("exp", String(Math.floor(Date.now() / 1000) + input.expiresInSeconds));
+        query.set("exp", String(Math.floor(nowMs() / 1000) + input.expiresInSeconds));
 
       return string(
         object(await xrpc(`com.atproto.server.getServiceAuth?${query}`, context))["token"],
@@ -9074,7 +9083,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             record: {
               $type: "app.bsky.feed.threadgate",
               post: rootUri,
-              createdAt: new Date().toISOString(),
+              createdAt: nowIso(),
               hiddenReplies: [input.replyUri],
             },
           }),
@@ -9649,7 +9658,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               issues,
             });
 
-          const createdAt = new Date().toISOString();
+          const createdAt = nowIso();
 
           const parsed = postOptions(text, target);
 
@@ -9872,7 +9881,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
               }),
               native: { uri: created.uri, cid: created.cid },
             },
-            observedAt: new Date().toISOString(),
+            observedAt: nowIso(),
           };
         } catch (error) {
           throw operationError("bluesky.publish", error);
@@ -9977,7 +9986,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
         const record = object(value);
 
-        const fetchedAt = new Date().toISOString();
+        const fetchedAt = nowIso();
 
         const metrics: MetricValue[] = [];
 
@@ -10024,7 +10033,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
             message: "Bluesky profile identity does not match the requested DID.",
           });
 
-        const fetchedAt = new Date().toISOString();
+        const fetchedAt = nowIso();
 
         const metrics: readonly MetricValue[] = (
           [
