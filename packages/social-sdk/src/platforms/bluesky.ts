@@ -1,5 +1,5 @@
 import { readBinary } from "../transport/binary.js";
-import { remainingBudget } from "../transport/budget.js";
+import { remainingBudget, requestBudget } from "../transport/budget.js";
 import {
   connectedAccountRef,
   defineAdapter,
@@ -3713,7 +3713,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
 
       const answer = await requestHttp.exchange({
         url: endpoint(service, method),
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: httpMethod !== "GET" }),
         method: httpMethod,
         ...(options.session
           ? { headers }

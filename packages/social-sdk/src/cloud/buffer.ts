@@ -24,7 +24,7 @@ import type {
   ScheduleCancellation,
   ScheduledJobRef,
 } from "../core/types.js";
-import { remainingBudget } from "../transport/budget.js";
+import { requestBudget } from "../transport/budget.js";
 import { createHttp, HttpError, type HttpOptions } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
 import {
@@ -1708,7 +1708,7 @@ export function buffer(options: BufferOptions) {
           Authorization: `Bearer ${options.apiKey}`,
           "Content-Type": "application/json",
         },
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: kind === "mutation" }),
         method: "POST",
         body: JSON.stringify({ query, variables }),
         ...definedFields({ signal: context.signal }),

@@ -1,4 +1,4 @@
-import { remainingBudget } from "../transport/budget.js";
+import { remainingBudget, requestBudget } from "../transport/budget.js";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError } from "../core/errors.js";
 import type {
@@ -1447,7 +1447,7 @@ export function youtube(
           Authorization: `Bearer ${options.auth.accessToken}`,
           ...definedFields({ "Content-Type": nonEmpty(contentType) }),
         },
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: true }),
         ...definedFields({ signal: context.signal }),
       });
 
