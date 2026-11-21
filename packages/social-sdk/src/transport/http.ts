@@ -188,10 +188,17 @@ export async function readBytes(
       chunks.push(chunk.value);
     }
   } catch (error) {
+    // Not awaited: a stalled source's cancel may never settle, and the caller is waiting on
+    // the abort. Cancelling settles pending reads, so releasing the lock below is safe.
     void reader.cancel().catch(() => undefined);
     throw error;
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // Streams implementations from before 2022 throw here while a read is pending; the
+      // body is already cancelled, so keep the original error instead of this TypeError.
+    }
   }
 
   const bytes = new Uint8Array(total);
