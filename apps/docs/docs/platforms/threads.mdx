@@ -508,7 +508,7 @@ Sources: Meta's [posts](https://developers.facebook.com/documentation/threads/po
 | -------- | ------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Image    | Format       | JPEG or PNG                                                           | Declared MIME type: `image/jpeg` or `image/png`, else `media.format`. The file's bytes are not inspected.          |
 | Image    | File size    | 8 MB maximum                                                          | No, Threads only                                                                                                   |
-| Image    | Width        | 320 to 1,440 px; Threads scales smaller or larger images to fit       | No, Threads only                                                                                                   |
+| Image    | Width        | At least 320 px wide (scaled up); over 4,096 × 4,096 px scaled down   | No, Threads only                                                                                                   |
 | Image    | Aspect ratio | Up to 10:1                                                            | No, Threads only                                                                                                   |
 | Image    | Color space  | sRGB; Threads converts other color spaces                             | No, Threads only                                                                                                   |
 | Video    | Container    | MOV or MP4, no edit lists, `moov` atom at the front of the file       | Declared MIME type: `video/mp4` or `video/quicktime`, else `media.format`. Edit lists and atom order are not read. |
@@ -522,7 +522,7 @@ Sources: Meta's [posts](https://developers.facebook.com/documentation/threads/po
 | Video    | File size    | 1 GB maximum                                                          | No, Threads only                                                                                                   |
 | Carousel | Items        | 2 to 20 images, videos, or a mix                                      | Yes: more than 20 fails as `media.too_many`. One item publishes as a single image or video post, not a carousel.   |
 
-Source: Meta's [Threads posts](https://developers.facebook.com/documentation/threads/posts#media-specifications) page (updated October 30, 2026), media specifications and carousel limitations, checked November 4, 2026.
+Source: Meta's [Threads posts](https://developers.facebook.com/documentation/threads/posts#media-specifications) page (updated October 30, 2026), media specifications and carousel limitations, checked November 21, 2026.
 
 ### Not supported
 
