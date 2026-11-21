@@ -150,9 +150,12 @@ it("stops waiting when the caller aborts during the retry delay", async () => {
   const { adapter, contexts } = scripted(["slow-rate-limited", "published"]);
   const controller = new AbortController();
 
+  // Keep retryBudget larger than the 120 s Retry-After so the retry genuinely enters waitToRetry
+  // rather than exiting early on the default 30 s budget.
   const pending = createSocial({ backend: adapter }).posts.publish(request, {
     signal: controller.signal,
     retry: { maxAttempts: 2, maxDelayMs: 200_000 },
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 200_000 },
   });
 
   for (let tick = 0; tick < 100 && contexts.length === 0; tick++)
@@ -163,6 +166,73 @@ it("stops waiting when the caller aborts during the retry delay", async () => {
 
   assert.equal(result.outcomes[0]?.state, "failed");
   assert.equal(contexts.length, 1);
+});
+
+it("does not dispatch a retry after the shared deadline expires while waiting in the concurrency queue", async () => {
+  let calls = 0;
+  let blocker: Promise<unknown> | undefined;
+  let social: ReturnType<typeof createSocial> | undefined;
+
+  const adapter = defineAdapter({
+    id: "queue-deadline-test",
+    capabilities: {
+      ...manifest,
+      capabilities: [
+        ...manifest.capabilities,
+        { operation: "accounts.read", platform: "*", availability: "available" },
+      ],
+    },
+    accounts: {
+      list: async () => ({ items: [] }),
+      get: async (ref) => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+        return { ref, status: "connected", displayName: "test" };
+      },
+    },
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        calls++;
+
+        const base = {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date().toISOString(),
+        };
+
+        if (calls === 1) {
+          blocker = social?.accounts.get(account);
+
+          return {
+            ...base,
+            state: "failed",
+            code: "rate_limited",
+            message: "retry",
+            retryDisposition: { kind: "after-delay", delayMs: 1 },
+          };
+        }
+
+        return {
+          ...base,
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "post-1" }),
+        };
+      },
+    },
+  });
+
+  social = createSocial({ backend: adapter, concurrency: 1 });
+
+  const result = await social.posts.publish(request, {
+    retry: { maxAttempts: 2 },
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 50 },
+  });
+
+  await blocker;
+
+  assert.equal(calls, 1);
+  assert.equal(result.outcomes[0]?.state, "failed");
 });
 
 it("rejects an out-of-range retry policy before dispatch", async () => {

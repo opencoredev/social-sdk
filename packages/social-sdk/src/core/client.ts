@@ -1240,6 +1240,11 @@ export function createSocial(
     correlationId: string,
     options: PublishCallOptions | undefined,
     targetIdempotencyKey: string | undefined,
+    retryDeadline?: {
+      readonly deadlineMs: number;
+      readonly baseBudget: NonNullable<PublishOptions["retryBudget"]>;
+      readonly previousOutcome: DeliveryOutcome;
+    },
   ): Promise<DeliveryOutcome> {
     const adapter = registry[target.account.backend];
     const posts = adapter?.posts;
@@ -1258,19 +1263,71 @@ export function createSocial(
 
     let settle: ((outcome: DeliveryOutcome, enteredAdapter: boolean) => Promise<void>) | undefined;
 
+    let queueController: AbortController | undefined;
+    let queueTimer: ReturnType<typeof setTimeout> | undefined;
+    let expiredBeforeDispatch = false;
+
+    const onCallerAbort = (): void => {
+      queueController?.abort();
+    };
+
+    if (retryDeadline !== undefined) {
+      if (options?.signal?.aborted) return retryDeadline.previousOutcome;
+
+      const remainingBeforeQueueMs = retryDeadline.deadlineMs - clock().getTime();
+
+      if (remainingBeforeQueueMs <= 0) return retryDeadline.previousOutcome;
+
+      queueController = new AbortController();
+      options?.signal?.addEventListener("abort", onCallerAbort, { once: true });
+      queueTimer = setTimeout(() => {
+        expiredBeforeDispatch = true;
+        queueController?.abort();
+      }, remainingBeforeQueueMs);
+    }
+
+    const dispatchSignal = queueController?.signal ?? options?.signal;
+
     const outcome = await (async (): Promise<DeliveryOutcome> => {
       try {
         const candidate = await dispatch(
           target.account.backend,
-          options?.signal,
+          dispatchSignal,
           executionOperation,
           async () => {
+            if (queueTimer !== undefined) {
+              clearTimeout(queueTimer);
+              queueTimer = undefined;
+            }
+
+            let attemptOptions = options;
+
+            if (retryDeadline !== undefined) {
+              if (options?.signal?.aborted) return retryDeadline.previousOutcome;
+
+              const remainingInsideSlotMs = retryDeadline.deadlineMs - clock().getTime();
+
+              if (remainingInsideSlotMs <= 0) {
+                expiredBeforeDispatch = true;
+
+                return retryDeadline.previousOutcome;
+              }
+
+              attemptOptions = {
+                ...options,
+                retryBudget: {
+                  ...retryDeadline.baseBudget,
+                  maxElapsedMs: remainingInsideSlotMs,
+                },
+              };
+            }
+
             let dispatched = target;
 
             let context = makeContext(
               target.account.backend,
               correlationId,
-              options,
+              attemptOptions,
               targetIdempotencyKey,
             );
 
@@ -1302,6 +1359,9 @@ export function createSocial(
           },
         );
 
+        if (retryDeadline !== undefined && candidate === retryDeadline.previousOutcome)
+          return retryDeadline.previousOutcome;
+
         return assertValidOutcome(candidate, target)
           ? candidate
           : {
@@ -1313,6 +1373,15 @@ export function createSocial(
               diagnostic: "Adapter returned an outcome for a different target",
             };
       } catch (error) {
+        if (
+          retryDeadline !== undefined &&
+          !enteredAdapter &&
+          (expiredBeforeDispatch || options?.signal?.aborted) &&
+          error instanceof SocialError &&
+          error.code === "cancelled"
+        )
+          return retryDeadline.previousOutcome;
+
         return !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
           ? {
               state: "cancelled",
@@ -1334,6 +1403,11 @@ export function createSocial(
                 target,
                 observedAt(),
               );
+      } finally {
+        if (queueTimer !== undefined) clearTimeout(queueTimer);
+
+        if (queueController !== undefined)
+          options?.signal?.removeEventListener("abort", onCallerAbort);
       }
     })();
 
@@ -1425,21 +1499,18 @@ export function createSocial(
 
           if (remainingAfterWaitMs <= 0) break;
 
-          const attemptOptions: PublishOptions = {
-            ...options,
-            retryBudget: {
-              ...baseBudget,
-              maxElapsedMs: remainingAfterWaitMs,
-            },
-          };
+          const previousOutcome = outcome;
 
           outcome = await dispatchTarget(
             target,
             executionOperation,
             correlationId,
-            attemptOptions,
+            options,
             targetIdempotencyKey,
+            { deadlineMs, baseBudget, previousOutcome },
           );
+
+          if (outcome === previousOutcome) break;
         }
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
