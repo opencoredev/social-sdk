@@ -671,6 +671,140 @@ it("rejects an out-of-range retry policy before dispatch", async () => {
   assert.equal(contexts.length, 0);
 });
 
+it("rejects invalid retryBudget.maxElapsedMs before planning or claiming idempotency", async () => {
+  let prepareCalls = 0;
+  let publishCalls = 0;
+  const store = new MemoryIdempotencyStore();
+
+  const adapter = defineAdapter({
+    id: "invalid-budget-test",
+    capabilities: manifest,
+    posts: {
+      prepareTarget: () => {
+        prepareCalls++;
+
+        return [];
+      },
+      publishTarget: async (target) => {
+        publishCalls++;
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(0).toISOString(),
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "p-valid" }),
+        };
+      },
+    },
+  });
+
+  const social = createSocial({ backend: adapter, idempotencyStore: store });
+
+  for (const maxElapsedMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY])
+    await assert.rejects(
+      social.posts.publish(
+        { ...request, idempotencyKey: "invalid-budget-key" },
+        { retry: { maxAttempts: 2 }, retryBudget: { maxAttempts: 1, maxElapsedMs } },
+      ),
+      (error) => error instanceof SocialError && error.code === "invalid_input",
+    );
+
+  assert.equal(prepareCalls, 0);
+  assert.equal(publishCalls, 0);
+
+  // The failed validation must not have claimed the idempotency key.
+  const followUp = await social.posts.publish(
+    { ...request, idempotencyKey: "invalid-budget-key" },
+    { retry: { maxAttempts: 2 }, retryBudget: { maxAttempts: 1, maxElapsedMs: 5_000 } },
+  );
+
+  assert.equal(followUp.outcomes[0]?.state, "published");
+  assert.equal(prepareCalls, 1);
+  assert.equal(publishCalls, 1);
+});
+
+it("does not retry when retryDisposition.delayMs is NaN or negative", async () => {
+  let calls = 0;
+
+  const adapter = defineAdapter({
+    id: "nan-delay-test",
+    capabilities: manifest,
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        calls++;
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(0).toISOString(),
+          state: "failed",
+          code: "rate_limited",
+          message: "Rate limited.",
+          retryDisposition: { kind: "after-delay", delayMs: Number.NaN },
+        };
+      },
+    },
+  });
+
+  const result = await createSocial({ backend: adapter }).posts.publish(request, {
+    retry: { maxAttempts: 3 },
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.outcomes[0]?.state, "failed");
+});
+
+it("keeps retrying up to maxAttempts when an adapter returns the same frozen failure object", async () => {
+  let calls = 0;
+  let sharedFailure: DeliveryOutcome | undefined;
+
+  const adapter = defineAdapter({
+    id: "reused-outcome-test",
+    capabilities: manifest,
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        calls++;
+
+        if (calls < 3) {
+          const failure: DeliveryOutcome =
+            sharedFailure ??
+            Object.freeze<DeliveryOutcome>({
+              targetIndex: target.targetIndex,
+              account: target.account,
+              observedAt: new Date(0).toISOString(),
+              state: "failed",
+              code: "rate_limited",
+              message: "Try again.",
+              retryDisposition: { kind: "after-delay", delayMs: 1 },
+            });
+
+          sharedFailure = failure;
+
+          return failure;
+        }
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(0).toISOString(),
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "p-3" }),
+        };
+      },
+    },
+  });
+
+  const result = await createSocial({ backend: adapter }).posts.publish(request, {
+    retry: { maxAttempts: 3 },
+  });
+
+  assert.equal(calls, 3);
+  assert.equal(result.outcomes[0]?.state, "published");
+});
+
 it("keeps one shared retryBudget deadline across publish retries", async () => {
   const { adapter } = scripted(["rate-limited", "published"]);
   const recorded: AdapterOperationContext[] = [];

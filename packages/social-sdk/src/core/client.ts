@@ -1247,6 +1247,30 @@ export function createSocial(
       readonly previousOutcome?: DeliveryOutcome;
     },
   ): Promise<DeliveryOutcome> {
+    return (
+      await dispatchAttempt(
+        target,
+        executionOperation,
+        correlationId,
+        options,
+        targetIdempotencyKey,
+        retryDeadline,
+      )
+    ).outcome;
+  }
+
+  async function dispatchAttempt(
+    target: PreparedPublishTarget,
+    executionOperation: "posts.publish" | "posts.schedule",
+    correlationId: string,
+    options: PublishCallOptions | undefined,
+    targetIdempotencyKey: string | undefined,
+    retryDeadline?: {
+      readonly deadlineMs: number;
+      readonly baseBudget: NonNullable<PublishOptions["retryBudget"]>;
+      readonly previousOutcome?: DeliveryOutcome;
+    },
+  ): Promise<{ readonly outcome: DeliveryOutcome; readonly stoppedRetry: boolean }> {
     const adapter = registry[target.account.backend];
     const posts = adapter?.posts;
 
@@ -1255,6 +1279,7 @@ export function createSocial(
 
     const observedAt = (): string => clock().toISOString();
     let enteredAdapter = false;
+    let stoppedRetry = false;
 
     const constraints = selectPublishDeclaration(
       adapter.capabilities.capabilities,
@@ -1305,20 +1330,24 @@ export function createSocial(
 
     if (retryDeadline !== undefined) {
       if (options?.signal?.aborted) {
-        if (retryDeadline.previousOutcome !== undefined) return retryDeadline.previousOutcome;
+        if (retryDeadline.previousOutcome !== undefined)
+          return { outcome: retryDeadline.previousOutcome, stoppedRetry: true };
 
         return {
-          state: "cancelled",
-          targetIndex: target.targetIndex,
-          account: target.account,
-          observedAt: observedAt(),
-          reason: "before-submission",
+          outcome: {
+            state: "cancelled",
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: observedAt(),
+            reason: "before-submission",
+          },
+          stoppedRetry: true,
         };
       }
 
       const remainingBeforeQueueMs = retryDeadline.deadlineMs - clock().getTime();
 
-      if (remainingBeforeQueueMs <= 0) return expiredOutcome();
+      if (remainingBeforeQueueMs <= 0) return { outcome: expiredOutcome(), stoppedRetry: true };
 
       queueController = new AbortController();
       options?.signal?.addEventListener("abort", onCallerAbort, { once: true });
@@ -1346,6 +1375,7 @@ export function createSocial(
 
               if (remainingInsideSlotMs <= 0) {
                 expiredBeforeDispatch = true;
+                stoppedRetry = true;
 
                 return expiredOutcome();
               }
@@ -1386,8 +1416,11 @@ export function createSocial(
                 if (
                   retryDeadline?.previousOutcome !== undefined &&
                   (staged.outcome.state === "cancelled" || staged.outcome.state === "not-submitted")
-                )
+                ) {
+                  stoppedRetry = true;
+
                   return retryDeadline.previousOutcome;
+                }
 
                 return staged.outcome;
               }
@@ -1404,12 +1437,7 @@ export function createSocial(
           },
         );
 
-        if (
-          retryDeadline !== undefined &&
-          retryDeadline.previousOutcome !== undefined &&
-          candidate === retryDeadline.previousOutcome
-        )
-          return retryDeadline.previousOutcome;
+        if (!enteredAdapter) return candidate;
 
         return assertValidOutcome(candidate, target)
           ? candidate
@@ -1428,10 +1456,17 @@ export function createSocial(
           error instanceof SocialError &&
           error.code === "cancelled"
         ) {
-          if (expiredBeforeDispatch) return expiredOutcome();
+          if (expiredBeforeDispatch) {
+            stoppedRetry = true;
 
-          if (options?.signal?.aborted && retryDeadline.previousOutcome !== undefined)
+            return expiredOutcome();
+          }
+
+          if (options?.signal?.aborted && retryDeadline.previousOutcome !== undefined) {
+            stoppedRetry = true;
+
             return retryDeadline.previousOutcome;
+          }
         }
 
         return !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
@@ -1465,7 +1500,7 @@ export function createSocial(
 
     if (settle !== undefined) await settle(outcome, enteredAdapter);
 
-    return outcome;
+    return { outcome, stoppedRetry };
   }
 
   async function publish(
@@ -1475,6 +1510,23 @@ export function createSocial(
     const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
     const executionOperation = executionOperationFor(request);
     const retry = publishRetryPolicy(options?.retry, executionOperation);
+
+    const baseBudget =
+      options?.retry === undefined
+        ? undefined
+        : (options.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 });
+
+    if (
+      baseBudget !== undefined &&
+      (!Number.isFinite(baseBudget.maxElapsedMs) || baseBudget.maxElapsedMs <= 0)
+    )
+      throw new SocialError({
+        code: "invalid_input",
+        operation: executionOperation,
+        message: "retryBudget.maxElapsedMs must be a finite positive number.",
+        correlationId,
+      });
+
     await authorizeRequest(request, executionOperation, options, correlationId);
     const plan = await planPublication(request, options, correlationId, "execute");
     let claim: IdempotencyClaim | undefined;
@@ -1525,22 +1577,6 @@ export function createSocial(
                 payloadFingerprint: plan.payloadFingerprint,
               });
 
-        const baseBudget =
-          options?.retry === undefined
-            ? undefined
-            : (options.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 });
-
-        if (
-          baseBudget !== undefined &&
-          (!Number.isFinite(baseBudget.maxElapsedMs) || baseBudget.maxElapsedMs <= 0)
-        )
-          throw new SocialError({
-            code: "invalid_input",
-            operation: executionOperation,
-            message: "retryBudget.maxElapsedMs must be a finite positive number.",
-            correlationId,
-          });
-
         const deadlineMs =
           baseBudget === undefined ? undefined : clock().getTime() + baseBudget.maxElapsedMs;
 
@@ -1574,7 +1610,7 @@ export function createSocial(
 
           const previousOutcome = outcome;
 
-          outcome = await dispatchTarget(
+          const nextAttempt = await dispatchAttempt(
             target,
             executionOperation,
             correlationId,
@@ -1583,7 +1619,9 @@ export function createSocial(
             { deadlineMs, baseBudget, previousOutcome },
           );
 
-          if (outcome === previousOutcome) break;
+          outcome = nextAttempt.outcome;
+
+          if (nextAttempt.stoppedRetry) break;
         }
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {

@@ -4247,7 +4247,7 @@ export function bluesky(options: BlueskyOptions): SocialAdapter<BlueskyNative> {
     try {
       return await (init.acceptExisting ? videoUploadHttp : videoHttp)({
         url,
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: payload !== undefined }),
         method: payload === undefined ? "GET" : "POST",
         headers: definedFields({
           Authorization: init.token === undefined ? undefined : `Bearer ${init.token}`,

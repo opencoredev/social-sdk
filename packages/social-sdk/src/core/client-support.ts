@@ -210,8 +210,11 @@ export function publishRetryDelay(
 ): number | undefined {
   if (outcome.state === "not-submitted" && outcome.reason === "capacity") return capacityDelayMs;
 
-  if (outcome.state === "failed" && outcome.retryDisposition.kind === "after-delay")
-    return outcome.retryDisposition.delayMs;
+  if (outcome.state === "failed" && outcome.retryDisposition.kind === "after-delay") {
+    const delayMs = outcome.retryDisposition.delayMs;
+
+    return Number.isFinite(delayMs) && delayMs >= 0 ? delayMs : undefined;
+  }
 
   return undefined;
 }
