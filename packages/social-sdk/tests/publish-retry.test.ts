@@ -177,3 +177,83 @@ it("rejects an out-of-range retry policy before dispatch", async () => {
 
   assert.equal(contexts.length, 0);
 });
+
+it("keeps one shared retryBudget deadline across publish retries", async () => {
+  const { adapter } = scripted(["rate-limited", "published"]);
+  const recorded: AdapterOperationContext[] = [];
+
+  // The adapter reports a 1 ms retry delay, but with a 50 ms shared budget and a clock that
+  // jumps 60 ms during attempt 1, no second dispatch may occur.
+  let nowMs = 1_000;
+
+  const social = createSocial({
+    backend: defineAdapter({
+      id: "retry-test",
+      capabilities: manifest,
+      posts: {
+        prepareTarget: () => [],
+        publishTarget: async (target, context) => {
+          recorded.push(context);
+          nowMs += 60;
+
+          return adapter.posts.publishTarget(target, context);
+        },
+      },
+    }),
+    clock: () => new Date(nowMs),
+  });
+
+  const exhausted = await social.posts.publish(request, {
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 50 },
+    retry: { maxAttempts: 2, maxDelayMs: 1_000 },
+  });
+
+  assert.equal(exhausted.outcomes[0]?.state, "failed");
+  assert.equal(recorded.length, 1);
+
+  // When a retry fits inside the remaining budget, attempt 2 receives only the remaining time.
+  nowMs = 2_000;
+  const passedContexts: AdapterOperationContext[] = [];
+
+  const budgeted = createSocial({
+    backend: defineAdapter({
+      id: "retry-test",
+      capabilities: manifest,
+      posts: {
+        prepareTarget: () => [],
+        publishTarget: async (target, context) => {
+          passedContexts.push(context);
+          nowMs += 10;
+
+          return {
+            targetIndex: target.targetIndex,
+            account: target.account,
+            observedAt: new Date(nowMs).toISOString(),
+            ...(passedContexts.length === 1
+              ? {
+                  state: "failed" as const,
+                  code: "rate_limited" as const,
+                  message: "Rate limited.",
+                  retryDisposition: { kind: "after-delay" as const, delayMs: 5 },
+                }
+              : {
+                  state: "published" as const,
+                  post: platformPostRef({ ...target.account, postId: "p2" }),
+                }),
+          };
+        },
+      },
+    }),
+    clock: () => new Date(nowMs),
+  });
+
+  const retried = await budgeted.posts.publish(request, {
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 50 },
+    retry: { maxAttempts: 2, maxDelayMs: 1_000 },
+  });
+
+  assert.equal(retried.outcomes[0]?.state, "published");
+  assert.equal(passedContexts.length, 2);
+  assert.equal(passedContexts[0]?.retryBudget.maxElapsedMs, 50);
+  assert.ok((passedContexts[1]?.retryBudget.maxElapsedMs ?? 50) <= 40);
+});

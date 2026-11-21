@@ -1399,6 +1399,9 @@ export function createSocial(
                 payloadFingerprint: plan.payloadFingerprint,
               });
 
+        const baseBudget = options?.retryBudget ?? { maxAttempts: 1, maxElapsedMs: 30_000 };
+        const deadlineMs = clock().getTime() + baseBudget.maxElapsedMs;
+
         let outcome = await dispatchTarget(
           target,
           executionOperation,
@@ -1412,13 +1415,29 @@ export function createSocial(
 
           if (delay === undefined || delay > retry.maxDelayMs) break;
 
+          const remainingBeforeWaitMs = deadlineMs - clock().getTime();
+
+          if (remainingBeforeWaitMs <= 0 || delay > remainingBeforeWaitMs) break;
+
           if (!(await waitToRetry(delay, options?.signal))) break;
+
+          const remainingAfterWaitMs = deadlineMs - clock().getTime();
+
+          if (remainingAfterWaitMs <= 0) break;
+
+          const attemptOptions: PublishOptions = {
+            ...options,
+            retryBudget: {
+              ...baseBudget,
+              maxElapsedMs: remainingAfterWaitMs,
+            },
+          };
 
           outcome = await dispatchTarget(
             target,
             executionOperation,
             correlationId,
-            options,
+            attemptOptions,
             targetIdempotencyKey,
           );
         }
