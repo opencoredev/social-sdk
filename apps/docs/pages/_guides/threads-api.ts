@@ -64,8 +64,8 @@ export const threadsApi: Guide = {
           <ol>
             <li>
               Get a Threads user access token with the <code>threads_basic</code> and
-              <code>threads_content_publish</code> permissions. Until your app passes App Review,
-              only testers you invite can grant them.
+              <code>threads_content_publish</code> permissions. Until your app passes App Review
+              and is published, only testers you invite can grant them.
             </li>
             <li>
               Create a media container: <code>POST /{threads-user-id}/threads</code> with
@@ -83,12 +83,12 @@ export const threadsApi: Guide = {
             </li>
           </ol>
           <p>
-            A post holds up to 500 characters of text and at most 5 links, and a profile can
+            A post holds up to 500 characters of text and at most 5 unique links, and a profile can
             publish 250 posts through the API in any rolling 24 hours. The
             <a href="#publish">publishing section</a> has the exact requests.
             <a href="#social-sdk">Social SDK</a> creates the container, checks its status, and
-            publishes in one TypeScript call when the media is ready; otherwise it returns
-            <code>processing</code> so you can check again later.
+            publishes in one TypeScript call when the media is ready. While Meta is still
+            processing it, the call returns <code>processing</code> so you can check again later.
           </p>
 
           <h2 id="what-it-does">What the Threads API does</h2>
@@ -211,7 +211,7 @@ export const threadsApi: Guide = {
               <tr><td>Location searches</td><td>500 per 24 hours</td></tr>
               <tr><td>API calls per app and user</td><td>4,800 × the account's impressions in the last 24 hours, counting at least 10 impressions</td></tr>
               <tr><td>Text</td><td>500 characters, with emojis counted by their UTF-8 bytes</td></tr>
-              <tr><td>Links</td><td>5 per post; since 22 December 2025, a container with more fails to create</td></tr>
+              <tr><td>Links</td><td>5 unique links per post; since 22 December 2025, a container with more fails to create</td></tr>
               <tr><td>Images</td><td>JPEG or PNG, up to 8 MB; Meta scales images narrower than 320 pixels up and larger than 4096 × 4096 down</td></tr>
               <tr><td>Video</td><td>MOV or MP4, up to 5 minutes and 1 GB, 23 to 60 fps</td></tr>
             </tbody>
