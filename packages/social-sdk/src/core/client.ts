@@ -1243,7 +1243,7 @@ export function createSocial(
     retryDeadline?: {
       readonly deadlineMs: number;
       readonly baseBudget: NonNullable<PublishOptions["retryBudget"]>;
-      readonly previousOutcome: DeliveryOutcome;
+      readonly previousOutcome?: DeliveryOutcome;
     },
   ): Promise<DeliveryOutcome> {
     const adapter = registry[target.account.backend];
@@ -1267,16 +1267,35 @@ export function createSocial(
     let queueTimer: ReturnType<typeof setTimeout> | undefined;
     let expiredBeforeDispatch = false;
 
+    const expiredOutcome = (): DeliveryOutcome =>
+      retryDeadline?.previousOutcome ?? {
+        state: "not-submitted",
+        targetIndex: target.targetIndex,
+        account: target.account,
+        observedAt: observedAt(),
+        reason: "capacity",
+      };
+
     const onCallerAbort = (): void => {
       queueController?.abort();
     };
 
     if (retryDeadline !== undefined) {
-      if (options?.signal?.aborted) return retryDeadline.previousOutcome;
+      if (options?.signal?.aborted) {
+        if (retryDeadline.previousOutcome !== undefined) return retryDeadline.previousOutcome;
+
+        return {
+          state: "cancelled",
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: observedAt(),
+          reason: "before-submission",
+        };
+      }
 
       const remainingBeforeQueueMs = retryDeadline.deadlineMs - clock().getTime();
 
-      if (remainingBeforeQueueMs <= 0) return retryDeadline.previousOutcome;
+      if (remainingBeforeQueueMs <= 0) return expiredOutcome();
 
       queueController = new AbortController();
       options?.signal?.addEventListener("abort", onCallerAbort, { once: true });
@@ -1303,14 +1322,15 @@ export function createSocial(
             let attemptOptions = options;
 
             if (retryDeadline !== undefined) {
-              if (options?.signal?.aborted) return retryDeadline.previousOutcome;
+              if (options?.signal?.aborted && retryDeadline.previousOutcome !== undefined)
+                return retryDeadline.previousOutcome;
 
               const remainingInsideSlotMs = retryDeadline.deadlineMs - clock().getTime();
 
               if (remainingInsideSlotMs <= 0) {
                 expiredBeforeDispatch = true;
 
-                return retryDeadline.previousOutcome;
+                return expiredOutcome();
               }
 
               attemptOptions = {
@@ -1359,7 +1379,11 @@ export function createSocial(
           },
         );
 
-        if (retryDeadline !== undefined && candidate === retryDeadline.previousOutcome)
+        if (
+          retryDeadline !== undefined &&
+          retryDeadline.previousOutcome !== undefined &&
+          candidate === retryDeadline.previousOutcome
+        )
           return retryDeadline.previousOutcome;
 
         return assertValidOutcome(candidate, target)
@@ -1376,11 +1400,14 @@ export function createSocial(
         if (
           retryDeadline !== undefined &&
           !enteredAdapter &&
-          (expiredBeforeDispatch || options?.signal?.aborted) &&
           error instanceof SocialError &&
           error.code === "cancelled"
-        )
-          return retryDeadline.previousOutcome;
+        ) {
+          if (expiredBeforeDispatch) return expiredOutcome();
+
+          if (options?.signal?.aborted && retryDeadline.previousOutcome !== undefined)
+            return retryDeadline.previousOutcome;
+        }
 
         return !enteredAdapter && error instanceof SocialError && error.code === "cancelled"
           ? {
@@ -1482,6 +1509,7 @@ export function createSocial(
           correlationId,
           options,
           targetIdempotencyKey,
+          { deadlineMs, baseBudget },
         );
 
         for (let attempt = 1; attempt < retry.maxAttempts; attempt++) {

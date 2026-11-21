@@ -235,6 +235,136 @@ it("does not dispatch a retry after the shared deadline expires while waiting in
   assert.equal(result.outcomes[0]?.state, "failed");
 });
 
+it("enforces the shared deadline and recomputes remaining budget on the first queued publish attempt", async () => {
+  let nowMs = 1_000;
+  let calls = 0;
+  let receivedBudget: number | undefined;
+  let releaseBlocker: (() => void) | undefined;
+  let markEntered: (() => void) | undefined;
+
+  const entered = new Promise<void>((resolve) => {
+    markEntered = resolve;
+  });
+
+  const adapter = defineAdapter({
+    id: "first-attempt-deadline-test",
+    capabilities: {
+      ...manifest,
+      capabilities: [
+        ...manifest.capabilities,
+        { operation: "accounts.read", platform: "*", availability: "available" },
+      ],
+    },
+    accounts: {
+      list: async () => ({ items: [] }),
+      get: async (ref) => {
+        markEntered?.();
+        await new Promise<void>((resolve) => {
+          releaseBlocker = resolve;
+        });
+
+        return { ref, status: "connected", displayName: "test" };
+      },
+    },
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target, context) => {
+        calls++;
+        receivedBudget = context.retryBudget.maxElapsedMs;
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(nowMs).toISOString(),
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "post-1" }),
+        };
+      },
+    },
+  });
+
+  const social = createSocial({ backend: adapter, concurrency: 1, clock: () => new Date(nowMs) });
+  const blocker = social.accounts.get(account);
+  await entered;
+
+  const pending = social.posts.publish(request, {
+    retry: { maxAttempts: 2 },
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 50 },
+  });
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 15));
+  nowMs = 1_020;
+  releaseBlocker?.();
+
+  const published = await pending;
+  await blocker;
+
+  assert.equal(calls, 1);
+  assert.equal(receivedBudget, 30);
+  assert.equal(published.outcomes[0]?.state, "published");
+
+  // When the queue wait exceeds the deadline, the first attempt never enters the adapter.
+  let enteredSecond: (() => void) | undefined;
+
+  const secondGate = new Promise<void>((resolve) => {
+    enteredSecond = resolve;
+  });
+
+  let releaseSecond: (() => void) | undefined;
+  let expiredCalls = 0;
+
+  const blockingAdapter = defineAdapter({
+    id: "first-attempt-expired-test",
+    capabilities: {
+      ...manifest,
+      capabilities: [
+        ...manifest.capabilities,
+        { operation: "accounts.read", platform: "*", availability: "available" },
+      ],
+    },
+    accounts: {
+      list: async () => ({ items: [] }),
+      get: async (ref) => {
+        enteredSecond?.();
+        await new Promise<void>((resolve) => {
+          releaseSecond = resolve;
+        });
+
+        return { ref, status: "connected", displayName: "test" };
+      },
+    },
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        expiredCalls++;
+
+        return {
+          targetIndex: target.targetIndex,
+          account: target.account,
+          observedAt: new Date(nowMs).toISOString(),
+          state: "published",
+          post: platformPostRef({ ...target.account, postId: "post-2" }),
+        };
+      },
+    },
+  });
+
+  const social2 = createSocial({ backend: blockingAdapter, concurrency: 1 });
+  const blocker2 = social2.accounts.get(account);
+  await secondGate;
+
+  const expired = await social2.posts.publish(request, {
+    retry: { maxAttempts: 2 },
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 25 },
+  });
+
+  releaseSecond?.();
+  await blocker2;
+
+  assert.equal(expiredCalls, 0);
+  assert.equal(expired.outcomes[0]?.state, "not-submitted");
+});
+
 it("rejects an out-of-range retry policy before dispatch", async () => {
   const { adapter, contexts } = scripted(["published"]);
   const social = createSocial({ backend: adapter });
