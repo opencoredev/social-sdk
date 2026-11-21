@@ -60,6 +60,7 @@ import {
   beginYouTubeUpload,
   queryYouTubeUpload,
   sendYouTubeUpload,
+  withYouTubeUploadDeadline,
   type YouTubeUploadSession,
   type YouTubeUploadStatus,
 } from "./youtube-upload.js";
@@ -1192,7 +1193,9 @@ export function youtube(
     timeoutMs: 30_000,
   });
 
-  const now = () => (options.clock?.() ?? new Date()).toISOString();
+  const nowMs = () => (options.clock?.() ?? new Date()).getTime();
+
+  const now = () => new Date(nowMs()).toISOString();
 
   const rawConfig: RawRequestConfig<YouTubeRawHost> = {
     hosts: {
@@ -2373,11 +2376,13 @@ export function youtube(
 
         const config = optionsObject(target);
 
-        const uploadOptions = {
+        // Begin and send (or query and send) share one deadline.
+        const uploadOptions = withYouTubeUploadDeadline({
           timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
           accessToken: options.auth.accessToken,
+          now: nowMs,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
-        };
+        });
 
         const size = media.byteSize ?? (media.source.kind === "blob" ? media.source.blob.size : 0);
 
@@ -2969,11 +2974,13 @@ export function youtube(
             message: "Upload session belongs to another channel.",
           });
 
-        const uploadOptions = {
+        // Begin and send (or query and send) share one deadline.
+        const uploadOptions = withYouTubeUploadDeadline({
           timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
           accessToken: options.auth.accessToken,
+          now: nowMs,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
-        };
+        });
 
         const confirmed = await queryYouTubeUpload(session, uploadOptions);
 
@@ -2992,6 +2999,7 @@ export function youtube(
         return queryYouTubeUpload(session, {
           timeoutMs: remainingBudget(context),
           accessToken: options.auth.accessToken,
+          now: nowMs,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
         });
       },
