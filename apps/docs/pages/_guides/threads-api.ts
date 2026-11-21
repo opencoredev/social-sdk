@@ -85,8 +85,10 @@ export const threadsApi: Guide = {
           <p>
             A post holds up to 500 characters of text and at most 5 links, and a profile can
             publish 250 posts through the API in any rolling 24 hours. The
-            <a href="#publish">publishing section</a> has the exact requests, and
-            <a href="#social-sdk">Social SDK</a> runs steps 2 to 4 in one TypeScript call.
+            <a href="#publish">publishing section</a> has the exact requests.
+            <a href="#social-sdk">Social SDK</a> creates the container, checks its status, and
+            publishes in one TypeScript call when the media is ready; otherwise it returns
+            <code>processing</code> so you can check again later.
           </p>
 
           <h2 id="what-it-does">What the Threads API does</h2>
