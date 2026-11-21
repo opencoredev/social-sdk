@@ -479,6 +479,9 @@ function unsupported(operation: string, backend: string): never {
 }
 
 /** `error` is the rejection when it was a SocialError, or undefined for any other thrown value. */
+/** A sequence item after `publishSequence` derives its non-blank per-item idempotency key. */
+type KeyedPublishRequest = PublishRequest & { readonly idempotencyKey: string };
+
 function outcomeFromError(
   error: SocialError | undefined,
   target: PreparedPublishTarget,
@@ -1110,7 +1113,7 @@ export function createSocial(
    * destination does.
    */
   async function publishDestinations(
-    item: PublishRequest,
+    item: KeyedPublishRequest,
     submitted: readonly { readonly target: PublishRequest["targets"][number] }[],
     options: PublishCallOptions | undefined,
   ): Promise<PublishResult> {
@@ -1125,7 +1128,7 @@ export function createSocial(
           {
             ...item,
             targets: [target],
-            idempotencyKey: `${item.idempotencyKey ?? ""}:${targetKey(target.account)}`,
+            idempotencyKey: `${item.idempotencyKey}:${targetKey(target.account)}`,
           },
           options,
         );
@@ -1346,9 +1349,10 @@ export function createSocial(
 
     const warnings: PublishWarning[] = [];
 
+    // Start every target at once; `dispatch` applies each backend's concurrency limit.
     const outcomes = await mapConcurrent(
       plan.targets.length,
-      Math.max(1, plan.targets.length),
+      plan.targets.length,
       async (index) => {
         const target = plan.targets[index];
 
@@ -1877,10 +1881,10 @@ export function createSocial(
           message: "A nonempty idempotencyKey is required",
         });
 
-      const prepared: PublishRequest[] = [];
+      const prepared: KeyedPublishRequest[] = [];
 
       for (const [index, item] of request.items.entries()) {
-        const publishRequest: PublishRequest = {
+        const publishRequest: KeyedPublishRequest = {
           targets: item.targets,
           content: item.content,
           idempotencyKey: `${request.idempotencyKey}:${index}`,
