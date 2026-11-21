@@ -1,6 +1,5 @@
 import { normalizeMetrics } from "../core/projections.js";
 import { managedRawRequest, rawRequestCapability } from "../core/raw-request.js";
-import { createHash, randomBytes } from "node:crypto";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError, type SocialErrorCode } from "../core/errors.js";
 import { definedFields } from "../core/fields.js";
@@ -25,7 +24,7 @@ import type {
   ScheduleCancellation,
   ScheduledJobRef,
 } from "../core/types.js";
-import { remainingBudget } from "../transport/budget.js";
+import { requestBudget } from "../transport/budget.js";
 import { createHttp, HttpError, type HttpOptions } from "../transport/http.js";
 import { httpsUrl } from "../transport/upload.js";
 import {
@@ -1343,14 +1342,23 @@ async function requestToken(
   return readToken(response, operation);
 }
 
-/** Create a PKCE verifier and S256 challenge for Buffer's authorization-code flow. */
-export function createBufferPkce(): BufferPkce {
-  const codeVerifier = randomBytes(32).toString("base64url");
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
 
-  return {
-    codeVerifier,
-    codeChallenge: createHash("sha256").update(codeVerifier).digest("base64url"),
-  };
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+/**
+ * Create a PKCE verifier and S256 challenge for Buffer's authorization-code flow. Uses Web
+ * Crypto, so it runs on Node.js, Bun, and edge runtimes without Node built-ins.
+ */
+export async function createBufferPkce(): Promise<BufferPkce> {
+  const codeVerifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
+
+  return { codeVerifier, codeChallenge: base64Url(new Uint8Array(digest)) };
 }
 
 /**
@@ -1700,7 +1708,7 @@ export function buffer(options: BufferOptions) {
           Authorization: `Bearer ${options.apiKey}`,
           "Content-Type": "application/json",
         },
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: kind === "mutation" }),
         method: "POST",
         body: JSON.stringify({ query, variables }),
         ...definedFields({ signal: context.signal }),

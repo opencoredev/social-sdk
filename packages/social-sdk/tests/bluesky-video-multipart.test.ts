@@ -487,4 +487,33 @@ describe("Bluesky multipart video upload", () => {
     );
     assert.ok(seen.every(({ url }) => !url.pathname.endsWith("uploadVideo")));
   });
+
+  it("reports reconcile-first when the shared budget expires after startUpload", async (t) => {
+    const realPerfNow = performance.now.bind(performance);
+    let offset = 0;
+
+    t.mock.method(performance, "now", () => realPerfNow() + offset);
+
+    const { native, seen } = harness(
+      routes({
+        "app.bsky.video.startUpload": () => {
+          offset += 20_000;
+
+          return json(session(10, 2));
+        },
+      }),
+    );
+
+    const error = await native
+      .uploadVideoMultipart({ account, video: video(20), context: context() })
+      .then(
+        () => undefined,
+        (failure: Error) => failure,
+      );
+
+    assert.ok(error instanceof SocialError);
+    assert.equal(error.code, "timeout");
+    assert.deepEqual(error.retryDisposition, { kind: "reconcile-first" });
+    assert.equal(seen.length, 2);
+  });
 });

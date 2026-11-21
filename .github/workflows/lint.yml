@@ -17,7 +17,8 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    runs-on: tenki-standard-medium-4c-8g
+    # Fork pull requests cannot use the private runner label, so they fall back to GitHub's.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tenki-standard-medium-4c-8g' }}
     steps:
       - uses: actions/checkout@v4
         with:

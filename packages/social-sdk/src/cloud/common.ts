@@ -1,4 +1,4 @@
-import { remainingBudget } from "../transport/budget.js";
+import { remainingBudget, requestBudget } from "../transport/budget.js";
 import type { ManagedMediaStore } from "./media.js";
 import { SocialError } from "../core/errors.js";
 import type {
@@ -254,7 +254,7 @@ export function managedHttpExchange(
         url,
         decodeErrorBody: providerErrorDecoder(origin, path),
         headers,
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: method !== "GET" }),
         method,
         ...definedFields({
           body: body === undefined || form || bytes ? body : JSON.stringify(body),

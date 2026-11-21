@@ -147,6 +147,10 @@ await required("capability manifest and implementation conformance", "bun", [
 
 await required("rebrand source and built checks", "bun", ["run", "rebrand:check"]);
 
+await required("try-social-sdk example pins the package version", "bun", [
+  "scripts/check-example-version.ts",
+]);
+
 await required("package tarball and consumers", "bun", ["run", "pack:check"]);
 
 await required("performance and bundle budgets", "bun", ["run", "benchmark"]);

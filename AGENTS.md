@@ -59,7 +59,7 @@ Application authentication and social-account authorization are separate. Enforc
 
 ## Documentation and evidence
 
-Internal plans and evidence live under `planning/`; public documentation lives under `apps/docs/docs/`. Do not copy private planning notes into public output.
+Internal plans and evidence live under `planning/`; public documentation lives under `apps/docs/docs/`. `planning/` is tracked in this public repository but is not shipped in the npm package or the docs site, so keep it free of credentials, private account data, and anything that must stay confidential. Do not copy planning notes into the docs site, the package, or the README.
 
 Update `planning/implementation-status.md` as requirements move through documented, implemented, contract-tested, live-verified, approval-dependent, and released states. Claims must point to code, tests, or sanitized evidence. Keep source dates and API revisions with adapter research.
 

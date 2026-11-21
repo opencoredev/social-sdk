@@ -19,7 +19,7 @@ export const about: InfoPage = {
   path: "/about",
   title: "Social SDK: open-source TypeScript SDK for social posting",
   description:
-    "Social SDK is an MIT-licensed TypeScript SDK for posting to X, Bluesky, Threads, LinkedIn, Instagram, TikTok, and YouTube from your own server.",
+    "Social SDK is an MIT-licensed TypeScript SDK for posting to X, Bluesky, Threads, LinkedIn, Instagram, Facebook, TikTok, and YouTube from your own server.",
   kicker: "who makes this, and why",
   heading: "About",
   lede: "Social SDK is an open-source TypeScript library for adding social platform features to your own application. You install it from npm, run it on your server, and keep your own credentials.",
@@ -28,7 +28,7 @@ export const about: InfoPage = {
           <h2>What it is</h2>
           <p>
             One typed client covers publishing, reads, analytics, comments, messages, and webhooks
-            across Bluesky, Instagram, LinkedIn, Threads, TikTok, X, and YouTube. You can call each
+            across Bluesky, Facebook Pages, Instagram, LinkedIn, Threads, TikTok, X, and YouTube. You can call each
             platform directly, or route work through an optional managed backend such as Zernio,
             Post for Me, PostFast, Postiz, or Buffer. Each destination returns its own outcome, so a post that is still
             processing or whose result is uncertain is never reported as published.
