@@ -1,5 +1,6 @@
 // Helpers shared by createSocial and its opt-in extensions. Not exported from the package.
-import type { InboxSource, PublishCallOptions } from "./client.js";
+import type { InboxSource, PublishCallOptions, PublishRetryPolicy } from "./client.js";
+import { SocialError } from "./errors.js";
 import type {
   AdapterOperationContext,
   PublishRequest,
@@ -172,4 +173,64 @@ export function inboxSourceScope(
     source.kind === "comments" ? source.post.postId : "conversations",
     limit,
   ]);
+}
+
+/** A validated `PublishRetryPolicy` with defaults; no policy means one attempt. */
+export function publishRetryPolicy(
+  policy: PublishRetryPolicy | undefined,
+  operation: string,
+): Required<PublishRetryPolicy> {
+  const maxAttempts = policy?.maxAttempts ?? 1;
+  const maxDelayMs = policy?.maxDelayMs ?? 60_000;
+  const capacityDelayMs = policy?.capacityDelayMs ?? 1_000;
+
+  if (
+    !Number.isSafeInteger(maxAttempts) ||
+    maxAttempts < 1 ||
+    maxAttempts > 5 ||
+    !Number.isFinite(maxDelayMs) ||
+    maxDelayMs < 0 ||
+    !Number.isFinite(capacityDelayMs) ||
+    capacityDelayMs < 0
+  )
+    throw new SocialError({
+      code: "invalid_input",
+      operation,
+      message:
+        "retry.maxAttempts must be an integer from 1 through 5, and retry delays must be finite and not negative.",
+    });
+
+  return { maxAttempts, maxDelayMs, capacityDelayMs };
+}
+
+/** How long to wait before sending a target again, or undefined when it must not be resent. */
+export function publishRetryDelay(
+  outcome: DeliveryOutcome,
+  capacityDelayMs: number,
+): number | undefined {
+  if (outcome.state === "not-submitted" && outcome.reason === "capacity") return capacityDelayMs;
+
+  if (outcome.state === "failed" && outcome.retryDisposition.kind === "after-delay")
+    return outcome.retryDisposition.delayMs;
+
+  return undefined;
+}
+
+/** Waits `milliseconds`; resolves false instead of waiting when the caller aborts. */
+export function waitToRetry(milliseconds: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    const abort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve(true);
+    }, milliseconds);
+
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }

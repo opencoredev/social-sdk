@@ -169,6 +169,18 @@ Idempotency fingerprints include target content, options, reply references, and 
 
 The client's `concurrency` limit applies to each backend across overlapping reads and writes on that client. A queued cancellation does not dispatch a write. Native adapter access bypasses client coordination and must be managed explicitly by the application.
 
+### Retry a rate-limited target in the same call
+
+`posts.publish` can resend a target that was provably not posted before it returns. Pass `retry`:
+
+```ts
+const result = await social.posts.publish(request, {
+  retry: { maxAttempts: 3, maxDelayMs: 30_000 },
+});
+```
+
+A target is resent only when its outcome is `failed` with `retryDisposition` `after-delay`, such as a provider rate limit, or `not-submitted` with reason `capacity` because the client's concurrency queue was full. The call waits the delay the outcome names, or `capacityDelayMs` (default one second) for a full queue, then sends the target again under the same idempotency claim and per-target key. `maxAttempts` counts the first send and is 1 through 5. A target that asks for a longer wait than `maxDelayMs` (default 60 seconds) is returned as it is. Aborting `signal` during a wait returns the last outcome. `unknown`, `accepted`, and other outcomes are never resent, and the idempotency store saves only the final outcome. Without `retry`, `posts.publish` sends each target once. For a failure you find later, use `posts.retryFailed`, described under [Reconcile and retry](#reconcile-and-retry).
+
 ## Native scheduling on direct adapters
 
 A direct adapter accepts `schedule` only when the platform stores the post and publishes it at the requested time. The SDK does not delay a request itself. The YouTube and Facebook Pages adapters support this; see [schedule a video](/platforms/youtube#schedule-a-video) and [Facebook](/platforms/facebook). The other direct adapters reject `schedule` during preparation, before any network call, and declare `posts.schedule` in their capability manifests with the reason.

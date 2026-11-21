@@ -14,8 +14,11 @@ import {
   makeContext,
   mapConcurrent,
   preparationIssue,
+  publishRetryDelay,
+  publishRetryPolicy,
   targetKey,
   unrecordedOutcome,
+  waitToRetry,
   withPreflightParents,
   type PublicationPlan,
 } from "./client-support.js";
@@ -85,6 +88,26 @@ export interface PublishCallOptions {
   readonly signal?: AbortSignal;
   readonly authorization?: AuthorizationContext;
   readonly retryBudget?: RetryBudget;
+}
+
+/**
+ * Opt-in retries for `posts.publish`. Only a target that provably was not posted is sent
+ * again: a `failed` outcome whose `retryDisposition` is `after-delay` (such as a provider
+ * rate limit) or a `not-submitted` outcome with reason `capacity`. Each retry happens inside
+ * the same call, under the same idempotency claim and per-target key, before the outcome is
+ * saved. `unknown`, `accepted`, and every other outcome are returned as they are.
+ */
+export interface PublishRetryPolicy {
+  /** Attempts per target, including the first: an integer from 1 through 5. */
+  readonly maxAttempts: number;
+  /** Longest wait before one retry. A target that asks for longer is not retried. Defaults to 60 000. */
+  readonly maxDelayMs?: number;
+  /** Wait before retrying a target the local concurrency limit turned away. Defaults to 1 000. */
+  readonly capacityDelayMs?: number;
+}
+
+export interface PublishOptions extends PublishCallOptions {
+  readonly retry?: PublishRetryPolicy;
 }
 
 /** One place `inbox.list` reads from. */
@@ -205,7 +228,7 @@ export interface SocialClient<B extends BackendRegistry = BackendRegistry> {
     prepare<const T extends PublishRequest>(request: CheckedPublishRequest<T>): PublishPreparation;
     publish<const T extends PublishRequest>(
       request: CheckedPublishRequest<T>,
-      options?: PublishCallOptions,
+      options?: PublishOptions,
     ): Promise<PublishResult>;
     publishSequence(
       request: PublishSequenceRequest,
@@ -1321,10 +1344,11 @@ export function createSocial(
 
   async function publish(
     request: PublishRequest,
-    options?: PublishCallOptions,
+    options?: PublishOptions,
   ): Promise<PublishResult> {
     const correlationId = request.correlationId ?? `social-${++correlationSequence}`;
     const executionOperation = executionOperationFor(request);
+    const retry = publishRetryPolicy(options?.retry, executionOperation);
     await authorizeRequest(request, executionOperation, options, correlationId);
     const plan = await planPublication(request, options, correlationId, "execute");
     let claim: IdempotencyClaim | undefined;
@@ -1375,13 +1399,29 @@ export function createSocial(
                 payloadFingerprint: plan.payloadFingerprint,
               });
 
-        const outcome = await dispatchTarget(
+        let outcome = await dispatchTarget(
           target,
           executionOperation,
           correlationId,
           options,
           targetIdempotencyKey,
         );
+
+        for (let attempt = 1; attempt < retry.maxAttempts; attempt++) {
+          const delay = publishRetryDelay(outcome, retry.capacityDelayMs);
+
+          if (delay === undefined || delay > retry.maxDelayMs) break;
+
+          if (!(await waitToRetry(delay, options?.signal))) break;
+
+          outcome = await dispatchTarget(
+            target,
+            executionOperation,
+            correlationId,
+            options,
+            targetIdempotencyKey,
+          );
+        }
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
           try {
