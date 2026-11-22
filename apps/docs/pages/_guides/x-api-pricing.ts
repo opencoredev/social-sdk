@@ -335,8 +335,8 @@ export const xApiPricing: Guide = {
             </dd>
             <dt>How much does the X API cost per month?</dt>
             <dd>
-              There is no fixed monthly price. You pay per request from prepaid credits, so 300
-              plain posts in a month cost $4.50 and 300 posts with links cost $60. See
+              There is no fixed monthly price. Prepaid credits pay for each write request and
+              each resource a read returns, so 300 plain posts in a month cost $4.50 and 300 posts with links cost $60. See
               <a href="#monthly-cost">monthly examples</a>.
             </dd>
             <dt>How much does it cost to post a tweet with the API?</dt>
