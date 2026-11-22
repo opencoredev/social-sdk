@@ -174,8 +174,8 @@ export const xApiPricing: Guide = {
           </table>
           <p>
             Reads deduplicate within a UTC day, so fetching the same post again that day adds
-            nothing, but the same post read on a new day is charged again. Free credits, covered
-            below, offset the first month for a new account.
+            nothing, but the same post read on a new day is charged again. A new account may also
+            get <a href="#free-tier">free credits</a> that cover part of its first months.
           </p>
 
           <h2 id="webhooks">Are X API webhooks billed?</h2>
