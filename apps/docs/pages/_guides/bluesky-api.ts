@@ -84,9 +84,9 @@ const code = (source: string) => `<pre><code>${escapeHtml(source)}</code></pre>`
 
 export const blueskyApi: Guide = {
   slug: "bluesky-api",
-  title: "Bluesky API guide: auth, posting, limits, and TypeScript",
+  title: "Bluesky API: no API key needed, posting and limits",
   description:
-    "How the Bluesky API works: app passwords vs OAuth, creating posts with createRecord, link facets, images, rate limits, and a tested TypeScript example.",
+    "The Bluesky API needs no developer account or API key: sign in with an app password or OAuth, post with createRecord, add links and images, mind rate limits.",
   summary:
     "The Bluesky API end to end: hosts, app passwords and OAuth, posting with createRecord, links and mentions as facets, images and video, rate limits, and a TypeScript example.",
   heading: "The Bluesky API, explained",
