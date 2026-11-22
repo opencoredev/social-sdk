@@ -173,8 +173,9 @@ export const xApiPricing: Guide = {
             </tbody>
           </table>
           <p>
-            Reads deduplicate within a UTC day, so fetching the same post again that day adds
-            nothing, but the same post read on a new day is charged again. A new account may also
+            Repeat reads of the same post within one UTC day are normally charged once (X calls
+            this a soft guarantee that can fail in edge cases), and the same post read on a new
+            day is charged again. A new account may also
             get <a href="#free-tier">free credits</a> that cover part of its first months.
           </p>
 
@@ -191,9 +192,14 @@ export const xApiPricing: Guide = {
               <tr><td><code>post.create</code></td><td>$0.005</td></tr>
               <tr><td><code>follow.follow</code>, <code>follow.unfollow</code></td><td>$0.010</td></tr>
               <tr><td><code>dm.received</code>, <code>chat.received</code></td><td>$0.010</td></tr>
-              <tr><td><code>post.delete</code>, <code>dm.sent</code>, <code>chat.sent</code></td><td>Not billed</td></tr>
+              <tr><td><code>dm.sent</code>, <code>chat.sent</code></td><td>Not billed</td></tr>
             </tbody>
           </table>
+          <p>
+            X's pages disagree on <code>post.delete</code>: the pricing table lists it as not
+            billed, while the Activity API page bills every delivered post event, deletes
+            included. Check the Developer Console before you budget for it.
+          </p>
 
           <h2 id="free-tier">Is there a free X API tier?</h2>
           <p>
