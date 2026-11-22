@@ -9,8 +9,6 @@ const fetched = "22 November 2026";
 
 const tested = "29 October 2026";
 
-const activity = `${docs}/x-api/activity/introduction`;
-
 const docs = "https://docs.x.com";
 
 const pricing = `${docs}/x-api/getting-started/pricing`;
@@ -22,6 +20,8 @@ const rateLimits = `${docs}/x-api/fundamentals/rate-limits`;
 const usage = `${docs}/x-api/fundamentals/post-cap`;
 
 const changelog = `${docs}/changelog`;
+
+const activity = `${docs}/x-api/activity/introduction`;
 
 const createPost = `curl -X POST "https://api.x.com/2/tweets" \\
   -H "Authorization: Bearer <USER_ACCESS_TOKEN>" \\
