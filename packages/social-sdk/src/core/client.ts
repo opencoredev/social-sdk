@@ -4,7 +4,12 @@ import type { AuthorizationPolicy, GraphAdapter, JobRunner, SocialAdapter } from
 import { SocialError, type SocialErrorCode } from "./errors.js";
 import { definedFields } from "./fields.js";
 import { isString } from "../transport/validation.js";
-import type { InboxAggregation, MediaStaging, OutcomeRecovery } from "./extensions.js";
+import type {
+  InboxAggregation,
+  MediaStaging,
+  OutcomeRecovery,
+  StagedTarget,
+} from "./extensions.js";
 import {
   executionOperationFor,
   implementsMethod,
@@ -504,6 +509,20 @@ function unsupported(operation: string, backend: string): never {
 
 /** A sequence item after `publishSequence` derives its non-blank per-item idempotency key. */
 type KeyedPublishRequest = PublishRequest & { readonly idempotencyKey: string };
+
+/** Staged copies one target's publish attempts share, settled once with its final outcome. */
+interface AttemptStaging {
+  staged?: Extract<StagedTarget, { readonly kind: "staged" }>;
+  /** Whether any attempt reached the adapter, with the staged copies when there are any. */
+  enteredAdapter: boolean;
+}
+
+/** Whether the target names an uploaded media reference, which a backend may consume. */
+function usesMediaRef(target: PreparedPublishTarget): boolean {
+  return (target.content.media ?? []).some(
+    (item) => item.source.kind === "media-ref" || item.thumbnail?.kind === "media-ref",
+  );
+}
 
 /** `error` is the rejection when it was a SocialError, or undefined for any other thrown value. */
 function outcomeFromError(
@@ -1231,21 +1250,13 @@ export function createSocial(
     return { status: publicationStatus(outcomes), publication, outcomes };
   }
 
-  /**
-   * Sends one prepared target and maps every adapter failure into its outcome. Local media
-   * is staged inside the backend's concurrency slot, so retries stage it the same way.
-   */
+  /** Sends one prepared target once; staged copies are settled with its outcome. */
   async function dispatchTarget(
     target: PreparedPublishTarget,
     executionOperation: "posts.publish" | "posts.schedule",
     correlationId: string,
     options: PublishCallOptions | undefined,
     targetIdempotencyKey: string | undefined,
-    retryDeadline?: {
-      readonly deadlineMs: number;
-      readonly baseBudget: NonNullable<PublishOptions["retryBudget"]>;
-      readonly previousOutcome?: DeliveryOutcome;
-    },
   ): Promise<DeliveryOutcome> {
     return (
       await dispatchAttempt(
@@ -1254,11 +1265,16 @@ export function createSocial(
         correlationId,
         options,
         targetIdempotencyKey,
-        retryDeadline,
       )
     ).outcome;
   }
 
+  /**
+   * Sends one prepared target and maps every adapter failure into its outcome. Local media
+   * is staged inside the backend's concurrency slot. With `staging`, the staged copies
+   * belong to the caller: later attempts of the same target reuse them, and the caller
+   * settles them once with the target's final outcome.
+   */
   async function dispatchAttempt(
     target: PreparedPublishTarget,
     executionOperation: "posts.publish" | "posts.schedule",
@@ -1270,6 +1286,7 @@ export function createSocial(
       readonly baseBudget: NonNullable<PublishOptions["retryBudget"]>;
       readonly previousOutcome?: DeliveryOutcome;
     },
+    staging?: AttemptStaging,
   ): Promise<{ readonly outcome: DeliveryOutcome; readonly stoppedRetry: boolean }> {
     const adapter = registry[target.account.backend];
     const posts = adapter?.posts;
@@ -1399,8 +1416,14 @@ export function createSocial(
             );
 
             // Staging runs here: after authorization and the replay check, inside
-            // the backend's concurrency slot, and under the caller's signal.
-            if (mediaStaging !== undefined) {
+            // the backend's concurrency slot, and under the caller's signal. A retry
+            // reuses the copies an earlier attempt staged instead of uploading again.
+            const carried = staging?.staged;
+
+            if (carried !== undefined) {
+              dispatched = carried.target;
+              context = { ...carried.context, retryBudget: context.retryBudget };
+            } else if (mediaStaging !== undefined) {
               const staged = await mediaStaging.stage({
                 target,
                 constraints,
@@ -1410,12 +1433,16 @@ export function createSocial(
                 revalidate: (candidate) => preparedIssues(posts, candidate),
               });
 
-              if (staged.kind !== "unchanged") settle = staged.settle;
-
               if (staged.kind === "stopped") {
+                settle = staged.settle;
+
+                // A retry whose staging was cancelled or ran out of the shared deadline
+                // keeps the earlier result. Other staging failures, such as an invalid
+                // staged URL, are this target's result and carry their issues.
                 if (
                   retryDeadline?.previousOutcome !== undefined &&
-                  (staged.outcome.state === "cancelled" || staged.outcome.state === "not-submitted")
+                  (staged.outcome.state === "cancelled" ||
+                    retryDeadline.deadlineMs - clock().getTime() <= 0)
                 ) {
                   stoppedRetry = true;
 
@@ -1428,10 +1455,15 @@ export function createSocial(
               if (staged.kind === "staged") {
                 dispatched = staged.target;
                 context = staged.context;
+
+                if (staging === undefined) settle = staged.settle;
+                else staging.staged = staged;
               }
             }
 
             enteredAdapter = true;
+
+            if (staging !== undefined) staging.enteredAdapter = true;
 
             return posts.publishTarget(dispatched, context);
           },
@@ -1580,7 +1612,9 @@ export function createSocial(
         const deadlineMs =
           baseBudget === undefined ? undefined : clock().getTime() + baseBudget.maxElapsedMs;
 
-        let outcome = await dispatchTarget(
+        const staging: AttemptStaging = { enteredAdapter: false };
+
+        let { outcome } = await dispatchAttempt(
           target,
           executionOperation,
           correlationId,
@@ -1589,10 +1623,16 @@ export function createSocial(
           baseBudget !== undefined && deadlineMs !== undefined
             ? { deadlineMs, baseBudget }
             : undefined,
+          staging,
         );
 
         for (let attempt = 1; attempt < retry.maxAttempts; attempt++) {
           if (baseBudget === undefined || deadlineMs === undefined) break;
+
+          // Uploaded media references are single-submission assets: a managed backend
+          // may consume them before its create request fails. Keep the first adapter
+          // result rather than replaying a target that can no longer resolve its media.
+          if (staging.enteredAdapter && usesMediaRef(target)) break;
 
           const delay = publishRetryDelay(outcome, retry.capacityDelayMs);
 
@@ -1617,12 +1657,16 @@ export function createSocial(
             options,
             targetIdempotencyKey,
             { deadlineMs, baseBudget, previousOutcome },
+            staging,
           );
 
           outcome = nextAttempt.outcome;
 
           if (nextAttempt.stoppedRetry) break;
         }
+
+        if (staging.staged !== undefined)
+          await staging.staged.settle(outcome, staging.enteredAdapter);
 
         if (claim?.kind === "new" && config.idempotencyStore !== undefined) {
           try {

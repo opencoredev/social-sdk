@@ -579,51 +579,206 @@ it("does not retry an expired first attempt even with a fixed clock and zero cap
     assert.equal(result.outcomes[0].reason, "before-submission");
 });
 
-it("preserves the previous failure when retry media staging is aborted or times out", async () => {
-  for (const mode of ["abort", "deadline"] as const) {
-    let stages = 0;
-    let calls = 0;
-    let firstFailure: DeliveryOutcome | undefined;
-    const controller = new AbortController();
+const stagingCapabilities: CapabilityManifest = {
+  ...manifest,
+  capabilities: [
+    {
+      operation: "posts.publish",
+      platform: "*",
+      availability: "available",
+      constraints: { mediaSources: ["https-url"] },
+    },
+    { operation: "accounts.read", platform: "*", availability: "available" },
+  ],
+};
 
-    const adapter = defineAdapter({
-      id: `staging-retry-${mode}`,
-      capabilities: {
-        ...manifest,
-        capabilities: manifest.capabilities.map((capability) =>
-          capability.operation === "posts.publish"
-            ? { ...capability, constraints: { mediaSources: ["https-url"] as const } }
-            : capability,
-        ),
+const mediaRequest = async () => ({
+  ...request,
+  content: {
+    text: "hello",
+    media: [
+      {
+        kind: "image" as const,
+        mimeType: "image/png",
+        source: await bytes(new Uint8Array([1, 2, 3])),
       },
-      posts: {
-        prepareTarget: () => [],
-        publishTarget: async (target) => {
-          calls++;
+    ],
+  },
+});
 
-          firstFailure = {
+const rateLimited = (target: PreparedPublishTarget): DeliveryOutcome => ({
+  targetIndex: target.targetIndex,
+  account: target.account,
+  observedAt: new Date(0).toISOString(),
+  state: "failed",
+  code: "rate_limited",
+  message: "try later",
+  retryDisposition: { kind: "after-delay", delayMs: 1 },
+});
+
+/**
+ * An adapter whose `accounts.get` holds the single backend slot until `release` runs, so a
+ * publish with `maxQueued: 0` is rejected for capacity before it stages any media.
+ */
+function slotHolder(publishTarget: (target: PreparedPublishTarget) => Promise<DeliveryOutcome>) {
+  let release: (() => void) | undefined;
+  let entered: (() => void) | undefined;
+
+  const held = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+
+  const adapter = defineAdapter({
+    id: "staging-slot-test",
+    capabilities: stagingCapabilities,
+    accounts: {
+      list: async () => ({ items: [] }),
+      get: async (ref) => {
+        entered?.();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+
+        return { ref, status: "connected", displayName: "test" };
+      },
+    },
+    posts: { prepareTarget: () => [], publishTarget },
+  });
+
+  return { adapter, held, release: () => release?.() };
+}
+
+it("reuses staged media across retries and removes it once after the final outcome", async () => {
+  let stages = 0;
+  let cleanups = 0;
+  const staged: string[] = [];
+  const answers = ["rate-limited", "rate-limited", "published"] as const;
+
+  const adapter = defineAdapter({
+    id: "staging-reuse-test",
+    capabilities: stagingCapabilities,
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        const source = target.content.media?.[0]?.source;
+
+        if (source?.kind === "https-url") staged.push(source.url);
+
+        if (answers[staged.length - 1] === "published")
+          return {
             targetIndex: target.targetIndex,
             account: target.account,
             observedAt: new Date(0).toISOString(),
-            state: "failed",
-            code: "rate_limited",
-            message: "try later",
-            retryDisposition: { kind: "after-delay", delayMs: 1 },
+            state: "published",
+            post: platformPostRef({ ...target.account, postId: "p1" }),
           };
 
-          return firstFailure;
-        },
+        // Copies must stay available while the target can still be retried.
+        assert.equal(cleanups, 0);
+
+        return rateLimited(target);
       },
+    },
+  });
+
+  const social = createSocial({
+    backend: adapter,
+    mediaStaging: localMediaStaging({
+      origin: "https://media.example.com",
+      stageMedia: async () => {
+        stages++;
+
+        return {
+          url: `https://media.example.com/${stages}.png`,
+          cleanup: async () => {
+            cleanups++;
+          },
+        };
+      },
+    }),
+  });
+
+  const result = await social.posts.publish(await mediaRequest(), { retry: { maxAttempts: 3 } });
+
+  assert.equal(result.outcomes[0]?.state, "published");
+  assert.equal(stages, 1);
+  assert.deepEqual(staged, [
+    "https://media.example.com/1.png",
+    "https://media.example.com/1.png",
+    "https://media.example.com/1.png",
+  ]);
+  assert.equal(cleanups, 1);
+});
+
+it("does not replay a target with an uploaded media reference after the adapter ran", async () => {
+  let calls = 0;
+  let firstFailure: DeliveryOutcome | undefined;
+
+  const adapter = defineAdapter({
+    id: "media-ref-retry-test",
+    capabilities: manifest,
+    posts: {
+      prepareTarget: () => [],
+      publishTarget: async (target) => {
+        calls++;
+        firstFailure = rateLimited(target);
+
+        return firstFailure;
+      },
+    },
+  });
+
+  const result = await createSocial({ backend: adapter }).posts.publish(
+    {
+      ...request,
+      content: {
+        text: "hello",
+        media: [
+          {
+            kind: "image",
+            mimeType: "image/png",
+            source: {
+              kind: "media-ref",
+              ref: {
+                kind: "media",
+                version: 1,
+                backend: "default",
+                platform: "x",
+                accountId: "a1",
+                mediaId: "m1",
+              },
+            },
+          },
+        ],
+      },
+    },
+    { retry: { maxAttempts: 3 } },
+  );
+
+  assert.equal(calls, 1);
+  assert.strictEqual(result.outcomes[0], firstFailure);
+});
+
+it("preserves the previous outcome when retry media staging is aborted or times out", async () => {
+  for (const mode of ["abort", "deadline"] as const) {
+    let stages = 0;
+    let calls = 0;
+    const controller = new AbortController();
+
+    const { adapter, held, release } = slotHolder(async (target) => {
+      calls++;
+
+      return rateLimited(target);
     });
 
     const social = createSocial({
       backend: adapter,
+      concurrency: 1,
+      maxQueued: 0,
       mediaStaging: localMediaStaging({
         origin: "https://media.example.com",
         stageMedia: async () => {
           stages++;
-
-          if (stages === 1) return { url: "https://media.example.com/a.png" };
 
           if (mode === "abort") setTimeout(() => controller.abort(), 5);
 
@@ -632,30 +787,74 @@ it("preserves the previous failure when retry media staging is aborted or times 
       }),
     });
 
-    const mediaRequest = {
-      ...request,
-      content: {
-        text: "hello",
-        media: [
-          {
-            kind: "image" as const,
-            mimeType: "image/png",
-            source: await bytes(new Uint8Array([1, 2, 3])),
-          },
-        ],
-      },
-    };
+    const blocker = social.accounts.get(account);
+    await held;
 
-    const result = await social.posts.publish(mediaRequest, {
+    const pending = social.posts.publish(await mediaRequest(), {
       signal: controller.signal,
-      retry: { maxAttempts: 2 },
-      retryBudget: { maxAttempts: 1, maxElapsedMs: 100 },
+      retry: { maxAttempts: 2, capacityDelayMs: 100 },
+      retryBudget: { maxAttempts: 1, maxElapsedMs: 400 },
     });
 
-    assert.equal(stages, 2);
-    assert.equal(calls, 1);
-    assert.strictEqual(result.outcomes[0], firstFailure);
+    // Free the slot only after the first attempt was rejected for capacity.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await blocker;
+
+    const result = await pending;
+
+    assert.equal(stages, 1);
+    assert.equal(calls, 0);
+    assert.equal(result.outcomes[0]?.state, "not-submitted");
+
+    if (result.outcomes[0]?.state === "not-submitted")
+      assert.equal(result.outcomes[0].reason, "capacity", mode);
   }
+});
+
+it("reports a staging failure on a retry instead of the earlier capacity outcome", async () => {
+  let calls = 0;
+
+  const { adapter, held, release } = slotHolder(async (target) => {
+    calls++;
+
+    return rateLimited(target);
+  });
+
+  const social = createSocial({
+    backend: adapter,
+    concurrency: 1,
+    maxQueued: 0,
+    mediaStaging: localMediaStaging({
+      origin: "https://media.example.com",
+      stageMedia: async () => ({ url: "http://media.example.com/a.png" }),
+    }),
+  });
+
+  const blocker = social.accounts.get(account);
+  await held;
+
+  const pending = social.posts.publish(await mediaRequest(), {
+    retry: { maxAttempts: 2, capacityDelayMs: 100 },
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 5_000 },
+  });
+
+  // Free the slot only after the first attempt was rejected for capacity.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  release();
+  await blocker;
+
+  const result = await pending;
+  const outcome = result.outcomes[0];
+
+  assert.equal(calls, 0);
+  assert.equal(outcome?.state, "not-submitted");
+
+  if (outcome?.state === "not-submitted")
+    assert.deepEqual(
+      outcome.issues?.map((issue) => issue.code),
+      ["media.staging_url_invalid"],
+    );
 });
 
 it("rejects an out-of-range retry policy before dispatch", async () => {

@@ -91,3 +91,25 @@ it("an explicit deadlineAt is shared and never extended", async () => {
   );
   assert.equal(calls, 1);
 });
+
+it("a timeout beyond the 32-bit timer limit does not abort the request early", async () => {
+  let aborted = false;
+
+  const options: YouTubeUploadOptions = {
+    accessToken: "token",
+    timeoutMs: 30 * 24 * 60 * 60_000,
+    fetch: async (_input, init) => {
+      // An oversized timer would fire after 1 ms and abort this request.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      aborted = init?.signal?.aborted === true;
+
+      return incomplete();
+    },
+  };
+
+  assert.deepEqual(await queryYouTubeUpload(session, options), {
+    state: "incomplete",
+    nextByte: 10,
+  });
+  assert.equal(aborted, false);
+});

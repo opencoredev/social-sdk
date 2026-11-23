@@ -38,13 +38,21 @@ export interface YouTubeUploadOptions {
 /** Options for one begin, query, or send call, with its absolute deadline fixed at entry. */
 type DeadlineOptions = YouTubeUploadOptions & { readonly deadlineAt: number };
 
+/** Largest delay `setTimeout` honors; Node and Bun fire a longer one after 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
+
 /**
  * Fix the deadline when a call starts. A reused options object therefore never inherits the
- * deadline of an earlier, possibly expired, call.
+ * deadline of an earlier, possibly expired, call. The deadline is capped at the timer limit,
+ * so every request and read timeout below it stays a single valid timer.
  */
 export function withYouTubeUploadDeadline(options: YouTubeUploadOptions): DeadlineOptions {
-  const deadlineAt =
-    options.deadlineAt ?? (options.now ?? Date.now)() + (options.timeoutMs ?? 120_000);
+  const startedAt = (options.now ?? Date.now)();
+
+  const deadlineAt = Math.min(
+    options.deadlineAt ?? startedAt + (options.timeoutMs ?? 120_000),
+    startedAt + MAX_TIMER_MS,
+  );
 
   return { ...options, deadlineAt };
 }
