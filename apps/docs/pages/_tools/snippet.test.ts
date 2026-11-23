@@ -51,3 +51,24 @@ test("the default platforms are the ones npm 0.5.0 ships, without Facebook", () 
   );
   assert.ok(!socialSnippet(npmPlatformIds, "Hi").includes("facebook"));
 });
+
+test("preserves selected image and carousel media in the generated snippet", () => {
+  const threadsImage = socialSnippet(["threads"], "", { kind: "image" });
+
+  assert.ok(threadsImage.includes("hostedImage"));
+  assert.ok(threadsImage.includes("content: { media: [hostedImage] }"));
+  assert.ok(threadsImage.includes("content: {},"));
+
+  const carousel = socialSnippet(["x", "threads"], "Gallery", { kind: "carousel", count: 4 });
+
+  assert.ok(carousel.includes("uploadedImages"));
+  assert.ok(carousel.includes("hostedImages"));
+  assert.ok(carousel.includes("length: 4"));
+});
+
+test("notes that TikTok inbox drafts transfer the video without the caption", () => {
+  const code = socialSnippet(["tiktok"], "Hi", { kind: "video", seconds: 15 });
+
+  assert.ok(code.includes("add the caption in TikTok"));
+  assert.ok(code.includes("durationSeconds: 15"));
+});

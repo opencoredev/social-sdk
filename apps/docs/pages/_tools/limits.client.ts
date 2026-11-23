@@ -94,14 +94,17 @@ function update(): void {
   fields.size.hidden = kind === "none";
   facebookNote.hidden = !platforms.includes("facebook");
   showFieldErrors(parsed);
-  snippet.textContent = socialSnippet(platforms, text.value);
 
   if (parsed.kind === "error") {
     results.innerHTML = "";
     summaryLine.textContent = "Fix the media details marked above to check the post.";
+    snippet.textContent =
+      "// Fix the media details marked above to generate the matching code sample.";
 
     return;
   }
+
+  snippet.textContent = socialSnippet(platforms, text.value, parsed.media);
 
   const checked = preflight(text.value, platforms, parsed.media);
 

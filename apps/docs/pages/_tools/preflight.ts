@@ -269,7 +269,21 @@ function mediaChecks(spec: PlatformSpec, media: MediaPlan, hasText: boolean) {
       }
 
       checks.push({ verdict: "pass", label: "Media", detail: `One video (${video.formats}).` });
-      checks.push(...sizeCheck("Video size", media.sizeMb, video.size));
+      const videoSizeChecks = sizeCheck("Video size", media.sizeMb, video.size);
+
+      checks.push(...videoSizeChecks);
+
+      if (
+        media.sizeMb !== undefined &&
+        video.warnAboveSize !== undefined &&
+        media.sizeMb * 1_000_000 > video.warnAboveSize.bytes &&
+        !videoSizeChecks.some((check) => check.verdict === "fail")
+      )
+        checks.push({
+          verdict: "warn",
+          label: "GIF / account size",
+          detail: video.warnAboveSize.reason,
+        });
 
       if (
         media.sizeMb !== undefined &&
@@ -314,12 +328,12 @@ function durationChecks(rule: DurationRule, seconds: number | undefined): Check[
         ]
       : [];
 
-  if (rule.lengthRequired === true && seconds <= 0)
+  if (seconds <= 0)
     return [
       {
         verdict: "fail",
         label,
-        detail: `${number(seconds)} s: the video needs a known length above 0 s.`,
+        detail: `${number(seconds)} s: the video needs a length above 0 s.`,
       },
     ];
 

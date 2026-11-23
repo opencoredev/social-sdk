@@ -68,6 +68,7 @@ export type PlatformSpec = {
   video: {
     size?: SizeLimit;
     minSize?: SizeLimit;
+    warnAboveSize?: { bytes: number; reason: string };
     sizeNote?: string;
     duration: DurationRule;
     formats: string;
@@ -99,12 +100,18 @@ export const platformSpecs: readonly PlatformSpec[] = [
     carousel: { min: 2, max: 4 },
     video: {
       size: { bytes: 16 * GIB, label: "16 GiB (SDK upload ceiling)" },
-      sizeNote: "X's own size limit depends on the account's Premium or verified status.",
+      warnAboveSize: {
+        bytes: 15 * MIB,
+        reason:
+          "Animated GIFs on X are capped at 15 MiB (1 per post); video limits depend on the account.",
+      },
+      sizeNote:
+        "X's video size limit depends on the account's Premium or verified status. Animated GIFs are capped at 15 MiB (1 per post).",
       duration: {
         summary: "length limit set per account",
         note: "X checks duration when the post is created; the limit depends on the account.",
       },
-      formats: "MP4, MOV, WebM, or one GIF",
+      formats: "MP4, MOV, WebM (animated GIFs: 1 per post, 15 MiB max)",
     },
     access:
       "A developer app and an OAuth 2.0 user token. Pay-per-use credits; no general free tier.",
@@ -276,7 +283,7 @@ export const platformSpecs: readonly PlatformSpec[] = [
     },
     carousel: { min: 2, max: 20 },
     video: {
-      size: { bytes: 500 * MIB, label: "500 MB" },
+      size: { bytes: 500 * MIB, label: "500 MiB" },
       minSize: { bytes: 75_000, label: "75 KB" },
       duration: { min: 3, max: 1800 },
       formats: "MP4",
@@ -301,10 +308,10 @@ export const platformSpecs: readonly PlatformSpec[] = [
     guides: [{ path: "/guides/social-media-apis", label: "Social media APIs" }],
     text: { kind: "utf16", limit: 2200, photoLimit: 4000 },
     textOnly: false,
-    image: { maxPerPost: 35, size: { bytes: 20 * MIB, label: "20 MB" }, formats: "JPEG, WebP" },
+    image: { maxPerPost: 35, size: { bytes: 20 * MIB, label: "20 MiB" }, formats: "JPEG, WebP" },
     carousel: { min: 2, max: 35 },
     video: {
-      size: { bytes: 4 * GIB, label: "4 GB" },
+      size: { bytes: 4 * GIB, label: "4 GiB" },
       duration: {
         max: 600,
         lengthRequired: true,

@@ -161,13 +161,17 @@ function render(scenario: Scenario): void {
   output.snippet.textContent = socialSnippet(scenario.platforms, SNIPPET_TEXT);
 
   // Other parameters (utm_source, ref) and the #fragment stay as they were.
+  try {
+    history.replaceState(history.state, "", scenarioPath(scenario));
+  } catch {
+    // WebKit can throttle rapid replaceState writes while dragging a slider.
+  }
+}
+
+function scenarioPath(scenario: Scenario): string {
   const query = mergeScenarioParams(new URLSearchParams(location.search), scenario).toString();
 
-  history.replaceState(
-    history.state,
-    "",
-    `${location.pathname}${query === "" ? "" : `?${query}`}${location.hash}`,
-  );
+  return `${location.pathname}${query === "" ? "" : `?${query}`}${location.hash}`;
 }
 
 function update(): void {
@@ -225,9 +229,11 @@ element("reset", HTMLButtonElement).addEventListener("click", () => {
 });
 
 element("share", HTMLButtonElement).addEventListener("click", async () => {
+  const url = `${location.origin}${scenarioPath(readForm())}`;
+
   flash(
     output.status,
-    (await copyText(location.href))
+    (await copyText(url))
       ? "Link copied. It opens with these numbers."
       : "Copy the address bar to share these numbers.",
   );

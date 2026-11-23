@@ -16,6 +16,22 @@ import {
 
 const scenario = (changes: Partial<Scenario>): Scenario => ({ ...defaultScenario, ...changes });
 
+test("rounds exact half-cent X totals up instead of down from float error", () => {
+  const result = estimate(
+    scenario({
+      profiles: 1,
+      postsPerProfile: 67,
+      linkShare: 0,
+      platforms: ["x"],
+      otherPlatformFees: 0,
+      hosting: 0,
+    }),
+  );
+
+  assert.equal(result.xCredits, 1.01);
+  assert.equal(result.direct.monthly, 1.01);
+});
+
 test("defaults quote X's posted rates", () => {
   assert.equal(X_POST_RATE, 0.015);
   assert.equal(X_URL_POST_RATE, 0.2);

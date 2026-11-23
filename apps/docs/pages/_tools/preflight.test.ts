@@ -140,6 +140,20 @@ test("rejects a TikTok video without a length above 0 s, as the SDK does", () =>
   assert.equal(verdict("tiktok", "Hi", { kind: "video", seconds: 30 }), "pass");
 });
 
+test("rejects zero-second Threads videos while keeping blank duration optional", () => {
+  assert.equal(verdict("threads", "Hi", { kind: "video", seconds: 0 }), "fail");
+  assert.equal(verdict("threads", "Hi", { kind: "video", seconds: 0.5 }), "pass");
+  assert.equal(verdict("threads", "Hi", { kind: "video" }), "pass");
+});
+
+test("warns about X's 15 MiB GIF cap when a video attachment exceeds 15 MiB", () => {
+  const result = checkPlatform("x", "Hi", { kind: "video", sizeMb: 20 });
+
+  assert.equal(result.verdict, "warn");
+  assert.ok(result.checks.some((check) => check.verdict === "warn" && /15 MiB/.test(check.detail)));
+  assert.equal(verdict("x", "Hi", { kind: "video", sizeMb: 10 }), "pass");
+});
+
 test("counts X links on every TLD the SDK knows", () => {
   assert.equal(verdict("x", `${"a".repeat(260)} example.education`, none), "fail");
   assert.equal(verdict("x", `${"a".repeat(255)} example.education`, none), "pass");

@@ -167,6 +167,17 @@ test("dates every tool page from its own modules and the shared tool shell", () 
 
   assert.ok(pageSources.get("/tools/api-cost-calculator")?.files.includes("_tools/cost.ts"));
   assert.ok(pageSources.get("/tools/platform-limits")?.files.includes("_tools/preflight.ts"));
+  assert.ok(pageSources.get("/tools/platform-limits")?.files.includes("_tools/media-input.ts"));
+  assert.ok(
+    pageSources
+      .get("/tools/platform-limits")
+      ?.files.includes("../../../packages/social-sdk/src/platforms/x-text.ts"),
+  );
+  assert.ok(
+    pageSources
+      .get("/tools/platform-limits")
+      ?.files.includes("../../../packages/social-sdk/src/platforms/x-tlds.ts"),
+  );
   // The index lists the tools; a calculator change must not re-date it.
   assert.ok(!pageSources.get("/tools")?.files.includes("_tools/cost.ts"));
 });

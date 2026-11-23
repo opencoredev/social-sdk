@@ -80,7 +80,7 @@ export type Estimate = {
   unified: RouteEstimate | null;
 };
 
-const cents = (value: number) => Math.round(value * 100) / 100;
+const cents = (value: number) => Math.round(Number((value * 100).toPrecision(12))) / 100;
 
 /** A per-unit rate in US dollars, with as many decimals as it has (at least 2), such as $0.005. */
 export function formatRate(rate: number): string {
