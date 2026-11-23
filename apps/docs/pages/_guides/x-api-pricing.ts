@@ -178,6 +178,10 @@ export const xApiPricing: Guide = {
             day is charged again. A new account may also
             get <a href="#free-tier">free credits</a> that cover part of its first months.
           </p>
+          <p>
+            To try your own numbers, the <a href="/tools/api-cost-calculator">social media API
+            cost calculator</a> starts from these rates and lets you change every one.
+          </p>
 
           <h2 id="webhooks">Are X API webhooks billed?</h2>
           <p>

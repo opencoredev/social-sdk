@@ -120,9 +120,12 @@ function asciiHost(host: string): string | undefined {
   }
 }
 
-function weightedLength(text: string): number {
+type Measured = { readonly weight: number; readonly urls: number };
+
+function measure(text: string): Measured {
   let weight = 0;
   let offset = 0;
+  let urls = 0;
 
   for (const match of text.matchAll(url)) {
     const protocol = match[1];
@@ -152,9 +155,23 @@ function weightedLength(text: string): number {
 
     weight += weighText(text.slice(offset, start)) + urlWeight;
     offset = match.index + length;
+    urls += 1;
   }
 
-  return weight + weighText(text.slice(offset));
+  return { weight: weight + weighText(text.slice(offset)), urls };
+}
+
+/** A post body's weighted length in characters, and how many links it counted at 23 each. */
+export type XWeightedLength = { readonly weighted: number; readonly urls: number };
+
+/**
+ * X's weighted length of a post body. This is the count `isValidXText` compares
+ * against 280 (or 25,000 for long-form posts).
+ */
+export function xWeightedLength(input: string): XWeightedLength {
+  const { weight, urls } = measure(input.normalize("NFC"));
+
+  return { weighted: weight / 100, urls };
 }
 
 /**
@@ -170,7 +187,7 @@ export function isValidXText(
   if (text === "" || invalidCharacters.test(text)) return false;
 
   return (
-    weightedLength(text) <=
+    measure(text).weight <=
     (options.longform === true ? maxLongformWeightedLength : maxWeightedLength)
   );
 }
