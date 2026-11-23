@@ -93,8 +93,11 @@ test("uploads Bluesky videos and LinkedIn media by reference", () => {
   const video = socialSnippet(["bluesky", "linkedin"], "Demo", { kind: "video", seconds: 25 });
 
   assert.ok(video.includes("social.media.upload(uploadedVideo, blueskyAccount)"));
+  assert.ok(video.includes("blueskyNative.getVideoJobStatus"));
   assert.ok(video.includes('source: { kind: "media-ref", ref: blueskyVideoRef }'));
   assert.ok(video.includes("social.media.upload(uploadedVideo, linkedinAccount)"));
+  assert.ok(video.includes("linkedinNative.waitForVideo"));
+  assert.ok(video.includes('linkedinStatus["status"] !== "AVAILABLE"'));
   assert.ok(video.includes('source: { kind: "media-ref", ref: linkedinVideoRef }'));
 
   const liCarousel = socialSnippet(["linkedin"], "Slides", { kind: "carousel", count: 3 });

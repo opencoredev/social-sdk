@@ -299,6 +299,9 @@ export function socialSnippet(
 
   if (needsReadFile) lines.push(`import { readFile } from "node:fs/promises";`);
 
+  if (usage.blueskyVideoRef)
+    lines.push(`import { setTimeout as delay } from "node:timers/promises";`);
+
   lines.push(
     needsMediaType
       ? `import { createSocial, connectedAccountRef, type MediaAttachment } from "@opencoredev/social-sdk";`
@@ -407,9 +410,26 @@ const hostedImage: MediaAttachment = {
 
   if (usage.blueskyVideoRef)
     lines.push(
-      `// Bluesky videos are uploaded first, then published by reference once processing yields a blob.
+      `// Bluesky videos are uploaded first, then polled until processing produces a blob.
 const blueskyAccount = ${parts.bluesky.account};
 const blueskyVideoRef = await social.media.upload(uploadedVideo, blueskyAccount);
+const blueskyNative = social.native("bluesky", { acknowledgeUnsafe: true });
+if (!blueskyNative) throw new Error("Bluesky native operations are unavailable");
+let blueskyJob = await blueskyNative.getVideoJobStatus({
+  account: blueskyAccount,
+  jobId: blueskyVideoRef.mediaId,
+});
+for (let attempt = 1; !blueskyJob.blob && attempt < 12; attempt++) {
+  if (blueskyJob.state === "JOB_STATE_FAILED") throw new Error("Bluesky video processing failed");
+  await delay(5_000);
+  blueskyJob = await blueskyNative.getVideoJobStatus({
+    account: blueskyAccount,
+    jobId: blueskyVideoRef.mediaId,
+  });
+}
+if (!blueskyJob.blob) {
+  throw new Error("Bluesky video is still processing; retry publish later with blueskyVideoRef.");
+}
 const blueskyVideo: MediaAttachment = {
   kind: "video",
   source: { kind: "media-ref", ref: blueskyVideoRef },
@@ -420,9 +440,25 @@ const blueskyVideo: MediaAttachment = {
 
   if (usage.linkedinMedia === "video")
     lines.push(
-      `// LinkedIn videos are uploaded first, then published by their returned media reference.
+      `// LinkedIn videos are uploaded first, then waited on until LinkedIn reports AVAILABLE.
 const linkedinAccount = ${parts.linkedin.account};
 const linkedinVideoRef = await social.media.upload(uploadedVideo, linkedinAccount);
+const linkedinNative = social.native("linkedin", { acknowledgeUnsafe: true });
+if (!linkedinNative) throw new Error("LinkedIn native operations are unavailable");
+const linkedinStatus = await linkedinNative.waitForVideo(
+  linkedinVideoRef,
+  {
+    backendInstance: "linkedin",
+    correlationId: "linkedin-video-wait",
+    retryBudget: { maxAttempts: 1, maxElapsedMs: 60_000 },
+  },
+  { intervalMs: 5_000, maxChecks: 12 },
+);
+if (linkedinStatus["status"] !== "AVAILABLE") {
+  throw new Error(
+    \`LinkedIn video is still \${String(linkedinStatus["status"])}; retry publish later with linkedinVideoRef.\`,
+  );
+}
 const linkedinVideo: MediaAttachment = {
   kind: "video",
   source: { kind: "media-ref", ref: linkedinVideoRef },
