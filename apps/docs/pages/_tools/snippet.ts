@@ -77,15 +77,21 @@ const parts: Readonly<Record<PlatformId, Part>> = {
 
 const hostedPlatforms = new Set<PlatformId>(["threads", "instagram", "tiktok", "facebook"]);
 
-const blobPlatforms = new Set<PlatformId>(["x", "bluesky"]);
+const blobImagePlatforms = new Set<PlatformId>(["x", "bluesky"]);
 
-type TargetMedia = { mediaExpr?: string; comment?: string };
+type TargetMedia = {
+  accountExpr?: string;
+  mediaExpr?: string;
+  comment?: string;
+};
 
 type AssetUsage = {
   uploadedVideo: boolean;
   hostedVideo: boolean;
   uploadedImage: boolean;
   hostedImage: boolean;
+  blueskyVideoRef: boolean;
+  linkedinMedia: "none" | "image" | "carousel" | "video";
   carouselCount: number;
 };
 
@@ -105,12 +111,23 @@ function targetMediaExpr(platform: PlatformId, media: MediaPlan, usage: AssetUsa
   if (platform === "linkedin") {
     if (media.kind === "none") return {};
 
-    return {
-      comment:
-        media.kind === "video"
-          ? "// LinkedIn takes a registered video URN from social.media.upload(...)."
-          : "// LinkedIn takes registered image URN(s) from social.media.upload(...).",
-    };
+    usage.linkedinMedia = media.kind;
+
+    if (media.kind === "video") {
+      usage.uploadedVideo = true;
+
+      return { accountExpr: "linkedinAccount", mediaExpr: "[linkedinVideo]" };
+    }
+
+    usage.uploadedImage = true;
+
+    if (media.kind === "carousel") {
+      usage.carouselCount = media.count;
+
+      return { accountExpr: "linkedinAccount", mediaExpr: "linkedinImages" };
+    }
+
+    return { accountExpr: "linkedinAccount", mediaExpr: "[linkedinImage]" };
   }
 
   if (media.kind === "none") {
@@ -130,7 +147,14 @@ function targetMediaExpr(platform: PlatformId, media: MediaPlan, usage: AssetUsa
       return { mediaExpr: "[hostedVideo]" };
     }
 
-    if (blobPlatforms.has(platform)) {
+    if (platform === "bluesky") {
+      usage.uploadedVideo = true;
+      usage.blueskyVideoRef = true;
+
+      return { accountExpr: "blueskyAccount", mediaExpr: "[blueskyVideo]" };
+    }
+
+    if (platform === "x") {
       usage.uploadedVideo = true;
 
       return { mediaExpr: "[uploadedVideo]" };
@@ -152,7 +176,7 @@ function targetMediaExpr(platform: PlatformId, media: MediaPlan, usage: AssetUsa
     return { mediaExpr: "[hostedImage]" };
   }
 
-  if (blobPlatforms.has(platform)) {
+  if (blobImagePlatforms.has(platform)) {
     usage.uploadedImage = true;
 
     if (media.kind === "carousel") {
@@ -168,8 +192,8 @@ function targetMediaExpr(platform: PlatformId, media: MediaPlan, usage: AssetUsa
 }
 
 function renderTarget(platform: PlatformId, media: MediaPlan, usage: AssetUsage): string {
-  const { account } = parts[platform];
-  const { mediaExpr, comment } = targetMediaExpr(platform, media, usage);
+  const { accountExpr, mediaExpr, comment } = targetMediaExpr(platform, media, usage);
+  const account = accountExpr ?? parts[platform].account;
   const fields: string[] = [];
 
   if (comment !== undefined) fields.push(`      ${comment}`);
@@ -178,13 +202,28 @@ function renderTarget(platform: PlatformId, media: MediaPlan, usage: AssetUsage)
 
   if (mediaExpr !== undefined) fields.push(`      content: { media: ${mediaExpr} },`);
 
-  if (platform === "tiktok")
+  if (platform === "tiktok") {
+    const isPhoto = media.kind === "image" || media.kind === "carousel";
+
     fields.push(
-      media.kind === "image" || media.kind === "carousel"
-        ? `      // Photo post: requires video.publish and creator consent.`
+      isPhoto
+        ? `      // Inbox draft: sends the photos to TikTok's inbox (photoCoverIndex picks the cover); needs video.upload and creator consent.`
         : `      // Inbox draft: transfers the video only (add the caption in TikTok); needs video.upload and creator consent.`,
-      `      options: {
-        draft: ${media.kind === "image" || media.kind === "carousel" ? "false" : "true"},
+      isPhoto
+        ? `      options: {
+        draft: true,
+        privacy: "SELF_ONLY",
+        photoCoverIndex: 0,
+        consentGiven: true,
+        disableComments: false,
+        disableDuet: false,
+        disableStitch: false,
+        brandedContent: false,
+        ownBrand: false,
+        aiGenerated: false,
+      },`
+        : `      options: {
+        draft: true,
         privacy: "SELF_ONLY",
         consentGiven: true,
         disableComments: false,
@@ -195,6 +234,7 @@ function renderTarget(platform: PlatformId, media: MediaPlan, usage: AssetUsage)
         aiGenerated: false,
       },`,
     );
+  }
 
   if (platform === "youtube")
     fields.push(
@@ -238,6 +278,8 @@ export function socialSnippet(
     hostedVideo: false,
     uploadedImage: false,
     hostedImage: false,
+    blueskyVideoRef: false,
+    linkedinMedia: "none",
     carouselCount: 0,
   };
 
@@ -246,7 +288,12 @@ export function socialSnippet(
   const needsReadFile = usage.uploadedVideo || usage.uploadedImage;
 
   const needsMediaType =
-    usage.uploadedVideo || usage.hostedVideo || usage.uploadedImage || usage.hostedImage;
+    usage.uploadedVideo ||
+    usage.hostedVideo ||
+    usage.uploadedImage ||
+    usage.hostedImage ||
+    usage.blueskyVideoRef ||
+    usage.linkedinMedia !== "none";
 
   const lines: string[] = [];
 
@@ -312,13 +359,15 @@ const hostedVideo: MediaAttachment = {
 
   if (usage.uploadedImage) {
     lines.push(
-      `// Upload the image bytes directly.
+      `// Upload the image bytes directly (width and height are required for 5-10 image Bluesky galleries).
 const imageFile = new Blob([await readFile("./launch.jpg")], { type: "image/jpeg" });
 const uploadedImage: MediaAttachment = {
   kind: "image",
   source: { kind: "blob", blob: imageFile, fingerprint: "launch-img-1" },
   mimeType: "image/jpeg",
   byteSize: imageFile.size,
+  width: 1200,
+  height: 675,
 };`,
     );
 
@@ -335,34 +384,81 @@ const uploadedImage: MediaAttachment = {
 
   if (usage.hostedImage) {
     lines.push(
-      `// Hosted HTTPS image URL pulled by the platform.
+      `// Hosted HTTPS image URL pulled by the platform (width and height verify carousel aspect ratios).
 const hostedImage: MediaAttachment = {
   kind: "image",
   source: { kind: "https-url", url: "https://media.example.com/launch-1.jpg" },
   mimeType: "image/jpeg",
+  width: 1200,
+  height: 1200,
 };`,
     );
 
     if (usage.carouselCount > 0)
       lines.push(
         `const hostedImages: MediaAttachment[] = Array.from({ length: ${usage.carouselCount} }, (_, index) => ({
-  kind: "image",
+  ...hostedImage,
   source: { kind: "https-url", url: \`https://media.example.com/launch-\${index + 1}.jpg\` },
-  mimeType: "image/jpeg",
 }));`,
       );
 
     lines.push("");
   }
 
-  const contentLine =
-    text === "" && media.kind !== "none"
-      ? "content: {},"
-      : `content: { text: ${JSON.stringify(text)} },`;
+  if (usage.blueskyVideoRef)
+    lines.push(
+      `// Bluesky videos are uploaded first, then published by reference once processing yields a blob.
+const blueskyAccount = ${parts.bluesky.account};
+const blueskyVideoRef = await social.media.upload(uploadedVideo, blueskyAccount);
+const blueskyVideo: MediaAttachment = {
+  kind: "video",
+  source: { kind: "media-ref", ref: blueskyVideoRef },
+  mimeType: "video/mp4",
+};`,
+      "",
+    );
+
+  if (usage.linkedinMedia === "video")
+    lines.push(
+      `// LinkedIn videos are uploaded first, then published by their returned media reference.
+const linkedinAccount = ${parts.linkedin.account};
+const linkedinVideoRef = await social.media.upload(uploadedVideo, linkedinAccount);
+const linkedinVideo: MediaAttachment = {
+  kind: "video",
+  source: { kind: "media-ref", ref: linkedinVideoRef },
+  mimeType: "video/mp4",
+};`,
+      "",
+    );
+  else if (usage.linkedinMedia === "image")
+    lines.push(
+      `// LinkedIn images are uploaded first, then published by their returned media reference.
+const linkedinAccount = ${parts.linkedin.account};
+const linkedinImageRef = await social.media.upload(uploadedImage, linkedinAccount);
+const linkedinImage: MediaAttachment = {
+  kind: "image",
+  source: { kind: "media-ref", ref: linkedinImageRef },
+  mimeType: "image/jpeg",
+};`,
+      "",
+    );
+  else if (usage.linkedinMedia === "carousel")
+    lines.push(
+      `// LinkedIn multi-image posts register each image first, then publish their media references.
+const linkedinAccount = ${parts.linkedin.account};
+const linkedinImages: MediaAttachment[] = await Promise.all(
+  uploadedImages.map(async (item) => ({
+    kind: "image",
+    source: { kind: "media-ref", ref: await social.media.upload(item, linkedinAccount) },
+    mimeType: "image/jpeg",
+  })),
+); `.trimEnd(),
+      "",
+    );
 
   lines.push(
     `const request = {
-  ${contentLine}
+  content: { text: ${JSON.stringify(text)} },
   targets: [
     ${renderedTargets.join(",\n    ")},
   ],

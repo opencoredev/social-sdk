@@ -57,7 +57,7 @@ test("preserves selected image and carousel media in the generated snippet", () 
 
   assert.ok(threadsImage.includes("hostedImage"));
   assert.ok(threadsImage.includes("content: { media: [hostedImage] }"));
-  assert.ok(threadsImage.includes("content: {},"));
+  assert.ok(threadsImage.includes('content: { text: "" },'));
 
   const carousel = socialSnippet(["x", "threads"], "Gallery", { kind: "carousel", count: 4 });
 
@@ -71,4 +71,34 @@ test("notes that TikTok inbox drafts transfer the video without the caption", ()
 
   assert.ok(code.includes("add the caption in TikTok"));
   assert.ok(code.includes("durationSeconds: 15"));
+});
+
+test("includes width and height on uploaded images so 5-10 image Bluesky galleries prepare cleanly", () => {
+  const gallery = socialSnippet(["bluesky"], "Gallery", { kind: "carousel", count: 6 });
+
+  assert.ok(gallery.includes("width: 1200"));
+  assert.ok(gallery.includes("height: 675"));
+  assert.ok(gallery.includes("length: 6"));
+});
+
+test("uses draft inbox options with photoCoverIndex for TikTok photo posts", () => {
+  const photo = socialSnippet(["tiktok"], "Launch photos", { kind: "carousel", count: 3 });
+
+  assert.ok(photo.includes("draft: true"));
+  assert.ok(photo.includes("photoCoverIndex: 0"));
+  assert.ok(photo.includes("hostedImages"));
+});
+
+test("uploads Bluesky videos and LinkedIn media by reference", () => {
+  const video = socialSnippet(["bluesky", "linkedin"], "Demo", { kind: "video", seconds: 25 });
+
+  assert.ok(video.includes("social.media.upload(uploadedVideo, blueskyAccount)"));
+  assert.ok(video.includes('source: { kind: "media-ref", ref: blueskyVideoRef }'));
+  assert.ok(video.includes("social.media.upload(uploadedVideo, linkedinAccount)"));
+  assert.ok(video.includes('source: { kind: "media-ref", ref: linkedinVideoRef }'));
+
+  const liCarousel = socialSnippet(["linkedin"], "Slides", { kind: "carousel", count: 3 });
+
+  assert.ok(liCarousel.includes("social.media.upload(item, linkedinAccount)"));
+  assert.ok(liCarousel.includes("content: { media: linkedinImages }"));
 });
