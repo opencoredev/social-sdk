@@ -19,7 +19,8 @@ jobs:
       !(github.head_ref == 'changeset-release/main' &&
         github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.user.login == 'github-actions[bot]')
-    runs-on: tenki-standard-medium-4c-8g
+    # Fork pull requests cannot use the private runner label, so they fall back to GitHub's.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tenki-standard-medium-4c-8g' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +34,8 @@ jobs:
 
   verify:
     name: Offline verification
-    runs-on: tenki-standard-medium-4c-8g
+    # Fork pull requests cannot use the private runner label, so they fall back to GitHub's.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tenki-standard-medium-4c-8g' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,7 +53,8 @@ jobs:
 
   node-24:
     name: Node 24 tests
-    runs-on: tenki-standard-medium-4c-8g
+    # Fork pull requests cannot use the private runner label, so they fall back to GitHub's.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'tenki-standard-medium-4c-8g' }}
     steps:
       - uses: actions/checkout@v4
         with:

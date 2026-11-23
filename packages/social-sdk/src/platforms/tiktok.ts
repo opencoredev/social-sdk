@@ -509,7 +509,10 @@ export function tiktok(
         (response) => {
           // A received rejection stays definitive even if its optional evidence stalls.
           upstreamStatus = response?.status;
-          retryAfterMs = retryDelay(response?.headers.get("retry-after") ?? null, Date.now());
+          retryAfterMs = retryDelay(
+            response?.headers.get("retry-after") ?? null,
+            options.clock?.().getTime() ?? Date.now(),
+          );
         },
       ),
     });

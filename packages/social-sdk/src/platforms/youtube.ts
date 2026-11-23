@@ -1,4 +1,4 @@
-import { remainingBudget } from "../transport/budget.js";
+import { remainingBudget, requestBudget } from "../transport/budget.js";
 import { defineAdapter } from "../core/adapter.js";
 import { SocialError } from "../core/errors.js";
 import type {
@@ -60,6 +60,7 @@ import {
   beginYouTubeUpload,
   queryYouTubeUpload,
   sendYouTubeUpload,
+  withYouTubeUploadDeadline,
   type YouTubeUploadSession,
   type YouTubeUploadStatus,
 } from "./youtube-upload.js";
@@ -1192,6 +1193,8 @@ export function youtube(
     timeoutMs: 30_000,
   });
 
+  const nowMs = () => options.clock?.().getTime() ?? Date.now();
+
   const now = () => (options.clock?.() ?? new Date()).toISOString();
 
   const rawConfig: RawRequestConfig<YouTubeRawHost> = {
@@ -1444,7 +1447,7 @@ export function youtube(
           Authorization: `Bearer ${options.auth.accessToken}`,
           ...definedFields({ "Content-Type": nonEmpty(contentType) }),
         },
-        timeoutMs: remainingBudget(context),
+        timeoutMs: requestBudget(context, { write: true }),
         ...definedFields({ signal: context.signal }),
       });
 
@@ -2373,11 +2376,13 @@ export function youtube(
 
         const config = optionsObject(target);
 
-        const uploadOptions = {
+        // Begin and send (or query and send) share one deadline.
+        const uploadOptions = withYouTubeUploadDeadline({
           timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
           accessToken: options.auth.accessToken,
+          now: nowMs,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
-        };
+        });
 
         const size = media.byteSize ?? (media.source.kind === "blob" ? media.source.blob.size : 0);
 
@@ -2969,11 +2974,13 @@ export function youtube(
             message: "Upload session belongs to another channel.",
           });
 
-        const uploadOptions = {
+        // Begin and send (or query and send) share one deadline.
+        const uploadOptions = withYouTubeUploadDeadline({
           timeoutMs: Math.max(remainingBudget(context), 15 * 60_000),
           accessToken: options.auth.accessToken,
+          now: nowMs,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
-        };
+        });
 
         const confirmed = await queryYouTubeUpload(session, uploadOptions);
 
@@ -2992,6 +2999,7 @@ export function youtube(
         return queryYouTubeUpload(session, {
           timeoutMs: remainingBudget(context),
           accessToken: options.auth.accessToken,
+          now: nowMs,
           ...definedFields({ fetch: options.fetch, signal: context.signal }),
         });
       },
