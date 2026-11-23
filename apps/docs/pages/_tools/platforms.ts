@@ -32,9 +32,7 @@ export type TextRule =
   /** JavaScript string length (UTF-16 code units), which is what the SDK checks. */
   | { kind: "utf16"; limit: number; photoLimit?: number }
   /** UTF-8 bytes, which is how YouTube measures a description; YouTube also rejects < and >. */
-  | { kind: "utf8-bytes"; limit: number; noAngleBrackets: boolean }
-  /** No published limit. */
-  | { kind: "none" };
+  | { kind: "utf8-bytes"; limit: number; noAngleBrackets: boolean };
 
 /** A byte limit and how the docs state it. */
 export type SizeLimit = { bytes: number; label: string };
@@ -366,7 +364,7 @@ export const platformSpecs: readonly PlatformSpec[] = [
     name: "Facebook",
     docsPath: "/docs/platforms/facebook",
     guides: [{ path: "/guides/facebook-page-access-token", label: "Facebook Page access token" }],
-    text: { kind: "none" },
+    text: { kind: "utf16", limit: 63206 },
     textOnly: true,
     image: {
       maxPerPost: 10,
@@ -419,8 +417,6 @@ export function textLimitLabel(rule: TextRule): string {
         : `${rule.limit.toLocaleString("en-US")} characters (${rule.photoLimit.toLocaleString("en-US")} for photo posts)`;
     case "utf8-bytes":
       return `${rule.limit.toLocaleString("en-US")} bytes (description)${rule.noAngleBrackets ? ", no < or >" : ""}`;
-    case "none":
-      return "No published limit";
     default: {
       const exhaustive: never = rule;
 

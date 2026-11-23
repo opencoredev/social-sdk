@@ -49,7 +49,13 @@ test("reports the text meter with the platform's unit", () => {
     limit: 280,
     unit: "weighted characters",
   });
-  assert.equal(checkPlatform("facebook", "hi", none).meter, null);
+  assert.deepEqual(checkPlatform("facebook", "hi", none).meter, {
+    used: 2,
+    limit: 63206,
+    unit: "characters",
+  });
+  assert.equal(verdict("facebook", "a".repeat(63206), none), "pass");
+  assert.equal(verdict("facebook", "a".repeat(63207), none), "fail");
 });
 
 test("uses TikTok's longer limit for photo posts", () => {

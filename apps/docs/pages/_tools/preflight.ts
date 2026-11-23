@@ -45,7 +45,7 @@ export type PlatformResult = {
   name: string;
   verdict: Verdict;
   checks: Check[];
-  meter: TextMeter | null;
+  meter: TextMeter;
   notes: string[];
 };
 
@@ -61,8 +61,8 @@ function worst(checks: readonly Check[]): Verdict {
 
 const number = (value: number) => value.toLocaleString("en-US");
 
-/** The text measured in the platform's own unit, or null when it publishes no limit. */
-function measureText(spec: PlatformSpec, text: string, media: MediaPlan): TextMeter | null {
+/** The text measured in the platform's own unit. */
+function measureText(spec: PlatformSpec, text: string, media: MediaPlan): TextMeter {
   const rule = spec.text;
 
   switch (rule.kind) {
@@ -88,8 +88,6 @@ function measureText(spec: PlatformSpec, text: string, media: MediaPlan): TextMe
 
     case "utf8-bytes":
       return { used: utf8Bytes(text), limit: rule.limit, unit: "bytes" };
-    case "none":
-      return null;
     default: {
       const exhaustive: never = rule;
 
@@ -105,30 +103,28 @@ function textChecks(spec: PlatformSpec, text: string, media: MediaPlan) {
 
   const meter = measureText(spec, text, media);
 
-  if (meter !== null) {
-    const excess = meter.used - meter.limit;
+  const excess = meter.used - meter.limit;
 
-    checks.push(
-      excess > 0
-        ? {
-            verdict: "fail",
-            label: "Text",
-            detail: `${number(meter.used)} of ${number(meter.limit)} ${meter.unit}: ${number(excess)} over.`,
-          }
-        : {
-            verdict: "pass",
-            label: "Text",
-            detail: `${number(meter.used)} of ${number(meter.limit)} ${meter.unit}.`,
-          },
-    );
-  }
+  checks.push(
+    excess > 0
+      ? {
+          verdict: "fail",
+          label: "Text",
+          detail: `${number(meter.used)} of ${number(meter.limit)} ${meter.unit}: ${number(excess)} over.`,
+        }
+      : {
+          verdict: "pass",
+          label: "Text",
+          detail: `${number(meter.used)} of ${number(meter.limit)} ${meter.unit}.`,
+        },
+  );
 
   const rule = spec.text;
 
   if (rule.kind === "x-weighted") {
     const { urls } = xWeightedLength(text);
 
-    if (text.length > 0 && !isValidXText(text) && (meter === null || meter.used <= meter.limit))
+    if (text.length > 0 && !isValidXText(text) && meter.used <= meter.limit)
       checks.push({
         verdict: "fail",
         label: "Characters",
@@ -163,8 +159,6 @@ function textChecks(spec: PlatformSpec, text: string, media: MediaPlan) {
     notes.push(
       "The text becomes the video description. A title of 1 to 100 characters is set separately.",
     );
-
-  if (rule.kind === "none") notes.push("Facebook publishes no text limit for Page posts.");
 
   if (spec.tags !== undefined) {
     const tags = tagCounts(text);

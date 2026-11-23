@@ -12,8 +12,6 @@ export const verdictLabels: Readonly<Record<Verdict, string>> = {
 };
 
 function meter(result: PlatformResult): string {
-  if (result.meter === null) return "";
-
   const { used, limit, unit } = result.meter;
 
   const share = Math.min(100, (used / limit) * 100);
