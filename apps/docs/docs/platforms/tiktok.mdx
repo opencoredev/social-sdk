@@ -12,9 +12,11 @@ To post to TikTok from a Node.js or Bun server, use TikTok's Content Posting API
 @opencoredev/social-sdk
 ```
 
+The package runs on Node.js 22.12 or later and on Bun, and is ESM-only; see [install and runtime requirements](/getting-started/installation).
+
 Until TikTok audits your app, Direct Post can publish only to private accounts with `SELF_ONLY` visibility. The setup sample below configures the adapter, and the examples after it [fetch creator info](#fetch-creator-info-before-publishing), [publish a video](#publish-a-video) and [reconcile the publish ID](#reconcile-the-publish-id).
 
-For how TikTok's app audit and posting rules compare with the other platform APIs and unified social media APIs, read the <a href="/guides/social-media-apis">social media APIs guide</a>.
+For how TikTok's app audit and posting rules compare with the other platform APIs and unified social media APIs, read the <a href="/guides/social-media-apis">social media APIs guide</a>. To upload the same video to YouTube from the same backend, add the [YouTube adapter](/platforms/youtube) and send both targets in one call, as in [Cross-post to seven networks from Bun](/platforms#cross-post-to-seven-networks-from-bun).
 
 The direct TikTok adapter accepts an existing access token and creator `openId`. The server package also provides `tiktokOAuth` for TikTok Login Kit web authorization and creator discovery. OAuth consent does not replace the creator preview and publish consent requirements.
 
@@ -237,7 +239,7 @@ Local videos use `FILE_UPLOAD` instead of `PULL_FROM_URL`. Supply a Blob source
 or a replayable stream with an exact positive `byteSize`, an explicit
 `video/mp4`, `video/quicktime`, or `video/webm` MIME type, and known duration.
 The adapter transfers at most 4 GiB in bounded chunks. `uploadChunkBytes` accepts
-5–64 MiB and defaults to 10 MiB; small files upload as a single chunk. Provider
+5 to 64 MiB and defaults to 10 MiB; small files upload as a single chunk. Provider
 upload requests carry no API access token, follow no redirects, and are never
 retried automatically. A successful transfer returns `processing`, not
 `published`. Keep the delivery reference and reconcile uncertain transfers
@@ -246,7 +248,7 @@ not for local video uploads.
 
 ### Publish a photo carousel
 
-The adapter supports one video or 1–35 photos. `photoCoverIndex` selects the cover image by its zero-based index. Photo titles allow 90 UTF-16 code units and descriptions (`content.text`) allow 4,000; video captions allow 2,200.
+The adapter supports one video or 1 to 35 photos. `photoCoverIndex` selects the cover image by its zero-based index. Photo titles allow 90 UTF-16 code units and descriptions (`content.text`) allow 4,000; video captions allow 2,200.
 
 `autoAddMusic: true` asks TikTok to add recommended music to a photo Direct Post (`post_info.auto_add_music`). It defaults to `false`. The adapter rejects it for videos and for inbox drafts, because TikTok accepts `auto_add_music` only on photo Direct Post. Photo posts do not use `disableDuet` or `disableStitch`.
 
