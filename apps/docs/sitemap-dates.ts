@@ -105,6 +105,46 @@ export const pageSources: ReadonlyMap<string, PageSource> = new Map([
   ["/guides/bluesky-api", guidePage("bluesky-api")],
   ["/guides/threads-api", guidePage("threads-api")],
   ["/guides/x-api-pricing", guidePage("x-api-pricing")],
+  // The tools share tools.ts (styles, structured data, the tool list) and the
+  // info shell. Each tool page also renders from its own modules and script.
+  [
+    "/tools",
+    { files: ["tools/index.astro", "_tools/tools.ts", "_info/info.html"], ranges: [shellHelpers] },
+  ],
+  [
+    "/tools/api-cost-calculator",
+    {
+      files: [
+        "tools/api-cost-calculator.astro",
+        "_tools/api-cost-calculator.ts",
+        "_tools/calculator.client.ts",
+        "_tools/cost.ts",
+        "_tools/snippet.ts",
+        "_tools/platforms.ts",
+        "_tools/tools.ts",
+        "_info/info.html",
+      ],
+      ranges: [shellHelpers],
+    },
+  ],
+  [
+    "/tools/platform-limits",
+    {
+      files: [
+        "tools/platform-limits.astro",
+        "_tools/platform-limits.ts",
+        "_tools/limits.client.ts",
+        "_tools/preflight.ts",
+        "_tools/preflight-view.ts",
+        "_tools/text-count.ts",
+        "_tools/snippet.ts",
+        "_tools/platforms.ts",
+        "_tools/tools.ts",
+        "_info/info.html",
+      ],
+      ranges: [shellHelpers],
+    },
+  ],
   [
     "/blog",
     { files: ["blog/index.astro", "_blog/render.ts", "_info/info.html"], ranges: [shellHelpers] },
@@ -135,4 +175,45 @@ export function addLastmod({
     throw new Error(`No lastmod source for sitemap entry ${entry}; add it to pageSources.`);
 
   return entry.replace("</loc>", `</loc><lastmod>${dateOf(source)}</lastmod>`);
+}
+
+/** The git queries lastChange needs, so it can run against a real repository or a test double. */
+export type GitDates = {
+  /** `git log -1 --format=%cI <args>`: the date, or undefined when git has none. */
+  logDate: (args: readonly string[]) => string | undefined;
+  /** Whether any of the paths has uncommitted changes or isn't committed yet. */
+  hasUncommittedChanges: (paths: readonly string[]) => boolean;
+  /** The build time, used for content that isn't committed yet. */
+  now: () => string;
+};
+
+/**
+ * The latest commit that touched any of the source's files or line ranges. A
+ * source with uncommitted changes, such as a new page in a local build before
+ * its first commit, is dated by the build time: its content changed now, and
+ * git has no commit for it yet. A clean checkout always uses git's dates.
+ */
+export function lastChange(source: PageSource, git: GitDates): string {
+  const paths = [...source.files, ...source.ranges.map((range) => range.file)];
+
+  if (git.hasUncommittedChanges(paths)) return git.now();
+
+  const dated = (args: readonly string[]) => {
+    const date = git.logDate(args);
+
+    if (date === undefined) throw new Error(`git has no commit date for ${args.join(" ")}.`);
+
+    return date;
+  };
+
+  const dates = [
+    ...(source.files.length > 0 ? [dated(["--", ...source.files])] : []),
+    ...source.ranges.map((range) =>
+      dated(["-s", "-L", `/${range.from}/,/${range.to}/:${range.file}`]),
+    ),
+  ];
+
+  if (dates.length === 0) throw new Error("A page source needs at least one file or range.");
+
+  return dates.reduce((latest, date) => (Date.parse(date) > Date.parse(latest) ? date : latest));
 }

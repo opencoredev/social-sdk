@@ -1,0 +1,17 @@
+---
+// Social media post limits and preflight checker. The markup lives in
+// _tools/platform-limits.ts and the live checker in _tools/limits.client.ts, which
+// Astro bundles into the script rendered just before </body>.
+import { withAnalytics } from "../../analytics";
+import { withFonts } from "../_home/fonts";
+import { renderPlatformLimits } from "../_tools/platform-limits";
+import { splitAtBodyEnd } from "../_tools/tools";
+
+const [page, end] = splitAtBodyEnd(withAnalytics(withFonts(renderPlatformLimits())));
+---
+
+<Fragment set:html={page} />
+<script>
+  import "../_tools/limits.client";
+</script>
+<Fragment set:html={end} />

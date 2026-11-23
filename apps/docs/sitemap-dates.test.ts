@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { addLastmod, pageSources, type PageSource } from "./sitemap-dates";
+import {
+  addLastmod,
+  lastChange,
+  pageSources,
+  type GitDates,
+  type PageSource,
+} from "./sitemap-dates";
 
 const origin = "https://social-sdk.dev";
 
@@ -144,4 +150,67 @@ test("dates the guides index by guide metadata, not guide bodies", () => {
       "_guides/x-api-pricing.ts ^  slug:",
     ],
   );
+});
+
+test("dates every tool page from its own modules and the shared tool shell", () => {
+  for (const path of ["/tools", "/tools/api-cost-calculator", "/tools/platform-limits"]) {
+    const source = pageSources.get(path);
+
+    assert.ok(source?.files.includes("_tools/tools.ts"), path);
+    assert.ok(source?.files.includes("_info/info.html"), path);
+    assert.deepEqual(
+      source?.ranges.map((range) => range.from),
+      ["^export type Shell"],
+      path,
+    );
+  }
+
+  assert.ok(pageSources.get("/tools/api-cost-calculator")?.files.includes("_tools/cost.ts"));
+  assert.ok(pageSources.get("/tools/platform-limits")?.files.includes("_tools/preflight.ts"));
+  // The index lists the tools; a calculator change must not re-date it.
+  assert.ok(!pageSources.get("/tools")?.files.includes("_tools/cost.ts"));
+});
+
+const source: PageSource = {
+  files: ["about.astro"],
+  ranges: [{ file: "_info/pages.ts", from: "^a", to: "^b" }],
+};
+
+function fakeGit(
+  dates: Record<string, string>,
+  uncommitted: readonly string[] = [],
+): GitDates & { asked: string[][] } {
+  const asked: string[][] = [];
+
+  return {
+    asked,
+    logDate: (args) => {
+      asked.push([...args]);
+
+      return dates[args.join(" ")];
+    },
+    hasUncommittedChanges: (paths) => paths.some((path) => uncommitted.includes(path)),
+    now: () => "2026-11-23T12:00:00.000Z",
+  };
+}
+
+test("dates a clean source by its latest commit across files and ranges", () => {
+  const git = fakeGit({
+    "-- about.astro": "2026-10-01T10:00:00-04:00",
+    "-s -L /^a/,/^b/:_info/pages.ts": "2026-11-02T09:00:00Z",
+  });
+
+  assert.equal(lastChange(source, git), "2026-11-02T09:00:00Z");
+  assert.equal(git.asked.length, 2);
+});
+
+test("dates a source with uncommitted or new files by the build time", () => {
+  const git = fakeGit({}, ["_info/pages.ts"]);
+
+  assert.equal(lastChange(source, git), "2026-11-23T12:00:00.000Z");
+  assert.equal(git.asked.length, 0);
+});
+
+test("fails on a committed source that git has no date for", () => {
+  assert.throws(() => lastChange(source, fakeGit({})), /git has no commit date/);
 });
