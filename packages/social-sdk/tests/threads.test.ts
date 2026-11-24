@@ -659,7 +659,7 @@ test("Threads sums documented clicks link totals without inventing missing value
   );
 });
 
-// Threads counts graphemes (issue #174): every sequence below is one grapheme.
+// The adapter counts Threads text in graphemes (issue #174): each sequence below is one.
 const oneGrapheme = [
   ["slightly smiling face", "🙂"],
   ["grinning face", "😀"],
@@ -684,7 +684,7 @@ for (const [name, grapheme] of oneGrapheme) {
   });
 }
 
-test("Threads accepts 400 emoji that the live API published (1,600 UTF-8 bytes)", async () => {
+test("Threads accepts the 400 emoji (1,600 UTF-8 bytes) reported as published in issue #174", async () => {
   assert.equal(await threadsTextTooLong("🙂".repeat(400)), false);
 });
 

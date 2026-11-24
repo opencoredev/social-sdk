@@ -20,7 +20,7 @@ test("counts UTF-8 bytes and UTF-16 length", () => {
   assert.equal(utf16Length("😀"), 2);
 });
 
-test("counts Threads text in graphemes, as the live API does", () => {
+test("counts Threads text in graphemes, as the adapter does", () => {
   assert.equal(threadsLength("🙂".repeat(400)), 400);
   assert.equal(threadsLength("héllo"), 5);
   assert.equal(threadsLength("he\u0301llo"), 5);

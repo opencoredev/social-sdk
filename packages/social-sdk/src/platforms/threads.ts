@@ -601,10 +601,11 @@ function confirmWrite(result: JsonObject, operation: string, message: string): J
 
 let graphemes: Intl.Segmenter | undefined;
 
-// Meta's docs describe the 500-character text limit in UTF-8 bytes, but the live
-// API counts graphemes: 400 "🙂" (1,600 bytes) and 400 "é" both publish (issue #174).
-// A grapheme is what a reader sees as one character, so a flag, keycap,
-// skin-tone or joined emoji sequence counts as one.
+// Meta's docs describe the 500-character text limit with emoji as UTF-8 bytes, but
+// issue #174 reports that the live API published 400 "🙂" (1,600 bytes) and 400 "é"
+// on 2026-09-01. Those posts do not show how Threads counts multi-code-point
+// sequences, so the adapter counts graphemes, what a reader sees as one character:
+// a flag, keycap, skin-tone or joined emoji sequence counts as one.
 function threadsTextLength(text: string): number {
   graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
 

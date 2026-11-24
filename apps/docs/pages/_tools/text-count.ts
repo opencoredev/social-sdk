@@ -31,8 +31,8 @@ export function utf16Length(text: string): number {
 }
 
 /**
- * Threads: graphemes, like Bluesky. Meta's docs count emoji by UTF-8 bytes, but
- * the live API published 400 "🙂" (1,600 bytes), so the adapter counts graphemes.
+ * Threads: graphemes, like Bluesky, matching the adapter. Meta's docs count emoji
+ * by UTF-8 bytes, but a reported live post of 400 "🙂" (1,600 bytes) published.
  */
 export function threadsLength(text: string): number {
   return graphemeCount(text);
