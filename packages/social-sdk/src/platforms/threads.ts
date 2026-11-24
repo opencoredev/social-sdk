@@ -605,8 +605,8 @@ let graphemes: Intl.Segmenter | undefined;
 // issue #174 reports that the live API published 400 "🙂" (1,600 bytes) and 400 "é"
 // on 2026-09-01. Those posts do not show how Threads counts multi-code-point
 // sequences, so the adapter counts graphemes, the most permissive reading: a flag,
-// keycap, skin-tone or joined emoji sequence counts as one. Counting stops once
-// `limit` is exceeded, so long input costs no more than the limit.
+// keycap, skin-tone or joined emoji sequence counts as one. Checks at most
+// `limit + 1` segments.
 function threadsTextExceeds(text: string, limit: number): boolean {
   graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
