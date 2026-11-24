@@ -1,8 +1,8 @@
 // Text counters for the post preflight checker. They follow the rules the SDK
 // adapters check before sending (packages/social-sdk/src/platforms): Bluesky
-// graphemes and bytes, Threads code points with emoji as UTF-8 bytes, and X's
-// weighted length. The X count is the SDK's own `xWeightedLength`, the function
-// `isValidXText` compares against 280, so the page and the SDK cannot disagree.
+// graphemes and bytes, Threads graphemes, and X's weighted length. The X count
+// is the SDK's own `xWeightedLength`, the function `isValidXText` compares
+// against 280, so the page and the SDK cannot disagree.
 export {
   isValidXText,
   xWeightedLength,
@@ -31,27 +31,13 @@ export function utf16Length(text: string): number {
   return text.length;
 }
 
-/** Emoji sequences, in the forms the Threads adapter recognizes. */
-function emojiPattern(): RegExp {
-  try {
-    return new RegExp("\\p{RGI_Emoji}", "gv");
-  } catch {
-    // Browsers without the `v` flag: a close approximation of RGI_Emoji.
-    return /(?:\p{Regional_Indicator}{2}|[#*0-9]️?⃣|\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})?(?:‍\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier})?)*)/gu;
-  }
-}
-
-/** Threads: ordinary code points count as one each, emoji by their UTF-8 bytes. */
+/**
+ * Threads: graphemes, like Bluesky, matching the adapter. Meta's docs count emoji
+ * by UTF-8 bytes, but a reported live post of 400 "🙂" (1,600 bytes) published;
+ * the grapheme rule for multi-code-point sequences is not live-verified.
+ */
 export function threadsLength(text: string): number {
-  let emojiBytes = 0;
-
-  const ordinary = text.replace(emojiPattern(), (match) => {
-    emojiBytes += utf8Bytes(match);
-
-    return "";
-  });
-
-  return Array.from(ordinary).length + emojiBytes;
+  return graphemeCount(text);
 }
 
 const hashtagPattern = /(?:^|[^\p{L}\p{N}_&])#[\p{L}\p{N}_]+/gu;

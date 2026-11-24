@@ -459,7 +459,7 @@ export function renderPlatformLimits(): string {
             <ul>
               <li><b>X</b> weighs text: most Latin characters count 1, other characters and emoji 2, and every URL 23, the length of a t.co link, against 280. X Premium long-form posts can hold 25,000. The page runs the SDK's own counter, with X's full list of link domains, so a bare link such as example.education counts as 23 here too.</li>
               <li><b>Bluesky</b> counts graphemes, what a reader sees as one character, so a family emoji is 1. A post must also fit in 3,000 UTF-8 bytes.</li>
-              <li><b>Threads</b> counts characters, but each emoji by its UTF-8 bytes: 125 😀 fill the 500.</li>
+              <li><b>Threads</b> is checked in graphemes too, as the SDK checks it, so a family emoji is 1 and 500 😀 fit. Meta's docs count emoji by UTF-8 bytes, but a live post of 400 🙂 (1,600 bytes) has published.</li>
               <li><b>Instagram, LinkedIn, TikTok, and Facebook</b> are checked by string length, as the SDK checks them (Facebook caps Page post text at 63,206 characters). <b>YouTube</b> measures the description in UTF-8 bytes and rejects &lt; and &gt;. <b>TikTok</b> also needs each video's length, above 0 seconds.</li>
               <li><b>Sizes</b> are in MB (1,000,000 bytes). Where the SDK checks against MiB, the limit says so.</li>
             </ul>

@@ -27,7 +27,7 @@ export type TextRule =
   | { kind: "x-weighted"; limit: number }
   /** Bluesky: graphemes and UTF-8 bytes, both capped. */
   | { kind: "graphemes"; limit: number; maxBytes: number }
-  /** Threads: code points, with emoji counted by their UTF-8 bytes. */
+  /** Threads: graphemes, so a joined emoji counts as one character. */
   | { kind: "threads"; limit: number }
   /** JavaScript string length (UTF-16 code units), which is what the SDK checks. */
   | { kind: "utf16"; limit: number; photoLimit?: number }
@@ -417,7 +417,7 @@ export function textLimitLabel(rule: TextRule): string {
     case "graphemes":
       return `${rule.limit} graphemes and ${rule.maxBytes.toLocaleString("en-US")} bytes`;
     case "threads":
-      return `${rule.limit} characters (emoji count as bytes)`;
+      return `${rule.limit} characters (graphemes)`;
     case "utf16":
       return rule.photoLimit === undefined
         ? `${rule.limit.toLocaleString("en-US")} characters`

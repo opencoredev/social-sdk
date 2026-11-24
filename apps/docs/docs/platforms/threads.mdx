@@ -493,7 +493,7 @@ A raw request makes one attempt. It adds no idempotency key and records no outco
 
 ## Limits and requirements
 
-- Text is limited to 500 characters. The adapter counts ordinary Unicode code points as characters and emoji sequences by their UTF-8 byte length. For example, 125 `😀` emoji use the full budget; 126 exceed it. It does not count all non-ASCII text as bytes.
+- Text is limited to 500 characters. The adapter counts graphemes, what a reader sees as one character, so a flag, keycap, skin-tone emoji, joined family emoji or accented letter each counts as one. For example, 500 `😀` emoji fit; 501 exceed it. Meta's reference counts emoji by their UTF-8 bytes, but a live post of 400 `🙂` (1,600 bytes) has published, so the adapter does not apply the byte rule. Whether Threads counts a flag or joined emoji as one character has not been tested live.
 - Publish text, one image or video, or a carousel of two through twenty media items. Use public HTTPS URLs or configure client media staging for local sources. Document media is rejected. Declared image MIME types must be `image/jpeg` or `image/png`; video MIME types must be `video/mp4` or `video/quicktime` (MOV). Alt text is limited to 1,000 characters by the adapter's string-length check.
 - Media must meet Meta's media specifications in the table below. The adapter checks the item count and the declared MIME type before sending; Threads checks the rest after the request is sent, when it creates or processes the container. The SDK does not read, resize, or transcode media.
 - Options outside the [post options](#post-options) table are rejected as `options.unmapped`.
