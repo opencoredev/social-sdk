@@ -659,37 +659,54 @@ test("Threads sums documented clicks link totals without inventing missing value
   );
 });
 
-for (const [text, accepted] of [
-  ["😀".repeat(125), true],
-  ["😀".repeat(126), false],
-  ["é".repeat(500), true],
-  ["界".repeat(500), true],
-  ["🇺🇸".repeat(62), true],
-  ["🇺🇸".repeat(63), false],
-  ["👨‍👩‍👧‍👦".repeat(20), true],
-  ["👨‍👩‍👧‍👦".repeat(21), false],
-  ["©".repeat(500), true],
-  ["©️".repeat(100), true],
-  ["©️".repeat(101), false],
-  ["界".repeat(501), false],
-  ["a".repeat(500), true],
-  ["a".repeat(501), false],
-] as const)
-  test(`Threads counts text of length ${text.length} with acceptance ${accepted}`, async () => {
-    const adapter = threads({ auth: { userId: "u1", accessToken: "fixture" } });
+// Threads counts graphemes (issue #174): every sequence below is one grapheme.
+const oneGrapheme = [
+  ["slightly smiling face", "🙂"],
+  ["grinning face", "😀"],
+  ["precomposed é", "é"],
+  ["e with a combining acute accent", "e\u0301"],
+  ["CJK character", "界"],
+  ["ASCII letter", "a"],
+  ["regional-indicator flag", "🇺🇸"],
+  ["ZWJ family", "👨‍👩‍👧‍👦"],
+  ["skin-tone modifier", "👍🏽"],
+  ["keycap", "1️⃣"],
+  ["emoji-presentation copyright", "©️"],
+] as const;
 
-    const issues = await adapter.posts!.prepareTarget!({
-      targetIndex: 0,
-      targetKey: "t",
-      account,
-      content: { text },
-    });
-
-    assert.equal(
-      issues.some((issue) => issue.code === "text.too_long"),
-      !accepted,
-    );
+for (const [name, grapheme] of oneGrapheme) {
+  test(`Threads counts a ${name} as one character, accepting 500`, async () => {
+    assert.equal(await threadsTextTooLong(grapheme.repeat(500)), false);
   });
+
+  test(`Threads counts a ${name} as one character, rejecting 501`, async () => {
+    assert.equal(await threadsTextTooLong(grapheme.repeat(501)), true);
+  });
+}
+
+test("Threads accepts 400 emoji that the live API published (1,600 UTF-8 bytes)", async () => {
+  assert.equal(await threadsTextTooLong("🙂".repeat(400)), false);
+});
+
+test("Threads counts mixed text by graphemes", async () => {
+  const text = `${"a".repeat(496)}🇺🇸👨‍👩‍👧‍👦e\u0301👍🏽`;
+
+  assert.equal(await threadsTextTooLong(text), false);
+  assert.equal(await threadsTextTooLong(`${text}1️⃣`), true);
+});
+
+async function threadsTextTooLong(text: string): Promise<boolean> {
+  const adapter = threads({ auth: { userId: "u1", accessToken: "fixture" } });
+
+  const issues = await adapter.posts!.prepareTarget!({
+    targetIndex: 0,
+    targetKey: "t",
+    account,
+    content: { text },
+  });
+
+  return issues.some((issue) => issue.code === "text.too_long");
+}
 
 for (const mimeType of ["video/mp4", "video/quicktime", "video/webm"])
   test(`Threads validates video MIME ${mimeType}`, async () => {

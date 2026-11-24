@@ -3,7 +3,7 @@
     "id": "threads.publish.text",
     "provider": "threads",
     "area": "publish",
-    "title": "Text post (media_type=TEXT, 500 chars, emoji counted as UTF-8 bytes)",
+    "title": "Text post (media_type=TEXT, 500 chars counted as graphemes, issue #174)",
     "access": "approval",
     "scope": "core",
     "source": {

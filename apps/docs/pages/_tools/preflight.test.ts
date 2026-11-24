@@ -38,8 +38,8 @@ test("applies each platform's text limit in its own unit", () => {
   );
   assert.equal(verdict("bluesky", "👨‍👩‍👧".repeat(300), none), "fail", "300 graphemes but 5,400 bytes");
   assert.equal(verdict("bluesky", "a".repeat(300), none), "pass");
-  assert.equal(verdict("threads", "😀".repeat(125), none), "pass");
-  assert.equal(verdict("threads", "😀".repeat(126), none), "fail");
+  assert.equal(verdict("threads", "😀".repeat(500), none), "pass", "500 graphemes but 2,000 bytes");
+  assert.equal(verdict("threads", "😀".repeat(501), none), "fail");
   assert.equal(verdict("linkedin", "a".repeat(3001), none), "fail");
 });
 

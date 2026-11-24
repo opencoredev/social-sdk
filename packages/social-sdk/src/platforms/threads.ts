@@ -599,20 +599,16 @@ function confirmWrite(result: JsonObject, operation: string, message: string): J
   return result;
 }
 
-// Meta counts emoji as UTF-8 bytes; ordinary Unicode remains character-counted.
-// RGI_Emoji includes flags, keycaps, modifiers and joined emoji sequences.
+let graphemes: Intl.Segmenter | undefined;
+
+// Meta's docs describe the 500-character text limit in UTF-8 bytes, but the live
+// API counts graphemes: 400 "🙂" (1,600 bytes) and 400 "é" both publish (issue #174).
+// A grapheme is what a reader sees as one character, so a flag, keycap,
+// skin-tone or joined emoji sequence counts as one.
 function threadsTextLength(text: string): number {
-  let emojiBytes = 0;
+  graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-  const encoder = new TextEncoder();
-
-  const ordinary = text.replace(new RegExp("\\p{RGI_Emoji}", "gv"), (emoji) => {
-    emojiBytes += encoder.encode(emoji).length;
-
-    return "";
-  });
-
-  return Array.from(ordinary).length + emojiBytes;
+  return Array.from(graphemes.segment(text)).length;
 }
 
 type ThreadsReplyControl = NonNullable<ThreadsPublishOptions["replyControl"]>;
@@ -2887,10 +2883,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
         const media = target.content.media ?? [];
 
         if (threadsTextLength(target.content.text ?? "") > 500)
-          add(
-            "text.too_long",
-            "Threads text is limited to 500 characters, counting emoji as UTF-8 bytes.",
-          );
+          add("text.too_long", "Threads text is limited to 500 characters, counted as graphemes.");
 
         if (media.length > 20)
           add("media.too_many", "Threads carousels support at most twenty items.");

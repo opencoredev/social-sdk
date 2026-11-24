@@ -210,7 +210,7 @@ export const threadsApi: Guide = {
               <tr><td>Deletions</td><td>100 per 24 hours</td></tr>
               <tr><td>Location searches</td><td>500 per 24 hours</td></tr>
               <tr><td>API calls per app and user</td><td>4,800 × the account's impressions in the last 24 hours, counting at least 10 impressions</td></tr>
-              <tr><td>Text</td><td>500 characters, with emojis counted by their UTF-8 bytes</td></tr>
+              <tr><td>Text</td><td>500 characters. Meta's docs count emojis by their UTF-8 bytes, but the live API counts graphemes: a post of 400 🙂 (1,600 bytes) publishes</td></tr>
               <tr><td>Links</td><td>5 unique links per post; since 22 December 2025, a container with more fails to create</td></tr>
               <tr><td>Images</td><td>JPEG or PNG, up to 8 MB; Meta scales images narrower than 320 pixels up and larger than 4096 × 4096 down</td></tr>
               <tr><td>Video</td><td>MOV or MP4, up to 5 minutes and 1 GB, 23 to 60 fps</td></tr>

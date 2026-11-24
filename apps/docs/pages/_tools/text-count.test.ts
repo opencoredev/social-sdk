@@ -20,10 +20,11 @@ test("counts UTF-8 bytes and UTF-16 length", () => {
   assert.equal(utf16Length("😀"), 2);
 });
 
-test("counts Threads emoji by UTF-8 bytes, as the docs example says", () => {
-  assert.equal(threadsLength("😀".repeat(125)), 500);
-  assert.equal(threadsLength("😀".repeat(126)), 504);
+test("counts Threads text in graphemes, as the live API does", () => {
+  assert.equal(threadsLength("🙂".repeat(400)), 400);
   assert.equal(threadsLength("héllo"), 5);
+  assert.equal(threadsLength("he\u0301llo"), 5);
+  assert.equal(threadsLength("🇺🇸👨‍👩‍👧‍👦👍🏽1️⃣"), 4);
 });
 
 test("weighs X text: Latin 1, CJK and emoji 2", () => {
