@@ -1,7 +1,8 @@
 // Text counters for the post preflight checker. They follow the rules the SDK
 // adapters check before sending (packages/social-sdk/src/platforms): Bluesky
-// graphemes and bytes, Threads graphemes, and X's weighted length. The X count is the SDK's own `xWeightedLength`, the function
-// `isValidXText` compares against 280, so the page and the SDK cannot disagree.
+// graphemes and bytes, Threads graphemes, and X's weighted length. The X count
+// is the SDK's own `xWeightedLength`, the function `isValidXText` compares
+// against 280, so the page and the SDK cannot disagree.
 export {
   isValidXText,
   xWeightedLength,
@@ -32,7 +33,8 @@ export function utf16Length(text: string): number {
 
 /**
  * Threads: graphemes, like Bluesky, matching the adapter. Meta's docs count emoji
- * by UTF-8 bytes, but a reported live post of 400 "🙂" (1,600 bytes) published.
+ * by UTF-8 bytes, but a reported live post of 400 "🙂" (1,600 bytes) published;
+ * the grapheme rule for multi-code-point sequences is not live-verified.
  */
 export function threadsLength(text: string): number {
   return graphemeCount(text);

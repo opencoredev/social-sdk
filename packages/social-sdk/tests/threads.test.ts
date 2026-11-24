@@ -661,25 +661,25 @@ test("Threads sums documented clicks link totals without inventing missing value
 
 // The adapter counts Threads text in graphemes (issue #174): each sequence below is one.
 const oneGrapheme = [
-  ["slightly smiling face", "🙂"],
-  ["grinning face", "😀"],
-  ["precomposed é", "é"],
-  ["e with a combining acute accent", "e\u0301"],
-  ["CJK character", "界"],
-  ["ASCII letter", "a"],
-  ["regional-indicator flag", "🇺🇸"],
-  ["ZWJ family", "👨‍👩‍👧‍👦"],
-  ["skin-tone modifier", "👍🏽"],
-  ["keycap", "1️⃣"],
-  ["emoji-presentation copyright", "©️"],
+  ["a slightly smiling face", "🙂"],
+  ["a grinning face", "😀"],
+  ["a precomposed é", "é"],
+  ["an e with a combining acute accent", "e\u0301"],
+  ["a CJK character", "界"],
+  ["an ASCII letter", "a"],
+  ["a regional-indicator flag", "🇺🇸"],
+  ["a ZWJ family", "👨‍👩‍👧‍👦"],
+  ["a skin-tone modifier", "👍🏽"],
+  ["a keycap", "1️⃣"],
+  ["an emoji-presentation copyright", "©️"],
 ] as const;
 
 for (const [name, grapheme] of oneGrapheme) {
-  test(`Threads counts a ${name} as one character, accepting 500`, async () => {
+  test(`Threads counts ${name} as one character, accepting 500`, async () => {
     assert.equal(await threadsTextTooLong(grapheme.repeat(500)), false);
   });
 
-  test(`Threads counts a ${name} as one character, rejecting 501`, async () => {
+  test(`Threads counts ${name} as one character, rejecting 501`, async () => {
     assert.equal(await threadsTextTooLong(grapheme.repeat(501)), true);
   });
 }

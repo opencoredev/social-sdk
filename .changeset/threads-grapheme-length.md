@@ -2,4 +2,4 @@
 "@opencoredev/social-sdk": patch
 ---
 
-Threads text is now measured in graphemes, so preparation no longer rejects posts the Threads API accepts. The adapter used to count each emoji by its UTF-8 bytes, which reported `text.too_long` for more than 125 emoji. A flag, keycap, skin-tone emoji, joined family emoji or accented letter now each counts as one character against the 500 limit, and the `text.too_long` message says the text is counted in graphemes.
+Threads text is measured in graphemes instead of UTF-16 code units, so an emoji, flag, keycap, skin-tone emoji, joined family emoji or accented letter each counts as one character against the 500 limit. 0.5.0 counted UTF-16 code units, so it rejected more than 250 "🙂", text the Threads API publishes. The `text.too_long` message now says the text is counted in graphemes.

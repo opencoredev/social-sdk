@@ -604,12 +604,17 @@ let graphemes: Intl.Segmenter | undefined;
 // Meta's docs describe the 500-character text limit with emoji as UTF-8 bytes, but
 // issue #174 reports that the live API published 400 "🙂" (1,600 bytes) and 400 "é"
 // on 2026-09-01. Those posts do not show how Threads counts multi-code-point
-// sequences, so the adapter counts graphemes, what a reader sees as one character:
-// a flag, keycap, skin-tone or joined emoji sequence counts as one.
-function threadsTextLength(text: string): number {
+// sequences, so the adapter counts graphemes, the most permissive reading: a flag,
+// keycap, skin-tone or joined emoji sequence counts as one. Counting stops once
+// `limit` is exceeded, so long input costs no more than the limit.
+function threadsTextExceeds(text: string, limit: number): boolean {
   graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-  return Array.from(graphemes.segment(text)).length;
+  const segments = graphemes.segment(text)[Symbol.iterator]();
+
+  for (let read = 0; read <= limit; read += 1) if (segments.next().done === true) return false;
+
+  return true;
 }
 
 type ThreadsReplyControl = NonNullable<ThreadsPublishOptions["replyControl"]>;
@@ -2883,7 +2888,7 @@ export function threads(options: ThreadsOptions): SocialAdapter<ThreadsNative> {
 
         const media = target.content.media ?? [];
 
-        if (threadsTextLength(target.content.text ?? "") > 500)
+        if (threadsTextExceeds(target.content.text ?? "", 500))
           add("text.too_long", "Threads text is limited to 500 characters, counted as graphemes.");
 
         if (media.length > 20)
