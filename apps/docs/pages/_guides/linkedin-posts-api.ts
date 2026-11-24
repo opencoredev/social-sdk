@@ -373,17 +373,19 @@ export const linkedinPostsApi: Guide = {
             <dt>Can I post to LinkedIn with the API without review?</dt>
             <dd>
               As a member, yes: Share on LinkedIn is a self-serve product that grants
-              <code>w_member_social</code>. Posting as a Page needs the Community Management API,
-              which LinkedIn approves, starting with the Development tier.
+              <code>w_member_social</code>. Posting as a Page needs <code>w_organization_social</code>
+              from a reviewed product: this guide covers the Community Management API, which
+              starts in the Development tier (the Advertising API also grants it).
             </dd>
             <dt>Should I use ugcPosts or the Posts API?</dt>
             <dd>The Posts API (<code>/rest/posts</code>). LinkedIn says it replaces ugcPosts, and it is the versioned endpoint.</dd>
             <dt>Can I schedule LinkedIn posts through the API?</dt>
             <dd>
               Not with a publish time. A create call publishes immediately, so schedule in your own
-              job runner and make the call at the chosen time, for example a delayed
+              job runner and make the call when the post is due, for example from a delayed
               <a href="/docs/integrations/inngest">Inngest</a> function or a
-              <a href="/docs/integrations/nextjs#schedule-posts">Next.js cron route</a>.
+              <a href="/docs/integrations/nextjs#schedule-posts">Next.js cron route</a> that
+              publishes due posts on each run.
             </dd>
             <dt>How do I turn a post URN into a URL?</dt>
             <dd>Put it after <code>https://www.linkedin.com/feed/update/</code>, as in LinkedIn's example <code>https://www.linkedin.com/feed/update/urn:li:ugcPost:{id}/</code>.</dd>
