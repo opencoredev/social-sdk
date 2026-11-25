@@ -122,12 +122,16 @@ export const databuddyScript = `(() => {
   load();
   document.addEventListener("astro:page-load", load);
 
+  // The one way events reach Databuddy, window.siteTrack's included: sent once
+  // the tracker has run, held in a bounded queue until then, and dropped when
+  // the tracker can't load.
   const send = (event, properties) => {
     if (window.databuddy) return window.databuddy.track(event, properties);
     if (trackerFailed) return;
     const pending = (window.databuddyPending ??= []);
     if (pending.length < 50) pending.push([event, properties]);
   };
+  window.databuddySend = send;
   const destination = (href) => {
     try {
       const url = new URL(href, location.href);
@@ -272,9 +276,9 @@ export const posthogScript = `(() => {
   // Pages report their own events here, such as the Cloud waitlist signup, so
   // only this file talks to the analytics service.
   window.siteTrack = (event, properties) => {
-    // Databuddy loads on its own schedule, so an event sent before its tracker
-    // has run waits in window.databuddyPending until the Databuddy loader sends it.
-    if (window.databuddy) window.databuddy.track(event, properties);
+    // The Databuddy loader's send queues an event until its tracker has run, and
+    // drops it when the tracker can't load.
+    if (window.databuddySend) window.databuddySend(event, properties);
     else (window.databuddyPending ??= []).push([event, properties]);
     if (started) client.capture(event, properties, { send_instantly: true });
     // A queued event keeps the URL of the page that reported it, as queued visits do.

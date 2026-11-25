@@ -131,6 +131,12 @@ function load(path: string) {
       tracker()?.onload?.();
     },
     failTracker: () => tracker()?.onerror?.(),
+    // The path window.siteTrack takes to Databuddy.
+    siteTrack: (event: string, properties: Record<string, string>) =>
+      runInContext(
+        `window.databuddySend(${JSON.stringify(event)}, ${JSON.stringify(properties)})`,
+        context,
+      ),
   };
 }
 
@@ -177,21 +183,16 @@ test("reports the visible tab of a tabbed install block as an install copy", () 
   const page = load("/docs/getting-started/installation/");
   const button = copyButton();
 
-  const tab = (manager: string, hidden: boolean) =>
+  const tab = (language: string, code: string, hidden: boolean) =>
     new FakeElement("div", hidden ? { class: "hidden" } : {}, [
-      new FakeElement(
-        "pre",
-        { "data-language": "Bash" },
-        [],
-        `${manager} add @opencoredev/social-sdk`,
-      ),
+      new FakeElement("pre", { "data-language": language }, [], code),
     ]);
 
-  new FakeElement("blume-panel-tabs", {}, [
+  new FakeElement("blume-tabs", {}, [
     new FakeElement("div", { "data-blume-tab-actions": "" }, [button]),
     new FakeElement("div", { "data-blume-tab-content": "" }, [
-      tab("bun", true),
-      tab("aube", false),
+      tab("TypeScript", 'import { createX } from "@opencoredev/social-sdk/x";', true),
+      tab("Bash", "aube add @opencoredev/social-sdk", false),
     ]),
   ]);
 
@@ -225,12 +226,24 @@ test("reports other code copies without the copied text", () => {
   ]);
 });
 
+test("caps the queue shared with window.siteTrack", () => {
+  const page = load("/");
+
+  for (let click = 0; click < 60; click += 1) {
+    page.dispatch("click", new FakeElement("button", { "data-cta": "install_copy" }));
+    page.siteTrack("landing_cta_click", { cta: "install_copy" });
+  }
+
+  assert.equal(page.pendingJson().split("],[").length, 50);
+});
+
 test("drops queued events when the tracker fails to load", () => {
   const page = load("/");
 
   page.dispatch("click", new FakeElement("button", { "data-cta": "install_copy" }));
   page.failTracker();
   page.dispatch("click", new FakeElement("button", { "data-cta": "install_copy" }));
+  page.siteTrack("landing_cta_click", { cta: "install_copy" });
 
   assert.equal(page.pendingJson(), "[]");
 });
