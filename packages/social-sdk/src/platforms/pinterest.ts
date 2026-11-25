@@ -131,6 +131,11 @@ export interface PinterestOptions {
    */
   readonly imageBase64?: boolean;
   /**
+   * Total Blob bytes one Pin may send as base64, checked from `Blob.size` before any Blob is
+   * read. Each image is also limited to 20 MB. Defaults to 50 MB.
+   */
+  readonly maxBase64Bytes?: number;
+  /**
    * Keeps video Pins that are still processing, so `posts.getDelivery` can report them and
    * `native.continueVideoPin` can create them later.
    */
@@ -169,14 +174,55 @@ export interface PinterestWorkflowStore {
   release(id: string): Promise<void>;
 }
 
-/** Process-local workflow store. Use a durable store when processing can outlive the process. */
+export interface MemoryPinterestWorkflowStoreOptions {
+  /**
+   * Workflows held at once. `create` throws at the cap, so the video is not uploaded.
+   * Defaults to 1,000.
+   */
+  readonly maxWorkflows?: number;
+  /**
+   * How long a `published` or `failed` workflow stays readable after it settles, in
+   * milliseconds. Expired rows are removed on the next `create`. Workflows that are still
+   * `processing` or `creating` are never removed. Defaults to 24 hours.
+   */
+  readonly retentionMs?: number;
+  readonly clock?: () => Date;
+}
+
+/**
+ * Process-local workflow store. Use a durable store when processing can outlive the process.
+ * It holds at most `maxWorkflows` rows and drops settled rows after `retentionMs`.
+ */
 export class MemoryPinterestWorkflowStore implements PinterestWorkflowStore {
   private readonly rows = new Map<string, PinterestVideoWorkflow>();
   private readonly claims = new Set<string>();
+  private readonly settledAt = new Map<string, number>();
+  private readonly maxWorkflows: number;
+  private readonly retentionMs: number;
+  private readonly clock: () => Date;
+
+  constructor(options: MemoryPinterestWorkflowStoreOptions = {}) {
+    this.maxWorkflows = options.maxWorkflows ?? 1000;
+    this.retentionMs = options.retentionMs ?? 24 * 60 * 60 * 1000;
+    this.clock = options.clock ?? (() => new Date());
+  }
 
   async create(input: Omit<PinterestVideoWorkflow, "id">) {
+    const now = this.clock().getTime();
+
+    for (const [id, settled] of this.settledAt)
+      if (now - settled >= this.retentionMs && !this.claims.has(id)) {
+        this.rows.delete(id);
+        this.settledAt.delete(id);
+      }
+
+    if (this.rows.size >= this.maxWorkflows)
+      throw new Error("The in-memory Pinterest workflow store is full");
+
     const row = { ...input, id: `pinwf_${globalThis.crypto.randomUUID()}` };
     this.rows.set(row.id, structuredClone(row));
+
+    if (row.stage === "published" || row.stage === "failed") this.settledAt.set(row.id, now);
 
     return structuredClone(row);
   }
@@ -193,6 +239,9 @@ export class MemoryPinterestWorkflowStore implements PinterestWorkflowStore {
     if (!row) throw new Error("Pinterest workflow not found");
     const next = { ...row, ...update, id };
     this.rows.set(id, structuredClone(next));
+
+    if (next.stage !== "published" && next.stage !== "failed") this.settledAt.delete(id);
+    else if (!this.settledAt.has(id)) this.settledAt.set(id, this.clock().getTime());
 
     return structuredClone(next);
   }
@@ -310,6 +359,7 @@ export function pinterest(
 
   const sandbox = options.sandbox === true;
   const imageBase64 = options.imageBase64 === true;
+  const maxBase64Bytes = options.maxBase64Bytes ?? 50 * 1024 * 1024;
 
   const exchange = managedHttpExchange(sandbox ? sandboxOrigin : productionOrigin, {
     apiKey: options.auth.accessToken,
@@ -529,6 +579,13 @@ export function pinterest(
         items.push({ content_type: mimeType ?? "", ...caption });
       }
 
+      if (blobs.reduce((total, blob) => total + blob.size, 0) > maxBase64Bytes)
+        fail(
+          "pinterest.image_size",
+          `Base64 images in one Pin are limited to ${String(maxBase64Bytes)} bytes in total; send larger images as HTTPS URLs or raise maxBase64Bytes.`,
+          "content.media",
+        );
+
       if (media.length === 1) {
         const [item] = items;
 
@@ -580,7 +637,9 @@ export function pinterest(
   const withBase64 = async (pin: JsonObject, blobs: readonly Blob[]): Promise<JsonObject> => {
     if (blobs.length === 0) return pin;
 
-    const encoded = await Promise.all(blobs.map(base64));
+    const encoded: string[] = [];
+
+    for (const blob of blobs) encoded.push(await base64(blob));
     const source = object(pin["media_source"]);
 
     if (source["source_type"] === "image_base64")

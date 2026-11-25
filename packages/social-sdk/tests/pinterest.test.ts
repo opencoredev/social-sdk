@@ -1622,3 +1622,88 @@ test("board owners are kept so group boards owned by someone else can be told ap
     ],
   );
 });
+
+test("base64 images over the aggregate limit are refused before any Blob is read", async () => {
+  let reads = 0;
+
+  class CountingBlob extends Blob {
+    override async arrayBuffer(): Promise<ArrayBuffer> {
+      reads++;
+
+      return super.arrayBuffer();
+    }
+  }
+
+  const image = (fingerprint: string) => ({
+    kind: "image" as const,
+    source: {
+      kind: "blob" as const,
+      blob: new CountingBlob([new Uint8Array(2)], { type: "image/png" }),
+      fingerprint,
+    },
+  });
+
+  const { fetch, calls } = route({});
+  const { adapter, social } = client(fetch, { imageBase64: true, maxBase64Bytes: 3 });
+
+  const issues = adapter
+    .posts!.prepareTarget({
+      targetIndex: 0,
+      targetKey: "0",
+      account,
+      content: { media: [image("a"), image("b")] },
+      options: { boardId: "1" },
+    })
+    .map((issue) => issue.code);
+
+  assert.deepEqual(issues, ["pinterest.image_size"]);
+
+  await assert.rejects(
+    social.posts.publish({
+      targets: [{ account, options: { boardId: "1" } }],
+      content: { media: [image("c"), image("d")] },
+    }),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+  assert.equal(reads, 0);
+  assert.equal(calls.length, 0);
+});
+
+test("the in-memory workflow store caps admissions and expires only settled workflows", async () => {
+  let time = 0;
+
+  const workflowStore = new MemoryPinterestWorkflowStore({
+    maxWorkflows: 2,
+    retentionMs: 1000,
+    clock: () => new Date(time),
+  });
+
+  const row = (stage: "processing" | "creating") => ({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage,
+  });
+
+  const done = await workflowStore.create(row("processing"));
+  const pending = await workflowStore.create(row("creating"));
+
+  await assert.rejects(workflowStore.create(row("processing")));
+
+  await workflowStore.update(done.id, { stage: "published", pinId: "1" });
+  time = 999;
+  await assert.rejects(workflowStore.create(row("processing")));
+  assert.equal((await workflowStore.get(done.id))?.stage, "published");
+
+  time = 1000;
+  const next = await workflowStore.create(row("processing"));
+
+  assert.equal(await workflowStore.get(done.id), undefined);
+  assert.equal((await workflowStore.get(pending.id))?.stage, "creating");
+
+  time = 1_000_000;
+  await assert.rejects(workflowStore.create(row("processing")));
+  assert.equal((await workflowStore.get(pending.id))?.stage, "creating");
+  assert.equal((await workflowStore.get(next.id))?.stage, "processing");
+});
