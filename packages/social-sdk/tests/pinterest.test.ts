@@ -1622,3 +1622,198 @@ test("board owners are kept so group boards owned by someone else can be told ap
     ],
   );
 });
+
+test("base64 images over the aggregate limit are refused before any Blob is read", async () => {
+  let reads = 0;
+
+  class CountingBlob extends Blob {
+    override async arrayBuffer(): Promise<ArrayBuffer> {
+      reads++;
+
+      return super.arrayBuffer();
+    }
+  }
+
+  const image = (fingerprint: string) => ({
+    kind: "image" as const,
+    source: {
+      kind: "blob" as const,
+      blob: new CountingBlob([new Uint8Array(2)], { type: "image/png" }),
+      fingerprint,
+    },
+  });
+
+  const { fetch, calls } = route({});
+  const { adapter, social } = client(fetch, { imageBase64: true, maxBase64Bytes: 3 });
+
+  const issues = adapter
+    .posts!.prepareTarget({
+      targetIndex: 0,
+      targetKey: "0",
+      account,
+      content: { media: [image("a"), image("b")] },
+      options: { boardId: "1" },
+    })
+    .map((issue) => issue.code);
+
+  assert.deepEqual(issues, ["pinterest.image_size"]);
+
+  await assert.rejects(
+    social.posts.publish({
+      targets: [{ account, options: { boardId: "1" } }],
+      content: { media: [image("c"), image("d")] },
+    }),
+    (error) => error instanceof SocialError && error.code === "invalid_input",
+  );
+  assert.equal(reads, 0);
+  assert.equal(calls.length, 0);
+});
+
+test("the in-memory workflow store caps admissions and expires only settled workflows", async () => {
+  let time = 0;
+
+  const workflowStore = new MemoryPinterestWorkflowStore({
+    maxWorkflows: 2,
+    retentionMs: 1000,
+    now: () => time,
+  });
+
+  const row = (stage: "processing" | "creating") => ({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage,
+  });
+
+  const done = await workflowStore.create(row("processing"));
+  const pending = await workflowStore.create(row("creating"));
+
+  await assert.rejects(workflowStore.create(row("processing")));
+
+  await workflowStore.update(done.id, { stage: "published", pinId: "1" });
+  time = 999;
+  await assert.rejects(workflowStore.create(row("processing")));
+  assert.equal((await workflowStore.get(done.id))?.stage, "published");
+
+  time = 1000;
+  const next = await workflowStore.create(row("processing"));
+
+  assert.equal(await workflowStore.get(done.id), undefined);
+  assert.equal((await workflowStore.get(pending.id))?.stage, "creating");
+
+  time = 1_000_000;
+  await assert.rejects(workflowStore.create(row("processing")));
+  assert.equal((await workflowStore.get(pending.id))?.stage, "creating");
+  assert.equal((await workflowStore.get(next.id))?.stage, "processing");
+});
+
+test("settled workflows expire on lookup, and a published row without a Pin ID is kept", async () => {
+  let time = 0;
+  const workflowStore = new MemoryPinterestWorkflowStore({ retentionMs: 10, now: () => time });
+
+  const row = {
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "processing" as const,
+  };
+
+  const confirmed = await workflowStore.create(row);
+  const unconfirmed = await workflowStore.create(row);
+  const claimed = await workflowStore.create(row);
+
+  await workflowStore.update(confirmed.id, { stage: "published", pinId: "1" });
+  await workflowStore.update(unconfirmed.id, { stage: "published" });
+  await workflowStore.update(claimed.id, { stage: "failed" });
+  assert.equal(await workflowStore.claim(claimed.id), true);
+
+  time = 10;
+  assert.equal(await workflowStore.get(confirmed.id), undefined);
+  assert.equal((await workflowStore.get(unconfirmed.id))?.stage, "published");
+  assert.equal((await workflowStore.get(claimed.id))?.stage, "failed");
+});
+
+test("a continuation that loses the claim to an expired row reports not_found", async () => {
+  /** The row is found by the first read, then another worker settles it and it expires. */
+  class ExpiringStore extends MemoryPinterestWorkflowStore {
+    reads = 0;
+
+    override async claim() {
+      return false;
+    }
+
+    override async get(id: string) {
+      this.reads++;
+
+      return this.reads === 1 ? super.get(id) : undefined;
+    }
+  }
+
+  const workflowStore = new ExpiringStore();
+
+  const workflow = await workflowStore.create({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "processing",
+  });
+
+  const { fetch, calls } = route({});
+  const { adapter } = client(fetch, { workflowStore });
+
+  await assert.rejects(
+    adapter.native!.continueVideoPin({
+      delivery: {
+        kind: "delivery",
+        version: 1,
+        backend: "default",
+        platform: "pinterest",
+        accountId,
+        deliveryId: workflow.id,
+      },
+      context,
+    }),
+    (error) => error instanceof SocialError && error.code === "not_found",
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("a published row needs a numeric Pin ID to count as settled", async () => {
+  let time = 0;
+  const workflowStore = new MemoryPinterestWorkflowStore({ retentionMs: 1, now: () => time });
+
+  const workflow = await workflowStore.create({
+    backend: "default",
+    accountId,
+    mediaId: "12345",
+    pin: { board_id: "1" },
+    stage: "published",
+    pinId: "",
+  });
+
+  time = 5;
+  assert.equal((await workflowStore.get(workflow.id))?.stage, "published");
+});
+
+test("memory limits must be safe integers in range", () => {
+  for (const options of [
+    { maxWorkflows: Number.NaN },
+    { maxWorkflows: Number.POSITIVE_INFINITY },
+    { maxWorkflows: 0 },
+    { retentionMs: -1 },
+    { retentionMs: 1.5 },
+  ])
+    assert.throws(
+      () => new MemoryPinterestWorkflowStore(options),
+      (error) => error instanceof SocialError && error.code === "invalid_config",
+    );
+
+  for (const maxBase64Bytes of [Number.NaN, Number.POSITIVE_INFINITY, 0])
+    assert.throws(
+      () => client(route({}).fetch, { imageBase64: true, maxBase64Bytes }),
+      (error) => error instanceof SocialError && error.code === "invalid_config",
+    );
+});

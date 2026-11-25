@@ -131,6 +131,11 @@ export interface PinterestOptions {
    */
   readonly imageBase64?: boolean;
   /**
+   * Total Blob bytes one Pin may send as base64, checked from `Blob.size` before any Blob is
+   * read. Each image is also limited to 20 MB. Defaults to 50 MB.
+   */
+  readonly maxBase64Bytes?: number;
+  /**
    * Keeps video Pins that are still processing, so `posts.getDelivery` can report them and
    * `native.continueVideoPin` can create them later.
    */
@@ -169,19 +174,89 @@ export interface PinterestWorkflowStore {
   release(id: string): Promise<void>;
 }
 
-/** Process-local workflow store. Use a durable store when processing can outlive the process. */
+export interface MemoryPinterestWorkflowStoreOptions {
+  /**
+   * Workflows held at once, a positive safe integer. `create` throws at the cap, so the video
+   * is not uploaded. Defaults to 1,000.
+   */
+  readonly maxWorkflows?: number;
+  /**
+   * How long a settled workflow (`failed`, or `published` with a `pinId`) stays readable,
+   * in milliseconds from when it settled: a non-negative safe integer. An expired row is
+   * removed, with its Pin body, by the next `create` or `get`. Workflows still `processing`
+   * or `creating`, and claimed rows, are never removed. Defaults to 24 hours.
+   */
+  readonly retentionMs?: number;
+  /** Monotonic milliseconds for the retention window. Defaults to `performance.now()`. */
+  readonly now?: () => number;
+}
+
+function settledWorkflow(row: PinterestVideoWorkflow): boolean {
+  return row.stage === "failed" || (row.stage === "published" && numericId(row.pinId));
+}
+
+function storeLimit(value: number | undefined, fallback: number, minimum: number): number {
+  if (value === undefined) return fallback;
+
+  if (!Number.isSafeInteger(value) || value < minimum)
+    throw new SocialError({
+      code: "invalid_config",
+      operation: "createAdapter",
+      message: `Pinterest size and retention limits must be safe integers of at least ${String(minimum)}.`,
+    });
+
+  return value;
+}
+
+/**
+ * Process-local workflow store. Use a durable store when processing can outlive the process.
+ * It holds at most `maxWorkflows` rows and drops settled rows after `retentionMs`.
+ */
 export class MemoryPinterestWorkflowStore implements PinterestWorkflowStore {
   private readonly rows = new Map<string, PinterestVideoWorkflow>();
   private readonly claims = new Set<string>();
+  private readonly settledAt = new Map<string, number>();
+  private readonly maxWorkflows: number;
+  private readonly retentionMs: number;
+  private readonly now: () => number;
+
+  constructor(options: MemoryPinterestWorkflowStoreOptions = {}) {
+    this.maxWorkflows = storeLimit(options.maxWorkflows, 1000, 1);
+    this.retentionMs = storeLimit(options.retentionMs, 24 * 60 * 60 * 1000, 0);
+    this.now = options.now ?? (() => globalThis.performance.now());
+  }
+
+  private expire(): void {
+    const now = this.now();
+
+    for (const [id, settled] of this.settledAt)
+      if (now - settled >= this.retentionMs && !this.claims.has(id)) {
+        this.rows.delete(id);
+        this.settledAt.delete(id);
+      }
+  }
+
+  private save(row: PinterestVideoWorkflow): void {
+    this.rows.set(row.id, structuredClone(row));
+
+    if (!settledWorkflow(row)) this.settledAt.delete(row.id);
+    else if (!this.settledAt.has(row.id)) this.settledAt.set(row.id, this.now());
+  }
 
   async create(input: Omit<PinterestVideoWorkflow, "id">) {
+    this.expire();
+
+    if (this.rows.size >= this.maxWorkflows)
+      throw new Error("The in-memory Pinterest workflow store is full");
+
     const row = { ...input, id: `pinwf_${globalThis.crypto.randomUUID()}` };
-    this.rows.set(row.id, structuredClone(row));
+    this.save(row);
 
     return structuredClone(row);
   }
 
   async get(id: string) {
+    this.expire();
     const row = this.rows.get(id);
 
     return row ? structuredClone(row) : undefined;
@@ -192,7 +267,7 @@ export class MemoryPinterestWorkflowStore implements PinterestWorkflowStore {
 
     if (!row) throw new Error("Pinterest workflow not found");
     const next = { ...row, ...update, id };
-    this.rows.set(id, structuredClone(next));
+    this.save(next);
 
     return structuredClone(next);
   }
@@ -310,6 +385,7 @@ export function pinterest(
 
   const sandbox = options.sandbox === true;
   const imageBase64 = options.imageBase64 === true;
+  const maxBase64Bytes = storeLimit(options.maxBase64Bytes, 50 * 1024 * 1024, 1);
 
   const exchange = managedHttpExchange(sandbox ? sandboxOrigin : productionOrigin, {
     apiKey: options.auth.accessToken,
@@ -529,6 +605,13 @@ export function pinterest(
         items.push({ content_type: mimeType ?? "", ...caption });
       }
 
+      if (blobs.reduce((total, blob) => total + blob.size, 0) > maxBase64Bytes)
+        fail(
+          "pinterest.image_size",
+          `Base64 images in one Pin are limited to ${String(maxBase64Bytes)} bytes in total; send larger images as HTTPS URLs or raise maxBase64Bytes.`,
+          "content.media",
+        );
+
       if (media.length === 1) {
         const [item] = items;
 
@@ -580,7 +663,9 @@ export function pinterest(
   const withBase64 = async (pin: JsonObject, blobs: readonly Blob[]): Promise<JsonObject> => {
     if (blobs.length === 0) return pin;
 
-    const encoded = await Promise.all(blobs.map(base64));
+    const encoded: string[] = [];
+
+    for (const blob of blobs) encoded.push(await base64(blob));
     const source = object(pin["media_source"]);
 
     if (source["source_type"] === "image_base64")
@@ -680,7 +765,7 @@ export function pinterest(
 
     if (row.stage === "processing") return undefined;
 
-    if (row.stage === "published" && row.pinId !== undefined)
+    if (row.stage === "published" && numericId(row.pinId))
       return published(account, row.pinId, delivery);
 
     if (row.stage === "failed")
@@ -928,7 +1013,14 @@ export function pinterest(
     context: AdapterOperationContext,
     fromPublish: boolean,
   ): Promise<DeliveryOutcome> => {
-    if (!(await workflows.claim(id)))
+    if (!(await workflows.claim(id))) {
+      if ((await workflows.get(id)) === undefined)
+        throw new SocialError({
+          code: "not_found",
+          operation: "pinterest.posts.status",
+          message: "The Pinterest video workflow is no longer in the store.",
+        });
+
       return {
         targetIndex: 0,
         account,
@@ -937,6 +1029,7 @@ export function pinterest(
         state: "processing",
         backendState: "CLAIMED",
       };
+    }
 
     let outcome: DeliveryOutcome;
 
